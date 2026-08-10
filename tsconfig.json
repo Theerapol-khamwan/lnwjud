@@ -2,6 +2,7 @@
   "files": [],
   "references": [
     { "path": "./apps/cli" },
+    { "path": "./apps/desktop" },
     { "path": "./packages/domain" },
     { "path": "./packages/shared" },
     { "path": "./packages/workspace" },
@@ -15,6 +16,7 @@
     { "path": "./packages/codex" },
     { "path": "./packages/application" },
     { "path": "./packages/mcp-server" },
+    { "path": "./packages/ipc-contracts" },
     { "path": "./packages/search" }
   ]
 }

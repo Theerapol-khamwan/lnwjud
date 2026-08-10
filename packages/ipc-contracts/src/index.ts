@@ -1,0 +1,104 @@
+export const ipcChannels = {
+  listWorkspaces: 'lnwjud:list-workspaces',
+  addWorkspace: 'lnwjud:add-workspace',
+  getDashboard: 'lnwjud:get-dashboard',
+  setPermissionProfile: 'lnwjud:set-permission-profile',
+  listProcesses: 'lnwjud:list-processes',
+  stopProcess: 'lnwjud:stop-process',
+  runDoctor: 'lnwjud:run-doctor',
+} as const;
+
+export type IpcChannel = typeof ipcChannels[keyof typeof ipcChannels];
+export type PermissionProfileName = 'safe' | 'balanced' | 'full' | 'custom';
+
+export interface WorkspaceSummary {
+  readonly id: string;
+  readonly displayName: string;
+  readonly rootPath: string;
+  readonly realRootPath: string;
+  readonly createdAt: string;
+}
+
+export interface DashboardSnapshot {
+  readonly selectedWorkspace: WorkspaceSummary | null;
+  readonly gitSummary: {
+    readonly branch: string | null;
+    readonly changedFiles: number;
+    readonly stagedFiles: number;
+  };
+  readonly mcp: {
+    readonly running: boolean;
+    readonly url: string | null;
+  };
+  readonly codex: {
+    readonly installed: boolean;
+    readonly version: string | null;
+  };
+  readonly managedProcessCount: number;
+  readonly auditEventCount: number;
+  readonly permissionProfile: PermissionProfileName;
+}
+
+export interface ProcessSummary {
+  readonly id: string;
+  readonly workspaceId: string;
+  readonly executable: string;
+  readonly args: readonly string[];
+  readonly state: 'starting' | 'running' | 'exited' | 'failed' | 'stopping';
+}
+
+export type DoctorCheckStatus = 'pass' | 'warn' | 'fail';
+
+export interface DoctorCheck {
+  readonly id: string;
+  readonly required: boolean;
+  readonly status: DoctorCheckStatus;
+  readonly message: string;
+}
+
+export interface DoctorReport {
+  readonly checks: readonly DoctorCheck[];
+  readonly exitCode: 0 | 1;
+}
+
+export interface AddWorkspaceRequest {
+  readonly rootPath: string;
+}
+
+export interface SetPermissionProfileRequest {
+  readonly profile: PermissionProfileName;
+}
+
+export interface StopProcessRequest {
+  readonly processId: string;
+}
+
+export interface IpcRequestMap {
+  readonly [ipcChannels.listWorkspaces]: undefined;
+  readonly [ipcChannels.addWorkspace]: AddWorkspaceRequest;
+  readonly [ipcChannels.getDashboard]: undefined;
+  readonly [ipcChannels.setPermissionProfile]: SetPermissionProfileRequest;
+  readonly [ipcChannels.listProcesses]: undefined;
+  readonly [ipcChannels.stopProcess]: StopProcessRequest;
+  readonly [ipcChannels.runDoctor]: undefined;
+}
+
+export interface IpcResponseMap {
+  readonly [ipcChannels.listWorkspaces]: readonly WorkspaceSummary[];
+  readonly [ipcChannels.addWorkspace]: WorkspaceSummary;
+  readonly [ipcChannels.getDashboard]: DashboardSnapshot;
+  readonly [ipcChannels.setPermissionProfile]: { readonly profile: PermissionProfileName };
+  readonly [ipcChannels.listProcesses]: readonly ProcessSummary[];
+  readonly [ipcChannels.stopProcess]: { readonly stopped: boolean };
+  readonly [ipcChannels.runDoctor]: DoctorReport;
+}
+
+export interface LnwjudApi {
+  listWorkspaces(): Promise<IpcResponseMap[typeof ipcChannels.listWorkspaces]>;
+  addWorkspace(request: AddWorkspaceRequest): Promise<IpcResponseMap[typeof ipcChannels.addWorkspace]>;
+  getDashboard(): Promise<IpcResponseMap[typeof ipcChannels.getDashboard]>;
+  setPermissionProfile(request: SetPermissionProfileRequest): Promise<IpcResponseMap[typeof ipcChannels.setPermissionProfile]>;
+  listProcesses(): Promise<IpcResponseMap[typeof ipcChannels.listProcesses]>;
+  stopProcess(request: StopProcessRequest): Promise<IpcResponseMap[typeof ipcChannels.stopProcess]>;
+  runDoctor(): Promise<IpcResponseMap[typeof ipcChannels.runDoctor]>;
+}
