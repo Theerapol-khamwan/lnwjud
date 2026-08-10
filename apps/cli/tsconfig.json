@@ -8,6 +8,8 @@
     "types": ["node"]
   },
   "references": [
+    { "path": "../../packages/application" },
+    { "path": "../../packages/codex" },
     { "path": "../../packages/domain" },
     { "path": "../../packages/workspace" },
     { "path": "../../packages/mcp-server" }

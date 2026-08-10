@@ -4,6 +4,8 @@
   "private": true,
   "type": "module",
   "dependencies": {
+    "@lnwjud/application": "workspace:*",
+    "@lnwjud/codex": "workspace:*",
     "@lnwjud/domain": "workspace:*",
     "@lnwjud/mcp-server": "workspace:*",
     "@lnwjud/workspace": "workspace:*"

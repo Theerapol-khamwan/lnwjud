@@ -29,6 +29,12 @@ importers:
 
   apps/cli:
     dependencies:
+      '@lnwjud/application':
+        specifier: workspace:*
+        version: link:../../packages/application
+      '@lnwjud/codex':
+        specifier: workspace:*
+        version: link:../../packages/codex
       '@lnwjud/domain':
         specifier: workspace:*
         version: link:../../packages/domain
