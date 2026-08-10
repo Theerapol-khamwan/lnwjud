@@ -1,0 +1,16 @@
+{
+  "name": "@lnwjud/application",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "@lnwjud/domain": "workspace:*",
+    "@lnwjud/filesystem": "workspace:*",
+    "@lnwjud/workspace": "workspace:*"
+  },
+  "scripts": {
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit",
+    "build": "tsc --outDir dist"
+  }
+}

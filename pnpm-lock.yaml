@@ -27,7 +27,28 @@ importers:
         specifier: 3.2.4
         version: 3.2.4(@types/node@24.13.3)
 
+  packages/application:
+    dependencies:
+      '@lnwjud/domain':
+        specifier: workspace:*
+        version: link:../domain
+      '@lnwjud/filesystem':
+        specifier: workspace:*
+        version: link:../filesystem
+      '@lnwjud/workspace':
+        specifier: workspace:*
+        version: link:../workspace
+
   packages/domain: {}
+
+  packages/filesystem:
+    dependencies:
+      '@lnwjud/domain':
+        specifier: workspace:*
+        version: link:../domain
+      '@lnwjud/workspace':
+        specifier: workspace:*
+        version: link:../workspace
 
   packages/permissions: {}
 
