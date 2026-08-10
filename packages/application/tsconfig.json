@@ -10,6 +10,8 @@
     { "path": "../domain" },
     { "path": "../filesystem" },
     { "path": "../git" },
+    { "path": "../permissions" },
+    { "path": "../process" },
     { "path": "../project" },
     { "path": "../search" },
     { "path": "../workspace" }

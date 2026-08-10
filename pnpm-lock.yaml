@@ -38,6 +38,12 @@ importers:
       '@lnwjud/git':
         specifier: workspace:*
         version: link:../git
+      '@lnwjud/permissions':
+        specifier: workspace:*
+        version: link:../permissions
+      '@lnwjud/process':
+        specifier: workspace:*
+        version: link:../process
       '@lnwjud/project':
         specifier: workspace:*
         version: link:../project
@@ -65,7 +71,11 @@ importers:
         specifier: workspace:*
         version: link:../domain
 
-  packages/permissions: {}
+  packages/permissions:
+    dependencies:
+      '@lnwjud/domain':
+        specifier: workspace:*
+        version: link:../domain
 
   packages/process:
     dependencies:
