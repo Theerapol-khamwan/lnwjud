@@ -1,0 +1,59 @@
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import os from 'node:os';
+import path from 'node:path';
+import { afterEach, describe, expect, it } from 'vitest';
+import { permissionProfiles } from '@lnwjud/permissions';
+import type { Checkpoint, CheckpointRepository, Workspace, WorkspaceRepository } from '@lnwjud/workspace';
+import { CheckpointService } from './checkpoint-service.js';
+
+const temporaryRoots: string[] = [];
+
+afterEach(async () => {
+  await Promise.all(temporaryRoots.splice(0).map((root) => rm(root, { recursive: true, force: true })));
+});
+
+async function setup(): Promise<{ workspace: Workspace; checkpoints: MemoryCheckpointRepository }> {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'lnwjud-checkpoint-'));
+  temporaryRoots.push(root);
+  await mkdir(path.join(root, 'src'));
+  const workspace: Workspace = { id: 'workspace-1', displayName: 'Fixture', rootPath: root, realRootPath: root, createdAt: new Date(0).toISOString() };
+  return { workspace, checkpoints: new MemoryCheckpointRepository() };
+}
+
+function workspaces(workspace: Workspace): WorkspaceRepository {
+  return { async list(): Promise<Workspace[]> { return [workspace]; }, async get(id: string): Promise<Workspace | null> { return id === workspace.id ? workspace : null; }, async insert(): Promise<void> {}, async delete(): Promise<void> {} };
+}
+
+class MemoryCheckpointRepository implements CheckpointRepository {
+  private checkpoint: Checkpoint | null = null;
+  public async insert(value: Checkpoint): Promise<void> { this.checkpoint = value; }
+  public async get(id: string): Promise<Checkpoint | null> { return this.checkpoint?.id === id ? this.checkpoint : null; }
+}
+
+describe('CheckpointService', () => {
+  it('captures and restores file content through the workspace guard', async () => {
+    const { workspace, checkpoints } = await setup();
+    const target = path.join(workspace.rootPath, 'src', 'file.txt');
+    await writeFile(target, 'before', 'utf8');
+    const service = new CheckpointService(workspaces(workspace), checkpoints);
+    const actor = { clientId: 'client-1', clientName: 'test' };
+
+    const created = await service.createForFiles(actor, workspace.id, ['src\\file.txt']);
+    await writeFile(target, 'after', 'utf8');
+    if (!created.ok) throw new Error('checkpoint creation failed');
+    const restored = await service.restore(actor, workspace.id, created.value.id, { profile: permissionProfiles.full });
+
+    expect(restored).toMatchObject({ ok: true, value: { restoredPaths: ['src\\file.txt'] } });
+    await expect(readFile(target, 'utf8')).resolves.toBe('before');
+  });
+
+  it('rejects a checkpoint path that no longer resolves inside the workspace', async () => {
+    const { workspace, checkpoints } = await setup();
+    await checkpoints.insert({ id: 'checkpoint-1', workspaceId: workspace.id, createdAt: new Date(0).toISOString(), files: [{ path: '..\\outside.txt', content: 'secret', contentSha256: 'hash', size: 6 }] });
+    const result = await new CheckpointService(workspaces(workspace), checkpoints).restore(
+      { clientId: 'client-1', clientName: 'test' }, workspace.id, 'checkpoint-1', { profile: permissionProfiles.full },
+    );
+
+    expect(result).toMatchObject({ ok: false, error: { code: 'PATH_OUTSIDE_WORKSPACE' } });
+  });
+});

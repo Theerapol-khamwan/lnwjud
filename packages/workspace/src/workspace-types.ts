@@ -15,3 +15,22 @@ export interface ResolvedWorkspacePath {
   readonly realPath?: string;
   readonly exists: boolean;
 }
+
+export interface CheckpointFile {
+  readonly path: string;
+  readonly content: string;
+  readonly contentSha256: string;
+  readonly size: number;
+}
+
+export interface Checkpoint {
+  readonly id: string;
+  readonly workspaceId: WorkspaceId;
+  readonly createdAt: string;
+  readonly files: readonly CheckpointFile[];
+}
+
+export interface CheckpointRepository {
+  insert(checkpoint: Checkpoint): Promise<void>;
+  get(id: string): Promise<Checkpoint | null>;
+}

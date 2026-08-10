@@ -1,5 +1,6 @@
 import { DatabaseSync } from 'node:sqlite';
 import { AUDIT_MIGRATION_SQL } from './migrations/audit-migration.js';
+import { CHECKPOINT_MIGRATION_SQL } from './migrations/checkpoint-migration.js';
 
 export interface Migration {
   readonly id: string;
@@ -30,6 +31,7 @@ export class SqliteDatabase {
     this.connection.exec('CREATE TABLE IF NOT EXISTS schema_migrations (id TEXT PRIMARY KEY NOT NULL);');
     this.applyMigration({ id: '001_initial', sql: INITIAL_MIGRATION_SQL });
     this.applyMigration({ id: '002_audit', sql: AUDIT_MIGRATION_SQL });
+    this.applyMigration({ id: '003_checkpoints', sql: CHECKPOINT_MIGRATION_SQL });
   }
 
   public applyMigration(migration: Migration): void {
