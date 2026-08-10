@@ -6,7 +6,10 @@
   "exports": {
     ".": {
       "types": "./src/index.ts",
-      "import": "./src/index.ts"
+      "import": {
+        "development": "./src/index.ts",
+        "default": "./dist/index.js"
+      }
     }
   },
   "dependencies": {
@@ -15,8 +18,11 @@
     "@modelcontextprotocol/server": "2.0.0",
     "zod": "4.2.0"
   },
+  "devDependencies": {
+    "@modelcontextprotocol/client": "2.0.0"
+  },
   "scripts": {
-    "test": "vitest run",
+    "test": "pnpm --filter @lnwjud/domain build && pnpm build && vitest run",
     "typecheck": "tsc --noEmit",
     "build": "tsc --outDir dist"
   }

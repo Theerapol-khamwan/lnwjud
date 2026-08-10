@@ -1,6 +1,7 @@
 {
   "files": [],
   "references": [
+    { "path": "./apps/cli" },
     { "path": "./packages/domain" },
     { "path": "./packages/shared" },
     { "path": "./packages/workspace" },
