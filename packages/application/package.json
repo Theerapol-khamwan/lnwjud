@@ -6,6 +6,7 @@
   "dependencies": {
     "@lnwjud/domain": "workspace:*",
     "@lnwjud/filesystem": "workspace:*",
+    "@lnwjud/project": "workspace:*",
     "@lnwjud/search": "workspace:*",
     "@lnwjud/workspace": "workspace:*"
   },

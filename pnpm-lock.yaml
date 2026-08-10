@@ -35,6 +35,9 @@ importers:
       '@lnwjud/filesystem':
         specifier: workspace:*
         version: link:../filesystem
+      '@lnwjud/project':
+        specifier: workspace:*
+        version: link:../project
       '@lnwjud/search':
         specifier: workspace:*
         version: link:../search
@@ -54,6 +57,12 @@ importers:
         version: link:../workspace
 
   packages/permissions: {}
+
+  packages/project:
+    dependencies:
+      '@lnwjud/domain':
+        specifier: workspace:*
+        version: link:../domain
 
   packages/search:
     dependencies:
