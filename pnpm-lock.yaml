@@ -29,6 +29,12 @@ importers:
 
   packages/application:
     dependencies:
+      '@lnwjud/audit':
+        specifier: workspace:*
+        version: link:../audit
+      '@lnwjud/codex':
+        specifier: workspace:*
+        version: link:../codex
       '@lnwjud/domain':
         specifier: workspace:*
         version: link:../domain
@@ -55,6 +61,15 @@ importers:
         version: link:../workspace
 
   packages/audit: {}
+
+  packages/codex:
+    dependencies:
+      '@lnwjud/domain':
+        specifier: workspace:*
+        version: link:../domain
+      '@lnwjud/process':
+        specifier: workspace:*
+        version: link:../process
 
   packages/domain: {}
 

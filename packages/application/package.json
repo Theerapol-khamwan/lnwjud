@@ -5,6 +5,8 @@
   "type": "module",
   "dependencies": {
     "@lnwjud/domain": "workspace:*",
+    "@lnwjud/codex": "workspace:*",
+    "@lnwjud/audit": "workspace:*",
     "@lnwjud/filesystem": "workspace:*",
     "@lnwjud/git": "workspace:*",
     "@lnwjud/permissions": "workspace:*",
