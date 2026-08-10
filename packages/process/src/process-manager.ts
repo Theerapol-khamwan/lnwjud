@@ -68,6 +68,10 @@ export class ProcessManager {
     return record === undefined ? err(appError('PROCESS_NOT_FOUND', 'Process was not found')) : ok(this.snapshot(record));
   }
 
+  public list(): readonly ManagedProcess[] {
+    return [...this.records.values()].map((record) => this.snapshot(record));
+  }
+
   public logs(processId: string, query: LogQuery): Result<ProcessLogResult> {
     const record = this.records.get(processId);
     if (record === undefined) return err(appError('PROCESS_NOT_FOUND', 'Process was not found'));

@@ -11,6 +11,21 @@ importers:
       '@eslint/js':
         specifier: 9.33.0
         version: 9.33.0
+      '@lnwjud/application':
+        specifier: workspace:*
+        version: link:packages/application
+      '@lnwjud/domain':
+        specifier: workspace:*
+        version: link:packages/domain
+      '@lnwjud/mcp-server':
+        specifier: workspace:*
+        version: link:packages/mcp-server
+      '@lnwjud/storage':
+        specifier: workspace:*
+        version: link:packages/storage
+      '@lnwjud/workspace':
+        specifier: workspace:*
+        version: link:packages/workspace
       '@types/node':
         specifier: ^24.0.0
         version: 24.13.3

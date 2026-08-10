@@ -16,6 +16,7 @@ export interface ProcessStartRequest {
 
 export interface ProcessManagerPort {
   start(spec: ManagedProcessStart): Promise<Result<ManagedProcess>>;
+  list?(): readonly ManagedProcess[];
   status(processId: string): Result<ManagedProcess>;
   logs(processId: string, query: LogQuery): Result<ProcessLogResult>;
   stop(processId: string): Promise<Result<void>>;
@@ -81,6 +82,16 @@ export class ProcessService {
     const ownership = this.authorizeHandle(actor, workspaceId, processId);
     if (!ownership.ok) return ownership;
     return this.processManager.status(processId);
+  }
+
+  public async list(actor: FileActor, workspaceId: string): Promise<Result<readonly ManagedProcess[]>> {
+    const workspace = await this.getWorkspace(workspaceId);
+    if (!workspace.ok) return workspace;
+    const processes = this.processManager.list?.() ?? [];
+    return ok(processes.filter((process) => {
+      const owner = this.owners.get(process.processId);
+      return owner?.actorId === actor.clientId && owner.workspaceId === workspace.value.id;
+    }));
   }
 
   public async logs(actor: FileActor, workspaceId: string, processId: string, query: LogQuery): Promise<Result<ProcessLogResult>> {

@@ -5,5 +5,7 @@ export * from './doctor-service.js';
 export * from './git-service.js';
 export * from './project-service.js';
 export * from './process-service.js';
+export * from './project-snapshot-service.js';
 export * from './search-service.js';
+export * from './workspace-info-service.js';
 export * from './workspace-query-service.js';
