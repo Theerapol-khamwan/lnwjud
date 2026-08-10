@@ -67,6 +67,12 @@ importers:
 
   packages/permissions: {}
 
+  packages/process:
+    dependencies:
+      '@lnwjud/domain':
+        specifier: workspace:*
+        version: link:../domain
+
   packages/project:
     dependencies:
       '@lnwjud/domain':

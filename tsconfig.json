@@ -9,6 +9,7 @@
     { "path": "./packages/filesystem" },
     { "path": "./packages/git" },
     { "path": "./packages/project" },
+    { "path": "./packages/process" },
     { "path": "./packages/application" },
     { "path": "./packages/search" }
   ]
