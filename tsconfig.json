@@ -3,6 +3,7 @@
   "references": [
     { "path": "./packages/domain" },
     { "path": "./packages/shared" },
-    { "path": "./packages/workspace" }
+    { "path": "./packages/workspace" },
+    { "path": "./packages/permissions" }
   ]
 }

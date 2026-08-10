@@ -29,6 +29,8 @@ importers:
 
   packages/domain: {}
 
+  packages/permissions: {}
+
   packages/shared: {}
 
   packages/workspace:
