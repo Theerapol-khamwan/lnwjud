@@ -9,6 +9,7 @@ import {
   type PermissionProfileName,
   type ProcessSummary,
   type SetPermissionProfileRequest,
+  type StartProcessRequest,
   type StopProcessRequest,
   type WorkspaceSummary,
 } from '@lnwjud/ipc-contracts';
@@ -76,13 +77,28 @@ function dashboard(value: unknown): DashboardSnapshot {
       branch: value.gitSummary.branch === null ? null : stringField(value.gitSummary, 'branch'),
       changedFiles: numberField(value.gitSummary, 'changedFiles'),
       stagedFiles: numberField(value.gitSummary, 'stagedFiles'),
+      message: stringField(value.gitSummary, 'message'),
     },
     mcp: { running: booleanField(value.mcp, 'running'), url },
     codex: { installed: booleanField(value.codex, 'installed'), version },
     managedProcessCount: numberField(value, 'managedProcessCount'),
     auditEventCount: numberField(value, 'auditEventCount'),
+    recentAuditEvents: auditEventSummaries(value.recentAuditEvents),
     permissionProfile: permissionProfile(value.permissionProfile),
   };
+}
+
+function auditEventSummaries(value: unknown): DashboardSnapshot['recentAuditEvents'] {
+  if (!Array.isArray(value)) throw new Error('Invalid IPC response');
+  return value.map((entry) => {
+    if (!isRecord(entry)) throw new Error('Invalid IPC response');
+    return {
+      id: stringField(entry, 'id'),
+      timestamp: stringField(entry, 'timestamp'),
+      action: stringField(entry, 'action'),
+      resultCode: stringField(entry, 'resultCode'),
+    };
+  });
 }
 
 function processSummary(value: unknown): ProcessSummary {
@@ -95,11 +111,12 @@ function processSummary(value: unknown): ProcessSummary {
     executable: stringField(value, 'executable'),
     args: value.args,
     state,
+    logSummary: stringField(value, 'logSummary'),
   };
 }
 
 function processState(value: unknown): ProcessSummary['state'] {
-  if (value === 'starting' || value === 'running' || value === 'exited' || value === 'failed' || value === 'stopping') {
+  if (value === 'starting' || value === 'running' || value === 'exited' || value === 'failed' || value === 'stopped' || value === 'timed_out') {
     return value;
   }
   throw new Error('Invalid IPC response');
@@ -154,12 +171,21 @@ function stopProcess(request: StopProcessRequest): Promise<{ readonly stopped: b
   });
 }
 
+function startProcess(request: StartProcessRequest): Promise<ProcessSummary> {
+  if (!isRecord(request) || typeof request.workspaceId !== 'string' || request.workspaceId.trim().length === 0
+    || (request.mode !== 'fixture' && request.mode !== 'project-dev')) {
+    return Promise.reject(new Error('Invalid IPC request'));
+  }
+  return invoke(ipcChannels.startProcess, { workspaceId: request.workspaceId, mode: request.mode }).then(processSummary);
+}
+
 const api: LnwjudApi = {
   listWorkspaces: () => invoke(ipcChannels.listWorkspaces).then(workspaceList),
   addWorkspace,
   getDashboard: () => invoke(ipcChannels.getDashboard).then(dashboard),
   setPermissionProfile,
   listProcesses: () => invoke(ipcChannels.listProcesses).then(processList),
+  startProcess,
   stopProcess,
   runDoctor: () => invoke(ipcChannels.runDoctor).then(doctorReport),
 };

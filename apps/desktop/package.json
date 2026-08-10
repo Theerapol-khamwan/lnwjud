@@ -5,15 +5,24 @@
   "type": "module",
   "main": "dist/main/main.js",
   "scripts": {
-    "build": "tsc -p tsconfig.main.json && esbuild src/preload/index.ts --bundle --platform=browser --format=cjs --conditions=development --external:electron --outfile=dist/preload/index.cjs && vite build --config vite.config.ts",
-    "build:main": "tsc -p tsconfig.main.json",
+    "build": "tsc -p tsconfig.main.json && esbuild src/main/main.ts --bundle --platform=node --format=esm --external:electron --outfile=dist/main/main.js && esbuild src/preload/index.ts --bundle --platform=browser --format=cjs --conditions=development --external:electron --outfile=dist/preload/index.cjs && vite build --config vite.config.ts",
+    "build:main": "tsc -p tsconfig.main.json && esbuild src/main/main.ts --bundle --platform=node --format=esm --external:electron --outfile=dist/main/main.js",
     "build:renderer": "vite build --config vite.config.ts",
     "test": "vitest run --passWithNoTests",
     "typecheck": "tsc -b",
-    "test:e2e": "tsc -p tsconfig.main.json && esbuild src/preload/index.ts --bundle --platform=browser --format=cjs --conditions=development --external:electron --outfile=dist/preload/index.cjs && vite build --config vite.config.ts && playwright test --config playwright.config.ts"
+    "test:e2e": "tsc -p tsconfig.main.json && esbuild src/main/main.ts --bundle --platform=node --format=esm --external:electron --outfile=dist/main/main.js && esbuild src/preload/index.ts --bundle --platform=browser --format=cjs --conditions=development --external:electron --outfile=dist/preload/index.cjs && vite build --config vite.config.ts && playwright test --config playwright.config.ts"
   },
   "dependencies": {
+    "@lnwjud/application": "workspace:*",
+    "@lnwjud/audit": "workspace:*",
+    "@lnwjud/codex": "workspace:*",
+    "@lnwjud/domain": "workspace:*",
     "@lnwjud/ipc-contracts": "workspace:*",
+    "@lnwjud/permissions": "workspace:*",
+    "@lnwjud/process": "workspace:*",
+    "@lnwjud/search": "workspace:*",
+    "@lnwjud/storage": "workspace:*",
+    "@lnwjud/workspace": "workspace:*",
     "react": "19.1.1",
     "react-dom": "19.1.1"
   },

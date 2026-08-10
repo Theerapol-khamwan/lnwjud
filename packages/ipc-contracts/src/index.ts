@@ -4,6 +4,7 @@ export const ipcChannels = {
   getDashboard: 'lnwjud:get-dashboard',
   setPermissionProfile: 'lnwjud:set-permission-profile',
   listProcesses: 'lnwjud:list-processes',
+  startProcess: 'lnwjud:start-process',
   stopProcess: 'lnwjud:stop-process',
   runDoctor: 'lnwjud:run-doctor',
 } as const;
@@ -25,6 +26,7 @@ export interface DashboardSnapshot {
     readonly branch: string | null;
     readonly changedFiles: number;
     readonly stagedFiles: number;
+    readonly message: string;
   };
   readonly mcp: {
     readonly running: boolean;
@@ -36,7 +38,15 @@ export interface DashboardSnapshot {
   };
   readonly managedProcessCount: number;
   readonly auditEventCount: number;
+  readonly recentAuditEvents: readonly AuditEventSummary[];
   readonly permissionProfile: PermissionProfileName;
+}
+
+export interface AuditEventSummary {
+  readonly id: string;
+  readonly timestamp: string;
+  readonly action: string;
+  readonly resultCode: string;
 }
 
 export interface ProcessSummary {
@@ -44,7 +54,8 @@ export interface ProcessSummary {
   readonly workspaceId: string;
   readonly executable: string;
   readonly args: readonly string[];
-  readonly state: 'starting' | 'running' | 'exited' | 'failed' | 'stopping';
+  readonly state: 'starting' | 'running' | 'exited' | 'failed' | 'stopped' | 'timed_out';
+  readonly logSummary: string;
 }
 
 export type DoctorCheckStatus = 'pass' | 'warn' | 'fail';
@@ -69,6 +80,11 @@ export interface SetPermissionProfileRequest {
   readonly profile: PermissionProfileName;
 }
 
+export interface StartProcessRequest {
+  readonly workspaceId: string;
+  readonly mode: 'fixture' | 'project-dev';
+}
+
 export interface StopProcessRequest {
   readonly processId: string;
 }
@@ -79,6 +95,7 @@ export interface IpcRequestMap {
   readonly [ipcChannels.getDashboard]: undefined;
   readonly [ipcChannels.setPermissionProfile]: SetPermissionProfileRequest;
   readonly [ipcChannels.listProcesses]: undefined;
+  readonly [ipcChannels.startProcess]: StartProcessRequest;
   readonly [ipcChannels.stopProcess]: StopProcessRequest;
   readonly [ipcChannels.runDoctor]: undefined;
 }
@@ -89,6 +106,7 @@ export interface IpcResponseMap {
   readonly [ipcChannels.getDashboard]: DashboardSnapshot;
   readonly [ipcChannels.setPermissionProfile]: { readonly profile: PermissionProfileName };
   readonly [ipcChannels.listProcesses]: readonly ProcessSummary[];
+  readonly [ipcChannels.startProcess]: ProcessSummary;
   readonly [ipcChannels.stopProcess]: { readonly stopped: boolean };
   readonly [ipcChannels.runDoctor]: DoctorReport;
 }
@@ -99,6 +117,7 @@ export interface LnwjudApi {
   getDashboard(): Promise<IpcResponseMap[typeof ipcChannels.getDashboard]>;
   setPermissionProfile(request: SetPermissionProfileRequest): Promise<IpcResponseMap[typeof ipcChannels.setPermissionProfile]>;
   listProcesses(): Promise<IpcResponseMap[typeof ipcChannels.listProcesses]>;
+  startProcess(request: StartProcessRequest): Promise<IpcResponseMap[typeof ipcChannels.startProcess]>;
   stopProcess(request: StopProcessRequest): Promise<IpcResponseMap[typeof ipcChannels.stopProcess]>;
   runDoctor(): Promise<IpcResponseMap[typeof ipcChannels.runDoctor]>;
 }

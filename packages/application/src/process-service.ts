@@ -32,6 +32,7 @@ export interface ProcessServiceDependencies {
   readonly permissionEngine?: PermissionEngine;
   readonly commandPolicy?: CommandPolicy;
   readonly profile?: PermissionProfile;
+  readonly profileProvider?: () => PermissionProfile;
 }
 
 interface ProcessOwner {
@@ -47,7 +48,7 @@ export class ProcessService {
   private readonly guard: WorkspacePathGuard;
   private readonly permissionEngine: PermissionEngine;
   private readonly commandPolicy: CommandPolicy;
-  private readonly profile: PermissionProfile;
+  private readonly profileProvider: () => PermissionProfile;
   private readonly owners = new Map<string, ProcessOwner>();
 
   public constructor(
@@ -63,7 +64,7 @@ export class ProcessService {
     this.guard = dependencies.guard ?? new WorkspacePathGuard();
     this.permissionEngine = dependencies.permissionEngine ?? new DefaultPermissionEngine();
     this.commandPolicy = dependencies.commandPolicy ?? new CommandPolicy();
-    this.profile = dependencies.profile ?? permissionProfiles.balanced;
+    this.profileProvider = dependencies.profileProvider ?? ((): PermissionProfile => dependencies.profile ?? permissionProfiles.balanced);
   }
 
   public start(actor: FileActor, workspaceId: string, request: ProcessStartRequest): Promise<Result<ManagedProcess>> {
@@ -102,9 +103,10 @@ export class ProcessService {
     const cwd = await this.resolveCwd(workspace.value, request.cwd);
     if (!cwd.ok) return cwd;
 
-    const commandDecision = this.commandPolicy.decide(this.profile, request.executable, source);
+    const profile = this.profileProvider();
+    const commandDecision = this.commandPolicy.decide(profile, request.executable, source);
     if (commandDecision === 'DENY') return err(appError('PERMISSION_DENIED', 'Executable is not permitted'));
-    const permissionDecision = this.permissionEngine.decide(this.profile, {
+    const permissionDecision = this.permissionEngine.decide(profile, {
       action: 'process_start',
       level: 'EXECUTE',
       workspaceId,

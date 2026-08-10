@@ -8,9 +8,11 @@ import {
   type ProcessSummary,
   type PermissionProfileName,
   type SetPermissionProfileRequest,
+  type StartProcessRequest,
   type StopProcessRequest,
   type WorkspaceSummary,
 } from '@lnwjud/ipc-contracts';
+import { createDesktopRuntime, type DesktopRuntime } from './desktop-services.js';
 import { createMainWindow, getRendererEntryPath, isAllowedRendererUrl } from './window.js';
 
 export interface DesktopIpcServices {
@@ -19,6 +21,7 @@ export interface DesktopIpcServices {
   getDashboard(): Promise<DashboardSnapshot>;
   setPermissionProfile(request: SetPermissionProfileRequest): Promise<{ readonly profile: PermissionProfileName }>;
   listProcesses(): Promise<IpcResponseMap[typeof ipcChannels.listProcesses]>;
+  startProcess(request: StartProcessRequest): Promise<IpcResponseMap[typeof ipcChannels.startProcess]>;
   stopProcess(request: StopProcessRequest): Promise<{ readonly stopped: boolean }>;
   runDoctor(): Promise<DoctorReport>;
 }
@@ -32,15 +35,19 @@ const defaultDesktopServices: DesktopIpcServices = {
   },
   getDashboard: async (): Promise<DashboardSnapshot> => ({
     selectedWorkspace: null,
-    gitSummary: { branch: null, changedFiles: 0, stagedFiles: 0 },
+    gitSummary: { branch: null, changedFiles: 0, stagedFiles: 0, message: 'No workspace selected' },
     mcp: { running: false, url: null },
     codex: { installed: false, version: null },
     managedProcessCount: 0,
     auditEventCount: 0,
+    recentAuditEvents: [],
     permissionProfile: 'safe',
   }),
   setPermissionProfile: async (request): Promise<{ readonly profile: PermissionProfileName }> => ({ profile: request.profile }),
   listProcesses: async (): Promise<readonly ProcessSummary[]> => [],
+  startProcess: async (): Promise<IpcResponseMap[typeof ipcChannels.startProcess]> => {
+    throw new Error('Desktop services are not configured');
+  },
   stopProcess: async (): Promise<{ readonly stopped: boolean }> => ({ stopped: false }),
   runDoctor: async (): Promise<DoctorReport> => ({
     checks: [{ id: 'desktop', required: true, status: 'fail', message: 'Desktop services are not configured' }],
@@ -82,6 +89,10 @@ export function registerIpcHandlers(
     assertNoPayload(payload);
     return services.listProcesses();
   });
+  ipcMain.handle(ipcChannels.startProcess, async (event, payload: unknown) => {
+    assertTrustedSender(event, getMainWindow());
+    return services.startProcess(parseStartProcessRequest(payload));
+  });
   ipcMain.handle(ipcChannels.stopProcess, async (event, payload: unknown) => {
     assertTrustedSender(event, getMainWindow());
     return services.stopProcess(parseStopProcessRequest(payload));
@@ -116,6 +127,13 @@ function parseStopProcessRequest(payload: unknown): StopProcessRequest {
   return { processId: nonEmptyString(payload.processId, 'processId') };
 }
 
+function parseStartProcessRequest(payload: unknown): StartProcessRequest {
+  if (!isRecord(payload)) throw new Error('Invalid IPC payload');
+  if (!isNonEmptyString(payload.workspaceId)) throw new Error('Invalid IPC payload: workspaceId');
+  if (payload.mode !== 'fixture' && payload.mode !== 'project-dev') throw new Error('Invalid IPC payload: mode');
+  return { workspaceId: payload.workspaceId, mode: payload.mode };
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
@@ -125,11 +143,16 @@ function nonEmptyString(value: unknown, field: string): string {
   return value;
 }
 
+function isNonEmptyString(value: unknown): value is string {
+  return typeof value === 'string' && value.trim().length > 0;
+}
+
 function isPermissionProfile(value: unknown): value is PermissionProfileName {
   return value === 'safe' || value === 'balanced' || value === 'full' || value === 'custom';
 }
 
 let mainWindow: BrowserWindow | null = null;
+let desktopRuntime: DesktopRuntime | null = null;
 
 function createDesktopWindow(): void {
   mainWindow = createMainWindow();
@@ -139,8 +162,11 @@ function createDesktopWindow(): void {
 }
 
 function bootstrapDesktop(): void {
-  registerIpcHandlers(() => mainWindow);
   void app.whenReady().then(() => {
+    const dataPath = process.env.LNWJUD_DATA_PATH ?? app.getPath('userData');
+    const runtime = createDesktopRuntime(dataPath);
+    desktopRuntime = runtime;
+    registerIpcHandlers(() => mainWindow, runtime.services);
     createDesktopWindow();
     app.on('activate', () => {
       if (BrowserWindow.getAllWindows().length === 0) createDesktopWindow();
@@ -148,6 +174,10 @@ function bootstrapDesktop(): void {
   });
   app.on('window-all-closed', () => {
     if (process.platform !== 'darwin') app.quit();
+  });
+  app.on('will-quit', () => {
+    desktopRuntime?.close();
+    desktopRuntime = null;
   });
 }
 

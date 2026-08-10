@@ -47,9 +47,36 @@ importers:
 
   apps/desktop:
     dependencies:
+      '@lnwjud/application':
+        specifier: workspace:*
+        version: link:../../packages/application
+      '@lnwjud/audit':
+        specifier: workspace:*
+        version: link:../../packages/audit
+      '@lnwjud/codex':
+        specifier: workspace:*
+        version: link:../../packages/codex
+      '@lnwjud/domain':
+        specifier: workspace:*
+        version: link:../../packages/domain
       '@lnwjud/ipc-contracts':
         specifier: workspace:*
         version: link:../../packages/ipc-contracts
+      '@lnwjud/permissions':
+        specifier: workspace:*
+        version: link:../../packages/permissions
+      '@lnwjud/process':
+        specifier: workspace:*
+        version: link:../../packages/process
+      '@lnwjud/search':
+        specifier: workspace:*
+        version: link:../../packages/search
+      '@lnwjud/storage':
+        specifier: workspace:*
+        version: link:../../packages/storage
+      '@lnwjud/workspace':
+        specifier: workspace:*
+        version: link:../../packages/workspace
       react:
         specifier: 19.1.1
         version: 19.1.1
