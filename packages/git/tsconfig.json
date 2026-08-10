@@ -6,14 +6,7 @@
     "rootDir": "src",
     "outDir": "dist"
   },
-  "references": [
-    { "path": "../domain" },
-    { "path": "../filesystem" },
-    { "path": "../git" },
-    { "path": "../project" },
-    { "path": "../search" },
-    { "path": "../workspace" }
-  ],
+  "references": [{ "path": "../domain" }],
   "include": ["src/**/*.ts"],
   "exclude": ["src/**/*.test.ts"]
 }
