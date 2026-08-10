@@ -1,0 +1,23 @@
+{
+  "name": "@lnwjud/mcp-server",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./src/index.ts",
+      "import": "./src/index.ts"
+    }
+  },
+  "dependencies": {
+    "@lnwjud/application": "workspace:*",
+    "@lnwjud/domain": "workspace:*",
+    "@modelcontextprotocol/server": "2.0.0",
+    "zod": "4.2.0"
+  },
+  "scripts": {
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit",
+    "build": "tsc --outDir dist"
+  }
+}

@@ -88,6 +88,21 @@ importers:
         specifier: workspace:*
         version: link:../domain
 
+  packages/mcp-server:
+    dependencies:
+      '@lnwjud/application':
+        specifier: workspace:*
+        version: link:../application
+      '@lnwjud/domain':
+        specifier: workspace:*
+        version: link:../domain
+      '@modelcontextprotocol/server':
+        specifier: 2.0.0
+        version: 2.0.0
+      zod:
+        specifier: 4.2.0
+        version: 4.2.0
+
   packages/permissions:
     dependencies:
       '@lnwjud/domain':
@@ -350,6 +365,14 @@ packages:
 
   '@jridgewell/sourcemap-codec@1.5.5':
     resolution: {integrity: sha512-cYQ9310grqxueWbl+WuIUIaiUaDcj7WOq5fVhEljNVgRfOUhY9fy2zTvfoqWsnebh8Sl70VScFbICvJnLKB0Og==}
+
+  '@modelcontextprotocol/core@2.0.0':
+    resolution: {integrity: sha512-pJCEwGG7Lfr/+PQp9ZTwKXNeO5wzbfKL7H3MYpCorM4oFBoQrdjnBgEoqG+RjhsvS1FKrDbKux+M1HhlnGWqcA==}
+    engines: {node: '>=20'}
+
+  '@modelcontextprotocol/server@2.0.0':
+    resolution: {integrity: sha512-YhHWdHfpFMQfd0prsEnxKeS3Qz3ytIGmsS0sth4KDjnacIT7hxk6hXHkJ9KysxlkvTM+WZAtQbbcUhdoP4Hvtw==}
+    engines: {node: '>=20'}
 
   '@napi-rs/lzma-linux-x64-gnu@1.5.1':
     resolution: {integrity: sha512-oTXEIha4SsuXdTA4Iyskj0kpdx2yVXdhd75c2v3xGrHFfVMsbhTPZU/nMPL4sWKo4pBHm3aucLaqGlF696dTyQ==}
@@ -1164,6 +1187,9 @@ packages:
     resolution: {integrity: sha512-rVksvsnNCdJ/ohGc6xgPwyN8eheCxsiLM8mxuE/t/mOVqJewPuO1miLpTHQiRgTKCLexL4MeAFVagts7HmNZ2Q==}
     engines: {node: '>=10'}
 
+  zod@4.2.0:
+    resolution: {integrity: sha512-Bd5fw9wlIhtqCCxotZgdTOMwGm1a0u75wARVEY9HMs1X17trvA/lMi4+MGK5EUfYkXVTbX8UDiDKW4OgzHVUZw==}
+
 snapshots:
 
   '@esbuild/aix-ppc64@0.28.2':
@@ -1305,6 +1331,15 @@ snapshots:
   '@humanwhocodes/retry@0.4.3': {}
 
   '@jridgewell/sourcemap-codec@1.5.5': {}
+
+  '@modelcontextprotocol/core@2.0.0':
+    dependencies:
+      zod: 4.2.0
+
+  '@modelcontextprotocol/server@2.0.0':
+    dependencies:
+      '@modelcontextprotocol/core': 2.0.0
+      zod: 4.2.0
 
   '@napi-rs/lzma-linux-x64-gnu@1.5.1':
     optional: true
@@ -2112,3 +2147,5 @@ snapshots:
   word-wrap@1.2.5: {}
 
   yocto-queue@0.1.0: {}
+
+  zod@4.2.0: {}
