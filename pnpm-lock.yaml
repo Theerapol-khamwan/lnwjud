@@ -33,6 +33,15 @@ importers:
 
   packages/shared: {}
 
+  packages/storage:
+    dependencies:
+      '@lnwjud/domain':
+        specifier: workspace:*
+        version: link:../domain
+      '@lnwjud/workspace':
+        specifier: workspace:*
+        version: link:../workspace
+
   packages/workspace:
     dependencies:
       '@lnwjud/domain':

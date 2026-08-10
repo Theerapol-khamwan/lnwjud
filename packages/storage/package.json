@@ -1,16 +1,11 @@
 {
-  "name": "@lnwjud/workspace",
+  "name": "@lnwjud/storage",
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "exports": {
-    ".": {
-      "types": "./src/index.ts",
-      "import": "./src/index.ts"
-    }
-  },
   "dependencies": {
-    "@lnwjud/domain": "workspace:*"
+    "@lnwjud/domain": "workspace:*",
+    "@lnwjud/workspace": "workspace:*"
   },
   "scripts": {
     "test": "vitest run",
