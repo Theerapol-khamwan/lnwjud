@@ -54,6 +54,8 @@ importers:
         specifier: workspace:*
         version: link:../workspace
 
+  packages/audit: {}
+
   packages/domain: {}
 
   packages/filesystem:
@@ -99,6 +101,9 @@ importers:
 
   packages/storage:
     dependencies:
+      '@lnwjud/audit':
+        specifier: workspace:*
+        version: link:../audit
       '@lnwjud/domain':
         specifier: workspace:*
         version: link:../domain

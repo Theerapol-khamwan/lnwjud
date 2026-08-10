@@ -1,0 +1,42 @@
+import { randomUUID } from 'node:crypto';
+import { codexInstructionSummary, Redactor } from './redactor.js';
+import type { AuditEvent, AuditEventInput, AuditEventRepository, CodexRunAuditInput } from './audit-types.js';
+
+export class AuditService {
+  public constructor(
+    private readonly repository: AuditEventRepository,
+    private readonly redactor: Redactor = new Redactor(),
+  ) {}
+
+  public async record(input: AuditEventInput): Promise<void> {
+    const event: AuditEvent = {
+      id: randomUUID(),
+      timestamp: input.timestamp ?? new Date().toISOString(),
+      actorId: input.actorId,
+      actorName: input.actorName,
+      ...(input.workspaceId === undefined ? {} : { workspaceId: input.workspaceId }),
+      action: input.action,
+      ...(input.targetSummary === undefined ? {} : { targetSummary: input.targetSummary }),
+      ...(input.permissionDecision === undefined ? {} : { permissionDecision: input.permissionDecision }),
+      resultCode: input.resultCode,
+      durationMs: input.durationMs,
+      metadata: this.redactor.redactRecord(input.metadata ?? {}),
+    };
+    await this.repository.insert(event);
+  }
+
+  public recordCodexRun(input: CodexRunAuditInput): Promise<void> {
+    return this.record({
+      ...(input.timestamp === undefined ? {} : { timestamp: input.timestamp }),
+      actorId: input.actorId,
+      actorName: input.actorName,
+      ...(input.workspaceId === undefined ? {} : { workspaceId: input.workspaceId }),
+      action: 'codex_run',
+      resultCode: input.resultCode,
+      durationMs: input.durationMs,
+      metadata: { ...codexInstructionSummary(input.codexTaskId, input.instruction) },
+    });
+  }
+}
+
+export type { AuditEvent, AuditEventInput, AuditEventRepository, CodexRunAuditInput } from './audit-types.js';

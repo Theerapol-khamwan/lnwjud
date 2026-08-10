@@ -5,6 +5,7 @@
     { "path": "./packages/shared" },
     { "path": "./packages/workspace" },
     { "path": "./packages/permissions" },
+    { "path": "./packages/audit" },
     { "path": "./packages/storage" },
     { "path": "./packages/filesystem" },
     { "path": "./packages/git" },
