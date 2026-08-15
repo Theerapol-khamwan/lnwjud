@@ -1,4 +1,4 @@
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -64,6 +64,28 @@ describe('ShellCapabilityBackend', () => {
     expect(waited).toMatchObject({ ok: true, value: { state: 'completed', stdout: 'done' } });
     const result = await backend.execute({ operation: 'result', task_id: started.value.task_id });
     expect(result).toMatchObject({ ok: true, value: { state: 'completed', exit_code: 0, stdout: 'done' } });
+  });
+
+  it('runs a Windows .cmd shim whose path contains spaces', async () => {
+    if (process.platform !== 'win32') return;
+    const root = await mkdtemp(path.join(os.tmpdir(), 'lnwjud shell shim-'));
+    temporaryRoots.push(root);
+    await writeFile(path.join(root, 'lnwjud-shim.cmd'), '@echo off\r\necho shell-shim-marker\r\n', 'utf8');
+    const backend = new ShellCapabilityBackend({ allowedRoots: [root] });
+
+    const result = await backend.execute({
+      operation: 'run',
+      executable: path.join(root, 'lnwjud-shim.cmd'),
+      arguments: [],
+      cwd: root,
+      execution: 'foreground',
+      timeout_seconds: 10,
+    });
+
+    expect(result).toMatchObject({
+      ok: true,
+      value: { state: 'completed', exit_code: 0, stdout: expect.stringContaining('shell-shim-marker') },
+    });
   });
 });
 

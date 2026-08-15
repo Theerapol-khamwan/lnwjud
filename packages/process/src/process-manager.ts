@@ -7,6 +7,7 @@ import { LogRingBuffer } from './ring-buffer.js';
 import type { ProcessTreeTerminator } from './windows-process-tree.js';
 import { WindowsProcessTree } from './windows-process-tree.js';
 import type { LogQuery, ManagedProcess, ManagedProcessStart, ManagedProcessState, ProcessLogResult } from './process-types.js';
+import { toWindowsSpawnInvocation } from './windows-spawn.js';
 
 const DEFAULT_TIMEOUT_MS = 60 * 60 * 1000;
 const MAX_TIMEOUT_MS = 4 * 60 * 60 * 1000;
@@ -36,7 +37,7 @@ export class ProcessManager {
     if (!validation.ok) return validation;
     const resolvedExecutable = await this.executableResolver.resolve(spec.executable);
     if (!resolvedExecutable.ok) return resolvedExecutable;
-    const invocation = toSpawnInvocation(resolvedExecutable.value, spec.args);
+    const invocation = toWindowsSpawnInvocation(resolvedExecutable.value, spec.args);
     if (!invocation.ok) return invocation;
     const processId = randomUUID();
     const child = spawn(invocation.value.executable, [...invocation.value.args], {
@@ -153,28 +154,6 @@ export class ProcessManager {
       ...(record.exitCode === undefined ? {} : { exitCode: record.exitCode }),
     };
   }
-}
-
-interface SpawnInvocation {
-  readonly executable: string;
-  readonly args: readonly string[];
-  readonly windowsVerbatimArguments?: boolean;
-}
-
-function toSpawnInvocation(executable: string, args: readonly string[]): Result<SpawnInvocation> {
-  if (process.platform !== 'win32' || !['.cmd', '.bat'].includes(path.extname(executable).toLowerCase())) {
-    return ok({ executable, args });
-  }
-  const values = [executable, ...args];
-  if (values.some((value) => /[\r\n&|<>^%!"]/.test(value))) {
-    return err(appError('INVALID_INPUT', 'Windows command shim arguments contain unsupported shell metacharacters'));
-  }
-  const commandLine = `"${values.map(quoteWindowsCommandArgument).join(' ')}"`;
-  return ok({ executable: process.env.ComSpec ?? 'cmd.exe', args: ['/d', '/s', '/c', commandLine], windowsVerbatimArguments: true });
-}
-
-function quoteWindowsCommandArgument(value: string): string {
-  return /\s/.test(value) ? `"${value}"` : value;
 }
 
 function isTerminal(state: ManagedProcessState): boolean {

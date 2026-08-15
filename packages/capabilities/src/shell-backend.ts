@@ -3,7 +3,7 @@ import { realpath, stat } from 'node:fs/promises';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { appError, err, ok, type Result } from '@lnwjud/domain';
-import { PathExecutableResolver, WindowsProcessTree, type ExecutableResolver, type ProcessTreeTerminator } from '@lnwjud/process';
+import { PathExecutableResolver, WindowsProcessTree, toWindowsSpawnInvocation, type ExecutableResolver, type ProcessTreeTerminator } from '@lnwjud/process';
 import type { CapabilityBackend } from './local-capability-service.js';
 
 type ShellOperation = 'run' | 'status' | 'wait' | 'logs' | 'result' | 'cancel' | 'resume' | 'approve' | 'deny';
@@ -123,7 +123,7 @@ export class ShellCapabilityBackend implements CapabilityBackend {
     if (!cwd.ok) return cwd;
     const executable = await this.executableResolver.resolve(request.executable);
     if (!executable.ok) return executable;
-    const invocation = toSpawnInvocation(executable.value, request.arguments, this.unrestricted);
+    const invocation = toWindowsSpawnInvocation(executable.value, request.arguments, { allowMetacharacters: this.unrestricted });
     if (!invocation.ok) return invocation;
 
     if (request.dryRun) {
@@ -346,14 +346,6 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 function isWithin(root: string, candidate: string): boolean {
   const relative = path.relative(root, candidate);
   return relative === '' || (relative !== '..' && !relative.startsWith(`..${path.sep}`) && !path.isAbsolute(relative));
-}
-
-function toSpawnInvocation(executable: string, args: readonly string[], unrestricted: boolean): Result<{ readonly executable: string; readonly args: readonly string[]; readonly windowsVerbatimArguments?: boolean }> {
-  if (process.platform !== 'win32' || !['.cmd', '.bat'].includes(path.extname(executable).toLowerCase())) return ok({ executable, args });
-  const values = [executable, ...args];
-  if (!unrestricted && values.some((value) => /[\r\n&|<>^%!]/.test(value) || value.includes('"'))) return err(appError('INVALID_INPUT', 'Windows command shim arguments contain unsupported shell metacharacters'));
-  const commandLine = values.map((value) => /\s/.test(value) ? `"${value}"` : value).join(' ');
-  return ok({ executable: process.env.ComSpec ?? 'cmd.exe', args: ['/d', '/s', '/c', commandLine], windowsVerbatimArguments: true });
 }
 
 function createSafeEnvironment(source: NodeJS.ProcessEnv, unrestricted: boolean): NodeJS.ProcessEnv {
