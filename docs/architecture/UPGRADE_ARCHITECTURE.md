@@ -7,6 +7,9 @@ the existing runtime before Phase 01 and the invariants every later phase must
 preserve. The upgrade adds speed, context delivery, automation, and observability;
 it does not remove capabilities or turn ranking into authorization.
 
+The phase-by-phase implementation checklist is
+[`ROADMAP_PHASE_STATUS.md`](./ROADMAP_PHASE_STATUS.md).
+
 ## Non-negotiable invariants
 
 1. **Unlimited capability, bounded transport.** Large results may be paged,
