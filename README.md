@@ -28,11 +28,61 @@ local lnwjud process; the tunnel is outbound-only.
 > confirmation. Disk format / shutdown stay hard-blocked. Every Git subcommand
 > including `git rm`, `git clean`, and `git reset` is allowed.
 
-## ⚡ Quick Setup: Zero to ChatGPT in 5 Minutes
+## ⚡ Quick Setup: Zero to ChatGPT in 3 Minutes
 
-Follow this end-to-end walkthrough to go from a fresh Windows machine to invoking lnwjud MCP tools inside ChatGPT.
+Choose your preferred setup method:
+- **[Option A (Recommended for End-Users): Download Pre-built Release & Configure via GUI](#-option-a-end-user-quick-setup-pre-built-release)** — No Node.js or terminal build required; configure keys directly in the Lnwjud desktop UI!
+- **[Option B (For Developers): Build from Source & Script Automation](#%EF%B8%8F-option-b-developer-setup-build-from-source)** — Clone the repo, build with pnpm, and customize the low-level pipelines.
 
-### 1. Clone & Install Dependencies
+---
+
+### 🚀 Option A: End-User Quick Setup (Pre-built Release)
+
+Follow this 4-step quick start to connect ChatGPT or any AI agent to your Windows PC using the official pre-built installer:
+
+#### Step 1: Download & Install Lnwjud Desktop
+1. Download the latest installer (`lnwjud-Setup-1.1.1.exe`) from **[GitHub Releases](https://github.com/engasnm111/lnwjud/releases/latest)**.
+2. Run the installer (it automatically creates start menu and desktop shortcuts).
+3. Launch **Lnwjud Agent Control Center**.
+
+#### Step 2: Create a Remote Tunnel & Get Your Key
+Choose your preferred tunnel provider:
+- **Using OpenAI Secure MCP Tunnel:**
+  1. Open [OpenAI Platform > Organization Settings > Tunnels](https://platform.openai.com/settings/organization/tunnels) and click **Create Tunnel** (name it `lnwjud`).
+  2. Copy the generated **Tunnel ID** (e.g. `tun_abc123...`).
+  3. Go to [OpenAI Platform > API Keys](https://platform.openai.com/settings/organization/api-keys) and create a key with permission: **Tunnels: Read + Use**.
+  4. Download `tunnel-client.exe` from [OpenAI tunnel-client releases](https://github.com/openai/tunnel-client/releases) and place it in a local folder (e.g. `C:\tools\tunnel-client.exe`).
+- **Using Cloudflare Tunnel / Reverse Proxy:**
+  1. Create a Cloudflare Tunnel pointing to local MCP HTTP port `http://127.0.0.1:39200/mcp`.
+  2. Copy your Tunnel Token / API Secret and the path to `cloudflared.exe`.
+
+#### Step 3: Enter Credentials in Lnwjud Settings (Directly in the App!)
+1. In Lnwjud Desktop, click **Settings (ตั้งค่า)** from the sidebar navigation.
+2. Scroll to the **Remote Tunnel & Cloudflare Settings** card.
+3. Fill in your tunnel settings directly into the form fields:
+   - **Tunnel ID / Subdomain**: Paste your OpenAI Tunnel ID or Cloudflare hostname.
+   - **Tunnel Secret / API Key**: Paste your Runtime API key or Cloudflare token (click the 👁️ eye toggle anytime to reveal/mask the key).
+   - **Tunnel Client Path**: Enter the path to `tunnel-client.exe` or `cloudflared.exe`.
+4. Click **Save Preferences (บันทึกการตั้งค่า)**.
+   > *Security note: Lnwjud automatically encrypts and stores your keys locally using Windows DPAPI (Data Protection API) tied to your Windows account.*
+5. Toggle **Start Tunnel** to activate the connection.
+
+#### Step 4: Add the MCP Connector in ChatGPT & Start Calling Tools!
+1. Open [ChatGPT](https://chatgpt.com) and switch to your developer workspace.
+2. Go to **Settings > Connected Apps / Developer Settings** > **Create App** (or add MCP Server).
+3. Choose **Tunnel** and select your `lnwjud` tunnel.
+4. Verify all 49+ native Windows tools load (e.g. `read_file`, `write_file`, `search_files`, `git`, `shell`, `dom_cdp`, `window`, `vision`, `system_info`).
+5. Open a new chat, enable the **lnwjud** plugin/tool, and test:
+   > *"Check git status of my workspace, list active processes, and summarize recent code changes."*
+6. Watch real-time tool execution logs, commands, and audit records stream live in the **Lnwjud Live Log Hub**!
+
+---
+
+### 🛠️ Option B: Developer Setup (Build from Source)
+
+Follow this walkthrough if you want to clone the repo, develop custom extensions, or run the stdio pipeline directly:
+
+#### 1. Clone & Install Dependencies
 Open PowerShell on your Windows machine:
 ```powershell
 # Clone repository
@@ -47,7 +97,7 @@ corepack pnpm@10.15.0 install --frozen-lockfile
 Copy-Item .env.example .env
 ```
 
-### 2. Build lnwjud & Test the Desktop Dashboard
+#### 2. Build lnwjud & Test the Desktop Dashboard
 ```powershell
 # Build all packages and the desktop application
 corepack pnpm@10.15.0 build
@@ -57,7 +107,7 @@ corepack pnpm@10.15.0 desktop
 ```
 *(Optional: Run `corepack pnpm@10.15.0 package:windows` to generate a standalone Windows NSIS installer in `apps/desktop/dist/installers/`)*
 
-### 3. Setup OpenAI Secure MCP Tunnel & Runtime API Key
+#### 3. Setup OpenAI Secure MCP Tunnel & Runtime API Key
 1. **Download `tunnel-client`:**
    - Download `tunnel-client.exe` from [OpenAI tunnel-client releases](https://github.com/openai/tunnel-client/releases).
    - Place it in `$env:USERPROFILE\Downloads\tunnel\tunnel-client.exe` (or your preferred directory).
@@ -70,7 +120,7 @@ corepack pnpm@10.15.0 desktop
    - Create a new restricted key with permission: **Tunnels: Read + Use**.
    - Copy the API key.
 
-### 4. Store Your Runtime Key & Configure the Profile
+#### 4. Store Your Runtime Key & Configure the Profile
 1. **Save your encrypted key with Windows DPAPI (run once):**
    ```powershell
    New-Item -ItemType Directory -Force -Path "$env:APPDATA\tunnel-client"
@@ -92,14 +142,14 @@ corepack pnpm@10.15.0 desktop
    ```
    *(Note: If you installed the packaged desktop app, you can use `C:/Users/<User>/AppData/Local/Programs/lnwjud/lnwjud.exe` with `args: ["--mcp-stdio"]` instead).*
 
-### 5. Launch the Tunnel Service
+#### 5. Launch the Tunnel Service
 Start the resilient tunnel loop (with auto-reconnect, long TTL, and live dashboard sync):
 ```powershell
 .\scripts\start-lnwjud-tunnel.ps1
 ```
 *Or simply double-click [`scripts\start-lnwjud-tunnel.bat`](scripts/start-lnwjud-tunnel.bat).*
 
-### 6. Connect ChatGPT & Start Calling Tools
+#### 6. Connect ChatGPT & Start Calling Tools
 1. Open [ChatGPT](https://chatgpt.com) and switch to your developer workspace.
 2. Navigate to **Settings > Connected Apps / Developer Settings** > **Create App**.
 3. Select your tunnel `lnwjud` from the list.
