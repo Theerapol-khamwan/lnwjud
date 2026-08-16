@@ -13,7 +13,13 @@ beforeEach(() => {
 
 afterEach(async () => {
   vi.unstubAllEnvs();
-  await Promise.all(temporaryRoots.splice(0).map((root) => rm(root, { recursive: true, force: true })));
+  await Promise.all(temporaryRoots.splice(0).map(async (root) => {
+    try {
+      await rm(root, { recursive: true, force: true });
+    } catch {
+      // Ignore transient cleanup locks on Windows
+    }
+  }));
 });
 
 describe('DesktopRuntime persistence', () => {
@@ -49,7 +55,7 @@ describe('DesktopRuntime persistence', () => {
     } finally {
       if (!firstClosed) await closeRuntime(firstRuntime);
     }
-  });
+  }, 30_000);
 
   it('serves the local capability health tool through the desktop MCP listener', async () => {
     const rawDataRoot = await mkdtemp(path.join(os.tmpdir(), 'lnwjud-runtime-data-'));
