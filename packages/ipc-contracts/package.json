@@ -1,6 +1,6 @@
 {
   "name": "@lnwjud/ipc-contracts",
-  "version": "0.1.0",
+  "version": "1.0.0",
   "private": true,
   "type": "module",
   "exports": {
@@ -16,5 +16,6 @@
     "build": "tsc --outDir dist",
     "typecheck": "tsc --noEmit",
     "test": "vitest run --passWithNoTests"
-  }
+  },
+  "license": "MIT"
 }

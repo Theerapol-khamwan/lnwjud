@@ -1,6 +1,6 @@
 {
   "name": "@lnwjud/filesystem",
-  "version": "0.1.0",
+  "version": "1.0.0",
   "private": true,
   "type": "module",
   "exports": {
@@ -20,5 +20,6 @@
     "test": "vitest run",
     "typecheck": "tsc --noEmit",
     "build": "tsc --outDir dist"
-  }
+  },
+  "license": "MIT"
 }

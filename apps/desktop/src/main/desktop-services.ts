@@ -77,7 +77,7 @@ const permissionSettingKey = 'permission_profile';
 const selectedWorkspaceSettingKey = 'selected_workspace_id';
 const workLogClearedSettingKey = 'work_log_cleared_at';
 const localeSettingKey = 'ui_locale';
-const APP_VERSION = '0.1.0';
+const APP_VERSION = '1.0.0';
 
 export interface DesktopRuntime {
   readonly services: DesktopIpcServices;

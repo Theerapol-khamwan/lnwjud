@@ -236,7 +236,7 @@ corepack pnpm@10.15.0 package:windows
 The x64 NSIS installer is written to:
 
 ```text
-apps/desktop/dist/installers/lnwjud-Setup-0.1.0.exe
+apps/desktop/dist/installers/lnwjud-Setup-1.0.0.exe
 ```
 
 The installer is per-user by default. A common installed executable path is:
@@ -978,4 +978,4 @@ validation and permissions remain consistent.
 
 ## License
 
-See the repository licensing files and release metadata for applicable terms.
+This project is licensed under the [MIT License](LICENSE).

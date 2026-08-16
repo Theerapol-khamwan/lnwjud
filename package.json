@@ -1,6 +1,6 @@
 {
   "name": "lnwjud",
-  "version": "0.1.0",
+  "version": "1.0.0",
   "private": true,
   "packageManager": "pnpm@10.15.0",
   "engines": {
@@ -36,5 +36,6 @@
     "typescript": "6.0.2",
     "typescript-eslint": "8.67.0",
     "vitest": "3.2.4"
-  }
+  },
+  "license": "MIT"
 }

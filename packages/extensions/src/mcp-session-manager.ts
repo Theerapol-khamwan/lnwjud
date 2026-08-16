@@ -148,7 +148,7 @@ export const defaultMcpClientFactory: McpClientFactory = {
       stderr: 'pipe',
     });
     const client = new Client(
-      { name: 'lnwjud-mcp-bridge', version: '0.1.0' },
+      { name: 'lnwjud-mcp-bridge', version: '1.0.0' },
       { versionNegotiation: { mode: { pin: '2026-07-28' } } },
     );
     await client.connect(transport);
