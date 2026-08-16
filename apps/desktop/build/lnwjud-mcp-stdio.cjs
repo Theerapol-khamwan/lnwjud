@@ -780,8 +780,8 @@ var WorkspacePathGuard = class {
     const rootResult = await this.resolveRoot(workspace);
     if (!rootResult.ok)
       return rootResult;
-    const absolutePath = import_node_path5.default.resolve(workspace.rootPath, inputPath);
-    if (!isWithin(workspace.rootPath, absolutePath)) {
+    const absolutePath = import_node_path5.default.resolve(rootResult.value, inputPath);
+    if (!isWithin(rootResult.value, absolutePath)) {
       return err(appError("PATH_OUTSIDE_WORKSPACE", "Path is outside the workspace"));
     }
     let realTarget;
@@ -824,8 +824,8 @@ var WorkspacePathGuard = class {
     const rootResult = await this.resolveRoot(workspace);
     if (!rootResult.ok)
       return rootResult;
-    const absolutePath = import_node_path5.default.resolve(workspace.rootPath, inputPath);
-    if (!isWithin(workspace.rootPath, absolutePath)) {
+    const absolutePath = import_node_path5.default.resolve(rootResult.value, inputPath);
+    if (!isWithin(rootResult.value, absolutePath)) {
       return err(appError("PATH_OUTSIDE_WORKSPACE", "Path is outside the workspace"));
     }
     const ancestorResult = await this.findExistingAncestor(absolutePath);
@@ -31801,7 +31801,7 @@ function createMcpServer(options) {
     ...options.activity === void 0 ? {} : { activity: options.activity },
     ...options.activityTracker === void 0 ? {} : { activityTracker: options.activityTracker }
   });
-  const server = new McpServer({ name: "lnwjud", version: "0.1.0" }, { capabilities: { tools: {} } });
+  const server = new McpServer({ name: "lnwjud", version: "1.0.0" }, { capabilities: { tools: {} } });
   for (const tool of registry2.list()) {
     server.registerTool(tool.name, {
       description: tool.description,
@@ -32318,14 +32318,25 @@ function startMcpStdio(options) {
 // ../../packages/shared/dist/unrestricted.js
 var UNRESTRICTED_SETTING_KEY = "unrestricted_mode";
 var TRUE_VALUES = /* @__PURE__ */ new Set(["1", "true", "on", "yes"]);
-function unrestrictedFromEnv(env = process.env) {
-  return unrestrictedFromSetting(env.LNWJUD_UNRESTRICTED);
-}
-function unrestrictedFromSetting(value) {
-  return TRUE_VALUES.has(value?.trim().toLowerCase() ?? "");
+var FALSE_VALUES = /* @__PURE__ */ new Set(["0", "false", "off", "no"]);
+function parseFlag(value) {
+  const normalized = value?.trim().toLowerCase() ?? "";
+  if (normalized.length === 0)
+    return void 0;
+  if (TRUE_VALUES.has(normalized))
+    return true;
+  if (FALSE_VALUES.has(normalized))
+    return false;
+  return void 0;
 }
 function isUnrestricted(env, settingValue) {
-  return unrestrictedFromEnv(env) || unrestrictedFromSetting(settingValue);
+  const fromEnv = parseFlag(env.LNWJUD_UNRESTRICTED);
+  if (fromEnv !== void 0)
+    return fromEnv;
+  const fromSetting = parseFlag(settingValue);
+  if (fromSetting !== void 0)
+    return fromSetting;
+  return true;
 }
 
 // ../../packages/storage/dist/audit-repository.js
@@ -48860,7 +48871,7 @@ var defaultMcpClientFactory = {
       },
       stderr: "pipe"
     });
-    const client = new Client({ name: "lnwjud-mcp-bridge", version: "0.1.0" }, { versionNegotiation: { mode: { pin: "2026-07-28" } } });
+    const client = new Client({ name: "lnwjud-mcp-bridge", version: "1.0.0" }, { versionNegotiation: { mode: { pin: "2026-07-28" } } });
     await client.connect(transport);
     return {
       async listTools() {

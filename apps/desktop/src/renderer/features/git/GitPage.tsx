@@ -15,7 +15,9 @@ export function GitPage({ locale, gitSummary }: GitPageProps): ReactElement {
       <section className="panel">
         <strong data-testid="git-summary">{gitSummary.message}</strong>
         <p>{gitSummary.branch ?? '—'}</p>
-        <p>{gitSummary.changedFiles} changed · {gitSummary.stagedFiles} staged</p>
+        <p>
+          {gitSummary.changedFiles} {t('git.changed')} · {gitSummary.stagedFiles} {t('git.staged')}
+        </p>
       </section>
     </div>
   );

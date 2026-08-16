@@ -41,10 +41,10 @@ export function SettingsPage(props: SettingsPageProps): ReactElement {
           value={props.dashboard.permissionProfile}
           onChange={(event) => { void props.onPermissionProfileChange(event.target.value as PermissionProfileName); }}
         >
-          <option value="safe">Safe</option>
-          <option value="balanced">Balanced</option>
-          <option value="full">Full</option>
-          <option value="custom">Custom</option>
+          <option value="safe">{t('permission.safe')}</option>
+          <option value="balanced">{t('permission.balanced')}</option>
+          <option value="full">{t('permission.full')}</option>
+          <option value="custom">{t('permission.custom')}</option>
         </select>
         <p data-testid="permission-profile">{props.dashboard.permissionProfile}</p>
       </section>
@@ -81,7 +81,7 @@ export function SettingsPage(props: SettingsPageProps): ReactElement {
             onClick={() => {
               void props.onSaveTunnelApiKey(apiKey).then(() => {
                 setApiKey('');
-                setSavedMessage('OK');
+                setSavedMessage(t('settings.saved'));
               });
             }}
           >
@@ -101,7 +101,7 @@ export function SettingsPage(props: SettingsPageProps): ReactElement {
           <button
             type="button"
             onClick={() => {
-              void props.onSetTunnelClientPath(clientPath).then(() => setSavedMessage('OK'));
+              void props.onSetTunnelClientPath(clientPath).then(() => setSavedMessage(t('settings.saved')));
             }}
           >
             {t('settings.savePath')}

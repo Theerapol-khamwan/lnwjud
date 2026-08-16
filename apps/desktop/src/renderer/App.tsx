@@ -17,6 +17,7 @@ import { LiveLogsPage } from './features/live/LiveLogsPage.js';
 import { SettingsPage } from './features/settings/SettingsPage.js';
 import { DoctorPanel } from './features/doctor/DoctorPanel.js';
 import { createTranslator } from './i18n/index.js';
+import type { MessageKey } from './i18n/messages.js';
 
 const MAX_CLIENT_LOG_LINES = 4_000;
 
@@ -33,6 +34,8 @@ export function App(): ReactElement {
   const [tunnelLogPath, setTunnelLogPath] = useState<string | null>(null);
   const [tunnelLogExists, setTunnelLogExists] = useState(false);
   const logIds = useRef<Set<number>>(new Set());
+
+  const t = createTranslator(locale);
 
   const appendLogLine = useCallback((line: LogLine): void => {
     if (logIds.current.has(line.id)) return;
@@ -64,7 +67,7 @@ export function App(): ReactElement {
       await window.lnwjud.clearLogBuffer({ source });
       setLogLines((previous) => previous.filter((line) => line.source !== source));
     } catch (cause: unknown) {
-      setError(errorMessage(cause, 'Log buffer could not be cleared'));
+      setError(errorMessage(cause, t('error.logBufferClear')));
     }
   }
 
@@ -72,7 +75,7 @@ export function App(): ReactElement {
     try {
       await window.lnwjud.exportLogs({ source, filePath: '' });
     } catch (cause: unknown) {
-      setError(errorMessage(cause, 'Log export failed'));
+      setError(errorMessage(cause, t('error.logExport')));
     }
   }
 
@@ -80,7 +83,7 @@ export function App(): ReactElement {
     try {
       await window.lnwjud.openLogViewer();
     } catch (cause: unknown) {
-      setError(errorMessage(cause, 'Log viewer could not be opened'));
+      setError(errorMessage(cause, t('error.logViewerOpen')));
     }
   }
 
@@ -95,9 +98,9 @@ export function App(): ReactElement {
       setLocale(nextDashboard.locale);
       setError(null);
     } catch (cause: unknown) {
-      setError(cause instanceof Error ? cause.message : 'Desktop service request failed');
+      setError(cause instanceof Error ? cause.message : createTranslator(locale)('error.desktopService'));
     }
-  }, []);
+  }, [locale]);
 
   useEffect(() => {
     void refresh();
@@ -110,7 +113,7 @@ export function App(): ReactElement {
       await window.lnwjud.addWorkspace({ rootPath });
       await refresh();
     } catch (cause: unknown) {
-      setError(errorMessage(cause, 'Workspace could not be added'));
+      setError(errorMessage(cause, t('error.workspaceAdd')));
     }
   }
 
@@ -120,7 +123,7 @@ export function App(): ReactElement {
       await window.lnwjud.selectWorkspace({ workspaceId });
       await refresh();
     } catch (cause: unknown) {
-      setError(errorMessage(cause, 'Workspace could not be selected'));
+      setError(errorMessage(cause, t('error.workspaceSelect')));
     } finally {
       setMcpBusy(false);
     }
@@ -131,7 +134,7 @@ export function App(): ReactElement {
       await window.lnwjud.setPermissionProfile({ profile });
       await refresh();
     } catch (cause: unknown) {
-      setError(errorMessage(cause, 'Permission profile could not be changed'));
+      setError(errorMessage(cause, t('error.permissionProfileChange')));
     }
   }
 
@@ -141,7 +144,7 @@ export function App(): ReactElement {
       await refresh();
       return result.restartRequired;
     } catch (cause: unknown) {
-      setError(errorMessage(cause, 'Unrestricted mode could not be changed'));
+      setError(errorMessage(cause, t('error.unrestrictedModeChange')));
       return true;
     }
   }
@@ -152,7 +155,7 @@ export function App(): ReactElement {
       await window.lnwjud.stopMcp();
       await refresh();
     } catch (cause: unknown) {
-      setError(errorMessage(cause, 'MCP could not be stopped'));
+      setError(errorMessage(cause, t('error.mcpStop')));
     } finally {
       setMcpBusy(false);
     }
@@ -164,7 +167,7 @@ export function App(): ReactElement {
       await window.lnwjud.restartMcp();
       await refresh();
     } catch (cause: unknown) {
-      setError(errorMessage(cause, 'MCP could not be restarted'));
+      setError(errorMessage(cause, t('error.mcpRestart')));
     } finally {
       setMcpBusy(false);
     }
@@ -175,7 +178,7 @@ export function App(): ReactElement {
       await window.lnwjud.clearWorkLog();
       await refresh();
     } catch (cause: unknown) {
-      setError(errorMessage(cause, 'Work log could not be cleared'));
+      setError(errorMessage(cause, t('error.workLogClear')));
     }
   }
 
@@ -185,7 +188,7 @@ export function App(): ReactElement {
       await window.lnwjud.startTunnel();
       await refresh();
     } catch (cause: unknown) {
-      setError(errorMessage(cause, 'Tunnel could not be started'));
+      setError(errorMessage(cause, t('error.tunnelStart')));
     } finally {
       setTunnelBusy(false);
     }
@@ -197,7 +200,7 @@ export function App(): ReactElement {
       await window.lnwjud.stopTunnel();
       await refresh();
     } catch (cause: unknown) {
-      setError(errorMessage(cause, 'Tunnel could not be stopped'));
+      setError(errorMessage(cause, t('error.tunnelStop')));
     } finally {
       setTunnelBusy(false);
     }
@@ -223,15 +226,13 @@ export function App(): ReactElement {
     try {
       setDoctor(await window.lnwjud.runDoctor());
     } catch (cause: unknown) {
-      setError(errorMessage(cause, 'Doctor could not run'));
+      setError(errorMessage(cause, t('error.doctorRun')));
     }
   }
 
   if (dashboard === null) {
-    return <div className="boot-screen">Loading…</div>;
+    return <div className="boot-screen">{t('app.loading')}</div>;
   }
-
-  const t = createTranslator(locale);
 
   return (
     <AppShell
@@ -298,7 +299,7 @@ export function App(): ReactElement {
       {screen === 'doctor' ? (
         <div className="page-content">
           <h1>{t('doctor.title')}</h1>
-          <DoctorPanel report={doctor} onRunDoctor={runDoctor} />
+          <DoctorPanel locale={locale} report={doctor} onRunDoctor={runDoctor} />
         </div>
       ) : null}
     </AppShell>

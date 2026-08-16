@@ -55,6 +55,7 @@ export type MessageKey =
   | 'settings.unrestricted'
   | 'settings.unrestrictedHint'
   | 'settings.restartRequired'
+  | 'settings.saved'
   | 'badge.unrestricted'
   | 'live.title'
   | 'live.subtitle'
@@ -69,9 +70,31 @@ export type MessageKey =
   | 'live.waitingTunnel'
   | 'live.popOut'
   | 'git.title'
+  | 'git.changed'
+  | 'git.staged'
   | 'doctor.title'
   | 'doctor.run'
+  | 'doctor.noReport'
   | 'capabilities.title'
+  | 'permission.safe'
+  | 'permission.balanced'
+  | 'permission.full'
+  | 'permission.custom'
+  | 'app.loading'
+  | 'error.logBufferClear'
+  | 'error.logExport'
+  | 'error.logViewerOpen'
+  | 'error.desktopService'
+  | 'error.workspaceAdd'
+  | 'error.workspaceSelect'
+  | 'error.permissionProfileChange'
+  | 'error.unrestrictedModeChange'
+  | 'error.mcpStop'
+  | 'error.mcpRestart'
+  | 'error.workLogClear'
+  | 'error.tunnelStart'
+  | 'error.tunnelStop'
+  | 'error.doctorRun'
   | 'language.th'
   | 'language.en';
 
@@ -134,6 +157,7 @@ export const th: Messages = {
   'settings.unrestricted': 'โหมดเต็มสิทธิ์ (Unrestricted)',
   'settings.unrestrictedHint': 'ค่าเริ่มต้นเปิด: ลงทะเบียนทุกไดร์ฟ (C:, D:, E:), รัน cmd/powershell ได้, อ่านทุกไฟล์, รัน git ได้ทุกคำสั่ง — คำสั่งลบไฟล์ทั่วไปต้องถามก่อน',
   'settings.restartRequired': 'ต้องรีสตาร์ทแอพเพื่อให้มีผล',
+  'settings.saved': 'บันทึกเรียบร้อย',
   'badge.unrestricted': 'Unrestricted',
   'live.title': 'Live Logs',
   'live.subtitle': 'ดู log ของ tunnel, กิจกรรม MCP และ process แบบ realtime',
@@ -148,9 +172,31 @@ export const th: Messages = {
   'live.waitingTunnel': 'ยังไม่มีไฟล์ tunnel log — รัน tunnel ด้วยสคริปต์ start-lnwjud-tunnel.ps1 หรือกด Start Tunnel',
   'live.popOut': 'เปิดหน้าต่างแยก',
   'git.title': 'สถานะ Git',
+  'git.changed': 'ไฟล์ที่แก้ไข',
+  'git.staged': 'ไฟล์ที่ stage แล้ว',
   'doctor.title': 'Doctor',
   'doctor.run': 'รัน Doctor',
+  'doctor.noReport': 'ยังไม่มีผลการตรวจสอบ',
   'capabilities.title': 'Capabilities',
+  'permission.safe': 'Safe (ปลอดภัย)',
+  'permission.balanced': 'Balanced (สมดุล)',
+  'permission.full': 'Full (เต็มสิทธิ์)',
+  'permission.custom': 'Custom (กำหนดเอง)',
+  'app.loading': 'กำลังโหลด…',
+  'error.logBufferClear': 'ไม่สามารถล้าง log buffer ได้',
+  'error.logExport': 'การส่งออก log ล้มเหลว',
+  'error.logViewerOpen': 'ไม่สามารถเปิดหน้าต่างดู log ได้',
+  'error.desktopService': 'การเชื่อมต่อเซอร์วิส Desktop ล้มเหลว',
+  'error.workspaceAdd': 'ไม่สามารถเพิ่ม workspace ได้',
+  'error.workspaceSelect': 'ไม่สามารถเลือก workspace ได้',
+  'error.permissionProfileChange': 'ไม่สามารถเปลี่ยนโปรไฟล์สิทธิ์ได้',
+  'error.unrestrictedModeChange': 'ไม่สามารถเปลี่ยนโหมดเต็มสิทธิ์ได้',
+  'error.mcpStop': 'ไม่สามารถหยุด MCP ได้',
+  'error.mcpRestart': 'ไม่สามารถรีสตาร์ท MCP ได้',
+  'error.workLogClear': 'ไม่สามารถล้างประวัติการทำงานได้',
+  'error.tunnelStart': 'ไม่สามารถเริ่ม Tunnel ได้',
+  'error.tunnelStop': 'ไม่สามารถหยุด Tunnel ได้',
+  'error.doctorRun': 'ไม่สามารถรัน Doctor ได้',
   'language.th': 'ไทย',
   'language.en': 'English',
 };
@@ -212,6 +258,7 @@ export const en: Messages = {
   'settings.unrestricted': 'Unrestricted mode',
   'settings.unrestrictedHint': 'Default on: registers every drive (C:, D:, E:), allows cmd/powershell, reads any file, and runs every git command — filesystem deletes must be confirmed',
   'settings.restartRequired': 'Restart the app to apply',
+  'settings.saved': 'Saved successfully',
   'badge.unrestricted': 'Unrestricted',
   'live.title': 'Live Logs',
   'live.subtitle': 'Real-time tunnel, MCP activity, and process logs',
@@ -226,9 +273,31 @@ export const en: Messages = {
   'live.waitingTunnel': 'No tunnel log file yet — run start-lnwjud-tunnel.ps1 or press Start Tunnel',
   'live.popOut': 'Pop out viewer',
   'git.title': 'Git status',
+  'git.changed': 'changed',
+  'git.staged': 'staged',
   'doctor.title': 'Doctor',
   'doctor.run': 'Run doctor',
+  'doctor.noReport': 'No report yet.',
   'capabilities.title': 'Capabilities',
+  'permission.safe': 'Safe',
+  'permission.balanced': 'Balanced',
+  'permission.full': 'Full',
+  'permission.custom': 'Custom',
+  'app.loading': 'Loading…',
+  'error.logBufferClear': 'Log buffer could not be cleared',
+  'error.logExport': 'Log export failed',
+  'error.logViewerOpen': 'Log viewer could not be opened',
+  'error.desktopService': 'Desktop service request failed',
+  'error.workspaceAdd': 'Workspace could not be added',
+  'error.workspaceSelect': 'Workspace could not be selected',
+  'error.permissionProfileChange': 'Permission profile could not be changed',
+  'error.unrestrictedModeChange': 'Unrestricted mode could not be changed',
+  'error.mcpStop': 'MCP could not be stopped',
+  'error.mcpRestart': 'MCP could not be restarted',
+  'error.workLogClear': 'Work log could not be cleared',
+  'error.tunnelStart': 'Tunnel could not be started',
+  'error.tunnelStop': 'Tunnel could not be stopped',
+  'error.doctorRun': 'Doctor could not run',
   'language.th': 'ไทย',
   'language.en': 'English',
 };
