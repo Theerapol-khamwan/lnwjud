@@ -66,6 +66,8 @@ export class UpgradeRuntimeService {
         return ok(this.describeTool(readString(input, 'name') ?? readString(input, 'tool')));
       case 'tool_categories':
         return ok(this.categories());
+      case 'tool_aliases':
+        return ok({ aliases: { read: 'read_file', search: 'search_text', tree: 'workspace_tree', logs: 'live_logs_query', tests: 'test_context', context: 'workspace_context', map: 'repo_map' }, primitiveToolsRemainAvailable: true });
       case 'capabilities':
         return ok({ categories: this.categories().categories, totalUpgradeTools: UPGRADE_TOOL_CATALOG.length, primitiveToolsRemainAvailable: true });
       case 'route_intent':
@@ -229,6 +231,11 @@ export class UpgradeRuntimeService {
       case 'dom_snapshot':
       case 'layout_metadata':
       case 'visual_context':
+      case 'inspect_workbook':
+      case 'compare_workbook_layout':
+      case 'render_excel_preview':
+      case 'inspect_pdf':
+      case 'compare_pdf_pages':
         return ok({ tool: name, status: 'ready', executed: [], primitiveFallbacks: ['read_file', 'search_text', 'workspace_tree'], metadataOnly: true, inputKeys: Object.keys(input).sort() });
       case 'run_affected_tests':
         return ok({ tool: name, started: false, affectedTests: [], fullRunStillAvailable: true, command: null });

@@ -6,7 +6,7 @@ This is the compatibility contract for the current MCP surface. The runtime
 advertises the JSON Schema for every input through `tools/list`; the TypeScript
 Zod schemas in `packages/mcp-server/src/tools/` are the implementation source
 of truth. The existing human-oriented catalog remains useful for field details,
-while this document records the complete 177-tool runtime snapshot, policy class,
+while this document records the complete 183-tool runtime snapshot, policy class,
 annotations, and schema source.
 
 ## Protocol and result rules
@@ -196,7 +196,7 @@ capability backends. Important invariants are:
 - `vision`, `health`, and `system_info` remain truthful read-only diagnostics;
 - `web_fetch` remains HTTP(S)-only and bounded by explicit byte/timeout fields;
   - `skills_*` and `mcp_*` remain full-access bridge tools and do not silently
-  flatten child-server tools into the 177-tool catalog.
+  flatten child-server tools into the 183-tool catalog.
 
 ### Context aggregation
 

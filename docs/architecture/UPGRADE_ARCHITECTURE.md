@@ -38,7 +38,7 @@ MCP clients (ChatGPT / Codex / Claude / other agents)
              MCP stdio or loopback Streamable HTTP
                          |
                          v
-                  ToolRegistry (177 tools after Phase 05 foundation)
+                  ToolRegistry (183 tools after Phase 05–40 foundation)
                          |
        +-----------------+------------------+
        |                 |                  |
