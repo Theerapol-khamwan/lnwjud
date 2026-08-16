@@ -41,6 +41,7 @@ diagnostics/
 repomix-output.xml
 scripts/analyze_*.py
 scripts/audit_*.py
+docs/
 
 # IDE & Editor Settings
 .cursor/

@@ -653,8 +653,7 @@ Settings key `extensions` (SQLite) example:
 ```
 
 The exact schemas and defaults are maintained in
-[docs/mcp/MCP_TOOL_CATALOG.md](docs/mcp/MCP_TOOL_CATALOG.md) and
-packages/mcp-server/src/tools/schemas.ts.
+`packages/mcp-server/src/tools/schemas.ts`.
 
 ## Recommended workflows
 
@@ -757,10 +756,6 @@ desktop app so ChatGPT activity shows in the Work Log and Live Logs, enables
 unrestricted mode, restarts the tunnel automatically when it drops (including
 TTL shutdowns that exit 0), avoids double-starting, and opens the log viewer
 window. Parameters: `-NoViewer`, `-OpenDashboard`, `-ForceRestart`, `-Once`.
-
-## คู่มือภาษาไทย (Thai manual)
-
-ดูคู่มือฉบับเต็มเป็นภาษาไทยได้ที่ [docs/USAGE_TH.md](docs/USAGE_TH.md)
 
 ## Security and operational model
 
@@ -881,23 +876,13 @@ packages/mcp-server/   MCP registry plus stdio/HTTP transports
 packages/capabilities/ Local shell/browser/UI/vision/window capabilities
 packages/extensions/   Local skills catalog and MCP server bridge
 packages/ipc-contracts/Typed Electron IPC contracts
-docs/                  Architecture, development, MCP, testing, and release docs
+assets/logo/           Official brand logos and icons in multiple resolutions
 ```
 
 All entrypoints are intended to call the same application services so that
 validation and permissions remain consistent.
 
 ## Further reading
-
-### Project documentation
-
-- [MCP tool catalog](docs/mcp/MCP_TOOL_CATALOG.md)
-- [Architecture](docs/architecture/ARCHITECTURE.md)
-- [Local desktop development](docs/development/LOCAL_DESKTOP.md)
-- [Codex integration](docs/development/CODEX_INTEGRATION.md)
-- [Windows packaging](docs/development/PACKAGING_WINDOWS.md)
-- [Test strategy](docs/testing/TEST_STRATEGY.md)
-- [Security and architecture design](docs/superpowers/specs/2026-08-10-lnwjud-design.md)
 
 ### Official OpenAI documentation
 
