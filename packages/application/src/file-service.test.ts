@@ -1,4 +1,5 @@
-import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { existsSync } from 'node:fs';
+import { mkdtemp, realpath, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -23,8 +24,9 @@ function repository(workspace: Workspace): WorkspaceRepository {
 
 describe('FileService', () => {
   it('reads only through the workspace guard and enforces the 4 MiB aggregate cap', async () => {
-    const root = await mkdtemp(path.join(os.tmpdir(), 'lnwjud-files-'));
-    temporaryRoots.push(root);
+    const rawRoot = await mkdtemp(path.join(os.tmpdir(), 'lnwjud-files-'));
+    temporaryRoots.push(rawRoot);
+    const root = await realpath(rawRoot);
     const workspace: Workspace = { id: 'workspace-1', displayName: 'Fixture', rootPath: root, realRootPath: root, createdAt: new Date(0).toISOString() };
     await writeFile(path.join(root, 'one.txt'), Buffer.alloc(1.5 * 1024 * 1024, 0x61));
     await writeFile(path.join(root, 'two.txt'), Buffer.alloc(1.5 * 1024 * 1024, 0x62));
@@ -39,9 +41,10 @@ describe('FileService', () => {
     expect(result).toMatchObject({ ok: false, error: { code: 'FILE_TOO_LARGE' } });
   });
 
-  it('rejects a secret file before reading it outside E:', async () => {
-    const root = await mkdtemp(path.join(os.tmpdir(), 'lnwjud-files-'));
-    temporaryRoots.push(root);
+  it('denies secret file reads by default', async () => {
+    const rawRoot = await mkdtemp(path.join(os.tmpdir(), 'lnwjud-files-'));
+    temporaryRoots.push(rawRoot);
+    const root = await realpath(rawRoot);
     const workspace: Workspace = { id: 'workspace-1', displayName: 'Fixture', rootPath: root, realRootPath: root, createdAt: new Date(0).toISOString() };
     await writeFile(path.join(root, '.env'), 'TOKEN=secret', 'utf8');
 
@@ -55,6 +58,7 @@ describe('FileService', () => {
   });
 
   it('allows secret and binary reads for workspaces under E:', async () => {
+    if (!existsSync('E:\\')) return;
     const root = await mkdtemp(path.join('E:\\', 'lnwjud-files-'));
     temporaryRoots.push(root);
     const workspace: Workspace = { id: 'workspace-e', displayName: 'E Fixture', rootPath: root, realRootPath: root, createdAt: new Date(0).toISOString() };

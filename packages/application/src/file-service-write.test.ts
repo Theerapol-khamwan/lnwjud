@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, realpath, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -15,8 +15,9 @@ afterEach(async () => {
 });
 
 async function createWorkspace(): Promise<Workspace> {
-  const root = await mkdtemp(path.join(os.tmpdir(), 'lnwjud-file-write-'));
-  temporaryRoots.push(root);
+  const rawRoot = await mkdtemp(path.join(os.tmpdir(), 'lnwjud-file-write-'));
+  temporaryRoots.push(rawRoot);
+  const root = await realpath(rawRoot);
   await mkdir(path.join(root, 'src'));
   return { id: 'workspace-1', displayName: 'Fixture', rootPath: root, realRootPath: root, createdAt: new Date(0).toISOString() };
 }

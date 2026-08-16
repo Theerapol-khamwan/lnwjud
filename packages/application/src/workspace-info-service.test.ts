@@ -1,3 +1,4 @@
+import { existsSync } from 'node:fs';
 import { mkdtemp, rm } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
@@ -13,6 +14,7 @@ afterEach(async () => {
 
 describe('WorkspaceInfoService.register', () => {
   it('registers a project under the E: machine root and is idempotent', async () => {
+    if (!existsSync('E:\\')) return;
     const projectRoot = await mkdtemp(path.join('E:\\', 'lnwjud-register-'));
     temporaryRoots.push(projectRoot);
 
