@@ -339,6 +339,7 @@ export function createDesktopRuntime(dataPath: string): DesktopRuntime {
       const result = await capabilityRuntime.service.execute('dom_cdp', { action: 'launch' });
       return toManagedBrowserStatus(unwrap(result, 'Managed Chrome could not be started'));
     },
+    runDoctor: (): Promise<DoctorReport> => doctorService.run(),
     getLogSnapshot: async (): Promise<LogSnapshot> => {
       const workLog = await buildWorkLog(auditRepository, settingsRepository);
       const inFlight = activityTracker.listInFlight().map(toInFlightItem);

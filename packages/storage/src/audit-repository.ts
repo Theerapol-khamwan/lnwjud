@@ -68,7 +68,7 @@ export class SqliteAuditRepository implements AuditEventRepository {
       ...(value.target_summary === null ? {} : { targetSummary: value.target_summary }),
       ...(value.permission_decision === null ? {} : { permissionDecision: value.permission_decision }),
       resultCode: value.result_code,
-      ...(typeof value.duration_ms === 'number' ? { durationMs: value.duration_ms } : {}),
+      durationMs: typeof value.duration_ms === 'number' ? value.duration_ms : 0,
       metadata,
     };
   }
