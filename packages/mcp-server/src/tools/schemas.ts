@@ -17,6 +17,17 @@ export const workspaceInfoSchema = z.object({ workspaceId: workspaceIdSchema }).
 export const workspaceTreeSchema = z.object({ workspaceId: optionalWorkspaceIdSchema, path: pathSchema.optional(), maxDepth: z.number().int().min(1).max(MAX_TREE_DEPTH).optional(), maxEntries: z.number().int().min(1).max(MAX_TREE_ENTRIES).optional() }).strict();
 export const projectSnapshotSchema = z.object({ workspaceId: workspaceIdSchema }).strict();
 export const readFileSchema = z.object({ workspaceId: optionalWorkspaceIdSchema, path: pathSchema, ...lineRangeSchema.shape }).strict().refine((value) => value.startLine === undefined || value.endLine === undefined || value.startLine <= value.endLine, 'Line range is invalid');
+export const readFilePageSchema = z.object({
+  workspaceId: optionalWorkspaceIdSchema,
+  path: pathSchema,
+  startLine: z.number().int().min(1).optional(),
+  pageSize: z.number().int().min(1).max(5_000).optional(),
+  responseTargetBytes: z.number().int().min(1).max(8 * 1024 * 1024).optional(),
+}).strict();
+export const readFilePageContinueSchema = z.object({
+  continuationToken: z.string().trim().min(1).max(128),
+  pageSize: z.number().int().min(1).max(5_000).optional(),
+}).strict();
 export const readFilesSchema = z.object({ workspaceId: optionalWorkspaceIdSchema, files: z.array(readFileSchema.omit({ workspaceId: true })).min(1).max(20) }).strict();
 export const searchFilesSchema = z.object({ workspaceId: optionalWorkspaceIdSchema, path: pathSchema.optional(), glob: z.string().max(1024).optional(), maxResults: z.number().int().min(1).max(MAX_SEARCH_RESULTS).optional() }).strict();
 export const searchTextSchema = searchFilesSchema.extend({ query: z.string().min(1).max(32_768) }).strict();

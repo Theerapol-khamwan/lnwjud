@@ -1,12 +1,12 @@
 # lnwjud Tool Contract
 
-Status: Phase 02 contract snapshot for `v1.1.4` / local upgrade commits.
+Status: Phase 03 contract snapshot for `v1.1.4` / local upgrade commits.
 
 This is the compatibility contract for the current MCP surface. The runtime
 advertises the JSON Schema for every input through `tools/list`; the TypeScript
 Zod schemas in `packages/mcp-server/src/tools/` are the implementation source
 of truth. The existing human-oriented catalog remains useful for field details,
-while this document records the complete 61-tool runtime snapshot, policy class,
+while this document records the complete 63-tool runtime snapshot, policy class,
 annotations, and schema source.
 
 ## Protocol and result rules
@@ -107,6 +107,8 @@ contract test and a catalog update.
 | 59 | `workspace_snapshot` | READ | yes | no | 1 | `context-tools.ts` |
 | 60 | `search_all` | READ | yes | no | 5 | `context-tools.ts` |
 | 61 | `read_many_files` | READ | yes | no | 2 | `context-tools.ts` |
+| 62 | `read_file_page` | READ | yes | no | 5 | `file-page-tools.ts` |
+| 63 | `read_file_page_continue` | READ | yes | no | 2 | `file-page-tools.ts` |
 
 ## Schema groups and contract examples
 
@@ -214,6 +216,23 @@ read_many_files: { workspaceId?: string; files: Array<{ path: string; startLine?
 
 Context pages are transport windows, not capability limits. The engine keeps
 continuation state and preserves the full primitive search/read tools.
+
+### Lossless file paging
+
+```ts
+read_file_page: {
+  workspaceId?: string;
+  path: string;
+  startLine?: number;
+  pageSize?: number;
+  responseTargetBytes?: number;
+}
+read_file_page_continue: { continuationToken: string; pageSize?: number }
+```
+
+Paged responses always expose whether more content remains. The page adapter
+does not replace or reduce the existing unrestricted trusted-workspace read
+path.
 
 ### Compound execution
 

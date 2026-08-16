@@ -1,6 +1,6 @@
 # lnwjud Upgrade Architecture Contract
 
-Status: Phase 02 implementation checkpoint, based on `v1.1.4` / local upgrade commits.
+Status: Phase 03 implementation checkpoint, based on `v1.1.4` / local upgrade commits.
 
 This document is the architectural boundary for the upgrade roadmap. It describes
 the existing runtime before Phase 01 and the invariants every later phase must
@@ -38,7 +38,7 @@ MCP clients (ChatGPT / Codex / Claude / other agents)
              MCP stdio or loopback Streamable HTTP
                          |
                          v
-                  ToolRegistry (61 tools after Phase 02)
+                  ToolRegistry (63 tools after Phase 03)
                          |
        +-----------------+------------------+
        |                 |                  |
@@ -222,6 +222,15 @@ matches, symbols, Git/test relevance, and remaining context. Page and response
 targets shape transport size only; they do not hide a path from direct search or
 read. Hidden, ignored, generated, dependency, and environment paths remain
 eligible candidates.
+
+## Phase 03 streaming checkpoint
+
+`read_file_page` and `read_file_page_continue` provide deterministic line chunks
+with explicit `startLine`, `endLine`, `hasMore`, and continuation tokens. The
+original `read_file` remains the lossless primitive; paged reads are an additive
+transport adapter for large responses. A page can target a response byte size,
+and the continuation state advances from the exact returned line so a caller can
+resume without silently skipping or overwriting context.
 
 ## Upgrade sequencing
 

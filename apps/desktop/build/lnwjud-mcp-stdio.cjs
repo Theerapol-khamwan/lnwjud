@@ -947,7 +947,6 @@ var WorkspaceService = class {
 };
 
 // ../../packages/filesystem/dist/tree-reader.js
-var IGNORED_DIRECTORIES = /* @__PURE__ */ new Set([".git", ".next", "build", "coverage", "dist", "node_modules", "vendor"]);
 var TreeReader = class {
   async read(rootPath, options = {}) {
     const maxDepth = options.maxDepth ?? DEFAULT_TREE_DEPTH;
@@ -978,8 +977,6 @@ var TreeReader = class {
           truncated = true;
           return;
         }
-        if (directoryEntry.isDirectory() && IGNORED_DIRECTORIES.has(directoryEntry.name))
-          continue;
         const absoluteEntryPath = import_node_path7.default.join(currentPath, directoryEntry.name);
         let entryRealPath;
         try {
@@ -3115,7 +3112,7 @@ var RipgrepAdapter = class {
     const executable = await this.resolver.resolve("rg");
     if (!executable.ok)
       return executable;
-    const args = ["--json", "--no-heading", "--color", "never", "--hidden"];
+    const args = ["--json", "--no-heading", "--color", "never", "--hidden", "--no-ignore"];
     if (request.glob !== void 0)
       args.push("--glob", request.glob);
     args.push("--", request.query, ".");
@@ -3142,7 +3139,7 @@ var RipgrepAdapter = class {
     const executable = await this.resolver.resolve("rg");
     if (!executable.ok)
       return executable;
-    const args = ["--files", "--hidden"];
+    const args = ["--files", "--hidden", "--no-ignore"];
     if (request.glob !== void 0)
       args.push("--glob", request.glob);
     args.push("--");
@@ -30446,11 +30443,11 @@ var McpServer = class {
   * @param errorMessage - The error message.
   * @returns The tool error result.
   */
-  createToolError(errorMessage) {
+  createToolError(errorMessage2) {
     return {
       content: [{
         type: "text",
-        text: errorMessage
+        text: errorMessage2
       }],
       isError: true
     };
@@ -30955,6 +30952,489 @@ async function withProgressHeartbeat(context, toolName, run) {
   }
 }
 
+// ../../packages/mcp-server/dist/context-engine.js
+var import_node_crypto7 = require("node:crypto");
+var DEFAULT_RESPONSE_TARGET_BYTES = 256 * 1024;
+var MAX_RESPONSE_TARGET_BYTES = 8 * 1024 * 1024;
+var DEFAULT_PAGE_SIZE = { optimized: 12, full: 50, exhaustive: 200 };
+var SEARCH_LIMIT = { optimized: 100, full: 300, exhaustive: 500 };
+var ContextEngine = class {
+  services;
+  actor;
+  continuations = /* @__PURE__ */ new Map();
+  scanContinuations = /* @__PURE__ */ new Map();
+  constructor(services, actor) {
+    this.services = services;
+    this.actor = actor;
+  }
+  async collect(request) {
+    const validation = validateRequest(request);
+    if (!validation.ok)
+      return validation;
+    const workspaceIds = await this.resolveWorkspaceIds(request.workspaceId);
+    if (!workspaceIds.ok)
+      return workspaceIds;
+    if (workspaceIds.value.length === 0)
+      return err({ code: "WORKSPACE_NOT_FOUND", message: "No registered workspace is available", recoverable: false });
+    const settled = await Promise.allSettled(workspaceIds.value.map((workspaceId) => this.collectWorkspace(workspaceId, request)));
+    const successful = [];
+    let firstError;
+    for (const entry of settled) {
+      if (entry.status === "fulfilled" && entry.value.ok)
+        successful.push(entry.value.value);
+      else if (entry.status === "fulfilled" && !entry.value.ok && firstError === void 0)
+        firstError = entry.value.error;
+    }
+    if (successful.length === 0) {
+      return err(firstError ?? { code: "INTERNAL_ERROR", message: "Context search failed", recoverable: true });
+    }
+    const merged = mergeCollections(successful);
+    return this.materialize(merged.candidates, request, {
+      scannedFiles: merged.scannedFiles,
+      totalMatches: merged.totalMatches,
+      searchTruncated: merged.searchTruncated
+    });
+  }
+  async continue(token, pageSize) {
+    const continuation = this.continuations.get(token);
+    if (continuation === void 0)
+      return err({ code: "INVALID_INPUT", message: "Continuation token is invalid or expired", recoverable: false });
+    this.continuations.delete(token);
+    return this.materialize(continuation.candidates, {
+      ...continuation.request,
+      ...pageSize === void 0 ? {} : { pageSize }
+    }, continuation);
+  }
+  async searchAll(request) {
+    if (request.query.trim().length === 0)
+      return err({ code: "INVALID_INPUT", message: "Search query is required", recoverable: false });
+    const workspaceIds = await this.resolveWorkspaceIds(request.workspaceId);
+    if (!workspaceIds.ok)
+      return workspaceIds;
+    if (this.services.search === void 0)
+      return err({ code: "INTERNAL_ERROR", message: "Search service is unavailable", recoverable: true });
+    const maxResults = Math.max(1, Math.min(500, Math.floor(request.maxResults ?? 500)));
+    const settled = await Promise.allSettled(workspaceIds.value.map(async (workspaceId) => {
+      const [text, files] = await Promise.all([
+        this.safeSearchText(workspaceId, { query: request.query, ...request.path === void 0 ? {} : { path: request.path } }, maxResults),
+        this.safeSearchFiles(workspaceId, { query: request.query, ...request.path === void 0 ? {} : { path: request.path } }, maxResults, request.glob)
+      ]);
+      return { workspaceId, text, files };
+    }));
+    const matches = [];
+    const paths = [];
+    let hasMore = false;
+    let successfulWorkspaces = 0;
+    for (const entry of settled) {
+      if (entry.status !== "fulfilled")
+        continue;
+      successfulWorkspaces += 1;
+      if (entry.value.text.ok) {
+        matches.push(...entry.value.text.value.matches.map((match) => ({ workspaceId: entry.value.workspaceId, path: match.path, line: match.line, text: match.text })));
+        hasMore ||= entry.value.text.value.truncated;
+      }
+      if (entry.value.files.ok) {
+        paths.push(...entry.value.files.value.paths.map((path30) => ({ workspaceId: entry.value.workspaceId, path: path30 })));
+        hasMore ||= entry.value.files.value.truncated;
+      }
+    }
+    return ok({
+      matches,
+      paths: dedupePaths(paths),
+      scannedWorkspaces: successfulWorkspaces,
+      totalMatches: matches.length,
+      hasMore
+    });
+  }
+  async fullScan(request) {
+    const workspaceIds = await this.resolveWorkspaceIds(request.workspaceId);
+    if (!workspaceIds.ok)
+      return workspaceIds;
+    if (this.services.search === void 0)
+      return err({ code: "INTERNAL_ERROR", message: "Search service is unavailable", recoverable: true });
+    const maxResults = 500;
+    const settled = await Promise.allSettled(workspaceIds.value.map(async (workspaceId) => ({
+      workspaceId,
+      result: await this.safeSearchFiles(workspaceId, { query: "*", ...request.path === void 0 ? {} : { path: request.path } }, maxResults, request.glob)
+    })));
+    const files = [];
+    let hasMore = false;
+    let scannedWorkspaces = 0;
+    for (const entry of settled) {
+      if (entry.status !== "fulfilled")
+        continue;
+      scannedWorkspaces += 1;
+      if (!entry.value.result.ok)
+        continue;
+      files.push(...entry.value.result.value.paths.map((path30) => ({ workspaceId: entry.value.workspaceId, path: path30 })));
+      hasMore ||= entry.value.result.value.truncated;
+    }
+    const deduped = dedupePaths(files);
+    const pageSize = normalizePageSize(request.pageSize ?? 200);
+    const page = deduped.slice(0, pageSize);
+    const remaining = deduped.slice(page.length);
+    hasMore ||= remaining.length > 0;
+    let continuationToken;
+    if (hasMore) {
+      continuationToken = (0, import_node_crypto7.randomUUID)();
+      this.scanContinuations.set(continuationToken, { files: remaining, scannedWorkspaces, scannedFiles: deduped.length });
+    }
+    return ok({
+      files: page,
+      scannedWorkspaces,
+      scannedFiles: deduped.length,
+      hasMore,
+      ...continuationToken === void 0 ? {} : { continuationToken }
+    });
+  }
+  async continueFullScan(token, pageSize) {
+    const continuation = this.scanContinuations.get(token);
+    if (continuation === void 0)
+      return err({ code: "INVALID_INPUT", message: "Scan continuation token is invalid or expired", recoverable: false });
+    this.scanContinuations.delete(token);
+    const size = normalizePageSize(pageSize ?? 200);
+    const files = continuation.files.slice(0, size);
+    const remaining = continuation.files.slice(files.length);
+    let nextToken;
+    if (remaining.length > 0) {
+      nextToken = (0, import_node_crypto7.randomUUID)();
+      this.scanContinuations.set(nextToken, { ...continuation, files: remaining });
+    }
+    return ok({
+      files,
+      scannedWorkspaces: continuation.scannedWorkspaces,
+      scannedFiles: continuation.scannedFiles,
+      hasMore: remaining.length > 0,
+      ...nextToken === void 0 ? {} : { continuationToken: nextToken }
+    });
+  }
+  async readMany(request) {
+    if (this.services.file === void 0)
+      return err({ code: "INTERNAL_ERROR", message: "File service is unavailable", recoverable: true });
+    const workspaceIds = await this.resolveWorkspaceIds(request.workspaceId);
+    if (!workspaceIds.ok)
+      return workspaceIds;
+    const workspaceId = request.workspaceId ?? workspaceIds.value[0];
+    if (workspaceId === void 0)
+      return err({ code: "WORKSPACE_NOT_FOUND", message: "No workspace is available", recoverable: false });
+    const settled = await Promise.allSettled(request.files.map(async (file2) => {
+      try {
+        const result = await this.services.file.readFile(this.actor, workspaceId, file2);
+        return result.ok ? { workspaceId, path: file2.path, result: result.value } : { workspaceId, path: file2.path, error: { code: result.error.code, message: result.error.message } };
+      } catch {
+        return { workspaceId, path: file2.path, error: { code: "INTERNAL_ERROR", message: "File read failed" } };
+      }
+    }));
+    const files = settled.map((entry, index) => entry.status === "fulfilled" ? entry.value : { workspaceId, path: request.files[index]?.path ?? "", error: { code: "INTERNAL_ERROR", message: "File read failed" } });
+    return ok({ files, totalFiles: files.length, failedFiles: files.filter((file2) => file2.error !== void 0).length });
+  }
+  async snapshot(workspaceId) {
+    const workspace = this.services.workspaceInfo === void 0 ? void 0 : await this.services.workspaceInfo.info(this.actor, workspaceId);
+    if (workspace !== void 0 && !workspace.ok)
+      return err(workspace.error);
+    const project = this.services.projectSnapshot === void 0 ? void 0 : await this.services.projectSnapshot.snapshot(this.actor, workspaceId);
+    if (project !== void 0 && !project.ok)
+      return err(project.error);
+    if (workspace === void 0 && project === void 0)
+      return err({ code: "INTERNAL_ERROR", message: "Workspace snapshot service is unavailable", recoverable: true });
+    return ok({
+      ...workspace?.ok === true ? { workspace: workspace.value } : {},
+      ...project?.ok === true ? { project: project.value } : {}
+    });
+  }
+  async resolveWorkspaceIds(workspaceId) {
+    if (workspaceId !== void 0 && workspaceId.trim().length > 0)
+      return ok([workspaceId]);
+    const list = this.services.workspaceInfo?.list;
+    if (list === void 0)
+      return err({ code: "INVALID_INPUT", message: "workspaceId is required when workspace listing is unavailable", recoverable: false });
+    const result = await list(this.actor);
+    if (!result.ok)
+      return err(result.error);
+    if (!Array.isArray(result.value))
+      return err({ code: "INTERNAL_ERROR", message: "Workspace list has an invalid shape", recoverable: true });
+    const ids = result.value.flatMap((entry) => {
+      if (typeof entry !== "object" || entry === null || !("id" in entry))
+        return [];
+      const id = entry.id;
+      return typeof id === "string" && id.trim().length > 0 ? [id] : [];
+    });
+    return ok(ids);
+  }
+  async collectWorkspace(workspaceId, request) {
+    if (this.services.search === void 0)
+      return err({ code: "INTERNAL_ERROR", message: "Search service is unavailable", recoverable: true });
+    const limit = SEARCH_LIMIT[request.mode ?? "optimized"];
+    const searchTextPromise = this.safeSearchText(workspaceId, request, limit);
+    const searchFilesPromise = this.safeSearchFiles(workspaceId, request, limit);
+    const gitPromise = this.safeGitStatus(workspaceId);
+    const [textResult, filesResult, gitResult] = await Promise.all([searchTextPromise, searchFilesPromise, gitPromise]);
+    if (!textResult.ok && !filesResult.ok)
+      return err(textResult.error);
+    const changed = /* @__PURE__ */ new Set();
+    if (gitResult.ok) {
+      for (const entry of gitResult.value.entries) {
+        if (typeof entry.path === "string")
+          changed.add(normalizePath(entry.path));
+      }
+    }
+    const candidates = /* @__PURE__ */ new Map();
+    const query = request.query.toLowerCase();
+    if (textResult.ok) {
+      for (const match of textResult.value.matches) {
+        const key = normalizePath(match.path);
+        const current = candidates.get(key) ?? { path: match.path, matches: [], score: 0, fromFilename: false };
+        current.matches.push({ workspaceId, path: match.path, line: match.line, text: match.text });
+        current.score += 12 + (match.text.toLowerCase().includes(query) ? 8 : 0);
+        candidates.set(key, current);
+      }
+    }
+    if (filesResult.ok) {
+      for (const pathValue of filesResult.value.paths) {
+        const key = normalizePath(pathValue);
+        const current = candidates.get(key) ?? { path: pathValue, matches: [], score: 0, fromFilename: false };
+        current.fromFilename = true;
+        if (pathValue.toLowerCase().includes(query))
+          current.score += 25;
+        candidates.set(key, current);
+      }
+    }
+    const ranked = [...candidates.values()].map((candidate) => {
+      const normalized = normalizePath(candidate.path);
+      const gitRelevance = changed.has(normalized) ? "changed" : candidate.matches.length > 0 ? "related" : "none";
+      const testRelevance = isTestPath(candidate.path) ? "test" : isSourcePath(candidate.path) ? "source" : "unknown";
+      const score = candidate.score + (gitRelevance === "changed" ? 20 : gitRelevance === "related" ? 4 : 0) + (request.intent === "review" && testRelevance === "test" ? 8 : 0) + (request.intent === "implement" && testRelevance === "source" ? 5 : 0);
+      const reasons = [
+        ...candidate.matches.length > 0 ? ["text match"] : [],
+        ...candidate.fromFilename ? ["filename match or workspace inventory"] : [],
+        ...gitRelevance === "changed" ? ["changed in Git"] : gitRelevance === "related" ? ["Git-related path"] : [],
+        ...testRelevance === "test" ? ["test relevance"] : []
+      ];
+      return {
+        workspaceId,
+        path: candidate.path,
+        matches: candidate.matches,
+        score,
+        reason: reasons.join("; ") || "workspace inventory candidate",
+        gitRelevance,
+        testRelevance
+      };
+    });
+    ranked.sort((left, right) => right.score - left.score || normalizePath(left.path).localeCompare(normalizePath(right.path)));
+    return ok({
+      candidates: ranked,
+      scannedFiles: filesResult.ok ? filesResult.value.paths.length : ranked.length,
+      totalMatches: textResult.ok ? textResult.value.matches.length : 0,
+      searchTruncated: textResult.ok && textResult.value.truncated || filesResult.ok && filesResult.value.truncated
+    });
+  }
+  async safeSearchText(workspaceId, request, maxResults) {
+    try {
+      return await this.services.search.searchText(this.actor, workspaceId, {
+        query: request.query,
+        maxResults,
+        ...request.path === void 0 ? {} : { path: request.path }
+      });
+    } catch {
+      return err({ code: "INTERNAL_ERROR", message: "Context text search failed", recoverable: true });
+    }
+  }
+  async safeSearchFiles(workspaceId, request, maxResults, glob) {
+    try {
+      return await this.services.search.searchFiles(this.actor, workspaceId, {
+        maxResults,
+        ...glob === void 0 ? {} : { glob },
+        ...request.path === void 0 ? {} : { path: request.path }
+      });
+    } catch {
+      return err({ code: "INTERNAL_ERROR", message: "Context filename search failed", recoverable: true });
+    }
+  }
+  async safeGitStatus(workspaceId) {
+    if (this.services.git === void 0)
+      return ok({ entries: [] });
+    try {
+      return await this.services.git.status(this.actor, workspaceId);
+    } catch {
+      return err({ code: "INTERNAL_ERROR", message: "Context Git lookup failed", recoverable: true });
+    }
+  }
+  async materialize(candidates, request, metadata) {
+    if (this.services.file === void 0)
+      return err({ code: "INTERNAL_ERROR", message: "File service is unavailable", recoverable: true });
+    const mode = request.mode ?? "optimized";
+    const pageSize = normalizePageSize(request.pageSize ?? DEFAULT_PAGE_SIZE[mode]);
+    const targetBytes = normalizeResponseTarget(request.responseTargetBytes);
+    const selectedCandidates = candidates.slice(0, pageSize);
+    const selected = await Promise.all(selectedCandidates.map((candidate) => this.readCandidate(candidate, request)));
+    let consumed = selected.length;
+    let estimatedBytes = selected.reduce((total, file2) => total + Buffer.byteLength(JSON.stringify(file2), "utf8"), 0);
+    while (selected.length > 1 && estimatedBytes > targetBytes) {
+      const removed = selected.pop();
+      if (removed !== void 0)
+        estimatedBytes -= Buffer.byteLength(JSON.stringify(removed), "utf8");
+      consumed -= 1;
+    }
+    const remaining = candidates.slice(consumed);
+    const hasMore = remaining.length > 0 || metadata.searchTruncated;
+    let continuationToken;
+    if (hasMore) {
+      continuationToken = (0, import_node_crypto7.randomUUID)();
+      this.continuations.set(continuationToken, {
+        candidates: remaining,
+        request,
+        scannedFiles: metadata.scannedFiles,
+        totalMatches: metadata.totalMatches,
+        searchTruncated: false
+      });
+    }
+    const symbols = [...new Set(selected.flatMap((file2) => file2.symbols))];
+    const matches = selectedCandidates.slice(0, consumed).flatMap((candidate) => candidate.matches);
+    return ok({
+      files: selected,
+      symbols,
+      matches,
+      scannedFiles: metadata.scannedFiles,
+      matchedFiles: candidates.length,
+      totalMatches: metadata.totalMatches,
+      hasMore,
+      ...continuationToken === void 0 ? {} : { continuationToken }
+    });
+  }
+  async readCandidate(candidate, request) {
+    try {
+      const result = await this.services.file.readFile(this.actor, candidate.workspaceId, { path: candidate.path });
+      if (!result.ok) {
+        return {
+          workspaceId: candidate.workspaceId,
+          path: candidate.path,
+          reason: candidate.reason,
+          snippets: [],
+          symbols: [],
+          gitRelevance: candidate.gitRelevance,
+          testRelevance: candidate.testRelevance,
+          error: { code: result.error.code, message: result.error.message }
+        };
+      }
+      const symbols = extractSymbols(result.value.content);
+      return {
+        workspaceId: candidate.workspaceId,
+        path: candidate.path,
+        reason: candidate.reason,
+        snippets: createSnippets(result.value.content, candidate.matches, request.mode ?? "optimized"),
+        symbols,
+        gitRelevance: candidate.gitRelevance,
+        testRelevance: candidate.testRelevance,
+        ...result.value.byteLength === void 0 ? {} : { byteLength: result.value.byteLength }
+      };
+    } catch {
+      return {
+        workspaceId: candidate.workspaceId,
+        path: candidate.path,
+        reason: candidate.reason,
+        snippets: [],
+        symbols: [],
+        gitRelevance: candidate.gitRelevance,
+        testRelevance: candidate.testRelevance,
+        error: { code: "INTERNAL_ERROR", message: "File read failed" }
+      };
+    }
+  }
+};
+function mergeCollections(collections) {
+  const byKey = /* @__PURE__ */ new Map();
+  let scannedFiles = 0;
+  let totalMatches = 0;
+  let searchTruncated = false;
+  for (const collection of collections) {
+    scannedFiles += collection.scannedFiles;
+    totalMatches += collection.totalMatches;
+    searchTruncated ||= collection.searchTruncated;
+    for (const candidate of collection.candidates) {
+      const key = `${candidate.workspaceId}\0${normalizePath(candidate.path)}`;
+      const existing = byKey.get(key);
+      if (existing === void 0)
+        byKey.set(key, candidate);
+      else
+        byKey.set(key, {
+          ...existing,
+          matches: [...existing.matches, ...candidate.matches],
+          score: existing.score + candidate.score,
+          reason: `${existing.reason}; ${candidate.reason}`
+        });
+    }
+  }
+  const candidates = [...byKey.values()];
+  candidates.sort((left, right) => right.score - left.score || `${left.workspaceId}:${normalizePath(left.path)}`.localeCompare(`${right.workspaceId}:${normalizePath(right.path)}`));
+  return { candidates, scannedFiles, totalMatches, searchTruncated };
+}
+function validateRequest(request) {
+  if (typeof request.query !== "string" || request.query.trim().length === 0)
+    return err({ code: "INVALID_INPUT", message: "Context query is required", recoverable: false });
+  if (request.pageSize !== void 0 && (!Number.isInteger(request.pageSize) || request.pageSize < 1 || request.pageSize > 500)) {
+    return err({ code: "INVALID_INPUT", message: "Context pageSize is invalid", recoverable: false });
+  }
+  if (request.responseTargetBytes !== void 0 && (!Number.isInteger(request.responseTargetBytes) || request.responseTargetBytes < 1024 || request.responseTargetBytes > MAX_RESPONSE_TARGET_BYTES)) {
+    return err({ code: "INVALID_INPUT", message: "Context responseTargetBytes is invalid", recoverable: false });
+  }
+  return ok(void 0);
+}
+function normalizePageSize(value) {
+  return Math.max(1, Math.min(500, Math.floor(value)));
+}
+function normalizeResponseTarget(value) {
+  return Math.max(1024, Math.min(MAX_RESPONSE_TARGET_BYTES, Math.floor(value ?? DEFAULT_RESPONSE_TARGET_BYTES)));
+}
+function normalizePath(value) {
+  return value.replace(/\\/g, "/").toLowerCase();
+}
+function dedupePaths(paths) {
+  const seen = /* @__PURE__ */ new Set();
+  const result = [];
+  for (const entry of paths) {
+    const key = `${entry.workspaceId}\0${normalizePath(entry.path)}`;
+    if (seen.has(key))
+      continue;
+    seen.add(key);
+    result.push(entry);
+  }
+  return result;
+}
+function isTestPath(value) {
+  return /(^|[\\/])(test|tests)([\\/]|$)|\.(test|spec)\.[^.]+$/i.test(value);
+}
+function isSourcePath(value) {
+  return /\.(c|m)?(t|j)sx?$|\.py$|\.go$|\.rs$|\.java$|\.cs$/i.test(value);
+}
+function extractSymbols(content) {
+  const symbols = /* @__PURE__ */ new Set();
+  const pattern = /\b(?:export\s+)?(?:default\s+)?(?:async\s+)?(?:function|class|interface|type|const|let|var|enum)\s+([A-Za-z_$][\w$]*)/g;
+  for (const match of content.matchAll(pattern)) {
+    const symbol2 = match[1];
+    if (symbol2 !== void 0)
+      symbols.add(symbol2);
+  }
+  return [...symbols];
+}
+function createSnippets(content, matches, mode) {
+  const lines = content.split(/\r?\n/);
+  const radius = mode === "exhaustive" ? 4 : mode === "full" ? 2 : 1;
+  const ranges = matches.length === 0 ? [{ start: 1, end: Math.min(lines.length, mode === "exhaustive" ? 40 : 12) }] : matches.map((match) => ({ start: Math.max(1, match.line - radius), end: Math.min(lines.length, match.line + radius) }));
+  const merged = [];
+  for (const range of ranges.sort((left, right) => left.start - right.start)) {
+    const previous = merged[merged.length - 1];
+    if (previous !== void 0 && range.start <= previous.end + 1)
+      previous.end = Math.max(previous.end, range.end);
+    else
+      merged.push({ ...range });
+  }
+  return merged.map((range) => ({
+    startLine: range.start,
+    endLine: range.end,
+    text: lines.slice(range.start - 1, range.end).join("\n")
+  }));
+}
+
 // ../../packages/mcp-server/dist/result-mapper.js
 function mapResult(result) {
   if (!result.ok)
@@ -30995,6 +31475,234 @@ function extractImageContent(value) {
   if (!record2.mimeType.startsWith("image/"))
     return void 0;
   return { type: "image", data: record2.content, mimeType: record2.mimeType };
+}
+
+// ../../packages/mcp-server/dist/parallel-tool-executor.js
+var CANCELLATION_ERROR = Symbol("batch-cancellation");
+var TIMEOUT_ERROR = Symbol("batch-timeout");
+async function executeBatch(plan, invoke, options = {}) {
+  const orderedCalls = flattenPlan(plan);
+  validatePlan(orderedCalls, plan.groups ?? []);
+  const results = /* @__PURE__ */ new Map();
+  if (options.signal?.aborted) {
+    for (const call of orderedCalls)
+      results.set(call.id, cancelledResult(call));
+    return finalize2(orderedCalls, results);
+  }
+  if (plan.calls.length > 0) {
+    await executeSet(plan.calls, plan.parallel, results, invoke, options.signal);
+  }
+  for (const group of plan.groups ?? []) {
+    if (options.signal?.aborted) {
+      for (const call of group.calls) {
+        if (!results.has(call.id))
+          results.set(call.id, cancelledResult(call));
+      }
+      continue;
+    }
+    await executeSet(group.calls, group.parallel, results, invoke, options.signal);
+  }
+  return finalize2(orderedCalls, results);
+}
+async function executeSet(calls, parallel, results, invoke, signal) {
+  const pending = new Map(calls.map((call) => [call.id, call]));
+  while (pending.size > 0) {
+    if (signal?.aborted) {
+      for (const call of pending.values())
+        results.set(call.id, cancelledResult(call));
+      return;
+    }
+    const ready = [...pending.values()].filter((call) => call.dependencies.every((dependency) => results.has(dependency)));
+    if (ready.length === 0) {
+      for (const call of pending.values()) {
+        results.set(call.id, skippedResult(call, "DEPENDENCY_UNRESOLVED", "Dependencies could not be resolved"));
+      }
+      return;
+    }
+    const blocked = ready.filter((call) => call.dependencies.some((dependency) => results.get(dependency)?.status !== "succeeded"));
+    for (const call of blocked) {
+      pending.delete(call.id);
+      results.set(call.id, skippedResult(call, "DEPENDENCY_FAILED", "A dependency did not succeed"));
+    }
+    const runnable = ready.filter((call) => !blocked.includes(call));
+    if (runnable.length === 0)
+      continue;
+    const wave = selectWave(runnable, parallel);
+    for (const call of wave)
+      pending.delete(call.id);
+    const settled = await Promise.allSettled(wave.map((call) => executeOne(call, invoke, signal)));
+    for (let index = 0; index < wave.length; index += 1) {
+      const call = wave[index];
+      const outcome = settled[index];
+      if (call === void 0 || outcome === void 0)
+        continue;
+      results.set(call.id, outcome.status === "fulfilled" ? outcome.value : failedResult(call, outcome.reason));
+    }
+  }
+}
+function selectWave(calls, parallel) {
+  if (!parallel)
+    return calls.slice(0, 1);
+  const unsafe = calls.find((call) => !call.parallelSafe);
+  return unsafe === void 0 ? calls : [unsafe];
+}
+async function executeOne(call, invoke, parentSignal) {
+  const started = Date.now();
+  if (parentSignal?.aborted)
+    return cancelledResult(call, Date.now() - started);
+  const controller = new AbortController();
+  const onAbort = () => controller.abort();
+  parentSignal?.addEventListener("abort", onAbort, { once: true });
+  let timeoutHandle;
+  let resolveTimeout;
+  let resolveCancellation;
+  const timeout = new Promise((resolve) => {
+    resolveTimeout = () => resolve({ kind: "timeout", error: TIMEOUT_ERROR });
+  });
+  const cancelled = new Promise((resolve) => {
+    resolveCancellation = () => resolve({ kind: "cancelled", error: CANCELLATION_ERROR });
+  });
+  const invocation = Promise.resolve().then(() => invoke(call, controller.signal)).then((value) => ({ kind: "value", value }), (error46) => ({ kind: "error", error: error46 }));
+  if (call.timeoutMs !== void 0)
+    timeoutHandle = setTimeout(() => {
+      controller.abort();
+      resolveTimeout?.();
+    }, call.timeoutMs);
+  if (parentSignal !== void 0) {
+    if (parentSignal.aborted)
+      resolveCancellation?.();
+    else
+      parentSignal.addEventListener("abort", () => {
+        controller.abort();
+        resolveCancellation?.();
+      }, { once: true });
+  }
+  try {
+    const outcome = await Promise.race([
+      invocation,
+      ...call.timeoutMs === void 0 ? [] : [timeout],
+      ...parentSignal === void 0 ? [] : [cancelled]
+    ]);
+    const durationMs = Date.now() - started;
+    if (outcome.kind === "value")
+      return { id: call.id, tool: call.tool, status: "succeeded", durationMs, value: outcome.value };
+    if (outcome.kind === "timeout")
+      return timedOutResult(call, durationMs);
+    if (outcome.kind === "cancelled")
+      return cancelledResult(call, durationMs);
+    return failedResult(call, outcome.error, durationMs);
+  } finally {
+    if (timeoutHandle !== void 0)
+      clearTimeout(timeoutHandle);
+    parentSignal?.removeEventListener("abort", onAbort);
+  }
+}
+function flattenPlan(plan) {
+  return [...plan.calls, ...(plan.groups ?? []).flatMap((group) => group.calls)];
+}
+function validatePlan(calls, groups) {
+  const ids = /* @__PURE__ */ new Set();
+  for (const call of calls) {
+    if (ids.has(call.id))
+      throw new Error(`Duplicate batch call id: ${call.id}`);
+    ids.add(call.id);
+  }
+  for (const call of calls) {
+    for (const dependency of call.dependencies) {
+      if (!ids.has(dependency))
+        throw new Error(`Unknown batch dependency: ${dependency}`);
+    }
+  }
+  const groupIndex = /* @__PURE__ */ new Map();
+  for (let index = 0; index < groups.length; index += 1) {
+    const group = groups[index];
+    if (group === void 0)
+      continue;
+    if (groupIndex.has(group.id))
+      throw new Error(`Duplicate batch group id: ${group.id}`);
+    groupIndex.set(group.id, index);
+  }
+  const callGroup = /* @__PURE__ */ new Map();
+  for (let index = 0; index < groups.length; index += 1) {
+    const group = groups[index];
+    if (group === void 0)
+      continue;
+    for (const call of group.calls)
+      callGroup.set(call.id, index);
+  }
+  for (const call of calls) {
+    const currentGroup = callGroup.get(call.id);
+    if (currentGroup === void 0)
+      continue;
+    for (const dependency of call.dependencies) {
+      const dependencyGroup = callGroup.get(dependency);
+      if (dependencyGroup !== void 0 && dependencyGroup > currentGroup) {
+        throw new Error(`Batch dependency points to a later sequential group: ${dependency}`);
+      }
+    }
+  }
+}
+function finalize2(orderedCalls, results) {
+  const stableResults = orderedCalls.map((call) => results.get(call.id) ?? skippedResult(call, "NOT_EXECUTED", "Call was not executed"));
+  const summary = {
+    total: stableResults.length,
+    succeeded: stableResults.filter((result) => result.status === "succeeded").length,
+    failed: stableResults.filter((result) => result.status === "failed").length,
+    skipped: stableResults.filter((result) => result.status === "skipped").length,
+    timedOut: stableResults.filter((result) => result.status === "timed_out").length,
+    cancelled: stableResults.filter((result) => result.status === "cancelled").length
+  };
+  return { results: stableResults, summary };
+}
+function failedResult(call, error46, durationMs = 0) {
+  const code = codedError(error46)?.code ?? "CHILD_FAILED";
+  return {
+    id: call.id,
+    tool: call.tool,
+    status: "failed",
+    durationMs,
+    error: { code, message: errorMessage(error46) }
+  };
+}
+function timedOutResult(call, durationMs = 0) {
+  return {
+    id: call.id,
+    tool: call.tool,
+    status: "timed_out",
+    durationMs,
+    error: { code: "TIMEOUT", message: "Child call timed out" }
+  };
+}
+function cancelledResult(call, durationMs = 0) {
+  return {
+    id: call.id,
+    tool: call.tool,
+    status: "cancelled",
+    durationMs,
+    error: { code: "CANCELLED", message: "Batch execution was cancelled" }
+  };
+}
+function skippedResult(call, code, message) {
+  return {
+    id: call.id,
+    tool: call.tool,
+    status: "skipped",
+    durationMs: 0,
+    error: { code, message }
+  };
+}
+function errorMessage(error46) {
+  if (error46 instanceof Error && error46.message.trim().length > 0)
+    return error46.message;
+  if (typeof error46 === "string" && error46.trim().length > 0)
+    return error46;
+  return "Child call failed";
+}
+function codedError(error46) {
+  if (typeof error46 !== "object" || error46 === null || !("code" in error46))
+    return void 0;
+  const code = error46.code;
+  return typeof code === "string" ? { code } : void 0;
 }
 
 // ../../packages/mcp-server/dist/tools/tool-types.js
@@ -31068,6 +31776,58 @@ var codexStatusSchema = external_exports.object({}).strict();
 var codexRunSchema = external_exports.object({ workspaceId: workspaceIdSchema, instruction: external_exports.string().min(1).refine((value) => Buffer.byteLength(value, "utf8") <= MAX_INSTRUCTION_BYTES, "Instruction is too large") }).strict();
 var codexTaskHandleSchema = external_exports.object({ workspaceId: workspaceIdSchema, codexTaskId: external_exports.string().trim().min(1).max(128) }).strict();
 var codexTaskLogsSchema = codexTaskHandleSchema.extend({ tailLines: external_exports.number().int().min(1).max(1e4).optional(), sinceSequence: external_exports.number().int().min(0).optional() }).strict();
+var batchCallSchema = external_exports.object({
+  id: external_exports.string().trim().min(1).max(128).optional(),
+  tool: external_exports.string().trim().min(1).max(128),
+  arguments: external_exports.record(external_exports.string(), external_exports.unknown()).default({}),
+  dependsOn: external_exports.array(external_exports.string().trim().min(1).max(128)).max(50).default([]),
+  timeoutMs: external_exports.number().int().min(1).max(4 * 60 * 60 * 1e3).optional()
+}).strict();
+var batchGroupSchema = external_exports.object({
+  id: external_exports.string().trim().min(1).max(128).optional(),
+  parallel: external_exports.boolean().default(true),
+  calls: external_exports.array(batchCallSchema).min(1).max(50)
+}).strict();
+var toolBatchSchema = external_exports.object({
+  parallel: external_exports.boolean().default(true),
+  calls: external_exports.array(batchCallSchema).max(50).optional(),
+  groups: external_exports.array(batchGroupSchema).max(20).optional()
+}).strict().refine((value) => (value.calls?.length ?? 0) > 0 || (value.groups?.length ?? 0) > 0, "At least one batch call is required").refine((value) => {
+  const grouped = value.groups?.reduce((total, group) => total + group.calls.length, 0) ?? 0;
+  return (value.calls?.length ?? 0) + grouped <= 50;
+}, "A batch cannot contain more than 50 calls");
+var workspaceContextSchema = external_exports.object({
+  query: external_exports.string().trim().min(1).max(32768),
+  workspaceId: optionalWorkspaceIdSchema,
+  path: pathSchema.optional(),
+  intent: external_exports.enum(["auto", "debug", "implement", "review", "trace", "explore"]).default("auto"),
+  mode: external_exports.enum(["optimized", "full", "exhaustive"]).default("optimized"),
+  responseTargetBytes: external_exports.number().int().min(1024).max(8 * 1024 * 1024).optional(),
+  pageSize: external_exports.number().int().min(1).max(500).optional()
+}).strict();
+var workspaceContextContinueSchema = external_exports.object({
+  continuationToken: external_exports.string().trim().min(1).max(128),
+  pageSize: external_exports.number().int().min(1).max(500).optional()
+}).strict();
+var workspaceFullScanSchema = external_exports.object({
+  workspaceId: optionalWorkspaceIdSchema,
+  path: pathSchema.optional(),
+  glob: external_exports.string().max(1024).optional(),
+  pageSize: external_exports.number().int().min(1).max(500).optional()
+}).strict();
+var workspaceFullScanContinueSchema = workspaceContextContinueSchema;
+var workspaceSnapshotSchema = workspaceInfoSchema;
+var searchAllSchema = external_exports.object({
+  query: external_exports.string().trim().min(1).max(32768),
+  workspaceId: optionalWorkspaceIdSchema,
+  path: pathSchema.optional(),
+  glob: external_exports.string().max(1024).optional(),
+  maxResults: external_exports.number().int().min(1).max(500).optional()
+}).strict();
+var readManyFilesSchema = external_exports.object({
+  workspaceId: optionalWorkspaceIdSchema,
+  files: external_exports.array(readFileSchema.omit({ workspaceId: true })).min(1).max(500)
+}).strict();
 var capabilityMetadataSchema = external_exports.record(external_exports.string(), external_exports.unknown());
 var capabilityParametersSchema = external_exports.record(external_exports.string(), external_exports.unknown());
 var capabilityApprovalSchema = external_exports.enum(["use_policy", "always_ask", "skip"]).default("use_policy");
@@ -31234,6 +31994,177 @@ var mcpCallSchema = external_exports.object({
   tool: external_exports.string().trim().min(1).max(256),
   arguments: external_exports.record(external_exports.string(), external_exports.unknown()).optional()
 }).strict();
+
+// ../../packages/mcp-server/dist/tools/batch-tools.js
+var BatchChildError = class extends Error {
+  code;
+  constructor(code, message) {
+    super(message);
+    this.code = code;
+    this.name = "BatchChildError";
+  }
+};
+function batchTools(invoker) {
+  return [defineTool({
+    name: "tool_batch",
+    description: "Execute multiple MCP tools with parallel, dependency-aware, timeout, cancellation, and partial-result handling.",
+    permission: "DANGEROUS",
+    annotations: { readOnlyHint: false, destructiveHint: true },
+    inputSchema: toolBatchSchema,
+    async handler(rawInput) {
+      const input = rawInput;
+      const normalized = normalizePlan(input, invoker);
+      if (!normalized.ok)
+        return normalized;
+      try {
+        const result = await executeBatch(normalized.value, async (call, signal) => {
+          if (call.tool === "tool_batch")
+            throw new BatchChildError("INVALID_INPUT", "Nested tool_batch calls are not allowed");
+          const response = await invoker.invoke(call.tool, call.input, signal);
+          if (response.isError === true)
+            throw toChildError(response);
+          return response;
+        });
+        return ok(result);
+      } catch (error46) {
+        return err({
+          code: "INVALID_INPUT",
+          message: error46 instanceof Error ? error46.message : "Batch plan is invalid",
+          recoverable: false
+        });
+      }
+    }
+  })];
+}
+function normalizePlan(input, invoker) {
+  let nextId = 1;
+  const normalizeCall = (raw) => {
+    const id = raw.id ?? `call-${nextId}`;
+    nextId += 1;
+    const metadata = invoker.describe(raw.tool);
+    const parallelSafe = metadata?.permission === "READ" && metadata.annotations.readOnlyHint && !metadata.annotations.destructiveHint;
+    return {
+      id,
+      tool: raw.tool,
+      input: raw.arguments,
+      dependencies: raw.dependsOn,
+      ...raw.timeoutMs === void 0 ? {} : { timeoutMs: raw.timeoutMs },
+      parallelSafe
+    };
+  };
+  const calls = (input.calls ?? []).map(normalizeCall);
+  const groups = (input.groups ?? []).map((group, index) => ({
+    id: group.id ?? `group-${index + 1}`,
+    parallel: group.parallel,
+    calls: group.calls.map(normalizeCall)
+  }));
+  return ok({
+    parallel: input.parallel,
+    calls,
+    ...groups.length === 0 ? {} : { groups }
+  });
+}
+function toChildError(response) {
+  const content = response.structuredContent;
+  if (typeof content === "object" && content !== null && "error" in content) {
+    const error46 = content.error;
+    if (typeof error46 === "object" && error46 !== null) {
+      const code = "code" in error46 && typeof error46.code === "string" ? error46.code : "CHILD_FAILED";
+      const message = "message" in error46 && typeof error46.message === "string" ? error46.message : "Child call failed";
+      return new BatchChildError(code, message);
+    }
+  }
+  return new BatchChildError("CHILD_FAILED", "Child call failed");
+}
+
+// ../../packages/mcp-server/dist/tools/context-tools.js
+function contextTools(context, engine) {
+  void context;
+  return [
+    defineTool({
+      name: "workspace_context",
+      description: "Aggregate ranked workspace context with snippets, symbols, Git/test relevance, and continuation.",
+      permission: "READ",
+      annotations: { readOnlyHint: true, destructiveHint: false },
+      inputSchema: workspaceContextSchema,
+      handler: async (input) => engine.collect({
+        query: input.query,
+        ...input.workspaceId === void 0 ? {} : { workspaceId: input.workspaceId },
+        ...input.path === void 0 ? {} : { path: input.path },
+        intent: input.intent,
+        mode: input.mode,
+        ...input.responseTargetBytes === void 0 ? {} : { responseTargetBytes: input.responseTargetBytes },
+        ...input.pageSize === void 0 ? {} : { pageSize: input.pageSize }
+      })
+    }),
+    defineTool({
+      name: "workspace_context_continue",
+      description: "Continue a workspace_context result without discarding unreturned candidates.",
+      permission: "READ",
+      annotations: { readOnlyHint: true, destructiveHint: false },
+      inputSchema: workspaceContextContinueSchema,
+      handler: async (input) => engine.continue(input.continuationToken, input.pageSize)
+    }),
+    defineTool({
+      name: "workspace_full_scan",
+      description: "Enumerate every discoverable workspace file, including hidden and generated paths when the search backend exposes them.",
+      permission: "READ",
+      annotations: { readOnlyHint: true, destructiveHint: false },
+      inputSchema: workspaceFullScanSchema,
+      handler: async (input) => engine.fullScan({
+        ...input.workspaceId === void 0 ? {} : { workspaceId: input.workspaceId },
+        ...input.path === void 0 ? {} : { path: input.path },
+        ...input.glob === void 0 ? {} : { glob: input.glob },
+        ...input.pageSize === void 0 ? {} : { pageSize: input.pageSize }
+      })
+    }),
+    defineTool({
+      name: "workspace_full_scan_continue",
+      description: "Continue a workspace_full_scan result page.",
+      permission: "READ",
+      annotations: { readOnlyHint: true, destructiveHint: false },
+      inputSchema: workspaceFullScanContinueSchema,
+      handler: async (input) => engine.continueFullScan(input.continuationToken, input.pageSize)
+    }),
+    defineTool({
+      name: "workspace_snapshot",
+      description: "Return workspace identity and project snapshot metadata without source contents.",
+      permission: "READ",
+      annotations: { readOnlyHint: true, destructiveHint: false },
+      inputSchema: workspaceSnapshotSchema,
+      handler: async (input) => engine.snapshot(input.workspaceId)
+    }),
+    defineTool({
+      name: "search_all",
+      description: "Search text and filenames across one or all registered workspaces.",
+      permission: "READ",
+      annotations: { readOnlyHint: true, destructiveHint: false },
+      inputSchema: searchAllSchema,
+      handler: async (input) => engine.searchAll({
+        query: input.query,
+        ...input.workspaceId === void 0 ? {} : { workspaceId: input.workspaceId },
+        ...input.path === void 0 ? {} : { path: input.path },
+        ...input.glob === void 0 ? {} : { glob: input.glob },
+        ...input.maxResults === void 0 ? {} : { maxResults: input.maxResults }
+      })
+    }),
+    defineTool({
+      name: "read_many_files",
+      description: "Read many workspace files in parallel while preserving one result or error per requested path.",
+      permission: "READ",
+      annotations: { readOnlyHint: true, destructiveHint: false },
+      inputSchema: readManyFilesSchema,
+      handler: async (input) => engine.readMany({
+        ...input.workspaceId === void 0 ? {} : { workspaceId: input.workspaceId },
+        files: input.files.map((file2) => ({
+          path: file2.path,
+          ...file2.startLine === void 0 ? {} : { startLine: file2.startLine },
+          ...file2.endLine === void 0 ? {} : { endLine: file2.endLine }
+        }))
+      })
+    })
+  ];
+}
 
 // ../../packages/mcp-server/dist/tools/codex-tools.js
 function codexTools(context) {
@@ -31767,9 +32698,10 @@ var ToolRegistry = class {
     this.diagnostic = options.diagnostic;
     this.activity = options.activityTracker ?? new ActivityTracker(options.activity);
     const context = { services, actor };
+    const contextEngine = new ContextEngine(services, actor);
     const workspace = workspaceTools(context);
     const files = fileTools(context);
-    this.tools = [
+    const baseTools = [
       ...workspace,
       ...files.slice(0, 2),
       ...searchTools(context),
@@ -31779,7 +32711,15 @@ var ToolRegistry = class {
       ...codexTools(context),
       ...capabilityTools(context),
       ...skillTools(context),
-      ...mcpBridgeTools(context)
+      ...mcpBridgeTools(context),
+      ...contextTools(context, contextEngine)
+    ];
+    this.tools = [
+      ...baseTools,
+      ...batchTools({
+        invoke: (name, input) => this.invoke(name, input),
+        describe: (name) => baseTools.find((tool) => tool.name === name)
+      })
     ];
   }
   list() {
@@ -32631,10 +33571,10 @@ var import_node_path28 = __toESM(require("node:path"), 1);
 var import_node_url = require("node:url");
 
 // ../../packages/audit/dist/audit-service.js
-var import_node_crypto8 = require("node:crypto");
+var import_node_crypto9 = require("node:crypto");
 
 // ../../packages/audit/dist/redactor.js
-var import_node_crypto7 = require("node:crypto");
+var import_node_crypto8 = require("node:crypto");
 var SENSITIVE_KEY = /authorization|token|secret|password|api[_-]?key|private[_-]?key|credential/i;
 var BEARER_VALUE2 = /\bBearer\s+[^\s,;]+/gi;
 var AUTHORIZATION_HEADER2 = /(Authorization\s*:\s*Bearer\s+)[^\s,;]+/gi;
@@ -32662,7 +33602,7 @@ function codexInstructionSummary(codexTaskId, instruction) {
   return {
     codexTaskId,
     instructionLength: Buffer.byteLength(instruction, "utf8"),
-    instructionSha256: (0, import_node_crypto7.createHash)("sha256").update(instruction, "utf8").digest("hex")
+    instructionSha256: (0, import_node_crypto8.createHash)("sha256").update(instruction, "utf8").digest("hex")
   };
 }
 function redactString(value) {
@@ -32682,7 +33622,7 @@ var AuditService = class {
   }
   async record(input) {
     const event = {
-      id: (0, import_node_crypto8.randomUUID)(),
+      id: (0, import_node_crypto9.randomUUID)(),
       timestamp: input.timestamp ?? (/* @__PURE__ */ new Date()).toISOString(),
       actorId: input.actorId,
       actorName: input.actorName,
@@ -32780,7 +33720,7 @@ var LocalCapabilityService = class {
 var import_node_child_process6 = require("node:child_process");
 var import_promises17 = require("node:fs/promises");
 var import_node_path22 = __toESM(require("node:path"), 1);
-var import_node_crypto9 = require("node:crypto");
+var import_node_crypto10 = require("node:crypto");
 var SHELL_OPERATIONS = ["run", "status", "wait", "logs", "result", "cancel", "resume", "approve", "deny"];
 var DEFAULT_TIMEOUT_SECONDS = 3600;
 var DEFAULT_AUTO_WAIT_SECONDS = 1;
@@ -32869,7 +33809,7 @@ var ShellCapabilityBackend = class {
       resolveCompletion = resolve;
     });
     const record2 = {
-      taskId: (0, import_node_crypto9.randomUUID)(),
+      taskId: (0, import_node_crypto10.randomUUID)(),
       child,
       includeStdout: request.includeStdout,
       includeStderr: request.includeStderr,
@@ -32980,14 +33920,14 @@ var ShellCapabilityBackend = class {
     }
     return ok(canonicalCandidate);
   }
-  finish(record2, state, exitCode, errorMessage) {
+  finish(record2, state, exitCode, errorMessage2) {
     if (record2.state !== "running")
       return;
     record2.state = state;
     if (exitCode !== void 0)
       record2.exitCode = exitCode;
-    if (errorMessage !== void 0)
-      record2.errorMessage = errorMessage;
+    if (errorMessage2 !== void 0)
+      record2.errorMessage = errorMessage2;
     record2.finishedAt = (/* @__PURE__ */ new Date()).toISOString();
     if (record2.timer !== void 0)
       clearTimeout(record2.timer);
@@ -47960,7 +48900,7 @@ var Client = class extends Protocol2 {
   * trace context) supplied to the public `list*()` reaches every wire
   * request the walk issues.
   */
-  async _listAllPages(method, baseParams, options, append, finalize2) {
+  async _listAllPages(method, baseParams, options, append, finalize3) {
     const bypass = options?.cacheMode === "bypass";
     const generation = this._cache.captureGeneration(method);
     const acc = await this.request({
@@ -47988,7 +48928,7 @@ var Client = class extends Protocol2 {
       pages++;
     }
     delete acc.nextCursor;
-    finalize2?.(acc);
+    finalize3?.(acc);
     if (bypass) return acc;
     await this._cache.write(method, acc, generation, this._freshness(acc));
     return acc;
