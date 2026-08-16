@@ -144,8 +144,13 @@ export function createDesktopRuntime(dataPath: string): DesktopRuntime {
   const capabilityRuntime = createLocalCapabilityRuntime(dataPath, async (): Promise<readonly string[]> => (
     (await workspaceRepository.list()).map((workspace) => workspace.realRootPath)
   ), unrestricted);
-  // Ensure machine roots exist (every fixed drive in unrestricted mode, which is the default).
-  const machineRootReady = syncMachineRoots(workspaceService, unrestricted);
+  // Start machine-root synchronization lazily so runtime construction cannot race
+  // with the first workspace/database operation on slower Windows runners.
+  let machineRootReady: Promise<Workspace | null> | null = null;
+  const ensureMachineRoots = (): Promise<Workspace | null> => {
+    machineRootReady ??= syncMachineRoots(workspaceService, unrestricted);
+    return machineRootReady;
+  };
   const extensionsService: ExtensionsService = createLocalExtensionsService({
     settingsJson: settingsRepository.get(EXTENSIONS_SETTINGS_KEY),
     workspaceRootProvider: async (): Promise<string | undefined> => {
@@ -247,8 +252,12 @@ export function createDesktopRuntime(dataPath: string): DesktopRuntime {
   }
 
   const services: DesktopIpcServices = {
-    listWorkspaces: async (): Promise<readonly WorkspaceSummary[]> => (await workspaceService.list()).map(toWorkspaceSummary),
+    listWorkspaces: async (): Promise<readonly WorkspaceSummary[]> => {
+      await ensureMachineRoots();
+      return (await workspaceService.list()).map(toWorkspaceSummary);
+    },
     addWorkspace: async (request: AddWorkspaceRequest): Promise<WorkspaceSummary> => {
+      await ensureMachineRoots();
       if (!unrestricted && !isUnderEDrive(request.rootPath)) {
         throw new Error('Workspace path must be under E:\\ (enable Unrestricted mode in Settings to add other drives)');
       }
@@ -262,8 +271,12 @@ export function createDesktopRuntime(dataPath: string): DesktopRuntime {
       }
       return toWorkspaceSummary(workspace);
     },
-    selectWorkspace: async (request: SelectWorkspaceRequest): Promise<WorkspaceSummary> => selectAndMaybeRestart(request.workspaceId),
+    selectWorkspace: async (request: SelectWorkspaceRequest): Promise<WorkspaceSummary> => {
+      await ensureMachineRoots();
+      return selectAndMaybeRestart(request.workspaceId);
+    },
     getDashboard: async (): Promise<DashboardSnapshot> => {
+      await ensureMachineRoots();
       const selectedWorkspace = await resolveSelectedWorkspace(workspaceService, settingsRepository);
       const gitSummary = selectedWorkspace === null
         ? { branch: null, changedFiles: 0, stagedFiles: 0, message: 'No workspace selected' }
@@ -338,9 +351,13 @@ export function createDesktopRuntime(dataPath: string): DesktopRuntime {
       unwrap(await processService.stop(actor, workspaceId, request.processId), 'Process could not be stopped');
       return { stopped: true };
     },
-    startMcp: async (request: StartMcpRequest): Promise<McpConnectionStatus> => mcpLifecycle.start(request.workspaceId),
+    startMcp: async (request: StartMcpRequest): Promise<McpConnectionStatus> => {
+      await ensureMachineRoots();
+      return mcpLifecycle.start(request.workspaceId);
+    },
     stopMcp: (): Promise<McpConnectionStatus> => mcpLifecycle.stop(),
     restartMcp: async (): Promise<McpConnectionStatus> => {
+      await ensureMachineRoots();
       const selected = await resolveSelectedWorkspace(workspaceService, settingsRepository);
       if (selected === null) throw new Error('A workspace is required to restart MCP');
       return mcpLifecycle.restart(selected.id);
@@ -367,8 +384,12 @@ export function createDesktopRuntime(dataPath: string): DesktopRuntime {
       const result = await capabilityRuntime.service.execute('dom_cdp', { action: 'launch' });
       return toManagedBrowserStatus(unwrap(result, 'Managed Chrome could not be started'));
     },
-    runDoctor: (): Promise<DoctorReport> => doctorService.run(),
+    runDoctor: async (): Promise<DoctorReport> => {
+      await ensureMachineRoots();
+      return doctorService.run();
+    },
     getLogSnapshot: async (): Promise<LogSnapshot> => {
+      await ensureMachineRoots();
       const workLog = await buildWorkLog(auditRepository, settingsRepository);
       const inFlight = activityTracker.listInFlight().map(toInFlightItem);
       const processSummaries = await listTrackedProcesses(processService, trackedProcesses);
@@ -395,7 +416,7 @@ export function createDesktopRuntime(dataPath: string): DesktopRuntime {
     activityTracker,
     logHub,
     ensureDefaultWorkspace: async (rootPath: string): Promise<string> => {
-      await machineRootReady;
+      await ensureMachineRoots();
       if (!unrestricted && !isUnderEDrive(rootPath)) {
         throw new Error('Workspace path must be under E:\\');
       }
@@ -420,7 +441,7 @@ export function createDesktopRuntime(dataPath: string): DesktopRuntime {
       return added.id;
     },
     autoStartMcp: async (): Promise<McpConnectionStatus> => {
-      await machineRootReady;
+      await ensureMachineRoots();
       const envWorkspacePath = process.env.LNWJUD_WORKSPACE?.trim();
       if (envWorkspacePath !== undefined && envWorkspacePath.length > 0) {
         if (!unrestricted && !isUnderEDrive(envWorkspacePath)) {
