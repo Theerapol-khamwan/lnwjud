@@ -9,6 +9,7 @@ import { contextTools } from './tools/context-tools.js';
 import { filePageTools } from './tools/file-page-tools.js';
 import { workspaceIndexTools } from './tools/workspace-index-tools.js';
 import { upgradeTools } from './tools/upgrade-tools.js';
+import { ToolSchemaRegistry } from './tool-schema-registry.js';
 import { codexTools } from './tools/codex-tools.js';
 import { capabilityTools } from './tools/capability-tools.js';
 import { fileTools } from './tools/file-tools.js';
@@ -32,6 +33,7 @@ export class ToolRegistry {
   private readonly tools: readonly McpToolDefinition[];
   private readonly diagnostic: DiagnosticLogger | undefined;
   private readonly activity: ActivityTracker;
+  private readonly schemaRegistry: ToolSchemaRegistry;
 
   public constructor(services: McpApplicationServices, actor: FileActor, options: ToolRegistryOptions = {}) {
     this.diagnostic = options.diagnostic;
@@ -64,6 +66,8 @@ export class ToolRegistry {
         describe: (name) => baseTools.find((tool) => tool.name === name),
       }),
     ];
+    this.schemaRegistry = new ToolSchemaRegistry();
+    for (const tool of this.tools) this.schemaRegistry.register(tool);
   }
 
   public list(): readonly McpToolDefinition[] {
@@ -72,6 +76,14 @@ export class ToolRegistry {
 
   public listInFlight(): ReturnType<ActivityTracker['listInFlight']> {
     return this.activity.listInFlight();
+  }
+
+  public listSchemas(): ReturnType<ToolSchemaRegistry['list']> {
+    return this.schemaRegistry.list();
+  }
+
+  public describeSchema(name: string): ReturnType<ToolSchemaRegistry['describe']> {
+    return this.schemaRegistry.describe(name);
   }
 
   public async invoke(name: string, input: unknown): Promise<McpToolResponse> {

@@ -9,4 +9,5 @@ export * from './server.js';
 export * from './stdio.js';
 export * from './tool-registry.js';
 export * from './plugin-sdk.js';
+export * from './tool-schema-registry.js';
 export * from './tools/tool-types.js';
