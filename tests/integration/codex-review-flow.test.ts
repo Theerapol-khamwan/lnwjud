@@ -1,5 +1,5 @@
 import { execFile } from 'node:child_process';
-import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, realpath, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { promisify } from 'node:util';
@@ -26,14 +26,21 @@ const execFileAsync = promisify(execFile);
 const temporaryRoots: string[] = [];
 
 afterEach(async () => {
-  await Promise.all(temporaryRoots.splice(0).map((root) => rm(root, { recursive: true, force: true })));
+  await Promise.all(temporaryRoots.splice(0).map(async (root) => {
+    try {
+      await rm(root, { recursive: true, force: true });
+    } catch {
+      // Ignore transient cleanup locks on Windows
+    }
+  }));
 });
 
 describe('Codex review flow', () => {
   it('delegates to a fake Codex executable, reviews the diff, runs the project test, and stops an owned task', async () => {
     const fixtureRoot = await createFixture();
-    const stateRoot = await mkdtemp(path.join(os.tmpdir(), 'lnwjud-codex-flow-state-'));
-    temporaryRoots.push(stateRoot);
+    const rawStateRoot = await mkdtemp(path.join(os.tmpdir(), 'lnwjud-codex-flow-state-'));
+    temporaryRoots.push(rawStateRoot);
+    const stateRoot = await realpath(rawStateRoot);
     const fakeCodexPath = path.join(stateRoot, 'fake-codex.mjs');
     await writeFile(fakeCodexPath, fakeCodexSource(), 'utf8');
 
@@ -132,8 +139,9 @@ function fakeCodexAdapter(fakeCodexPath: string): CodexAdapter {
 }
 
 async function createFixture(): Promise<string> {
-  const root = await mkdtemp(path.join(os.tmpdir(), 'lnwjud-codex-flow-fixture-'));
-  temporaryRoots.push(root);
+  const rawRoot = await mkdtemp(path.join(os.tmpdir(), 'lnwjud-codex-flow-fixture-'));
+  temporaryRoots.push(rawRoot);
+  const root = await realpath(rawRoot);
   await mkdir(path.join(root, 'src'));
   await writeFile(path.join(root, 'src', 'reviewed.ts'), 'export const reviewed = false;\n', 'utf8');
   await writeFile(path.join(root, 'package.json'), JSON.stringify({ name: 'lnwjud-codex-fixture', scripts: { test: 'node -e "process.stdout.write(\'project-test-pass\\n\')"' } }), 'utf8');

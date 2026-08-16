@@ -1,5 +1,5 @@
 import { execFile } from 'node:child_process';
-import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, realpath, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { promisify } from 'node:util';
@@ -14,14 +14,21 @@ const execFileAsync = promisify(execFile);
 const temporaryRoots: string[] = [];
 
 afterEach(async () => {
-  await Promise.all(temporaryRoots.splice(0).map((root) => rm(root, { recursive: true, force: true })));
+  await Promise.all(temporaryRoots.splice(0).map(async (root) => {
+    try {
+      await rm(root, { recursive: true, force: true });
+    } catch {
+      // Ignore transient cleanup locks on Windows
+    }
+  }));
 });
 
 describe('MCP development flow', () => {
   it('keeps the complete fixture workflow inside application services', async () => {
     const fixtureRoot = await createFixture();
-    const databaseRoot = await mkdtemp(path.join(os.tmpdir(), 'lnwjud-mcp-db-'));
-    temporaryRoots.push(databaseRoot);
+    const rawDatabaseRoot = await mkdtemp(path.join(os.tmpdir(), 'lnwjud-mcp-db-'));
+    temporaryRoots.push(rawDatabaseRoot);
+    const databaseRoot = await realpath(rawDatabaseRoot);
     const database = new SqliteDatabase(path.join(databaseRoot, 'state.sqlite'));
     const workspaceRepository = new SqliteWorkspaceRepository(database);
     const checkpointRepository = new SqliteCheckpointRepository(database);
@@ -118,8 +125,9 @@ describe('MCP development flow', () => {
 });
 
 async function createFixture(): Promise<string> {
-  const root = await mkdtemp(path.join(os.tmpdir(), 'lnwjud-mcp-fixture-'));
-  temporaryRoots.push(root);
+  const rawRoot = await mkdtemp(path.join(os.tmpdir(), 'lnwjud-mcp-fixture-'));
+  temporaryRoots.push(rawRoot);
+  const root = await realpath(rawRoot);
   await mkdir(path.join(root, 'src'));
   await writeFile(path.join(root, 'src', 'app.ts'), "export const value = 'before';\n", 'utf8');
   await writeFile(path.join(root, '.env'), 'SECRET_NOT_FOR_TOOLS=hidden\n', 'utf8');
