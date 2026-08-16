@@ -339,8 +339,20 @@ export function createDesktopRuntime(dataPath: string): DesktopRuntime {
       const result = await capabilityRuntime.service.execute('dom_cdp', { action: 'launch' });
       return toManagedBrowserStatus(unwrap(result, 'Managed Chrome could not be started'));
     },
-    runDoctor: (): Promise<DoctorReport> => doctorService.run(),
-    getLogSnapshot: async (): Promise<LogSnapshot> => logHub.snapshot(),
+    getLogSnapshot: async (): Promise<LogSnapshot> => {
+      const workLog = await buildWorkLog(auditRepository, settingsRepository);
+      const inFlight = activityTracker.listInFlight().map(toInFlightItem);
+      const processSummaries = await listTrackedProcesses(processService, trackedProcesses);
+      logHub.syncWorkLog(workLog, inFlight.map((item) => ({ callId: item.callId, toolName: item.toolName, targetSummary: item.targetSummary })));
+      logHub.syncProcesses(processSummaries.map((summary) => ({
+        id: summary.id,
+        executable: summary.executable,
+        args: summary.args,
+        state: summary.state,
+        logSummary: summary.logSummary,
+      })));
+      return logHub.snapshot();
+    },
     clearLogBuffer: async (request: ClearLogBufferRequest): Promise<{ readonly cleared: boolean }> => {
       logHub.clear(request.source);
       return { cleared: true };

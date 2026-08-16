@@ -33,7 +33,7 @@ export class SqliteAuditRepository implements AuditEventRepository {
       event.targetSummary ?? null,
       event.permissionDecision ?? null,
       event.resultCode,
-      event.durationMs,
+      event.durationMs ?? null,
       JSON.stringify(event.metadata),
     );
   }
@@ -68,7 +68,7 @@ export class SqliteAuditRepository implements AuditEventRepository {
       ...(value.target_summary === null ? {} : { targetSummary: value.target_summary }),
       ...(value.permission_decision === null ? {} : { permissionDecision: value.permission_decision }),
       resultCode: value.result_code,
-      durationMs: value.duration_ms,
+      ...(typeof value.duration_ms === 'number' ? { durationMs: value.duration_ms } : {}),
       metadata,
     };
   }
@@ -87,7 +87,7 @@ export class SqliteAuditRepository implements AuditEventRepository {
       && (typeof value.target_summary === 'string' || value.target_summary === null)
       && (typeof value.permission_decision === 'string' || value.permission_decision === null)
       && typeof value.result_code === 'string'
-      && typeof value.duration_ms === 'number'
+      && (typeof value.duration_ms === 'number' || value.duration_ms === null)
       && typeof value.metadata_json === 'string';
   }
 }
