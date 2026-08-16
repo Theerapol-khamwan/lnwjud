@@ -20,6 +20,7 @@ describe('MCP tool registry', () => {
       'system_info', 'notification', 'file_dialog', 'clipboard', 'web_fetch',
       'audio', 'screen_record', 'office', 'scheduler',
       'skills_list', 'skills_read', 'mcp_list', 'mcp_describe', 'mcp_call',
+      'tool_batch',
     ]);
   });
 
@@ -56,6 +57,8 @@ describe('MCP tool registry', () => {
     expect(byName.get('write_file')?.annotations).toMatchObject({ readOnlyHint: false, destructiveHint: false });
     expect(byName.get('skills_list')?.annotations).toMatchObject({ readOnlyHint: false, destructiveHint: true });
     expect(byName.get('mcp_call')?.permission).toBe('DANGEROUS');
+    expect(byName.get('tool_batch')?.permission).toBe('DANGEROUS');
+    expect(byName.get('tool_batch')?.annotations).toMatchObject({ readOnlyHint: false, destructiveHint: true });
     expect(registry.list().some((tool) => ['run_shell', 'powershell', 'cmd', 'git_reset', 'git_clean', 'kill_pid'].includes(tool.name))).toBe(false);
   });
 
@@ -133,5 +136,68 @@ describe('MCP tool registry', () => {
       { phase: 'started', toolName: 'read_file', resultCode: 'STARTED' },
       { phase: 'completed', toolName: 'read_file', resultCode: 'SUCCESS' },
     ]);
+  });
+
+  it('executes tool_batch children through the registry and records each child activity', async () => {
+    const events: Array<{ phase: string; toolName: string; resultCode: string }> = [];
+    const registry = new ToolRegistry({
+      file: {
+        async readFile(input): Promise<ReturnType<typeof ok>> {
+          return ok({ path: input.path, content: `content:${input.path}`, truncated: false });
+        },
+      },
+    }, actor, {
+      activity: {
+        async record(event: ActivitySinkEvent): Promise<void> {
+          events.push({ phase: event.phase, toolName: event.toolName, resultCode: event.resultCode });
+        },
+      },
+    });
+
+    const response = await registry.invoke('tool_batch', {
+      parallel: true,
+      calls: [
+        { id: 'read-a', tool: 'read_file', arguments: { workspaceId: 'workspace-1', path: 'a.txt' } },
+        { id: 'read-b', tool: 'read_file', arguments: { workspaceId: 'workspace-1', path: 'b.txt' } },
+      ],
+    });
+
+    expect(response.isError).not.toBe(true);
+    expect(response.structuredContent).toMatchObject({ summary: { total: 2, succeeded: 2, failed: 0 } });
+    expect(events.filter((event) => event.phase === 'started').map((event) => event.toolName)).toEqual([
+      'tool_batch', 'read_file', 'read_file',
+    ]);
+    expect(events.filter((event) => event.phase === 'completed').map((event) => event.toolName).sort()).toEqual([
+      'read_file', 'read_file', 'tool_batch',
+    ]);
+  });
+
+  it('keeps successful batch siblings when one child returns an MCP error', async () => {
+    const registry = new ToolRegistry({
+      file: {
+        async readFile(input): Promise<ReturnType<typeof ok>> {
+          return ok({ path: input.path, content: 'ok', truncated: false });
+        },
+      },
+    }, actor);
+
+    const response = await registry.invoke('tool_batch', {
+      parallel: true,
+      calls: [
+        { id: 'good-a', tool: 'read_file', arguments: { workspaceId: 'workspace-1', path: 'a.txt' } },
+        { id: 'bad', tool: 'does_not_exist', arguments: {} },
+        { id: 'good-b', tool: 'read_file', arguments: { workspaceId: 'workspace-1', path: 'b.txt' } },
+      ],
+    });
+
+    expect(response.isError).not.toBe(true);
+    expect(response.structuredContent).toMatchObject({
+      summary: { total: 3, succeeded: 2, failed: 1 },
+      results: [
+        { id: 'good-a', status: 'succeeded' },
+        { id: 'bad', status: 'failed', error: { code: 'INVALID_INPUT' } },
+        { id: 'good-b', status: 'succeeded' },
+      ],
+    });
   });
 });

@@ -6,7 +6,7 @@ This is the compatibility contract for the current MCP surface. The runtime
 advertises the JSON Schema for every input through `tools/list`; the TypeScript
 Zod schemas in `packages/mcp-server/src/tools/` are the implementation source
 of truth. The existing human-oriented catalog remains useful for field details,
-while this document records the complete 53-tool runtime snapshot, policy class,
+while this document records the complete 54-tool runtime snapshot, policy class,
 annotations, and schema source.
 
 ## Protocol and result rules
@@ -99,6 +99,7 @@ contract test and a catalog update.
 | 51 | `mcp_list` | DANGEROUS | no | yes | 0 | `mcp-bridge-tools.ts` |
 | 52 | `mcp_describe` | DANGEROUS | no | yes | 1 | `mcp-bridge-tools.ts` |
 | 53 | `mcp_call` | DANGEROUS | no | yes | 3 | `mcp-bridge-tools.ts` |
+| 54 | `tool_batch` | DANGEROUS | no | yes | 3 | `batch-tools.ts` |
 
 ## Schema groups and contract examples
 
@@ -182,7 +183,38 @@ capability backends. Important invariants are:
 - `vision`, `health`, and `system_info` remain truthful read-only diagnostics;
 - `web_fetch` remains HTTP(S)-only and bounded by explicit byte/timeout fields;
 - `skills_*` and `mcp_*` remain full-access bridge tools and do not silently
-  flatten child-server tools into the 53-tool catalog.
+  flatten child-server tools into the 54-tool catalog.
+
+### Compound execution
+
+```ts
+tool_batch: {
+  parallel?: boolean;
+  calls?: Array<{
+    id?: string;
+    tool: string;
+    arguments?: Record<string, unknown>;
+    dependsOn?: string[];
+    timeoutMs?: number;
+  }>;
+  groups?: Array<{
+    id?: string;
+    parallel?: boolean;
+    calls: Array<{
+      id?: string;
+      tool: string;
+      arguments?: Record<string, unknown>;
+      dependsOn?: string[];
+      timeoutMs?: number;
+    }>;
+  }>;
+}
+```
+
+The input contains at most 50 child calls. Results retain input order and
+include per-child status, duration, error, and returned MCP response. Read-only
+children can run in parallel; side-effecting children are serialized by the
+early compound safety guard. Nested `tool_batch` calls are rejected.
 
 ## Change protocol
 

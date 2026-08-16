@@ -2,6 +2,7 @@ export * from './activity-log-file.js';
 export * from './activity-tracker.js';
 export * from './http.js';
 export * from './origin-policy.js';
+export * from './parallel-tool-executor.js';
 export * from './progress-heartbeat.js';
 export * from './result-mapper.js';
 export * from './server.js';

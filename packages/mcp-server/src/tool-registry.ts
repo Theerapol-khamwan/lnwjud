@@ -2,6 +2,7 @@ import { appError } from '@lnwjud/domain';
 import { sanitizeException, type DiagnosticLogger, type FileActor } from '@lnwjud/application';
 import { ActivityTracker, type ActivitySink } from './activity-tracker.js';
 import { mapError, mapResult, type McpToolResponse } from './result-mapper.js';
+import { batchTools } from './tools/batch-tools.js';
 import { codexTools } from './tools/codex-tools.js';
 import { capabilityTools } from './tools/capability-tools.js';
 import { fileTools } from './tools/file-tools.js';
@@ -32,7 +33,7 @@ export class ToolRegistry {
     const context: McpToolContext = { services, actor };
     const workspace = workspaceTools(context);
     const files = fileTools(context);
-    this.tools = [
+    const baseTools: readonly McpToolDefinition[] = [
       ...workspace,
       ...files.slice(0, 2),
       ...searchTools(context),
@@ -43,6 +44,13 @@ export class ToolRegistry {
       ...capabilityTools(context),
       ...skillTools(context),
       ...mcpBridgeTools(context),
+    ];
+    this.tools = [
+      ...baseTools,
+      ...batchTools({
+        invoke: (name, input) => this.invoke(name, input),
+        describe: (name) => baseTools.find((tool) => tool.name === name),
+      }),
     ];
   }
 

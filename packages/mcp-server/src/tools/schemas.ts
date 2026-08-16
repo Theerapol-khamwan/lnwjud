@@ -54,6 +54,31 @@ export const codexRunSchema = z.object({ workspaceId: workspaceIdSchema, instruc
 export const codexTaskHandleSchema = z.object({ workspaceId: workspaceIdSchema, codexTaskId: z.string().trim().min(1).max(128) }).strict();
 export const codexTaskLogsSchema = codexTaskHandleSchema.extend({ tailLines: z.number().int().min(1).max(10_000).optional(), sinceSequence: z.number().int().min(0).optional() }).strict();
 
+const batchCallSchema = z.object({
+  id: z.string().trim().min(1).max(128).optional(),
+  tool: z.string().trim().min(1).max(128),
+  arguments: z.record(z.string(), z.unknown()).default({}),
+  dependsOn: z.array(z.string().trim().min(1).max(128)).max(50).default([]),
+  timeoutMs: z.number().int().min(1).max(4 * 60 * 60 * 1000).optional(),
+}).strict();
+
+const batchGroupSchema = z.object({
+  id: z.string().trim().min(1).max(128).optional(),
+  parallel: z.boolean().default(true),
+  calls: z.array(batchCallSchema).min(1).max(50),
+}).strict();
+
+export const toolBatchSchema = z.object({
+  parallel: z.boolean().default(true),
+  calls: z.array(batchCallSchema).max(50).optional(),
+  groups: z.array(batchGroupSchema).max(20).optional(),
+}).strict()
+  .refine((value) => (value.calls?.length ?? 0) > 0 || (value.groups?.length ?? 0) > 0, 'At least one batch call is required')
+  .refine((value) => {
+    const grouped = value.groups?.reduce((total, group) => total + group.calls.length, 0) ?? 0;
+    return (value.calls?.length ?? 0) + grouped <= 50;
+  }, 'A batch cannot contain more than 50 calls');
+
 const capabilityMetadataSchema = z.record(z.string(), z.unknown());
 const capabilityParametersSchema = z.record(z.string(), z.unknown());
 const capabilityApprovalSchema = z.enum(['use_policy', 'always_ask', 'skip']).default('use_policy');

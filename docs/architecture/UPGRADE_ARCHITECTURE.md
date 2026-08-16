@@ -38,7 +38,7 @@ MCP clients (ChatGPT / Codex / Claude / other agents)
              MCP stdio or loopback Streamable HTTP
                          |
                          v
-                  ToolRegistry (53 tools)
+                  ToolRegistry (54 tools after Phase 01)
                          |
        +-----------------+------------------+
        |                 |                  |
@@ -200,6 +200,17 @@ Full per-scenario measurements and the discovered catalog are in
 [`../benchmarks/BASELINE.md`](../benchmarks/BASELINE.md). The runner is
 [`../../scripts/benchmark-mcp.mjs`](../../scripts/benchmark-mcp.mjs) and must
 remain repeatable after every performance phase.
+
+## Phase 01 safety checkpoint
+
+`tool_batch` is additive and routes every child through `ToolRegistry.invoke`.
+That preserves schema validation, application policy, activity/audit start and
+completion events, and Live Logs visibility for the parent and every child.
+Independent read-only children may run concurrently. A child that is not
+strictly `READ` plus read-only and non-destructive is treated as mutation work
+and is serialized inside a batch, so one compound request cannot fan out
+multiple side effects accidentally. A failed, timed-out, or cancelled child is
+reported in the combined result without discarding successful siblings.
 
 ## Upgrade sequencing
 
