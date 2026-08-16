@@ -41,7 +41,7 @@ Choose your preferred setup method:
 Follow this 4-step quick start to connect ChatGPT or any AI agent to your Windows PC using the official pre-built installer:
 
 #### Step 1: Download & Install Lnwjud Desktop
-1. Download the latest installer (`lnwjud-Setup-1.1.3.exe`) from **[GitHub Releases](https://github.com/engasnm111/lnwjud/releases/latest)**.
+1. Download the latest installer (`lnwjud-Setup-1.1.4.exe`) from **[GitHub Releases](https://github.com/engasnm111/lnwjud/releases/latest)**.
 2. Run the installer (it automatically creates start menu and desktop shortcuts).
 3. Launch **Lnwjud Agent Control Center**.
 

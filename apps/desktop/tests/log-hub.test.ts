@@ -70,6 +70,24 @@ describe('LogHub', () => {
     expect(hub.snapshot().lines.find((line) => line.text === 'boom')?.level).toBe('error');
   });
 
+  it('keeps a tunnel log line intact when it crosses a read chunk boundary', async () => {
+    vi.useFakeTimers();
+    const root = await mkdtemp(path.join(os.tmpdir(), 'lnwjud-loghub-boundary-'));
+    temporaryRoots.push(root);
+    const logPath = path.join(root, 'lnwjud-tunnel.log');
+    const message = 'x'.repeat(70_000);
+    await writeFile(logPath, `${JSON.stringify({ level: 'info', msg: message })}\n`, 'utf8');
+
+    const hub = new LogHub({ tunnelLogPath: logPath });
+    hub.start();
+    await vi.advanceTimersByTimeAsync(700);
+    hub.stop();
+
+    const lines = hub.snapshot().lines;
+    expect(lines).toHaveLength(1);
+    expect(lines[0]?.text).toBe(message.slice(0, 8_192));
+  });
+
   it('tails MCP activity NDJSON into the mcp source without waiting for getDashboard', async () => {
     vi.useFakeTimers();
     const root = await mkdtemp(path.join(os.tmpdir(), 'lnwjud-loghub-mcp-'));

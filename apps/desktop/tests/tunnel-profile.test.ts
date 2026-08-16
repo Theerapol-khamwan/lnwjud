@@ -12,7 +12,7 @@ afterEach(async () => {
 });
 
 describe('tunnel profile MCP command', () => {
-  it('rewrites a .cmd MCP launcher to the GUI lnwjud.exe --mcp-stdio command', () => {
+  it('rewrites the tunnel MCP command to the supplied launcher', () => {
     const yaml = [
       'mcp:',
       '  commands:',
@@ -21,10 +21,9 @@ describe('tunnel profile MCP command', () => {
     ].join('\n');
     const next = rewriteTunnelYamlMcpCommand(
       yaml,
-      'C:\\Users\\me\\AppData\\Local\\Programs\\lnwjud\\lnwjud.exe --mcp-stdio',
+      'C:\\Users\\me\\AppData\\Local\\Programs\\lnwjud\\lnwjud-mcp-stdio.cmd',
     );
-    expect(next).toContain('command: "C:/Users/me/AppData/Local/Programs/lnwjud/lnwjud.exe --mcp-stdio"');
-    expect(next).not.toContain('lnwjud-mcp-stdio.cmd');
+    expect(next).toContain('command: "C:/Users/me/AppData/Local/Programs/lnwjud/lnwjud-mcp-stdio.cmd"');
   });
 
   it('keeps lnwjud.exe --mcp-stdio as the tunnel MCP command', () => {
@@ -40,14 +39,13 @@ describe('tunnel profile MCP command', () => {
     );
   });
 
-  it('prefers packaged lnwjud.exe --mcp-stdio over the cmd launcher', async () => {
+  it('prefers the packaged cmd launcher when the host is a GUI lnwjud.exe', async () => {
     const root = await mkdtemp(path.join(os.tmpdir(), 'lnwjud-stdio-exe-'));
     temporaryRoots.push(root);
     const exePath = path.join(root, 'lnwjud.exe');
     await writeFile(exePath, 'stub', 'utf8');
-    expect(preferredTunnelMcpCommand(exePath, path.join(root, 'lnwjud-mcp-stdio.cmd'))).toBe(
-      `${exePath.replace(/\\/g, '/')} --mcp-stdio`,
-    );
+    const cmdPath = path.join(root, 'lnwjud-mcp-stdio.cmd');
+    expect(preferredTunnelMcpCommand(exePath, cmdPath)).toBe(cmdPath);
   });
 
   it('resolves the first existing packaged cmd candidate', async () => {

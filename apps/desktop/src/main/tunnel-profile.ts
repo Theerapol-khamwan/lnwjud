@@ -21,14 +21,13 @@ export function resolveStdioLauncherPath(candidates: readonly string[]): string 
 }
 
 /**
- * GUI-subsystem lnwjud.exe does not allocate a console. A .cmd / node.exe
- * MCP child does, so Start Tunnel must prefer `lnwjud.exe --mcp-stdio`.
+ * The packaged Electron executable uses the GUI subsystem. When tunnel-client
+ * starts it as a child, its stdio handles can close immediately even though
+ * Electron reports that the app is ready. The packaged direct-node launcher
+ * keeps the MCP pipe owned by a normal console process.
  */
 export function preferredTunnelMcpCommand(execPath: string, cmdFallback: string | null): string | null {
-  const exe = path.resolve(execPath);
-  if (path.basename(exe).toLowerCase() === 'lnwjud.exe' && existsSync(exe)) {
-    return `${posixPath(exe)} --mcp-stdio`;
-  }
+  void execPath;
   return cmdFallback;
 }
 

@@ -1,4 +1,5 @@
 import { closeSync, existsSync, openSync, readSync, statSync } from 'node:fs';
+import { StringDecoder } from 'node:string_decoder';
 import { type LogLevel, type LogLine, type LogSnapshot, type LogSource } from '@lnwjud/ipc-contracts';
 
 const MAX_LINES_PER_SOURCE = 2_000;
@@ -14,6 +15,8 @@ export interface LogHubOptions {
 interface TailedFile {
   fd: number | null;
   offset: number;
+  pending: string;
+  decoder: StringDecoder;
 }
 
 export class LogHub {
@@ -23,8 +26,8 @@ export class LogHub {
   private readonly tunnelLogPath: string;
   private readonly mcpActivityLogPath: string | undefined;
   private onLine: ((line: LogLine) => void) | undefined;
-  private readonly tunnelFile: TailedFile = { fd: null, offset: 0 };
-  private readonly mcpFile: TailedFile = { fd: null, offset: 0 };
+  private readonly tunnelFile: TailedFile = { fd: null, offset: 0, pending: '', decoder: new StringDecoder('utf8') };
+  private readonly mcpFile: TailedFile = { fd: null, offset: 0, pending: '', decoder: new StringDecoder('utf8') };
   private tailTimer: ReturnType<typeof setInterval> | null = null;
 
   public constructor(options: LogHubOptions) {
@@ -166,17 +169,23 @@ export class LogHub {
       if (state.fd === null) {
         state.fd = openSync(filePath, 'r');
         state.offset = Math.max(0, size - 256 * 1024);
+        state.pending = '';
+        state.decoder = new StringDecoder('utf8');
       }
       if (size < state.offset) {
         state.offset = 0;
+        state.pending = '';
+        state.decoder = new StringDecoder('utf8');
       }
       if (size === state.offset) return;
       const chunk = Buffer.alloc(Math.min(size - state.offset, 64 * 1024));
       const read = readSync(state.fd, chunk, 0, chunk.length, state.offset);
       state.offset += read;
       if (read <= 0) return;
-      const text = chunk.subarray(0, read).toString('utf8');
-      for (const raw of text.split(/\r?\n/)) {
+      const text = state.pending + state.decoder.write(chunk.subarray(0, read));
+      const records = text.split(/\r?\n/);
+      state.pending = records.pop() ?? '';
+      for (const raw of records) {
         const trimmed = raw.trim();
         if (trimmed.length === 0) continue;
         onRaw(trimmed);
@@ -195,6 +204,9 @@ export class LogHub {
       }
       state.fd = null;
     }
+    state.offset = 0;
+    state.pending = '';
+    state.decoder = new StringDecoder('utf8');
   }
 }
 

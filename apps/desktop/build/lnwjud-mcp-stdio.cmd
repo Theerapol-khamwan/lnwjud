@@ -10,5 +10,5 @@ set "NODE_EXE="
 if exist "%ProgramFiles%\nodejs\node.exe" set "NODE_EXE=%ProgramFiles%\nodejs\node.exe"
 if not defined NODE_EXE if exist "%LOCALAPPDATA%\Programs\nodejs\node.exe" set "NODE_EXE=%LOCALAPPDATA%\Programs\nodejs\node.exe"
 if not defined NODE_EXE set "NODE_EXE=node"
-rem Direct node exec so tunnel-client does not treat a nested `where` cmd as MCP exit.
+rem Direct node exec so tunnel-client does not treat a nested cmd as MCP exit.
 "%NODE_EXE%" "%SCRIPT%" %*
