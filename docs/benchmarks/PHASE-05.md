@@ -1,7 +1,7 @@
 # lnwjud Phase 05–40 Foundation Compatibility Benchmark
 
-Generated: 2026-08-16T18:57:27.643Z
-Repository: `main` @ `3bf75d2bdc639d2b9317a7d56a0c375684e37faf`
+Generated: 2026-08-16T19:24:15.048Z
+Repository: `main` @ `087b240bc4a00a0e3829b9a5eb1eeecf50121de1`
 
 ## Scope
 
@@ -20,10 +20,10 @@ This is the Phase 05–40 foundation compatibility snapshot. It starts the built
 ## MCP discovery baseline
 
 - Negotiated protocol: `2025-11-25`
-- Tool count: **177**
-- Initialize latency: 69.28 ms
-- tools/list latency: 16.27 ms
-- Handshake body bytes transferred: 75,058
+- Tool count: **183**
+- Initialize latency: 68.23 ms
+- tools/list latency: 16.73 ms
+- Handshake body bytes transferred: 76,869
 - Handshake protocol requests: 3 (initialize, initialized notification, tools/list)
 
 ### Discovered tools
@@ -192,6 +192,7 @@ This is the Phase 05–40 foundation compatibility snapshot. It starts the built
 - `tool_describe` (0 input properties)
 - `tool_categories` (0 input properties)
 - `tool_function_find` (0 input properties)
+- `tool_aliases` (0 input properties)
 - `dev_context` (0 input properties)
 - `recipe_catalog` (0 input properties)
 - `capture_screenshot` (0 input properties)
@@ -199,6 +200,11 @@ This is the Phase 05–40 foundation compatibility snapshot. It starts the built
 - `dom_snapshot` (0 input properties)
 - `layout_metadata` (0 input properties)
 - `visual_context` (0 input properties)
+- `inspect_workbook` (0 input properties)
+- `compare_workbook_layout` (0 input properties)
+- `render_excel_preview` (0 input properties)
+- `inspect_pdf` (0 input properties)
+- `compare_pdf_pages` (0 input properties)
 - `project_profile_get` (0 input properties)
 - `project_profile_set` (0 input properties)
 - `handoff_context` (0 input properties)
@@ -210,13 +216,13 @@ This is the Phase 05–40 foundation compatibility snapshot. It starts the built
 
 | Scenario | Runs | Calls/run | Tool calls | Avg workflow ms | Avg tool ms | p50 tool ms | p95 tool ms | Bytes transferred | Result bytes | Errors | Retries |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| simple-file-read | 3 | 1 | 3 | 18.65 | 18.56 | 14.36 | 28.68 | 3,354 | 2,844 | 0 | 0 |
-| workspace-search | 3 | 1 | 3 | 97.39 | 97.35 | 96.36 | 101.37 | 6,765 | 6,135 | 0 | 0 |
-| git-status-diff | 3 | 2 | 6 | 119.37 | 59.66 | 58.96 | 63.46 | 4,642 | 3,722 | 0 | 0 |
-| bug-investigation | 3 | 5 | 15 | 320.32 | 64.05 | 59.43 | 123.01 | 16,794 | 14,280 | 0 | 0 |
-| code-review | 3 | 4 | 12 | 263.33 | 65.81 | 56.4 | 93.89 | 11,430 | 9,387 | 0 | 0 |
-| ui-debugging | 3 | 2 | 6 | 783.09 | 391.53 | 13.82 | 793.13 | 7,791 | 7,134 | 0 | 0 |
-| test-failure-investigation | 3 | 4 | 12 | 175.14 | 43.77 | 18.1 | 94.63 | 11,781 | 9,675 | 0 | 0 |
+| simple-file-read | 3 | 1 | 3 | 16.87 | 16.81 | 15.87 | 21.56 | 3,354 | 2,844 | 0 | 0 |
+| workspace-search | 3 | 1 | 3 | 108.03 | 107.98 | 93.63 | 136.99 | 6,765 | 6,135 | 0 | 0 |
+| git-status-diff | 3 | 2 | 6 | 124.19 | 62.06 | 61.8 | 63.76 | 4,642 | 3,722 | 0 | 0 |
+| bug-investigation | 3 | 5 | 15 | 333.61 | 66.7 | 57.67 | 167.13 | 16,794 | 14,280 | 0 | 0 |
+| code-review | 3 | 4 | 12 | 268.42 | 67.09 | 59 | 99.19 | 11,430 | 9,387 | 0 | 0 |
+| ui-debugging | 3 | 2 | 6 | 780.8 | 390.38 | 15.42 | 784.55 | 7,791 | 7,134 | 0 | 0 |
+| test-failure-investigation | 3 | 4 | 12 | 175.15 | 43.77 | 15.7 | 96.51 | 11,781 | 9,675 | 0 | 0 |
 
 ## Totals
 
@@ -224,13 +230,13 @@ This is the Phase 05–40 foundation compatibility snapshot. It starts the built
 | --- | ---: |
 | Tool calls | 57 |
 | Protocol requests | 60 |
-| Average tool latency | 93.52 ms |
-| p50 tool latency | 58.3 ms |
-| p95 tool latency | 757.09 ms |
-| Average workflow latency | 253.9 ms |
-| p50 workflow latency | 174.69 ms |
-| p95 workflow latency | 777.26 ms |
-| Bytes transferred | 137,615 |
+| Average tool latency | 95.09 ms |
+| p50 tool latency | 59 ms |
+| p95 tool latency | 756.11 ms |
+| Average workflow latency | 258.15 ms |
+| p50 workflow latency | 178.01 ms |
+| p95 workflow latency | 771.22 ms |
+| Bytes transferred | 139,426 |
 | Result bytes | 53,177 |
 | Errors | 0 |
 | Retries | 0 |
@@ -244,6 +250,6 @@ This is the Phase 05–40 foundation compatibility snapshot. It starts the built
 - **Errors** count transport/JSON-RPC failures and MCP tool results with `isError: true`. A failed step does not discard sibling steps in the scenario.
 - **Retries** count only automatic transport retries. The default baseline uses zero retries so failures remain visible.
 
-## Baseline interpretation
+## Foundation interpretation
 
-This report records the 177-tool catalog after the Phase 05–40 deterministic runtime foundation. Future release hardening must preserve the primitive-tool contract, full-visibility index, tunnel/stdio compatibility, and explicit continuation without silently reducing accessible context.
+This report records the 183-tool Phase 05–40 foundation catalog after the roadmap compatibility surfaces were registered. The primitive tools, full-visibility reads/search/indexing, paging, Codex tunnel/stdIO route, and additive runtime contracts remain available; future optimization must preserve that contract without silently reducing accessible context.

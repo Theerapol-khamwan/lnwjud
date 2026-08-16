@@ -53,11 +53,13 @@ try {
     if (-not (Test-Path -LiteralPath $installerDirectory -PathType Container)) {
         throw "Packaged-app smoke could not find installer directory: $installerDirectory"
     }
-    $installers = @(Get-ChildItem -LiteralPath $installerDirectory -Filter '*.exe' -File)
-    if ($installers.Count -eq 0) {
-        throw "Packaged-app smoke could not find an installer in: $installerDirectory"
+    $rootPackage = Get-Content -LiteralPath (Join-Path $repositoryRoot 'package.json') -Raw | ConvertFrom-Json
+    $expectedInstallerName = "lnwjud-Setup-$($rootPackage.version).exe"
+    $expectedInstaller = Join-Path $installerDirectory $expectedInstallerName
+    if (-not (Test-Path -LiteralPath $expectedInstaller -PathType Leaf)) {
+        throw "Packaged-app smoke could not find the versioned installer '$expectedInstallerName' in: $installerDirectory"
     }
-    Write-Host "Packaged-app smoke artifact: $($installers[0].FullName)"
+    Write-Host "Packaged-app smoke artifact: $expectedInstaller"
     Assert-RepositoryChecks
     Write-Host 'Release verification gate completed.'
 }

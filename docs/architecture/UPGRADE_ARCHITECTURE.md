@@ -1,6 +1,6 @@
 # lnwjud Upgrade Architecture Contract
 
-Status: Phase 05 implementation checkpoint, based on `v1.1.4` / local upgrade commits.
+Status: Phase 05 implementation checkpoint for the `v2.0.0` release candidate.
 
 This document is the architectural boundary for the upgrade roadmap. It describes
 the existing runtime before Phase 01 and the invariants every later phase must

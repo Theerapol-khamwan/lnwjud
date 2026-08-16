@@ -70,7 +70,7 @@ test('control center auto-starts MCP and supports project + doctor journey', asy
     await expect(page.getByTestId('permission-profile')).toHaveText('FULL');
 
     await page.getByRole('button', { name: 'Doctor', exact: true }).click();
-    await page.getByRole('button', { name: 'Run doctor' }).click();
+    await page.getByRole('button', { name: /รัน Doctor|Run doctor/ }).click();
     await expect(page.getByTestId('doctor-check-os')).toBeVisible();
     await expect(page.getByTestId('doctor-check-database')).toBeVisible();
     await expect(page.getByTestId('doctor-check-workspaces')).toBeVisible();
