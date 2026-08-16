@@ -28,6 +28,89 @@ local lnwjud process; the tunnel is outbound-only.
 > confirmation. Disk format / shutdown stay hard-blocked. Every Git subcommand
 > including `git rm`, `git clean`, and `git reset` is allowed.
 
+## ⚡ Quick Setup: Zero to ChatGPT in 5 Minutes
+
+Follow this end-to-end walkthrough to go from a fresh Windows machine to invoking lnwjud MCP tools inside ChatGPT.
+
+### 1. Clone & Install Dependencies
+Open PowerShell on your Windows machine:
+```powershell
+# Clone repository
+git clone https://github.com/engasnm111/lnwjud.git
+Set-Location .\lnwjud
+
+# Enable Corepack and install pinned dependencies
+corepack enable
+corepack pnpm@10.15.0 install --frozen-lockfile
+
+# Initialize local environment configuration
+Copy-Item .env.example .env
+```
+
+### 2. Build lnwjud & Test the Desktop Dashboard
+```powershell
+# Build all packages and the desktop application
+corepack pnpm@10.15.0 build
+
+# Launch the desktop Agent Control Center
+corepack pnpm@10.15.0 desktop
+```
+*(Optional: Run `corepack pnpm@10.15.0 package:windows` to generate a standalone Windows NSIS installer in `apps/desktop/dist/installers/`)*
+
+### 3. Setup OpenAI Secure MCP Tunnel & Runtime API Key
+1. **Download `tunnel-client`:**
+   - Download `tunnel-client.exe` from [OpenAI tunnel-client releases](https://github.com/openai/tunnel-client/releases).
+   - Place it in `$env:USERPROFILE\Downloads\tunnel\tunnel-client.exe` (or your preferred directory).
+2. **Create a Tunnel on OpenAI Platform:**
+   - Visit [OpenAI Platform > Organization Settings > Tunnels](https://platform.openai.com/settings/organization/tunnels).
+   - Click **Create Tunnel**, name it `lnwjud`, and link it to your target ChatGPT Workspace.
+   - Note the generated `Tunnel ID` (e.g. `tun_abc123...`).
+3. **Generate a Tunnel Runtime API Key:**
+   - Go to [OpenAI Platform > API Keys](https://platform.openai.com/settings/organization/api-keys).
+   - Create a new restricted key with permission: **Tunnels: Read + Use**.
+   - Copy the API key.
+
+### 4. Store Your Runtime Key & Configure the Profile
+1. **Save your encrypted key with Windows DPAPI (run once):**
+   ```powershell
+   New-Item -ItemType Directory -Force -Path "$env:APPDATA\tunnel-client"
+   Read-Host 'Paste Tunnel Runtime API Key' -AsSecureString | ConvertFrom-SecureString | Set-Content "$env:APPDATA\tunnel-client\lnwjud.runtime.secret"
+   ```
+2. **Initialize and edit profile configuration:**
+   ```powershell
+   & "$env:USERPROFILE\Downloads\tunnel\tunnel-client.exe" init --profile lnwjud
+   ```
+   Open `$env:APPDATA\tunnel-client\lnwjud.yaml` and configure it (ensure forward slashes `/` are used for Windows file paths):
+   ```yaml
+   profile: lnwjud
+   tunnel_id: "tun_your_tunnel_id_here"
+   mcp:
+     command: "node"
+     args:
+       - "E:/lnwjud/apps/desktop/build/lnwjud-mcp-stdio.cjs"
+     connection_max_ttl: 168h0m0s
+   ```
+   *(Note: If you installed the packaged desktop app, you can use `C:/Users/<User>/AppData/Local/Programs/lnwjud/lnwjud.exe` with `args: ["--mcp-stdio"]` instead).*
+
+### 5. Launch the Tunnel Service
+Start the resilient tunnel loop (with auto-reconnect, long TTL, and live dashboard sync):
+```powershell
+.\scripts\start-lnwjud-tunnel.ps1
+```
+*Or simply double-click [`scripts\start-lnwjud-tunnel.bat`](scripts/start-lnwjud-tunnel.bat).*
+
+### 6. Connect ChatGPT & Start Calling Tools
+1. Open [ChatGPT](https://chatgpt.com) and switch to your developer workspace.
+2. Navigate to **Settings > Connected Apps / Developer Settings** > **Create App**.
+3. Select your tunnel `lnwjud` from the list.
+4. Verify that the tool catalog loads (includes `read_file`, `write_file`, `search_files`, `git_status`, `shell`, `system_info`, etc.).
+5. Start a new conversation, activate the **lnwjud** tool, and try:
+   > *"Inspect my current project, check git status, and summarize the last 5 commits."*
+   > *"Find all TypeScript files that import `@lnwjud/domain`."*
+6. Watch real-time execution logs and audits stream directly into the **lnwjud Live Log Hub**!
+
+---
+
 ## Choose a connection mode
 
 | Client | Connection | What must be running on Windows | Best for |
@@ -146,7 +229,7 @@ ChatGPT tool activity appears in the Work Log.
 ### Build a Windows installer
 
 ```powershell
-Set-Location E:\lnwjud
+Set-Location .\lnwjud
 corepack pnpm@10.15.0 package:windows
 ```
 
