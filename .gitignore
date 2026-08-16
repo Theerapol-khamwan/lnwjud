@@ -57,6 +57,7 @@ docs/architecture/*
 docs/benchmarks/*
 !docs/benchmarks/BASELINE.md
 !docs/benchmarks/PHASE-01.md
+!docs/benchmarks/PHASE-02.md
 
 # IDE & Editor Settings
 .cursor/
