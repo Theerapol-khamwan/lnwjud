@@ -76,6 +76,9 @@ $secretPath = Join-Path $profileDir 'lnwjud.runtime.secret'
 $logPath = Join-Path $profileDir 'lnwjud-tunnel.log'
 $stopFile = Join-Path $profileDir 'lnwjud.tunnel.stop'
 $mcpTtl = '168h0m0s'
+$maxRapidRestarts = 5
+$rapidRestartCount = 0
+$rapidRestartWindowStarted = Get-Date
 
 if (-not (Test-Path $TunnelClientPath)) { throw "Missing tunnel-client: $TunnelClientPath" }
 if (-not (Test-Path $secretPath)) { throw "Missing encrypted runtime key: $secretPath. Save the key once with: Read-Host 'Tunnel runtime API key' -AsSecureString | ConvertFrom-SecureString | Set-Content '$secretPath'" }
@@ -170,8 +173,18 @@ try {
       exit 0
     }
 
-    Write-Host ("lnwjud tunnel: tunnel-client exited ({0}){1} - restarting in 3 seconds (Ctrl+C to stop) ..." -f $exitCode, $hint)
-    Start-Sleep -Seconds 3
+    $elapsed = ((Get-Date) - $rapidRestartWindowStarted).TotalSeconds
+    if ($elapsed -gt 30) {
+      $rapidRestartCount = 0
+      $rapidRestartWindowStarted = Get-Date
+    }
+    $rapidRestartCount += 1
+    if ($rapidRestartCount -gt $maxRapidRestarts) {
+      throw ("tunnel-client exited {0} times in a short window; automatic restart paused. Fix the MCP profile/stdio child and start again.{1}" -f $maxRapidRestarts, $hint)
+    }
+    $delaySeconds = [int][Math]::Min(30, 3 * [Math]::Pow(2, $rapidRestartCount - 1))
+    Write-Host ("lnwjud tunnel: tunnel-client exited ({0}){1} - restarting in {2} seconds (attempt {3}/{4}) ..." -f $exitCode, $hint, $delaySeconds, $rapidRestartCount, $maxRapidRestarts)
+    Start-Sleep -Seconds $delaySeconds
   }
 }
 finally {
