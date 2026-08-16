@@ -35,7 +35,7 @@ var require_windows = __commonJS({
     module2.exports = isexe;
     isexe.sync = sync;
     var fs2 = require("fs");
-    function checkPathExt(path31, options) {
+    function checkPathExt(path32, options) {
       var pathext = options.pathExt !== void 0 ? options.pathExt : process.env.PATHEXT;
       if (!pathext) {
         return true;
@@ -46,25 +46,25 @@ var require_windows = __commonJS({
       }
       for (var i = 0; i < pathext.length; i++) {
         var p = pathext[i].toLowerCase();
-        if (p && path31.substr(-p.length).toLowerCase() === p) {
+        if (p && path32.substr(-p.length).toLowerCase() === p) {
           return true;
         }
       }
       return false;
     }
-    function checkStat(stat13, path31, options) {
+    function checkStat(stat13, path32, options) {
       if (!stat13.isSymbolicLink() && !stat13.isFile()) {
         return false;
       }
-      return checkPathExt(path31, options);
+      return checkPathExt(path32, options);
     }
-    function isexe(path31, options, cb) {
-      fs2.stat(path31, function(er, stat13) {
-        cb(er, er ? false : checkStat(stat13, path31, options));
+    function isexe(path32, options, cb) {
+      fs2.stat(path32, function(er, stat13) {
+        cb(er, er ? false : checkStat(stat13, path32, options));
       });
     }
-    function sync(path31, options) {
-      return checkStat(fs2.statSync(path31), path31, options);
+    function sync(path32, options) {
+      return checkStat(fs2.statSync(path32), path32, options);
     }
   }
 });
@@ -75,13 +75,13 @@ var require_mode = __commonJS({
     module2.exports = isexe;
     isexe.sync = sync;
     var fs2 = require("fs");
-    function isexe(path31, options, cb) {
-      fs2.stat(path31, function(er, stat13) {
+    function isexe(path32, options, cb) {
+      fs2.stat(path32, function(er, stat13) {
         cb(er, er ? false : checkStat(stat13, options));
       });
     }
-    function sync(path31, options) {
-      return checkStat(fs2.statSync(path31), options);
+    function sync(path32, options) {
+      return checkStat(fs2.statSync(path32), options);
     }
     function checkStat(stat13, options) {
       return stat13.isFile() && checkMode(stat13, options);
@@ -114,7 +114,7 @@ var require_isexe = __commonJS({
     }
     module2.exports = isexe;
     isexe.sync = sync;
-    function isexe(path31, options, cb) {
+    function isexe(path32, options, cb) {
       if (typeof options === "function") {
         cb = options;
         options = {};
@@ -124,7 +124,7 @@ var require_isexe = __commonJS({
           throw new TypeError("callback not provided");
         }
         return new Promise(function(resolve, reject) {
-          isexe(path31, options || {}, function(er, is) {
+          isexe(path32, options || {}, function(er, is) {
             if (er) {
               reject(er);
             } else {
@@ -133,7 +133,7 @@ var require_isexe = __commonJS({
           });
         });
       }
-      core(path31, options || {}, function(er, is) {
+      core(path32, options || {}, function(er, is) {
         if (er) {
           if (er.code === "EACCES" || options && options.ignoreErrors) {
             er = null;
@@ -143,9 +143,9 @@ var require_isexe = __commonJS({
         cb(er, is);
       });
     }
-    function sync(path31, options) {
+    function sync(path32, options) {
       try {
-        return core.sync(path31, options || {});
+        return core.sync(path32, options || {});
       } catch (er) {
         if (options && options.ignoreErrors || er.code === "EACCES") {
           return false;
@@ -161,7 +161,7 @@ var require_isexe = __commonJS({
 var require_which = __commonJS({
   "../../node_modules/.pnpm/which@2.0.2/node_modules/which/which.js"(exports2, module2) {
     var isWindows = process.platform === "win32" || process.env.OSTYPE === "cygwin" || process.env.OSTYPE === "msys";
-    var path31 = require("path");
+    var path32 = require("path");
     var COLON = isWindows ? ";" : ":";
     var isexe = require_isexe();
     var getNotFoundError = (cmd) => Object.assign(new Error(`not found: ${cmd}`), { code: "ENOENT" });
@@ -199,7 +199,7 @@ var require_which = __commonJS({
           return opt.all && found.length ? resolve(found) : reject(getNotFoundError(cmd));
         const ppRaw = pathEnv[i];
         const pathPart = /^".*"$/.test(ppRaw) ? ppRaw.slice(1, -1) : ppRaw;
-        const pCmd = path31.join(pathPart, cmd);
+        const pCmd = path32.join(pathPart, cmd);
         const p = !pathPart && /^\.[\\\/]/.test(cmd) ? cmd.slice(0, 2) + pCmd : pCmd;
         resolve(subStep(p, i, 0));
       });
@@ -226,7 +226,7 @@ var require_which = __commonJS({
       for (let i = 0; i < pathEnv.length; i++) {
         const ppRaw = pathEnv[i];
         const pathPart = /^".*"$/.test(ppRaw) ? ppRaw.slice(1, -1) : ppRaw;
-        const pCmd = path31.join(pathPart, cmd);
+        const pCmd = path32.join(pathPart, cmd);
         const p = !pathPart && /^\.[\\\/]/.test(cmd) ? cmd.slice(0, 2) + pCmd : pCmd;
         for (let j = 0; j < pathExt.length; j++) {
           const cur = p + pathExt[j];
@@ -274,7 +274,7 @@ var require_path_key = __commonJS({
 var require_resolveCommand = __commonJS({
   "../../node_modules/.pnpm/cross-spawn@7.0.6/node_modules/cross-spawn/lib/util/resolveCommand.js"(exports2, module2) {
     "use strict";
-    var path31 = require("path");
+    var path32 = require("path");
     var which = require_which();
     var getPathKey = require_path_key();
     function resolveCommandAttempt(parsed, withoutPathExt) {
@@ -292,7 +292,7 @@ var require_resolveCommand = __commonJS({
       try {
         resolved = which.sync(parsed.command, {
           path: env[getPathKey({ env })],
-          pathExt: withoutPathExt ? path31.delimiter : void 0
+          pathExt: withoutPathExt ? path32.delimiter : void 0
         });
       } catch (e) {
       } finally {
@@ -301,7 +301,7 @@ var require_resolveCommand = __commonJS({
         }
       }
       if (resolved) {
-        resolved = path31.resolve(hasCustomCwd ? parsed.options.cwd : "", resolved);
+        resolved = path32.resolve(hasCustomCwd ? parsed.options.cwd : "", resolved);
       }
       return resolved;
     }
@@ -355,8 +355,8 @@ var require_shebang_command = __commonJS({
       if (!match) {
         return null;
       }
-      const [path31, argument] = match[0].replace(/#! ?/, "").split(" ");
-      const binary = path31.split("/").pop();
+      const [path32, argument] = match[0].replace(/#! ?/, "").split(" ");
+      const binary = path32.split("/").pop();
       if (binary === "env") {
         return argument;
       }
@@ -391,7 +391,7 @@ var require_readShebang = __commonJS({
 var require_parse = __commonJS({
   "../../node_modules/.pnpm/cross-spawn@7.0.6/node_modules/cross-spawn/lib/parse.js"(exports2, module2) {
     "use strict";
-    var path31 = require("path");
+    var path32 = require("path");
     var resolveCommand = require_resolveCommand();
     var escape2 = require_escape();
     var readShebang = require_readShebang();
@@ -416,7 +416,7 @@ var require_parse = __commonJS({
       const needsShell = !isExecutableRegExp.test(commandFile);
       if (parsed.options.forceShell || needsShell) {
         const needsDoubleEscapeMetaChars = isCmdShimRegExp.test(commandFile);
-        parsed.command = path31.normalize(parsed.command);
+        parsed.command = path32.normalize(parsed.command);
         parsed.command = escape2.command(parsed.command);
         parsed.args = parsed.args.map((arg) => escape2.argument(arg, needsDoubleEscapeMetaChars));
         const shellCommand = [parsed.command].concat(parsed.args).join(" ");
@@ -529,7 +529,7 @@ var require_cross_spawn = __commonJS({
 // ../cli/src/bin/mcp-stdio.ts
 var import_node_fs7 = __toESM(require("node:fs"), 1);
 var import_node_os6 = __toESM(require("node:os"), 1);
-var import_node_path30 = __toESM(require("node:path"), 1);
+var import_node_path31 = __toESM(require("node:path"), 1);
 
 // ../../packages/application/dist/file-service.js
 var import_node_fs2 = require("node:fs");
@@ -4613,10 +4613,10 @@ function mergeDefs(...defs) {
 function cloneDef(schema) {
   return mergeDefs(schema._zod.def);
 }
-function getElementAtPath(obj, path31) {
-  if (!path31)
+function getElementAtPath(obj, path32) {
+  if (!path32)
     return obj;
-  return path31.reduce((acc, key) => acc?.[key], obj);
+  return path32.reduce((acc, key) => acc?.[key], obj);
 }
 function promiseAllObject(promisesObj) {
   const keys = Object.keys(promisesObj);
@@ -4982,11 +4982,11 @@ function aborted(x, startIndex = 0) {
   }
   return false;
 }
-function prefixIssues(path31, issues) {
+function prefixIssues(path32, issues) {
   return issues.map((iss) => {
     var _a2;
     (_a2 = iss).path ?? (_a2.path = []);
-    iss.path.unshift(path31);
+    iss.path.unshift(path32);
     return iss;
   });
 }
@@ -5148,7 +5148,7 @@ function formatError(error46, mapper = (issue2) => issue2.message) {
 }
 function treeifyError(error46, mapper = (issue2) => issue2.message) {
   const result = { errors: [] };
-  const processError = (error47, path31 = []) => {
+  const processError = (error47, path32 = []) => {
     var _a2, _b;
     for (const issue2 of error47.issues) {
       if (issue2.code === "invalid_union" && issue2.errors.length) {
@@ -5158,7 +5158,7 @@ function treeifyError(error46, mapper = (issue2) => issue2.message) {
       } else if (issue2.code === "invalid_element") {
         processError({ issues: issue2.issues }, issue2.path);
       } else {
-        const fullpath = [...path31, ...issue2.path];
+        const fullpath = [...path32, ...issue2.path];
         if (fullpath.length === 0) {
           result.errors.push(mapper(issue2));
           continue;
@@ -5190,8 +5190,8 @@ function treeifyError(error46, mapper = (issue2) => issue2.message) {
 }
 function toDotPath(_path) {
   const segs = [];
-  const path31 = _path.map((seg) => typeof seg === "object" ? seg.key : seg);
-  for (const seg of path31) {
+  const path32 = _path.map((seg) => typeof seg === "object" ? seg.key : seg);
+  for (const seg of path32) {
     if (typeof seg === "number")
       segs.push(`[${seg}]`);
     else if (typeof seg === "symbol")
@@ -16785,13 +16785,13 @@ function resolveRef(ref, ctx) {
   if (!ref.startsWith("#")) {
     throw new Error("External $ref is not supported, only local refs (#/...) are allowed");
   }
-  const path31 = ref.slice(1).split("/").filter(Boolean);
-  if (path31.length === 0) {
+  const path32 = ref.slice(1).split("/").filter(Boolean);
+  if (path32.length === 0) {
     return ctx.rootSchema;
   }
   const defsKey = ctx.version === "draft-2020-12" ? "$defs" : "definitions";
-  if (path31[0] === defsKey) {
-    const key = path31[1];
+  if (path32[0] === defsKey) {
+    const key = path32[1];
     if (!key || !ctx.defs[key]) {
       throw new Error(`Reference not found: ${ref}`);
     }
@@ -20731,9 +20731,9 @@ var rev2026Codec = {
     });
     const parsed = buildSchemas2026().RequestMetaEnvelopeSchema.safeParse(meta3);
     if (!parsed.success) for (const issue2 of parsed.error.issues) {
-      const path31 = issue2.path.map(String);
-      const key = path31.length > 0 ? path31.join(".") : "_meta";
-      if (path31.length === 1 && issues.some((existing) => existing.key === key && existing.problem === "missing")) continue;
+      const path32 = issue2.path.map(String);
+      const key = path32.length > 0 ? path32.join(".") : "_meta";
+      if (path32.length === 1 && issues.some((existing) => existing.key === key && existing.problem === "missing")) continue;
       issues.push({
         key,
         problem: issue2.message
@@ -21054,29 +21054,29 @@ var PERMITTED_X_MCP_HEADER_TYPES = /* @__PURE__ */ new Set([
 function scanXMcpHeaderDeclarations(inputSchema) {
   const declarations = [];
   const seenLower = /* @__PURE__ */ new Map();
-  const visit = (node, path31, reachable) => {
+  const visit = (node, path32, reachable) => {
     if (node === null || typeof node !== "object") return void 0;
     const schema = node;
     if (X_MCP_HEADER_KEY in schema) {
-      if (!reachable || path31.length === 0) return `${pathName(path31)}: x-mcp-header is only permitted on properties statically reachable via a chain of 'properties' keys (not under items, additionalProperties, oneOf/anyOf/allOf/not, if/then/else, or $ref)`;
+      if (!reachable || path32.length === 0) return `${pathName(path32)}: x-mcp-header is only permitted on properties statically reachable via a chain of 'properties' keys (not under items, additionalProperties, oneOf/anyOf/allOf/not, if/then/else, or $ref)`;
       const raw = schema[X_MCP_HEADER_KEY];
-      if (typeof raw !== "string" || raw.length === 0) return `${pathName(path31)}: x-mcp-header MUST be a non-empty string`;
-      if (!RFC9110_TOKEN.test(raw)) return `${pathName(path31)}: x-mcp-header '${raw}' is not a valid RFC 9110 token (no spaces, control characters or HTTP delimiters)`;
+      if (typeof raw !== "string" || raw.length === 0) return `${pathName(path32)}: x-mcp-header MUST be a non-empty string`;
+      if (!RFC9110_TOKEN.test(raw)) return `${pathName(path32)}: x-mcp-header '${raw}' is not a valid RFC 9110 token (no spaces, control characters or HTTP delimiters)`;
       const type = typeof schema.type === "string" ? schema.type : void 0;
-      if (type === void 0 || !PERMITTED_X_MCP_HEADER_TYPES.has(type)) return `${pathName(path31)}: x-mcp-header is only permitted on primitive-typed properties (string, integer, boolean); got ${type ?? "<none>"}`;
+      if (type === void 0 || !PERMITTED_X_MCP_HEADER_TYPES.has(type)) return `${pathName(path32)}: x-mcp-header is only permitted on primitive-typed properties (string, integer, boolean); got ${type ?? "<none>"}`;
       const lower = raw.toLowerCase();
       const prior = seenLower.get(lower);
       if (prior !== void 0) return `x-mcp-header '${raw}' is not case-insensitively unique (also declared as '${prior}')`;
       seenLower.set(lower, raw);
       declarations.push({
-        path: path31,
+        path: path32,
         headerName: raw,
         type
       });
     }
     const properties = schema.properties;
     if (properties !== null && typeof properties === "object") for (const [key, child] of Object.entries(properties)) {
-      const fault$1 = visit(child, [...path31, key], reachable);
+      const fault$1 = visit(child, [...path32, key], reachable);
       if (fault$1 !== void 0) return fault$1;
     }
     for (const k of NON_REACHABLE_SUBSCHEMA_KEYWORDS) {
@@ -21084,7 +21084,7 @@ function scanXMcpHeaderDeclarations(inputSchema) {
       if (sub === void 0) continue;
       const branches = Array.isArray(sub) ? sub : sub !== null && typeof sub === "object" && OBJECT_VALUED_SUBSCHEMA_KEYWORDS.has(k) ? Object.values(sub) : [sub];
       for (const branch of branches) {
-        const fault$1 = visit(branch, [...path31, `<${k}>`], false);
+        const fault$1 = visit(branch, [...path32, `<${k}>`], false);
         if (fault$1 !== void 0) return fault$1;
       }
     }
@@ -21124,8 +21124,8 @@ var OBJECT_VALUED_SUBSCHEMA_KEYWORDS = /* @__PURE__ */ new Set([
   "$defs",
   "definitions"
 ]);
-function pathName(path31) {
-  return path31.length === 0 ? "<root>" : path31.join(".");
+function pathName(path32) {
+  return path32.length === 0 ? "<root>" : path32.join(".");
 }
 var HEADER_MISMATCH_ERROR_CODE = -32020;
 var INBOUND_VALIDATION_LADDER = [
@@ -21414,7 +21414,7 @@ var PROPERTY_KEYS_BY_TYPE = {
   array: shapeKeys([UntitledMultiSelectEnumSchemaSchema, TitledMultiSelectEnumSchemaSchema])
 };
 var SUPPORTED_STRING_FORMATS = new Set(StringSchemaSchema.shape.format.unwrap().options);
-function walkProperty(node, path31, vendor, unsupported) {
+function walkProperty(node, path32, vendor, unsupported) {
   if (!isJsonObject(node)) return node;
   const allowedKeys = typeof node.type === "string" && Object.hasOwn(PROPERTY_KEYS_BY_TYPE, node.type) ? PROPERTY_KEYS_BY_TYPE[node.type] : void 0;
   if (allowedKeys === void 0) return node;
@@ -21422,8 +21422,8 @@ function walkProperty(node, path31, vendor, unsupported) {
   for (const [key, value] of Object.entries(node)) if (allowedKeys.has(key) || isAnnotationOnlyJsonSchemaKeyword(key)) pruned[key] = value;
   else if (key === "pattern" && node.type === "string" && typeof node.format === "string") {
     if (!SUPPORTED_STRING_FORMATS.has(node.format)) pruned[key] = value;
-    else if (typeof value !== "string" || !isLibraryFormatPattern(node.format, value, vendor)) unsupported.push(`${path31}.${key}`);
-  } else unsupported.push(`${path31}.${key}`);
+    else if (typeof value !== "string" || !isLibraryFormatPattern(node.format, value, vendor)) unsupported.push(`${path32}.${key}`);
+  } else unsupported.push(`${path32}.${key}`);
   return pruned;
 }
 function walkRequestedSchema(converted, vendor) {
@@ -21440,11 +21440,11 @@ function describeUnsupportedProperties(pruned, fallback) {
   const offenders = Object.entries(pruned.properties).filter(([, node]) => !parseSchema(PrimitiveSchemaDefinitionSchema, node).success).map(([name]) => `properties.${name}`);
   return offenders.length > 0 ? offenders.join(", ") : fallback;
 }
-function findDroppedConstraintPaths(original, parsed, path31 = "") {
-  if (Array.isArray(original) && Array.isArray(parsed)) return original.flatMap((item, index) => findDroppedConstraintPaths(item, parsed[index], `${path31}[${index}]`));
+function findDroppedConstraintPaths(original, parsed, path32 = "") {
+  if (Array.isArray(original) && Array.isArray(parsed)) return original.flatMap((item, index) => findDroppedConstraintPaths(item, parsed[index], `${path32}[${index}]`));
   if (!isJsonObject(original) || !isJsonObject(parsed)) return [];
   return Object.entries(original).flatMap(([key, value]) => {
-    const childPath = path31 ? `${path31}.${key}` : key;
+    const childPath = path32 ? `${path32}.${key}` : key;
     if (!Object.prototype.hasOwnProperty.call(parsed, key)) return isAnnotationOnlyJsonSchemaKeyword(key) ? [] : [childPath];
     return findDroppedConstraintPaths(value, parsed[key], childPath);
   });
@@ -25522,8 +25522,8 @@ var require_utils = /* @__PURE__ */ __commonJSMin(((exports2, module2) => {
     for (let i = 0; i < str.length; i++) if (str[i] === token) ind++;
     return ind;
   }
-  function removeDotSegments(path31) {
-    let input = path31;
+  function removeDotSegments(path32) {
+    let input = path32;
     const output = [];
     let nextSlash = -1;
     let len = 0;
@@ -25676,8 +25676,8 @@ var require_schemes = /* @__PURE__ */ __commonJSMin(((exports2, module2) => {
       wsComponent.secure = void 0;
     }
     if (wsComponent.resourceName) {
-      const [path31, query] = wsComponent.resourceName.split("?");
-      wsComponent.path = path31 && path31 !== "/" ? path31 : void 0;
+      const [path32, query] = wsComponent.resourceName.split("?");
+      wsComponent.path = path32 && path32 !== "/" ? path32 : void 0;
       wsComponent.query = query;
       wsComponent.resourceName = void 0;
     }
@@ -31396,7 +31396,7 @@ var ContextEngine = class {
         hasMore ||= entry.value.text.value.truncated;
       }
       if (entry.value.files.ok) {
-        paths.push(...entry.value.files.value.paths.map((path31) => ({ workspaceId: entry.value.workspaceId, path: path31 })));
+        paths.push(...entry.value.files.value.paths.map((path32) => ({ workspaceId: entry.value.workspaceId, path: path32 })));
         hasMore ||= entry.value.files.value.truncated;
       }
     }
@@ -31412,6 +31412,11 @@ var ContextEngine = class {
     const workspaceIds = await this.resolveWorkspaceIds(request.workspaceId);
     if (!workspaceIds.ok)
       return workspaceIds;
+    if (request.workspaceId !== void 0 && this.services.workspaceIndex !== void 0) {
+      const indexed = await this.fullScanFromIndex(request.workspaceId, request.path, request.pageSize);
+      if (indexed !== null)
+        return indexed;
+    }
     if (this.services.search === void 0)
       return err({ code: "INTERNAL_ERROR", message: "Search service is unavailable", recoverable: true });
     const maxResults = 500;
@@ -31428,7 +31433,7 @@ var ContextEngine = class {
       scannedWorkspaces += 1;
       if (!entry.value.result.ok)
         continue;
-      files.push(...entry.value.result.value.paths.map((path31) => ({ workspaceId: entry.value.workspaceId, path: path31 })));
+      files.push(...entry.value.result.value.paths.map((path32) => ({ workspaceId: entry.value.workspaceId, path: path32 })));
       hasMore ||= entry.value.result.value.truncated;
     }
     const deduped = dedupePaths(files);
@@ -31503,6 +31508,22 @@ var ContextEngine = class {
       ...workspace?.ok === true ? { workspace: workspace.value } : {},
       ...project?.ok === true ? { project: project.value } : {}
     });
+  }
+  async fullScanFromIndex(workspaceId, requestedPath, pageSize) {
+    const status = await this.services.workspaceIndex.status(workspaceId);
+    if (!status.ok || status.value.snapshot === null)
+      return null;
+    const prefix = requestedPath === void 0 ? "" : normalizePath(requestedPath).replace(/^\.\//, "").replace(/\/$/, "");
+    const allFiles = status.value.snapshot.entries.filter((entry) => entry.kind === "file" || entry.kind === "symlink").map((entry) => entry.relativePath).filter((entry) => prefix.length === 0 || entry === prefix || entry.startsWith(`${prefix}/`)).sort((left, right) => normalizePath(left).localeCompare(normalizePath(right))).map((path32) => ({ workspaceId, path: path32 }));
+    const size = normalizePageSize(pageSize ?? 200);
+    const files = allFiles.slice(0, size);
+    const remaining = allFiles.slice(files.length);
+    let continuationToken;
+    if (remaining.length > 0) {
+      continuationToken = (0, import_node_crypto8.randomUUID)();
+      this.scanContinuations.set(continuationToken, { files: remaining, scannedWorkspaces: 1, scannedFiles: allFiles.length });
+    }
+    return ok({ files, scannedWorkspaces: 1, scannedFiles: allFiles.length, hasMore: remaining.length > 0, ...continuationToken === void 0 ? {} : { continuationToken } });
   }
   async resolveWorkspaceIds(workspaceId) {
     if (workspaceId !== void 0 && workspaceId.trim().length > 0)
@@ -32857,6 +32878,7 @@ var UPGRADE_TOOL_CATALOG = [
   read("tool_describe", 33, "Describe one tool contract on demand.", ["tool", "discovery"]),
   read("tool_categories", 33, "List tool categories and counts.", ["tool", "discovery"]),
   read("tool_function_find", 34, "Find the best local tool/function candidates for a prompt.", ["tool", "search"]),
+  read("tool_aliases", 33, "List stable shorthand aliases and their primitive tool targets.", ["tool", "alias", "discovery"]),
   read("dev_context", 35, "Run the unified deterministic development-context facade.", ["development", "context"], { streamable: true }),
   read("recipe_catalog", 36, "Return inspectable developer automation recipes.", ["recipe", "automation"]),
   read("capture_screenshot", 37, "Capture screenshot metadata for visual validation.", ["visual", "browser"]),
@@ -32864,6 +32886,11 @@ var UPGRADE_TOOL_CATALOG = [
   read("dom_snapshot", 37, "Return a structured DOM snapshot.", ["visual", "browser"]),
   read("layout_metadata", 37, "Return layout metadata for visual validation.", ["visual", "browser"]),
   read("visual_context", 37, "Combine screenshot, DOM, layout, console, and network references.", ["visual", "context"]),
+  read("inspect_workbook", 37, "Inspect workbook structure through an optional spreadsheet plugin.", ["visual", "excel", "plugin"]),
+  read("compare_workbook_layout", 37, "Compare workbook layout metadata through an optional spreadsheet plugin.", ["visual", "excel", "plugin"]),
+  read("render_excel_preview", 37, "Render an Excel preview through an optional spreadsheet plugin.", ["visual", "excel", "plugin"]),
+  read("inspect_pdf", 37, "Inspect PDF metadata and page structure through an optional PDF plugin.", ["visual", "pdf", "plugin"]),
+  read("compare_pdf_pages", 37, "Compare PDF page metadata through an optional PDF plugin.", ["visual", "pdf", "plugin"]),
   read("project_profile_get", 38, "Read project intelligence conventions.", ["project", "profile"]),
   write("project_profile_set", 38, "Update project intelligence conventions.", ["project", "profile"]),
   read("handoff_context", 39, "Build a structured cross-agent handoff bundle.", ["handoff", "session"]),
@@ -32873,6 +32900,8 @@ var UPGRADE_TOOL_CATALOG = [
 
 // ../../packages/mcp-server/dist/upgrade-runtime.js
 var import_node_crypto10 = require("node:crypto");
+var import_promises18 = require("node:fs/promises");
+var import_node_path23 = __toESM(require("node:path"), 1);
 var UpgradeRuntimeService = class {
   services;
   contextEngine;
@@ -32883,12 +32912,14 @@ var UpgradeRuntimeService = class {
   plugins = /* @__PURE__ */ new Map();
   cache = { hits: 0, misses: 0, bytesSaved: 0 };
   session = /* @__PURE__ */ new Map();
+  loaded = false;
   constructor(services, actor) {
     this.services = services;
     this.actor = actor;
     this.contextEngine = new ContextEngine(services, actor);
   }
   async execute(name, input) {
+    await this.loadState();
     switch (name) {
       case "tool_search":
       case "tool_function_find":
@@ -32897,6 +32928,8 @@ var UpgradeRuntimeService = class {
         return ok(this.describeTool(readString(input, "name") ?? readString(input, "tool")));
       case "tool_categories":
         return ok(this.categories());
+      case "tool_aliases":
+        return ok({ aliases: { read: "read_file", search: "search_text", tree: "workspace_tree", logs: "live_logs_query", tests: "test_context", context: "workspace_context", map: "repo_map" }, primitiveToolsRemainAvailable: true });
       case "capabilities":
         return ok({ categories: this.categories().categories, totalUpgradeTools: UPGRADE_TOOL_CATALOG.length, primitiveToolsRemainAvailable: true });
       case "route_intent":
@@ -32945,7 +32978,7 @@ var UpgradeRuntimeService = class {
       case "plugin_enable":
       case "plugin_disable":
       case "plugin_remove":
-        return ok(this.changePlugin(name, readString(input, "name") ?? readString(input, "plugin")));
+        return ok(await this.changePlugin(name, readString(input, "name") ?? readString(input, "plugin")));
       case "session_context":
       case "session_resume":
         return ok({ session: Object.fromEntries(this.session), checkpoints: this.checkpoints });
@@ -32953,13 +32986,14 @@ var UpgradeRuntimeService = class {
         const checkpoint = { id: (0, import_node_crypto10.randomUUID)(), createdAt: (/* @__PURE__ */ new Date()).toISOString(), summary: summarize(readString(input, "summary") ?? readString(input, "prompt") ?? ""), inputDigest: digest(input) };
         this.checkpoints.push(checkpoint);
         this.session.set("lastCheckpointId", checkpoint.id);
+        await this.persistState();
         return ok(checkpoint);
       }
       case "session_history":
         return ok({ checkpoints: this.checkpoints });
       case "task_create":
       case "delegate": {
-        const task = this.createTask(name === "delegate" ? "delegate" : "task", input);
+        const task = await this.createTask(name === "delegate" ? "delegate" : "task", input);
         return ok(task);
       }
       case "task_status":
@@ -32971,7 +33005,7 @@ var UpgradeRuntimeService = class {
         return ok({ tasks: [...this.tasks.values()].map(publicTask) });
       case "task_cancel":
       case "delegate_cancel":
-        return ok(this.cancelTask(readString(input, "taskId") ?? readString(input, "delegateId") ?? readString(input, "id")));
+        return ok(await this.cancelTask(readString(input, "taskId") ?? readString(input, "delegateId") ?? readString(input, "id")));
       case "parallel_delegate":
         return ok(parallelDelegatePlan(input));
       case "repo_map":
@@ -33059,6 +33093,11 @@ var UpgradeRuntimeService = class {
       case "dom_snapshot":
       case "layout_metadata":
       case "visual_context":
+      case "inspect_workbook":
+      case "compare_workbook_layout":
+      case "render_excel_preview":
+      case "inspect_pdf":
+      case "compare_pdf_pages":
         return ok({ tool: name, status: "ready", executed: [], primitiveFallbacks: ["read_file", "search_text", "workspace_tree"], metadataOnly: true, inputKeys: Object.keys(input).sort() });
       case "run_affected_tests":
         return ok({ tool: name, started: false, affectedTests: [], fullRunStillAvailable: true, command: null });
@@ -33086,29 +33125,35 @@ var UpgradeRuntimeService = class {
         counts.set(tag, (counts.get(tag) ?? 0) + 1);
     return { categories: [...counts.entries()].sort(([left], [right]) => left.localeCompare(right)).map(([category, tools]) => ({ category, tools })) };
   }
-  changePlugin(operation, name) {
+  async changePlugin(operation, name) {
     if (name === void 0 || name.trim().length === 0)
       return { changed: false, reason: "plugin name is required" };
-    if (operation === "plugin_remove")
-      return { changed: this.plugins.delete(name), name };
+    if (operation === "plugin_remove") {
+      const changed = this.plugins.delete(name);
+      await this.persistState();
+      return { changed, name };
+    }
     const plugin = { name, enabled: operation !== "plugin_disable" };
     this.plugins.set(name, plugin);
+    await this.persistState();
     return { changed: true, ...plugin };
   }
-  createTask(kind, input) {
+  async createTask(kind, input) {
     const task = { id: (0, import_node_crypto10.randomUUID)(), kind, createdAt: (/* @__PURE__ */ new Date()).toISOString(), inputDigest: digest(input), state: "queued" };
     this.tasks.set(task.id, task);
+    await this.persistState();
     return task;
   }
   taskView(id) {
     const task = id === void 0 ? void 0 : this.tasks.get(id);
     return task === void 0 ? { found: false, id: id ?? null } : publicTask(task);
   }
-  cancelTask(id) {
+  async cancelTask(id) {
     const task = id === void 0 ? void 0 : this.tasks.get(id);
     if (task === void 0)
       return { cancelled: false, id: id ?? null };
     task.state = "cancelled";
+    await this.persistState();
     return { cancelled: true, id };
   }
   async repositoryMap(workspaceId) {
@@ -33162,6 +33207,49 @@ var UpgradeRuntimeService = class {
   }
   actorForOperation() {
     return this.actor;
+  }
+  async loadState() {
+    if (this.loaded)
+      return;
+    this.loaded = true;
+    const statePath = this.services.runtimeStatePath;
+    if (statePath === void 0)
+      return;
+    try {
+      const parsed = JSON.parse(await (0, import_promises18.readFile)(statePath, "utf8"));
+      if (typeof parsed !== "object" || parsed === null)
+        return;
+      const state = parsed;
+      for (const task of state.tasks ?? [])
+        if (isRuntimeTask(task))
+          this.tasks.set(task.id, { ...task });
+      for (const checkpoint of state.checkpoints ?? [])
+        if (isCheckpoint(checkpoint))
+          this.checkpoints.push(checkpoint);
+      for (const plugin of state.plugins ?? [])
+        if (isPlugin(plugin))
+          this.plugins.set(plugin.name, { ...plugin });
+      for (const pair of state.session ?? [])
+        if (Array.isArray(pair) && pair.length === 2 && typeof pair[0] === "string")
+          this.session.set(pair[0], pair[1]);
+    } catch {
+    }
+  }
+  async persistState() {
+    const statePath = this.services.runtimeStatePath;
+    if (statePath === void 0)
+      return;
+    try {
+      await (0, import_promises18.mkdir)(import_node_path23.default.dirname(statePath), { recursive: true });
+      await (0, import_promises18.writeFile)(statePath, `${JSON.stringify({
+        tasks: [...this.tasks.values()],
+        checkpoints: this.checkpoints,
+        plugins: [...this.plugins.values()],
+        session: [...this.session.entries()]
+      })}
+`, "utf8");
+    } catch {
+    }
   }
 };
 function readString(input, key) {
@@ -33229,6 +33317,24 @@ function parallelDelegatePlan(input) {
   const tasks = Array.isArray(input.tasks) ? input.tasks : [];
   const writesRequested = tasks.some((task) => typeof task === "object" && task !== null && JSON.stringify(task).toLowerCase().includes("write"));
   return { tasks: tasks.map((task, index) => ({ id: `delegate-${index + 1}`, mode: writesRequested ? "serialized-mutation" : "read-only-parallel", inputDigest: digest(task) })), collisionDetected: writesRequested, mutationPolicy: "one-writer-at-a-time", cancellationSupported: true };
+}
+function isRuntimeTask(value) {
+  if (typeof value !== "object" || value === null)
+    return false;
+  const record2 = value;
+  return typeof record2.id === "string" && (record2.kind === "task" || record2.kind === "delegate") && typeof record2.createdAt === "string" && typeof record2.inputDigest === "string" && (record2.state === "queued" || record2.state === "running" || record2.state === "completed" || record2.state === "cancelled");
+}
+function isCheckpoint(value) {
+  if (typeof value !== "object" || value === null)
+    return false;
+  const record2 = value;
+  return typeof record2.id === "string" && typeof record2.createdAt === "string" && typeof record2.summary === "string" && typeof record2.inputDigest === "string";
+}
+function isPlugin(value) {
+  if (typeof value !== "object" || value === null)
+    return false;
+  const record2 = value;
+  return typeof record2.name === "string" && typeof record2.enabled === "boolean";
 }
 
 // ../../packages/mcp-server/dist/tools/upgrade-tools.js
@@ -34707,7 +34813,7 @@ var SqliteWorkspaceRepository = class {
 
 // ../cli/src/runtime/stdio-mcp-runtime.ts
 var import_node_fs6 = require("node:fs");
-var import_node_path29 = __toESM(require("node:path"), 1);
+var import_node_path30 = __toESM(require("node:path"), 1);
 var import_node_url = require("node:url");
 
 // ../../packages/audit/dist/audit-service.js
@@ -34858,8 +34964,8 @@ var LocalCapabilityService = class {
 
 // ../../packages/capabilities/dist/shell-backend.js
 var import_node_child_process6 = require("node:child_process");
-var import_promises18 = require("node:fs/promises");
-var import_node_path23 = __toESM(require("node:path"), 1);
+var import_promises19 = require("node:fs/promises");
+var import_node_path24 = __toESM(require("node:path"), 1);
 var import_node_crypto13 = require("node:crypto");
 var SHELL_OPERATIONS = ["run", "status", "wait", "logs", "result", "cancel", "resume", "approve", "deny"];
 var DEFAULT_TIMEOUT_SECONDS = 3600;
@@ -34880,7 +34986,7 @@ var ShellCapabilityBackend = class {
   constructor(options) {
     if (options.allowedRoots.length === 0)
       throw new Error("At least one local capability root is required");
-    this.allowedRoots = options.allowedRoots.map((root) => import_node_path23.default.resolve(root));
+    this.allowedRoots = options.allowedRoots.map((root) => import_node_path24.default.resolve(root));
     this.allowedRootsProvider = options.allowedRootsProvider;
     this.executableResolver = options.executableResolver ?? new PathExecutableResolver();
     this.terminator = options.terminator ?? new WindowsProcessTree();
@@ -35024,10 +35130,10 @@ var ShellCapabilityBackend = class {
     return task === void 0 ? err(appError("PROCESS_NOT_FOUND", "Task was not found")) : ok(task);
   }
   async resolveCwd(requestedCwd) {
-    if (this.unrestricted && requestedCwd !== void 0 && import_node_path23.default.isAbsolute(requestedCwd)) {
+    if (this.unrestricted && requestedCwd !== void 0 && import_node_path24.default.isAbsolute(requestedCwd)) {
       try {
-        const canonical = await (0, import_promises18.realpath)(requestedCwd);
-        if (!(await (0, import_promises18.stat)(canonical)).isDirectory())
+        const canonical = await (0, import_promises19.realpath)(requestedCwd);
+        if (!(await (0, import_promises19.stat)(canonical)).isDirectory())
           return err(appError("INVALID_INPUT", "Working directory must be a directory"));
         return ok(canonical);
       } catch {
@@ -35038,19 +35144,19 @@ var ShellCapabilityBackend = class {
     const canonicalRoots = [];
     for (const root of configuredRoots) {
       try {
-        if ((await (0, import_promises18.stat)(root)).isDirectory())
-          canonicalRoots.push(await (0, import_promises18.realpath)(root));
+        if ((await (0, import_promises19.stat)(root)).isDirectory())
+          canonicalRoots.push(await (0, import_promises19.realpath)(root));
       } catch {
         continue;
       }
     }
     if (canonicalRoots.length === 0)
       return err(appError("FILE_NOT_FOUND", "No local capability root is available"));
-    const candidate = import_node_path23.default.resolve(requestedCwd ?? canonicalRoots[0]);
+    const candidate = import_node_path24.default.resolve(requestedCwd ?? canonicalRoots[0]);
     let canonicalCandidate;
     try {
-      canonicalCandidate = await (0, import_promises18.realpath)(candidate);
-      if (!(await (0, import_promises18.stat)(canonicalCandidate)).isDirectory())
+      canonicalCandidate = await (0, import_promises19.realpath)(candidate);
+      if (!(await (0, import_promises19.stat)(canonicalCandidate)).isDirectory())
         return err(appError("INVALID_INPUT", "Working directory must be a directory"));
     } catch {
       return err(appError("FILE_NOT_FOUND", "Working directory was not found"));
@@ -35164,8 +35270,8 @@ function isRecord4(value) {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 function isWithin3(root, candidate) {
-  const relative = import_node_path23.default.relative(root, candidate);
-  return relative === "" || relative !== ".." && !relative.startsWith(`..${import_node_path23.default.sep}`) && !import_node_path23.default.isAbsolute(relative);
+  const relative = import_node_path24.default.relative(root, candidate);
+  return relative === "" || relative !== ".." && !relative.startsWith(`..${import_node_path24.default.sep}`) && !import_node_path24.default.isAbsolute(relative);
 }
 function createSafeEnvironment2(source, unrestricted) {
   if (unrestricted)
@@ -35183,7 +35289,7 @@ function clampNumber(value, minimum, maximum) {
   return Math.min(maximum, Math.max(minimum, value));
 }
 function isDeleteLikeShellCommand(executable, args) {
-  const basename = import_node_path23.default.win32.basename(executable).toLowerCase();
+  const basename = import_node_path24.default.win32.basename(executable).toLowerCase();
   if (basename === "git" || basename === "git.exe")
     return false;
   const deleteNames = /* @__PURE__ */ new Set(["del", "del.exe", "erase", "erase.exe", "rm", "rm.exe", "rmdir", "rmdir.exe", "rd", "rd.exe", "unlink", "unlink.exe"]);
@@ -35206,10 +35312,10 @@ function delay(milliseconds) {
 }
 
 // ../../packages/capabilities/dist/browser-cdp-protocol.js
-var import_promises19 = require("node:fs/promises");
+var import_promises20 = require("node:fs/promises");
 var import_node_fs5 = require("node:fs");
 var import_node_os3 = __toESM(require("node:os"), 1);
-var import_node_path24 = __toESM(require("node:path"), 1);
+var import_node_path25 = __toESM(require("node:path"), 1);
 var import_node_child_process7 = require("node:child_process");
 var NodeBrowserCdpProtocol = class {
   port;
@@ -35217,7 +35323,7 @@ var NodeBrowserCdpProtocol = class {
   chromeExecutable;
   constructor(options = {}) {
     this.port = options.port ?? readPort(process.env.LNWJUD_BROWSER_CDP_PORT);
-    this.profileDir = options.profileDir ?? process.env.LNWJUD_BROWSER_PROFILE ?? import_node_path24.default.join(import_node_os3.default.tmpdir(), "lnwjud-browser-profile");
+    this.profileDir = options.profileDir ?? process.env.LNWJUD_BROWSER_PROFILE ?? import_node_path25.default.join(import_node_os3.default.tmpdir(), "lnwjud-browser-profile");
     this.chromeExecutable = options.chromeExecutable ?? process.env.LNWJUD_BROWSER_EXECUTABLE;
   }
   async status() {
@@ -35267,7 +35373,7 @@ var NodeBrowserCdpProtocol = class {
     if (executable === void 0)
       return err(appError("EXECUTABLE_NOT_FOUND", "Google Chrome was not found"));
     try {
-      await (0, import_promises19.mkdir)(this.profileDir, { recursive: true });
+      await (0, import_promises20.mkdir)(this.profileDir, { recursive: true });
       const args = [
         `--remote-debugging-port=${this.port}`,
         `--user-data-dir=${this.profileDir}`,
@@ -35307,12 +35413,12 @@ var NodeBrowserCdpProtocol = class {
     const programFiles = process.env.ProgramFiles;
     const programFilesX86 = process.env["ProgramFiles(x86)"];
     const candidates = [
-      localAppData === void 0 ? void 0 : import_node_path24.default.join(localAppData, "Google", "Chrome", "Application", "chrome.exe"),
-      programFiles === void 0 ? void 0 : import_node_path24.default.join(programFiles, "Google", "Chrome", "Application", "chrome.exe"),
-      programFilesX86 === void 0 ? void 0 : import_node_path24.default.join(programFilesX86, "Google", "Chrome", "Application", "chrome.exe"),
-      localAppData === void 0 ? void 0 : import_node_path24.default.join(localAppData, "Microsoft", "Edge", "Application", "msedge.exe"),
-      programFiles === void 0 ? void 0 : import_node_path24.default.join(programFiles, "Microsoft", "Edge", "Application", "msedge.exe"),
-      programFilesX86 === void 0 ? void 0 : import_node_path24.default.join(programFilesX86, "Microsoft", "Edge", "Application", "msedge.exe")
+      localAppData === void 0 ? void 0 : import_node_path25.default.join(localAppData, "Google", "Chrome", "Application", "chrome.exe"),
+      programFiles === void 0 ? void 0 : import_node_path25.default.join(programFiles, "Google", "Chrome", "Application", "chrome.exe"),
+      programFilesX86 === void 0 ? void 0 : import_node_path25.default.join(programFilesX86, "Google", "Chrome", "Application", "chrome.exe"),
+      localAppData === void 0 ? void 0 : import_node_path25.default.join(localAppData, "Microsoft", "Edge", "Application", "msedge.exe"),
+      programFiles === void 0 ? void 0 : import_node_path25.default.join(programFiles, "Microsoft", "Edge", "Application", "msedge.exe"),
+      programFilesX86 === void 0 ? void 0 : import_node_path25.default.join(programFilesX86, "Microsoft", "Edge", "Application", "msedge.exe")
     ];
     return candidates.find((candidate) => candidate !== void 0 && (0, import_node_fs5.existsSync)(candidate));
   }
@@ -35908,7 +36014,7 @@ function isRecord9(value) {
 }
 
 // ../../packages/capabilities/dist/windows-native-backend.js
-var import_node_path25 = __toESM(require("node:path"), 1);
+var import_node_path26 = __toESM(require("node:path"), 1);
 var PATH_FIELDS = {
   accessibility: [],
   input_event: [],
@@ -35953,11 +36059,11 @@ var WindowsNativeCapabilityBackend = class {
     for (const field of fields) {
       const value = input[field];
       if (typeof value === "string" && value.trim().length > 0)
-        targets.push(import_node_path25.default.resolve(value.trim()));
+        targets.push(import_node_path26.default.resolve(value.trim()));
     }
     if (targets.length === 0)
       return ok(void 0);
-    const roots = this.options.allowedRootsProvider === void 0 ? [] : (await this.options.allowedRootsProvider()).map((root) => import_node_path25.default.resolve(root));
+    const roots = this.options.allowedRootsProvider === void 0 ? [] : (await this.options.allowedRootsProvider()).map((root) => import_node_path26.default.resolve(root));
     for (const target of targets) {
       const within = roots.some((root) => isWithin4(root, target));
       if (!within)
@@ -35967,8 +36073,8 @@ var WindowsNativeCapabilityBackend = class {
   }
 };
 function isWithin4(root, candidate) {
-  const relative = import_node_path25.default.relative(root, candidate);
-  return relative === "" || relative !== ".." && !relative.startsWith(`..${import_node_path25.default.sep}`) && !import_node_path25.default.isAbsolute(relative);
+  const relative = import_node_path26.default.relative(root, candidate);
+  return relative === "" || relative !== ".." && !relative.startsWith(`..${import_node_path26.default.sep}`) && !import_node_path26.default.isAbsolute(relative);
 }
 function isRecord10(value) {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -35976,7 +36082,7 @@ function isRecord10(value) {
 
 // ../../packages/capabilities/dist/windows-bridge.js
 var import_node_child_process9 = require("node:child_process");
-var import_node_path26 = __toESM(require("node:path"), 1);
+var import_node_path27 = __toESM(require("node:path"), 1);
 var DEFAULT_TIMEOUT_SECONDS4 = 600;
 var MAX_TIMEOUT_SECONDS4 = 14400;
 var DEFAULT_MAX_OUTPUT_BYTES2 = 8 * 1024 * 1024;
@@ -36004,7 +36110,7 @@ var PowerShellWindowsCapabilityBridge = class {
   maxOutputBytes;
   terminator;
   constructor(options) {
-    this.scriptPath = import_node_path26.default.resolve(options.scriptPath);
+    this.scriptPath = import_node_path27.default.resolve(options.scriptPath);
     this.powershellPath = options.powershellPath ?? powershellExecutable();
     this.platform = options.platform ?? process.platform;
     this.maxOutputBytes = Math.max(1, Math.min(options.maxOutputBytes ?? DEFAULT_MAX_OUTPUT_BYTES2, DEFAULT_MAX_OUTPUT_BYTES2));
@@ -36013,7 +36119,7 @@ var PowerShellWindowsCapabilityBridge = class {
   execute(request) {
     if (this.platform !== "win32")
       return Promise.resolve(err(appError("INTERNAL_ERROR", "Windows bridge is unavailable on this platform", true)));
-    if (!import_node_path26.default.isAbsolute(this.scriptPath))
+    if (!import_node_path27.default.isAbsolute(this.scriptPath))
       return Promise.resolve(err(appError("INVALID_INPUT", "Windows bridge script path must be absolute")));
     let serialized;
     try {
@@ -36098,7 +36204,7 @@ function readTimeout(value) {
   return Math.min(MAX_TIMEOUT_SECONDS4, Math.max(0.1, value.timeout_seconds));
 }
 function powershellExecutable() {
-  return process.platform === "win32" && process.env.SystemRoot !== void 0 ? import_node_path26.default.join(process.env.SystemRoot, "System32", "WindowsPowerShell", "v1.0", "powershell.exe") : "powershell.exe";
+  return process.platform === "win32" && process.env.SystemRoot !== void 0 ? import_node_path27.default.join(process.env.SystemRoot, "System32", "WindowsPowerShell", "v1.0", "powershell.exe") : "powershell.exe";
 }
 function isRecord11(value) {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -36206,9 +36312,9 @@ function normalizePathKey(value) {
 }
 
 // ../../packages/extensions/dist/skill-catalog.js
-var import_promises20 = require("node:fs/promises");
+var import_promises21 = require("node:fs/promises");
 var import_node_os4 = __toESM(require("node:os"), 1);
-var import_node_path27 = __toESM(require("node:path"), 1);
+var import_node_path28 = __toESM(require("node:path"), 1);
 var SkillCatalog = class {
   options;
   constructor(options) {
@@ -36233,20 +36339,20 @@ var SkillCatalog = class {
     if (skill === void 0)
       return err(appError("FILE_NOT_FOUND", `Skill not found: ${input.skillId}`));
     const relativePath = input.relativePath?.trim() || "SKILL.md";
-    if (relativePath.includes("\0") || import_node_path27.default.isAbsolute(relativePath)) {
+    if (relativePath.includes("\0") || import_node_path28.default.isAbsolute(relativePath)) {
       return err(appError("PATH_OUTSIDE_WORKSPACE", "Skill relative path must stay inside the skill folder"));
     }
-    const skillDir = import_node_path27.default.dirname(skill.skillPath);
-    const resolved = import_node_path27.default.resolve(skillDir, relativePath);
+    const skillDir = import_node_path28.default.dirname(skill.skillPath);
+    const resolved = import_node_path28.default.resolve(skillDir, relativePath);
     if (!isPathInside(skillDir, resolved)) {
       return err(appError("PATH_OUTSIDE_WORKSPACE", "Skill relative path must stay inside the skill folder"));
     }
     try {
-      const content = await (0, import_promises20.readFile)(resolved, "utf8");
+      const content = await (0, import_promises21.readFile)(resolved, "utf8");
       if (Buffer.byteLength(content, "utf8") > 2 * 1024 * 1024) {
         return err(appError("FILE_TOO_LARGE", "Skill file exceeds 2 MiB"));
       }
-      const meta3 = parseSkillMarkdown(content, import_node_path27.default.basename(skillDir));
+      const meta3 = parseSkillMarkdown(content, import_node_path28.default.basename(skillDir));
       return ok({
         id: skill.id,
         name: meta3.name,
@@ -36268,8 +36374,8 @@ var SkillCatalog = class {
       const skillFiles = await findSkillFiles(root.path, 3);
       for (const skillPath of skillFiles) {
         try {
-          const content = await (0, import_promises20.readFile)(skillPath, "utf8");
-          const fallbackName = import_node_path27.default.basename(import_node_path27.default.dirname(skillPath));
+          const content = await (0, import_promises21.readFile)(skillPath, "utf8");
+          const fallbackName = import_node_path28.default.basename(import_node_path28.default.dirname(skillPath));
           const meta3 = parseSkillMarkdown(content, fallbackName);
           skills.push({
             id: `${root.source}/${meta3.name}`,
@@ -36289,17 +36395,17 @@ var SkillCatalog = class {
   roots() {
     const home = this.options.homeDir ?? import_node_os4.default.homedir();
     const defaults = [
-      { source: "cursor-skills-cursor", path: import_node_path27.default.join(home, ".cursor", "skills-cursor") },
-      { source: "cursor-skills", path: import_node_path27.default.join(home, ".cursor", "skills") },
-      { source: "claude-skills", path: import_node_path27.default.join(home, ".claude", "skills") },
-      { source: "agents-skills", path: import_node_path27.default.join(home, ".agents", "skills") }
+      { source: "cursor-skills-cursor", path: import_node_path28.default.join(home, ".cursor", "skills-cursor") },
+      { source: "cursor-skills", path: import_node_path28.default.join(home, ".cursor", "skills") },
+      { source: "claude-skills", path: import_node_path28.default.join(home, ".claude", "skills") },
+      { source: "agents-skills", path: import_node_path28.default.join(home, ".agents", "skills") }
     ];
     const workspaceRoot = this.options.workspaceRoot?.trim();
     if (workspaceRoot !== void 0 && workspaceRoot.length > 0) {
-      defaults.push({ source: "workspace-cursor-skills", path: import_node_path27.default.join(workspaceRoot, ".cursor", "skills") }, { source: "workspace-claude-skills", path: import_node_path27.default.join(workspaceRoot, ".claude", "skills") });
+      defaults.push({ source: "workspace-cursor-skills", path: import_node_path28.default.join(workspaceRoot, ".cursor", "skills") }, { source: "workspace-claude-skills", path: import_node_path28.default.join(workspaceRoot, ".claude", "skills") });
     }
     for (const extra of [...this.options.settings.extraSkillRoots, ...this.options.extraRoots ?? []]) {
-      defaults.push({ source: `extra:${import_node_path27.default.basename(extra)}`, path: import_node_path27.default.resolve(extra) });
+      defaults.push({ source: `extra:${import_node_path28.default.basename(extra)}`, path: import_node_path28.default.resolve(extra) });
     }
     return defaults;
   }
@@ -36381,7 +36487,7 @@ async function findSkillFiles(root, maxDepth) {
 async function walkForSkills(current, depth, maxDepth, results) {
   if (depth > maxDepth)
     return;
-  const skillPath = import_node_path27.default.join(current, "SKILL.md");
+  const skillPath = import_node_path28.default.join(current, "SKILL.md");
   if (depth > 0 && await isFile(skillPath)) {
     results.push(skillPath);
     return;
@@ -36389,12 +36495,12 @@ async function walkForSkills(current, depth, maxDepth, results) {
   if (depth === maxDepth)
     return;
   for (const entry of await safeReaddir(current)) {
-    await walkForSkills(import_node_path27.default.join(current, entry), depth + 1, maxDepth, results);
+    await walkForSkills(import_node_path28.default.join(current, entry), depth + 1, maxDepth, results);
   }
 }
 async function safeReaddir(root) {
   try {
-    const entries = await (0, import_promises20.readdir)(root, { withFileTypes: true });
+    const entries = await (0, import_promises21.readdir)(root, { withFileTypes: true });
     return entries.filter((entry) => entry.isDirectory()).map((entry) => entry.name);
   } catch {
     return [];
@@ -36402,14 +36508,14 @@ async function safeReaddir(root) {
 }
 async function isFile(filePath) {
   try {
-    return (await (0, import_promises20.stat)(filePath)).isFile();
+    return (await (0, import_promises21.stat)(filePath)).isFile();
   } catch {
     return false;
   }
 }
 function isPathInside(root, candidate) {
-  const relative = import_node_path27.default.relative(import_node_path27.default.resolve(root), import_node_path27.default.resolve(candidate));
-  return relative === "" || !relative.startsWith("..") && !import_node_path27.default.isAbsolute(relative);
+  const relative = import_node_path28.default.relative(import_node_path28.default.resolve(root), import_node_path28.default.resolve(candidate));
+  return relative === "" || !relative.startsWith("..") && !import_node_path28.default.isAbsolute(relative);
 }
 function dedupeById(skills) {
   const seen = /* @__PURE__ */ new Set();
@@ -36424,9 +36530,9 @@ function dedupeById(skills) {
 }
 
 // ../../packages/extensions/dist/mcp-config-loader.js
-var import_promises21 = require("node:fs/promises");
+var import_promises22 = require("node:fs/promises");
 var import_node_os5 = __toESM(require("node:os"), 1);
-var import_node_path28 = __toESM(require("node:path"), 1);
+var import_node_path29 = __toESM(require("node:path"), 1);
 var McpConfigLoader = class {
   options;
   constructor(options) {
@@ -36434,10 +36540,10 @@ var McpConfigLoader = class {
   }
   async discover() {
     const home = this.options.homeDir ?? import_node_os5.default.homedir();
-    const appData = this.options.appDataDir ?? process.env.APPDATA ?? import_node_path28.default.join(home, "AppData", "Roaming");
+    const appData = this.options.appDataDir ?? process.env.APPDATA ?? import_node_path29.default.join(home, "AppData", "Roaming");
     const discovered = [];
-    await this.loadFile(discovered, import_node_path28.default.join(home, ".cursor", "mcp.json"), "cursor");
-    await this.loadFile(discovered, import_node_path28.default.join(appData, "Claude", "claude_desktop_config.json"), "claude-desktop");
+    await this.loadFile(discovered, import_node_path29.default.join(home, ".cursor", "mcp.json"), "cursor");
+    await this.loadFile(discovered, import_node_path29.default.join(appData, "Claude", "claude_desktop_config.json"), "claude-desktop");
     for (const [name, config2] of Object.entries(this.options.settings.extraMcpServers)) {
       discovered.push(this.toServer(name, "lnwjud-settings", config2));
     }
@@ -36445,7 +36551,7 @@ var McpConfigLoader = class {
   }
   async loadFile(target, filePath, source) {
     try {
-      const raw = await (0, import_promises21.readFile)(filePath, "utf8");
+      const raw = await (0, import_promises22.readFile)(filePath, "utf8");
       const parsed = JSON.parse(raw);
       if (typeof parsed !== "object" || parsed === null)
         return;
@@ -36496,7 +36602,7 @@ function exclusionReason(name, config2) {
   if (lowered === "lnwjud" || lowered.startsWith("lnwjud-")) {
     return "Refusing to aggregate lnwjud itself";
   }
-  const command = import_node_path28.default.basename(config2.command).toLowerCase();
+  const command = import_node_path29.default.basename(config2.command).toLowerCase();
   if (command === "lnwjud" || command === "lnwjud.exe" || command.includes("lnwjud")) {
     return "Refusing to aggregate lnwjud itself";
   }
@@ -39146,9 +39252,9 @@ var rev2026Codec2 = {
     });
     const parsed = buildSchemas20262().RequestMetaEnvelopeSchema.safeParse(meta3);
     if (!parsed.success) for (const issue2 of parsed.error.issues) {
-      const path31 = issue2.path.map(String);
-      const key = path31.length > 0 ? path31.join(".") : "_meta";
-      if (path31.length === 1 && issues.some((existing) => existing.key === key && existing.problem === "missing")) continue;
+      const path32 = issue2.path.map(String);
+      const key = path32.length > 0 ? path32.join(".") : "_meta";
+      if (path32.length === 1 && issues.some((existing) => existing.key === key && existing.problem === "missing")) continue;
       issues.push({
         key,
         problem: issue2.message
@@ -39445,29 +39551,29 @@ var PERMITTED_X_MCP_HEADER_TYPES2 = /* @__PURE__ */ new Set([
 function scanXMcpHeaderDeclarations2(inputSchema) {
   const declarations = [];
   const seenLower = /* @__PURE__ */ new Map();
-  const visit = (node, path31, reachable) => {
+  const visit = (node, path32, reachable) => {
     if (node === null || typeof node !== "object") return void 0;
     const schema = node;
     if (X_MCP_HEADER_KEY2 in schema) {
-      if (!reachable || path31.length === 0) return `${pathName2(path31)}: x-mcp-header is only permitted on properties statically reachable via a chain of 'properties' keys (not under items, additionalProperties, oneOf/anyOf/allOf/not, if/then/else, or $ref)`;
+      if (!reachable || path32.length === 0) return `${pathName2(path32)}: x-mcp-header is only permitted on properties statically reachable via a chain of 'properties' keys (not under items, additionalProperties, oneOf/anyOf/allOf/not, if/then/else, or $ref)`;
       const raw = schema[X_MCP_HEADER_KEY2];
-      if (typeof raw !== "string" || raw.length === 0) return `${pathName2(path31)}: x-mcp-header MUST be a non-empty string`;
-      if (!RFC9110_TOKEN2.test(raw)) return `${pathName2(path31)}: x-mcp-header '${raw}' is not a valid RFC 9110 token (no spaces, control characters or HTTP delimiters)`;
+      if (typeof raw !== "string" || raw.length === 0) return `${pathName2(path32)}: x-mcp-header MUST be a non-empty string`;
+      if (!RFC9110_TOKEN2.test(raw)) return `${pathName2(path32)}: x-mcp-header '${raw}' is not a valid RFC 9110 token (no spaces, control characters or HTTP delimiters)`;
       const type = typeof schema.type === "string" ? schema.type : void 0;
-      if (type === void 0 || !PERMITTED_X_MCP_HEADER_TYPES2.has(type)) return `${pathName2(path31)}: x-mcp-header is only permitted on primitive-typed properties (string, integer, boolean); got ${type ?? "<none>"}`;
+      if (type === void 0 || !PERMITTED_X_MCP_HEADER_TYPES2.has(type)) return `${pathName2(path32)}: x-mcp-header is only permitted on primitive-typed properties (string, integer, boolean); got ${type ?? "<none>"}`;
       const lower = raw.toLowerCase();
       const prior = seenLower.get(lower);
       if (prior !== void 0) return `x-mcp-header '${raw}' is not case-insensitively unique (also declared as '${prior}')`;
       seenLower.set(lower, raw);
       declarations.push({
-        path: path31,
+        path: path32,
         headerName: raw,
         type
       });
     }
     const properties = schema.properties;
     if (properties !== null && typeof properties === "object") for (const [key, child] of Object.entries(properties)) {
-      const fault$1 = visit(child, [...path31, key], reachable);
+      const fault$1 = visit(child, [...path32, key], reachable);
       if (fault$1 !== void 0) return fault$1;
     }
     for (const k of NON_REACHABLE_SUBSCHEMA_KEYWORDS2) {
@@ -39475,7 +39581,7 @@ function scanXMcpHeaderDeclarations2(inputSchema) {
       if (sub === void 0) continue;
       const branches = Array.isArray(sub) ? sub : sub !== null && typeof sub === "object" && OBJECT_VALUED_SUBSCHEMA_KEYWORDS2.has(k) ? Object.values(sub) : [sub];
       for (const branch of branches) {
-        const fault$1 = visit(branch, [...path31, `<${k}>`], false);
+        const fault$1 = visit(branch, [...path32, `<${k}>`], false);
         if (fault$1 !== void 0) return fault$1;
       }
     }
@@ -39515,8 +39621,8 @@ var OBJECT_VALUED_SUBSCHEMA_KEYWORDS2 = /* @__PURE__ */ new Set([
   "$defs",
   "definitions"
 ]);
-function pathName2(path31) {
-  return path31.length === 0 ? "<root>" : path31.join(".");
+function pathName2(path32) {
+  return path32.length === 0 ? "<root>" : path32.join(".");
 }
 var BASE64_SENTINEL_PREFIX = "=?base64?";
 var BASE64_SENTINEL_SUFFIX = "?=";
@@ -39549,9 +39655,9 @@ function utf8ToBase64(s) {
 function encodeMcpParamValue(value) {
   return needsBase64(value) ? `${BASE64_SENTINEL_PREFIX}${utf8ToBase64(value)}${BASE64_SENTINEL_SUFFIX}` : value;
 }
-function valueAtPath(root, path31) {
+function valueAtPath(root, path32) {
   let node = root;
-  for (const key of path31) {
+  for (const key of path32) {
     if (node === null || typeof node !== "object") return void 0;
     node = node[key];
   }
@@ -39806,7 +39912,7 @@ var PROPERTY_KEYS_BY_TYPE2 = {
   array: shapeKeys2([UntitledMultiSelectEnumSchemaSchema, TitledMultiSelectEnumSchemaSchema])
 };
 var SUPPORTED_STRING_FORMATS2 = new Set(StringSchemaSchema.shape.format.unwrap().options);
-function walkProperty2(node, path31, vendor, unsupported) {
+function walkProperty2(node, path32, vendor, unsupported) {
   if (!isJsonObject2(node)) return node;
   const allowedKeys = typeof node.type === "string" && Object.hasOwn(PROPERTY_KEYS_BY_TYPE2, node.type) ? PROPERTY_KEYS_BY_TYPE2[node.type] : void 0;
   if (allowedKeys === void 0) return node;
@@ -39814,8 +39920,8 @@ function walkProperty2(node, path31, vendor, unsupported) {
   for (const [key, value] of Object.entries(node)) if (allowedKeys.has(key) || isAnnotationOnlyJsonSchemaKeyword2(key)) pruned[key] = value;
   else if (key === "pattern" && node.type === "string" && typeof node.format === "string") {
     if (!SUPPORTED_STRING_FORMATS2.has(node.format)) pruned[key] = value;
-    else if (typeof value !== "string" || !isLibraryFormatPattern2(node.format, value, vendor)) unsupported.push(`${path31}.${key}`);
-  } else unsupported.push(`${path31}.${key}`);
+    else if (typeof value !== "string" || !isLibraryFormatPattern2(node.format, value, vendor)) unsupported.push(`${path32}.${key}`);
+  } else unsupported.push(`${path32}.${key}`);
   return pruned;
 }
 function walkRequestedSchema2(converted, vendor) {
@@ -39832,11 +39938,11 @@ function describeUnsupportedProperties2(pruned, fallback) {
   const offenders = Object.entries(pruned.properties).filter(([, node]) => !parseSchema2(PrimitiveSchemaDefinitionSchema, node).success).map(([name]) => `properties.${name}`);
   return offenders.length > 0 ? offenders.join(", ") : fallback;
 }
-function findDroppedConstraintPaths2(original, parsed, path31 = "") {
-  if (Array.isArray(original) && Array.isArray(parsed)) return original.flatMap((item, index) => findDroppedConstraintPaths2(item, parsed[index], `${path31}[${index}]`));
+function findDroppedConstraintPaths2(original, parsed, path32 = "") {
+  if (Array.isArray(original) && Array.isArray(parsed)) return original.flatMap((item, index) => findDroppedConstraintPaths2(item, parsed[index], `${path32}[${index}]`));
   if (!isJsonObject2(original) || !isJsonObject2(parsed)) return [];
   return Object.entries(original).flatMap(([key, value]) => {
-    const childPath = path31 ? `${path31}.${key}` : key;
+    const childPath = path32 ? `${path32}.${key}` : key;
     if (!Object.prototype.hasOwnProperty.call(parsed, key)) return isAnnotationOnlyJsonSchemaKeyword2(key) ? [] : [childPath];
     return findDroppedConstraintPaths2(value, parsed[key], childPath);
   });
@@ -43987,8 +44093,8 @@ var require_utils2 = /* @__PURE__ */ __commonJSMin2(((exports2, module2) => {
     for (let i = 0; i < str.length; i++) if (str[i] === token) ind++;
     return ind;
   }
-  function removeDotSegments(path31) {
-    let input = path31;
+  function removeDotSegments(path32) {
+    let input = path32;
     const output = [];
     let nextSlash = -1;
     let len = 0;
@@ -44141,8 +44247,8 @@ var require_schemes2 = /* @__PURE__ */ __commonJSMin2(((exports2, module2) => {
       wsComponent.secure = void 0;
     }
     if (wsComponent.resourceName) {
-      const [path31, query] = wsComponent.resourceName.split("?");
-      wsComponent.path = path31 && path31 !== "/" ? path31 : void 0;
+      const [path32, query] = wsComponent.resourceName.split("?");
+      wsComponent.path = path32 && path32 !== "/" ? path32 : void 0;
       wsComponent.query = query;
       wsComponent.resourceName = void 0;
     }
@@ -51158,9 +51264,9 @@ function createLocalExtensionsService(options = {}) {
 // ../cli/src/runtime/stdio-mcp-runtime.ts
 var import_meta = {};
 function createStdioMcpRuntime(dataPath, workspace, unrestricted = false) {
-  const database = new SqliteDatabase(import_node_path29.default.join(dataPath, "lnwjud.sqlite"));
+  const database = new SqliteDatabase(import_node_path30.default.join(dataPath, "lnwjud.sqlite"));
   const workspaceRepository = new SqliteWorkspaceRepository(database);
-  const workspaceIndex = new WorkspaceIndexService(workspaceRepository, new JsonWorkspaceIndexStore(import_node_path29.default.join(dataPath, "workspace-index")));
+  const workspaceIndex = new WorkspaceIndexService(workspaceRepository, new JsonWorkspaceIndexStore(import_node_path30.default.join(dataPath, "workspace-index")));
   const settingsRepository = new SqliteSettingsRepository(database);
   const auditRepository = new SqliteAuditRepository(database);
   const auditService = new AuditService(auditRepository);
@@ -51221,6 +51327,7 @@ function createStdioMcpRuntime(dataPath, workspace, unrestricted = false) {
     }
   ]));
   const services = {
+    runtimeStatePath: import_node_path30.default.join(dataPath, "upgrade-runtime.json"),
     capabilities: capabilityService,
     extensions,
     workspaceInfo: new WorkspaceInfoService(workspaceRepository, workspaceService, unrestricted),
@@ -51262,7 +51369,7 @@ function createStdioCapabilityService(dataPath, workspaceRootsProvider, unrestri
     },
     unrestricted
   });
-  const browserProtocol = new NodeBrowserCdpProtocol({ profileDir: import_node_path29.default.join(dataPath, "browser-profile") });
+  const browserProtocol = new NodeBrowserCdpProtocol({ profileDir: import_node_path30.default.join(dataPath, "browser-profile") });
   const browserBackend = new BrowserCdpBackend({
     protocol: browserProtocol,
     launcher: (url2) => browserProtocol.launch(url2)
@@ -51294,21 +51401,21 @@ function createStdioCapabilityService(dataPath, workspaceRootsProvider, unrestri
 }
 function readCapabilityRoots(value) {
   if (value === void 0 || value.trim().length === 0) return [];
-  return value.split(";").map((root) => root.trim()).filter((root) => root.length > 0).map((root) => import_node_path29.default.resolve(root));
+  return value.split(";").map((root) => root.trim()).filter((root) => root.length > 0).map((root) => import_node_path30.default.resolve(root));
 }
 function capabilityBridgeScriptPath() {
   const configured = process.env.LNWJUD_CAPABILITY_BRIDGE_SCRIPT;
-  if (configured !== void 0 && configured.trim().length > 0) return import_node_path29.default.resolve(configured);
+  if (configured !== void 0 && configured.trim().length > 0) return import_node_path30.default.resolve(configured);
   const scriptDir = resolveScriptDirectory();
   const resourcesPath = process.resourcesPath;
   const candidates = [
-    scriptDir === void 0 ? void 0 : import_node_path29.default.join(scriptDir, "windows-capability-bridge.ps1"),
-    scriptDir === void 0 ? void 0 : import_node_path29.default.join(scriptDir, "resources", "windows-capability-bridge.ps1"),
-    import_node_path29.default.resolve(process.cwd(), "packages", "capabilities", "src", "windows-capability-bridge.ps1"),
-    import_node_path29.default.resolve(process.cwd(), "..", "..", "packages", "capabilities", "src", "windows-capability-bridge.ps1"),
-    resourcesPath === void 0 ? void 0 : import_node_path29.default.join(resourcesPath, "windows-capability-bridge.ps1"),
-    import_node_path29.default.join(import_node_path29.default.dirname(process.execPath), "windows-capability-bridge.ps1"),
-    import_node_path29.default.join(import_node_path29.default.dirname(process.execPath), "resources", "windows-capability-bridge.ps1")
+    scriptDir === void 0 ? void 0 : import_node_path30.default.join(scriptDir, "windows-capability-bridge.ps1"),
+    scriptDir === void 0 ? void 0 : import_node_path30.default.join(scriptDir, "resources", "windows-capability-bridge.ps1"),
+    import_node_path30.default.resolve(process.cwd(), "packages", "capabilities", "src", "windows-capability-bridge.ps1"),
+    import_node_path30.default.resolve(process.cwd(), "..", "..", "packages", "capabilities", "src", "windows-capability-bridge.ps1"),
+    resourcesPath === void 0 ? void 0 : import_node_path30.default.join(resourcesPath, "windows-capability-bridge.ps1"),
+    import_node_path30.default.join(import_node_path30.default.dirname(process.execPath), "windows-capability-bridge.ps1"),
+    import_node_path30.default.join(import_node_path30.default.dirname(process.execPath), "resources", "windows-capability-bridge.ps1")
   ].filter((candidate) => candidate !== void 0);
   return candidates.find((candidate) => (0, import_node_fs6.existsSync)(candidate)) ?? candidates[0];
 }
@@ -51316,14 +51423,14 @@ function resolveScriptDirectory() {
   const arg1 = process.argv[1];
   if (typeof arg1 === "string" && arg1.trim().length > 0) {
     try {
-      return import_node_path29.default.dirname(import_node_path29.default.resolve(arg1));
+      return import_node_path30.default.dirname(import_node_path30.default.resolve(arg1));
     } catch {
     }
   }
   try {
     const metaUrl = import_meta.url;
     if (typeof metaUrl === "string" && metaUrl.length > 0) {
-      return import_node_path29.default.dirname((0, import_node_url.fileURLToPath)(metaUrl));
+      return import_node_path30.default.dirname((0, import_node_url.fileURLToPath)(metaUrl));
     }
   } catch {
   }
@@ -51343,7 +51450,7 @@ function hasFlag(flag) {
 function resolveDataPath() {
   const configured = process.env.LNWJUD_DATA_PATH?.trim();
   if (configured) return configured;
-  return import_node_path30.default.join(process.env.APPDATA ?? import_node_path30.default.join(import_node_os6.default.homedir(), "AppData", "Roaming"), "lnwjud");
+  return import_node_path31.default.join(process.env.APPDATA ?? import_node_path31.default.join(import_node_os6.default.homedir(), "AppData", "Roaming"), "lnwjud");
 }
 async function main() {
   const eRoot = machineRootPath();
@@ -51353,13 +51460,13 @@ async function main() {
   }
   const dataPath = resolveDataPath();
   import_node_fs7.default.mkdirSync(dataPath, { recursive: true });
-  const database = new SqliteDatabase(import_node_path30.default.join(dataPath, "lnwjud.sqlite"));
+  const database = new SqliteDatabase(import_node_path31.default.join(dataPath, "lnwjud.sqlite"));
   const workspaceRepository = new SqliteWorkspaceRepository(database);
   const settingsRepository = new SqliteSettingsRepository(database);
   const workspaceService = new WorkspaceService(workspaceRepository);
   const unrestricted = isUnrestricted(process.env, settingsRepository.get(UNRESTRICTED_SETTING_KEY));
   const requestedRaw = readArg("--workspace") ?? process.env.LNWJUD_WORKSPACE;
-  const requestedPath = import_node_path30.default.resolve(requestedRaw && requestedRaw.trim().length > 0 ? requestedRaw : eRoot);
+  const requestedPath = import_node_path31.default.resolve(requestedRaw && requestedRaw.trim().length > 0 ? requestedRaw : eRoot);
   if (!import_node_fs7.default.existsSync(requestedPath)) {
     process.stderr.write(`lnwjud MCP stdio: workspace path does not exist: ${requestedPath}
 `);
@@ -51387,7 +51494,7 @@ async function main() {
   const workspaces = await workspaceService.list();
   let workspace = workspaces.find((entry) => normalizeWorkspaceRoot(entry.realRootPath).toLowerCase() === requestedNorm) ?? workspaces.find((entry) => requestedNorm.startsWith(normalizeWorkspaceRoot(entry.realRootPath).toLowerCase()));
   if (workspace === void 0 && requestedNorm !== normalizeWorkspaceRoot(eRoot).toLowerCase()) {
-    const displayName = import_node_path30.default.basename(requestedPath) || "Workspace";
+    const displayName = import_node_path31.default.basename(requestedPath) || "Workspace";
     const added = await workspaceService.add(displayName, requestedPath);
     if (!added.ok) {
       process.stderr.write(`lnwjud MCP stdio: could not register ${requestedPath} (${added.error.message})

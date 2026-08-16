@@ -67,7 +67,7 @@ test('control center auto-starts MCP and supports project + doctor journey', asy
 
     await page.getByRole('button', { name: 'ตั้งค่า', exact: true }).click();
     await page.getByLabel('Permission profile').selectOption('balanced');
-    await expect(page.getByTestId('permission-profile')).toHaveText('full');
+    await expect(page.getByTestId('permission-profile')).toHaveText('FULL');
 
     await page.getByRole('button', { name: 'Doctor', exact: true }).click();
     await page.getByRole('button', { name: 'Run doctor' }).click();

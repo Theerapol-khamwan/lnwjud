@@ -7,6 +7,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
 import { Client, StreamableHTTPClientTransport } from '@modelcontextprotocol/client';
+import { UPGRADE_TOOL_CATALOG } from '@lnwjud/mcp-server';
 import { chromium, expect, test, type Page } from '@playwright/test';
 
 const execFileAsync = promisify(execFile);
@@ -72,7 +73,7 @@ test('desktop serves the real MCP client development workflow', async () => {
     );
     await client.connect(new StreamableHTTPClientTransport(endpoint));
     const tools = await client.listTools();
-    expect(tools.tools.map((tool) => tool.name)).toEqual([
+    const expectedCoreTools = [
       'workspace_list', 'workspace_register', 'workspace_info', 'workspace_tree', 'project_snapshot', 'read_file', 'read_files',
       'search_files', 'search_text', 'git_status', 'git_diff', 'git_log', 'git', 'write_file',
       'apply_patch', 'move_file', 'copy_file', 'delete_file', 'process_start', 'process_status',
@@ -83,6 +84,14 @@ test('desktop serves the real MCP client development workflow', async () => {
       'system_info', 'notification', 'file_dialog', 'clipboard', 'web_fetch',
       'audio', 'screen_record', 'office', 'scheduler',
       'skills_list', 'skills_read', 'mcp_list', 'mcp_describe', 'mcp_call',
+      'workspace_context', 'workspace_context_continue', 'workspace_full_scan', 'workspace_full_scan_continue',
+      'workspace_snapshot', 'search_all', 'read_many_files', 'read_file_page', 'read_file_page_continue',
+      'workspace_index', 'workspace_index_status', 'workspace_index_watch', 'workspace_index_stop',
+    ];
+    expect(tools.tools.map((tool) => tool.name)).toEqual([
+      ...expectedCoreTools,
+      ...UPGRADE_TOOL_CATALOG.map((entry) => entry.name),
+      'tool_batch',
     ]);
 
     if (process.platform === 'win32') {
