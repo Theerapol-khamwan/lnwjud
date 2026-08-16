@@ -5,6 +5,7 @@ import path from 'node:path';
 import type { FileActor } from '@lnwjud/application';
 import { UpgradeRuntimeService } from './upgrade-runtime.js';
 import { UPGRADE_TOOL_CATALOG } from './upgrade-catalog.js';
+import { ToolRegistry } from './tool-registry.js';
 
 const actor: FileActor = { clientId: 'test', clientName: 'test' };
 
@@ -14,6 +15,15 @@ describe('upgrade runtime', () => {
     expect(new Set(UPGRADE_TOOL_CATALOG.map((entry) => entry.name)).size).toBe(UPGRADE_TOOL_CATALOG.length);
     expect(UPGRADE_TOOL_CATALOG.some((entry) => entry.name === 'dev_context')).toBe(true);
     expect(UPGRADE_TOOL_CATALOG.some((entry) => entry.name === 'handoff_context')).toBe(true);
+  });
+
+  it('smoke-invokes every phase tool through the normal registry boundary', async () => {
+    const registry = new ToolRegistry({}, actor);
+    for (const entry of UPGRADE_TOOL_CATALOG) {
+      const response = await registry.invoke(entry.name, {});
+      expect(response).toBeDefined();
+      expect(response.structuredContent).toBeDefined();
+    }
   });
 
   it('routes prompts and searches capabilities without an LLM', async () => {
