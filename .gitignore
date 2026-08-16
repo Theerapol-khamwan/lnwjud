@@ -59,6 +59,7 @@ docs/benchmarks/*
 !docs/benchmarks/PHASE-01.md
 !docs/benchmarks/PHASE-02.md
 !docs/benchmarks/PHASE-03.md
+!docs/benchmarks/PHASE-05.md
 
 # IDE & Editor Settings
 .cursor/
