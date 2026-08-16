@@ -51,6 +51,14 @@ describe('MCP development flow', () => {
     });
     const projectService = new ProjectService(workspaceRepository);
     const workspaceQuery = new WorkspaceQueryService(workspaceRepository);
+    const searchAdapter = {
+      async searchText(): Promise<Result<{ matches: { path: string; lineNumber: number; text: string }[]; truncated: boolean }>> {
+        return ok({ matches: [{ path: path.join('src', 'app.ts'), lineNumber: 1, text: "export const value = 'before';" }], truncated: false });
+      },
+      async searchFiles(): Promise<Result<{ files: string[]; truncated: boolean }>> {
+        return ok({ files: [path.join('src', 'app.ts')], truncated: false });
+      },
+    };
     const services: McpApplicationServices = {
       workspaceInfo: new WorkspaceInfoService(workspaceRepository),
       workspaceQuery,
@@ -62,7 +70,7 @@ describe('MCP development flow', () => {
         processService,
       }),
       file: fileService,
-      search: new SearchService(workspaceRepository),
+      search: new SearchService(workspaceRepository, searchAdapter),
       git: gitService,
       process: processService,
     };
