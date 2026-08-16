@@ -47,6 +47,15 @@ repomix-output.xml
 scripts/analyze_*.py
 scripts/audit_*.py
 docs/
+!docs/
+docs/*
+!docs/architecture/
+docs/architecture/*
+!docs/architecture/UPGRADE_ARCHITECTURE.md
+!docs/architecture/TOOL_CONTRACT.md
+!docs/benchmarks/
+docs/benchmarks/*
+!docs/benchmarks/BASELINE.md
 
 # IDE & Editor Settings
 .cursor/

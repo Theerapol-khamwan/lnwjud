@@ -36,6 +36,9 @@ function parseArgs(args) {
 
   for (let index = 0; index < args.length; index += 1) {
     const arg = args[index];
+    if (arg === '--') {
+      continue;
+    }
     if (arg === '--runs') {
       options.runs = readPositiveInteger(args[++index], '--runs');
     } else if (arg === '--retries') {
@@ -132,7 +135,7 @@ async function runBenchmark(options) {
         node: process.version,
         platform: process.platform,
         arch: process.arch,
-        transport: 'loopback Streamable HTTP',
+        transport: 'loopback Streamable HTTP (legacy-compatible claim-less MCP route)',
         bind: '127.0.0.1 (ephemeral port)',
         fixture: 'temporary synthetic repository; deleted after the run',
       },
