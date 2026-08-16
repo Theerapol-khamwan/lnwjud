@@ -64,6 +64,7 @@ export interface WorkLogEntry {
   readonly targetSummary: string | null;
   readonly durationMs: number;
   readonly workspaceId: string | null;
+  readonly callId?: string;
 }
 
 export interface InFlightWorkItem {

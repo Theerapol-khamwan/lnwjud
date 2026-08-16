@@ -28,6 +28,7 @@ export interface AuditEvent {
 export interface AuditEventRepository {
   insert(event: AuditEvent): Promise<void>;
   list(limit?: number): Promise<AuditEvent[]>;
+  listByActionPrefix(prefix: string, limit?: number): Promise<AuditEvent[]>;
 }
 
 export interface CodexRunAuditInput {

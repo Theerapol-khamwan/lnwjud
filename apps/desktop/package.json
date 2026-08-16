@@ -1,11 +1,11 @@
 {
   "name": "@lnwjud/desktop",
-  "version": "1.1.1",
+  "version": "1.1.2",
   "private": true,
   "type": "module",
   "main": "dist/main/main.js",
   "scripts": {
-    "build": "tsc -p tsconfig.main.json && esbuild src/main/main.ts --bundle --platform=node --format=esm --external:electron --banner:js=\"import { createRequire as __lnwjudCreateRequire } from 'node:module'; const require = __lnwjudCreateRequire(import.meta.url);\" --outfile=dist/main/main.js && esbuild src/preload/index.ts --bundle --platform=browser --format=cjs --conditions=development --external:electron --outfile=dist/preload/index.cjs && vite build --config vite.config.ts && esbuild ../cli/src/bin/mcp-stdio.ts --bundle --platform=node --format=cjs --outfile=build/lnwjud-mcp-stdio.cjs",
+    "build": "tsc -p tsconfig.main.json && esbuild src/main/main.ts --bundle --platform=node --format=esm --external:electron --banner:js=\"import { createRequire as __lnwjudCreateRequire } from 'node:module'; const require = __lnwjudCreateRequire(import.meta.url);\" --outfile=dist/main/main.js && esbuild src/preload/index.ts --bundle --platform=browser --format=cjs --conditions=development --external:electron --outfile=dist/preload/index.cjs && vite build --config vite.config.ts && esbuild ../cli/src/bin/mcp-stdio.ts --bundle --platform=node --format=cjs --outfile=build/lnwjud-mcp-stdio.cjs && node scripts/write-stdio-launcher.mjs",
     "build:main": "tsc -p tsconfig.main.json && esbuild src/main/main.ts --bundle --platform=node --format=esm --external:electron --banner:js=\"import { createRequire as __lnwjudCreateRequire } from 'node:module'; const require = __lnwjudCreateRequire(import.meta.url);\" --outfile=dist/main/main.js",
     "build:renderer": "vite build --config vite.config.ts",
     "package:windows": "corepack pnpm@10.15.0 build && electron-builder --config electron-builder.yml --win nsis --x64 --publish never",

@@ -25,6 +25,7 @@ describe('Windows desktop packaging', () => {
     expect(mainBundle).not.toContain('webSecurity: false');
     expect(mainBundle).toContain('setName("lnwjud"');
     expect(mainBundle).toContain('LNWJUD_DATA_PATH');
+    expect(mainBundle).toContain('LNWJUD_UNRESTRICTED');
     expect(mainBundle).toContain('setPath("userData"');
   });
 });

@@ -36,6 +36,7 @@ win:
       arch:
         - x64
   artifactName: lnwjud-Setup-${version}.${ext}
+  signAndEditExecutable: false
 nsis:
   oneClick: false
   perMachine: false

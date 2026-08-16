@@ -7,6 +7,14 @@ class MemoryAuditRepository implements AuditEventRepository {
   public async insert(event: AuditEvent): Promise<void> {
     this.events.push(event);
   }
+
+  public async list(limit = 100): Promise<AuditEvent[]> {
+    return [...this.events].reverse().slice(0, limit);
+  }
+
+  public async listByActionPrefix(prefix: string, limit = 100): Promise<AuditEvent[]> {
+    return this.events.filter((event) => event.action.startsWith(prefix)).reverse().slice(0, limit);
+  }
 }
 
 describe('AuditService', () => {

@@ -7,7 +7,13 @@ const MAX_LINE_BYTES = 8_192;
 
 export interface LogHubOptions {
   readonly tunnelLogPath: string;
+  readonly mcpActivityLogPath?: string;
   readonly onLine?: (line: LogLine) => void;
+}
+
+interface TailedFile {
+  fd: number | null;
+  offset: number;
 }
 
 export class LogHub {
@@ -15,13 +21,15 @@ export class LogHub {
   private readonly seenKeys = new Map<LogSource, Set<string>>();
   private nextId = 1;
   private readonly tunnelLogPath: string;
+  private readonly mcpActivityLogPath: string | undefined;
   private onLine: ((line: LogLine) => void) | undefined;
-  private tunnelFd: number | null = null;
-  private tunnelOffset = 0;
+  private readonly tunnelFile: TailedFile = { fd: null, offset: 0 };
+  private readonly mcpFile: TailedFile = { fd: null, offset: 0 };
   private tailTimer: ReturnType<typeof setInterval> | null = null;
 
   public constructor(options: LogHubOptions) {
     this.tunnelLogPath = options.tunnelLogPath;
+    this.mcpActivityLogPath = options.mcpActivityLogPath;
     this.onLine = options.onLine;
     for (const source of SOURCES) {
       this.lines.set(source, []);
@@ -35,7 +43,11 @@ export class LogHub {
 
   public start(): void {
     this.syncTunnelFile();
-    this.tailTimer = setInterval(() => this.syncTunnelFile(), 500);
+    this.syncMcpActivityFile();
+    this.tailTimer = setInterval(() => {
+      this.syncTunnelFile();
+      this.syncMcpActivityFile();
+    }, 500);
   }
 
   public stop(): void {
@@ -43,7 +55,8 @@ export class LogHub {
       clearInterval(this.tailTimer);
       this.tailTimer = null;
     }
-    this.closeTunnelFd();
+    this.closeFd(this.tunnelFile);
+    this.closeFd(this.mcpFile);
   }
 
   public feed(source: LogSource, level: LogLevel, text: string): void {
@@ -73,17 +86,17 @@ export class LogHub {
     for (const entry of inFlight) {
       this.feedIfNew(
         'mcp',
-        `inflight:${entry.callId}`,
+        mcpActivityKey(entry.callId, 'started'),
         'info',
-        `[TASK] ${entry.toolName}${entry.targetSummary === null || entry.targetSummary === undefined ? '' : ` ${entry.targetSummary}`} — in flight`,
+        formatInFlightLine(entry),
       );
     }
     for (const entry of entries) {
       this.feedIfNew(
         'mcp',
-        `entry:${entry.id}`,
+        mcpActivityKey(entry.callId ?? entry.id, entry.kind === 'task' ? 'started' : 'completed'),
         entry.kind === 'error' ? 'error' : 'info',
-        `${entry.kind === 'task' ? '[TASK]' : entry.kind === 'error' ? '[ERROR]' : '[RESULT]'} ${entry.toolName} ${entry.resultCode}${entry.errorMessage === null || entry.errorMessage === undefined || entry.errorMessage.length === 0 ? '' : ` — ${entry.errorMessage}`}${entry.targetSummary === null ? '' : ` — ${entry.targetSummary}`}`,
+        formatWorkLogLine(entry),
       );
     }
   }
@@ -130,42 +143,57 @@ export class LogHub {
   }
 
   private syncTunnelFile(): void {
+    this.tailPath(this.tunnelLogPath, this.tunnelFile, (raw) => {
+      const parsed = parseTunnelLine(raw);
+      this.append('tunnel', parsed);
+    });
+  }
+
+  private syncMcpActivityFile(): void {
+    const activityPath = this.mcpActivityLogPath;
+    if (activityPath === undefined) return;
+    this.tailPath(activityPath, this.mcpFile, (raw) => {
+      const parsed = parseMcpActivityLine(raw);
+      if (parsed === null) return;
+      this.feedIfNew('mcp', parsed.key, parsed.level, parsed.text);
+    });
+  }
+
+  private tailPath(filePath: string, state: TailedFile, onRaw: (raw: string) => void): void {
     try {
-      const stat = statSync(this.tunnelLogPath);
+      const stat = statSync(filePath);
       const size = stat.size;
-      if (this.tunnelFd === null) {
-        this.tunnelFd = openSync(this.tunnelLogPath, 'r');
-        this.tunnelOffset = Math.max(0, size - 256 * 1024);
+      if (state.fd === null) {
+        state.fd = openSync(filePath, 'r');
+        state.offset = Math.max(0, size - 256 * 1024);
       }
-      if (size < this.tunnelOffset) {
-        this.tunnelOffset = 0;
+      if (size < state.offset) {
+        state.offset = 0;
       }
-      if (size === this.tunnelOffset) return;
-      const chunk = Buffer.alloc(Math.min(size - this.tunnelOffset, 64 * 1024));
-      const read = readSync(this.tunnelFd, chunk, 0, chunk.length, this.tunnelOffset);
-      this.tunnelOffset += read;
+      if (size === state.offset) return;
+      const chunk = Buffer.alloc(Math.min(size - state.offset, 64 * 1024));
+      const read = readSync(state.fd, chunk, 0, chunk.length, state.offset);
+      state.offset += read;
       if (read <= 0) return;
       const text = chunk.subarray(0, read).toString('utf8');
       for (const raw of text.split(/\r?\n/)) {
         const trimmed = raw.trim();
         if (trimmed.length === 0) continue;
-        const parsed = parseTunnelLine(trimmed);
-        this.append('tunnel', parsed);
+        onRaw(trimmed);
       }
     } catch {
-      // File missing or unreadable: wait for the next poll.
-      this.closeTunnelFd();
+      this.closeFd(state);
     }
   }
 
-  private closeTunnelFd(): void {
-    if (this.tunnelFd !== null) {
+  private closeFd(state: TailedFile): void {
+    if (state.fd !== null) {
       try {
-        closeSync(this.tunnelFd);
+        closeSync(state.fd);
       } catch {
         // Best effort.
       }
-      this.tunnelFd = null;
+      state.fd = null;
     }
   }
 }
@@ -179,6 +207,7 @@ export interface WorkLogFeedEntry {
   readonly resultCode: string;
   readonly errorMessage?: string | null;
   readonly targetSummary: string | null;
+  readonly callId?: string;
 }
 
 export interface InFlightFeedEntry {
@@ -193,6 +222,18 @@ export interface ProcessFeedEntry {
   readonly args: readonly string[];
   readonly state: string;
   readonly logSummary: string;
+}
+
+export function mcpActivityKey(callId: string, phase: 'started' | 'completed'): string {
+  return `mcp:${callId}:${phase}`;
+}
+
+function formatInFlightLine(entry: InFlightFeedEntry): string {
+  return `[TASK] ${entry.toolName}${entry.targetSummary === null || entry.targetSummary === undefined ? '' : ` ${entry.targetSummary}`} — in flight`;
+}
+
+function formatWorkLogLine(entry: WorkLogFeedEntry): string {
+  return `${entry.kind === 'task' ? '[TASK]' : entry.kind === 'error' ? '[ERROR]' : '[RESULT]'} ${entry.toolName} ${entry.resultCode}${entry.errorMessage === null || entry.errorMessage === undefined || entry.errorMessage.length === 0 ? '' : ` — ${entry.errorMessage}`}${entry.targetSummary === null ? '' : ` — ${entry.targetSummary}`}`;
 }
 
 function parseTunnelLine(raw: string): { readonly level: LogLevel; readonly text: string } {
@@ -211,6 +252,32 @@ function parseTunnelLine(raw: string): { readonly level: LogLevel; readonly text
   return {
     level: /\berror\b/.test(lowered) ? 'error' : /\bwarn(ing)?\b/.test(lowered) ? 'warn' : 'info',
     text: raw.slice(0, MAX_LINE_BYTES),
+  };
+}
+
+function parseMcpActivityLine(raw: string): { readonly key: string; readonly level: LogLevel; readonly text: string } | null {
+  const json = tryParseJson(raw);
+  if (json === null || typeof json !== 'object') return null;
+  const record = json as Record<string, unknown>;
+  const callId = typeof record.callId === 'string' ? record.callId : '';
+  const toolName = typeof record.toolName === 'string' ? record.toolName : 'unknown';
+  const phase = record.phase === 'completed' ? 'completed' : 'started';
+  const resultCode = typeof record.resultCode === 'string' ? record.resultCode : phase === 'started' ? 'STARTED' : 'SUCCESS';
+  const targetSummary = typeof record.targetSummary === 'string' ? record.targetSummary : null;
+  const resultMessage = typeof record.resultMessage === 'string' ? record.resultMessage : null;
+  const kind = phase === 'started' ? 'task' : resultCode === 'SUCCESS' || resultCode === 'STARTED' ? 'result' : 'error';
+  return {
+    key: mcpActivityKey(callId.length > 0 ? callId : raw.slice(0, 40), phase),
+    level: kind === 'error' ? 'error' : 'info',
+    text: formatWorkLogLine({
+      id: callId,
+      kind,
+      toolName,
+      resultCode,
+      errorMessage: resultMessage,
+      targetSummary,
+      callId,
+    }),
   };
 }
 

@@ -32,7 +32,7 @@ import {
   createLocalExtensionsService,
   type ExtensionsService,
 } from '@lnwjud/extensions';
-import { ActivityTracker, type ActivitySinkEvent, type McpApplicationServices } from '@lnwjud/mcp-server';
+import { ActivityTracker, composeActivitySinks, createFileActivitySink, mcpActivityLogPath, type ActivitySinkEvent, type McpApplicationServices } from '@lnwjud/mcp-server';
 import { permissionProfiles } from '@lnwjud/permissions';
 import {
   SqliteAuditRepository,
@@ -98,23 +98,26 @@ export function createStdioMcpRuntime(dataPath: string, workspace: Workspace, un
     return roots;
   }, unrestricted);
   const actor: FileActor = { clientId: 'cli-mcp-stdio', clientName: 'lnwjud cli MCP' };
-  const activityTracker = new ActivityTracker({
-    async record(event: ActivitySinkEvent): Promise<void> {
-      await auditService.recordMcpTool({
-        actorId: actor.clientId,
-        actorName: actor.clientName,
-        ...(event.workspaceId === undefined ? {} : { workspaceId: event.workspaceId }),
-        toolName: event.toolName,
-        callId: event.callId,
-        phase: event.phase,
-        ...(event.targetSummary === undefined ? {} : { targetSummary: event.targetSummary }),
-        resultCode: event.resultCode,
-        ...(event.resultMessage === undefined ? {} : { resultMessage: event.resultMessage }),
-        durationMs: event.durationMs,
-        timestamp: event.timestamp,
-      });
+  const activityTracker = new ActivityTracker(composeActivitySinks([
+    createFileActivitySink(mcpActivityLogPath(dataPath)),
+    {
+      async record(event: ActivitySinkEvent): Promise<void> {
+        await auditService.recordMcpTool({
+          actorId: actor.clientId,
+          actorName: actor.clientName,
+          ...(event.workspaceId === undefined ? {} : { workspaceId: event.workspaceId }),
+          toolName: event.toolName,
+          callId: event.callId,
+          phase: event.phase,
+          ...(event.targetSummary === undefined ? {} : { targetSummary: event.targetSummary }),
+          resultCode: event.resultCode,
+          ...(event.resultMessage === undefined ? {} : { resultMessage: event.resultMessage }),
+          durationMs: event.durationMs,
+          timestamp: event.timestamp,
+        });
+      },
     },
-  });
+  ]));
   const services: McpApplicationServices = {
     capabilities: capabilityService,
     extensions,

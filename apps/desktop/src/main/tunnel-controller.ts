@@ -6,6 +6,8 @@ import path from 'node:path';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import type { TunnelRunState, TunnelStatus } from '@lnwjud/ipc-contracts';
+import { formatTunnelExitMessage, tunnelExitHintFromLog } from './tunnel-exit.js';
+import { rewriteTunnelYamlMcpCommand } from './tunnel-profile.js';
 
 const execFileAsync = promisify(execFile);
 
@@ -14,10 +16,13 @@ const SECRET_FILE = 'lnwjud.runtime.secret';
 const CLIENT_PATH_SETTING = 'tunnel_client_path';
 const MCP_CONNECTION_MAX_TTL = '168h0m0s';
 const EXTERNAL_PROBE_TTL_MS = 4_000;
+const RESTART_DELAY_MS = 3_000;
 
 export interface TunnelControllerOptions {
   readonly getClientPath: () => string | null;
   readonly setClientPath: (value: string) => void;
+  readonly getDataPath: () => string;
+  readonly getStdioLauncherPath?: () => string | null;
 }
 
 export class TunnelController {
@@ -26,6 +31,9 @@ export class TunnelController {
   private message: string | null = null;
   private externalProbeAt = 0;
   private lastExternalProbe = false;
+  private intentionalStop = false;
+  private restartTimer: ReturnType<typeof setTimeout> | null = null;
+  private lastApiKey: string | null = null;
 
   public constructor(private readonly options: TunnelControllerOptions) {}
 
@@ -119,7 +127,10 @@ export class TunnelController {
   }
 
   public async start(): Promise<TunnelStatus> {
+    this.intentionalStop = false;
+    this.clearRestartTimer();
     if (this.state === 'running' || this.state === 'starting') return this.status();
+    if (this.child !== null && this.child.exitCode === null) return this.status();
     if (await isLnwjudTunnelProcessRunning()) {
       this.state = 'running';
       this.message = null;
@@ -149,18 +160,53 @@ export class TunnelController {
       this.message = 'Saved Runtime API key is empty; save it again in Settings';
       return this.status();
     }
+    this.lastApiKey = apiKey;
     this.state = 'starting';
     this.message = null;
     await mkdir(this.profileDirectory(), { recursive: true });
+    await this.preferPackagedStdioCommand();
 
     try {
-      await runTunnelDoctor(clientPath, apiKey, this.profileDirectory());
+      await runTunnelDoctor(clientPath, apiKey, this.profileDirectory(), this.options.getDataPath());
     } catch (error: unknown) {
       this.state = 'error';
       this.message = error instanceof Error ? error.message : 'tunnel-client doctor failed';
       return this.status();
     }
 
+    this.spawnRun(clientPath, apiKey);
+    this.state = 'running';
+    return this.status();
+  }
+
+  public async stop(): Promise<TunnelStatus> {
+    await this.killOwnedChild();
+    await stopExternalLnwjudTunnelProcesses();
+    this.state = 'stopped';
+    this.message = null;
+    this.lastApiKey = null;
+    return this.status();
+  }
+
+  public async stopOwned(): Promise<TunnelStatus> {
+    await this.killOwnedChild();
+    this.state = 'stopped';
+    this.message = null;
+    this.lastApiKey = null;
+    return this.status();
+  }
+
+  private async killOwnedChild(): Promise<void> {
+    this.intentionalStop = true;
+    this.clearRestartTimer();
+    if (this.child !== null) {
+      const child = this.child;
+      this.child = null;
+      child.kill();
+    }
+  }
+
+  private spawnRun(clientPath: string, apiKey: string): void {
     const child = spawn(
       clientPath,
       [
@@ -171,33 +217,83 @@ export class TunnelController {
         '--mcp.connection-max-ttl', MCP_CONNECTION_MAX_TTL,
       ],
       {
-        env: tunnelClientEnv(apiKey, this.profileDirectory()),
+        env: tunnelClientEnv(apiKey, this.profileDirectory(), this.options.getDataPath()),
         windowsHide: true,
+        detached: true,
         stdio: ['ignore', 'pipe', 'pipe'],
       },
     );
     this.child = child;
-    child.stdout.on('data', () => undefined);
-    child.stderr.on('data', () => undefined);
+    child.stdout?.on('data', () => undefined);
+    child.stderr?.on('data', () => undefined);
+    child.on('error', (error) => {
+      if (this.child === child) this.child = null;
+      this.state = 'error';
+      this.message = error.message;
+      this.scheduleRestart(clientPath);
+    });
     child.on('exit', (code) => {
       if (this.child === child) this.child = null;
-      this.state = code === 0 ? 'stopped' : 'error';
-      this.message = code === 0 ? null : `tunnel-client exited with code ${code ?? 'unknown'}`;
+      if (this.intentionalStop) {
+        this.state = 'stopped';
+        this.message = null;
+        return;
+      }
+      void this.applyUnexpectedExit(code, clientPath);
     });
-    this.state = 'running';
-    return this.status();
   }
 
-  public async stop(): Promise<TunnelStatus> {
-    if (this.child !== null) {
-      const child = this.child;
-      this.child = null;
-      child.kill();
+  private async applyUnexpectedExit(code: number | null, clientPath: string): Promise<void> {
+    const hint = await this.readExitHint();
+    this.state = 'error';
+    this.message = formatTunnelExitMessage(code, hint);
+    this.scheduleRestart(clientPath);
+  }
+
+  private async readExitHint(): Promise<string> {
+    try {
+      const raw = await readFile(this.logPath(), 'utf8');
+      const tail = raw.split(/\r?\n/).slice(-120).join('\n');
+      return tunnelExitHintFromLog(tail);
+    } catch {
+      return '';
     }
-    await stopExternalLnwjudTunnelProcesses();
-    this.state = 'stopped';
-    this.message = null;
-    return this.status();
+  }
+
+  private scheduleRestart(clientPath: string): void {
+    if (this.intentionalStop) return;
+    this.clearRestartTimer();
+    this.restartTimer = setTimeout(() => {
+      this.restartTimer = null;
+      if (this.intentionalStop || this.lastApiKey === null) return;
+      void this.preferPackagedStdioCommand()
+        .then(() => {
+          if (this.intentionalStop || this.lastApiKey === null) return;
+          this.spawnRun(clientPath, this.lastApiKey);
+          this.state = 'running';
+          this.message = 'Tunnel reconnecting…';
+        })
+        .catch(() => undefined);
+    }, RESTART_DELAY_MS);
+  }
+
+  private clearRestartTimer(): void {
+    if (this.restartTimer !== null) {
+      clearTimeout(this.restartTimer);
+      this.restartTimer = null;
+    }
+  }
+
+  private async preferPackagedStdioCommand(): Promise<void> {
+    const launcher = this.options.getStdioLauncherPath?.() ?? null;
+    if (launcher === null) return;
+    try {
+      const yaml = await readFile(this.profilePath(), 'utf8');
+      const next = rewriteTunnelYamlMcpCommand(yaml, launcher);
+      if (next !== yaml) await writeFile(this.profilePath(), next, 'utf8');
+    } catch {
+      // Profile rewrite is best-effort; tunnel-client still starts with the existing YAML.
+    }
   }
 }
 
@@ -253,12 +349,14 @@ function runPowerShellWithStdin(command: string, input: string): Promise<string>
   });
 }
 
-function tunnelClientEnv(apiKey: string, profileDirectory: string): NodeJS.ProcessEnv {
+export function tunnelClientEnv(apiKey: string, profileDirectory: string, dataPath: string): NodeJS.ProcessEnv {
   const env: NodeJS.ProcessEnv = { ...process.env };
   const userProfile = process.env.USERPROFILE ?? os.homedir();
   const appData = process.env.APPDATA ?? path.join(userProfile, 'AppData', 'Roaming');
   env.CONTROL_PLANE_API_KEY = apiKey.trim();
   env.MCP_CONNECTION_MAX_TTL = MCP_CONNECTION_MAX_TTL;
+  env.LNWJUD_DATA_PATH = dataPath;
+  env.LNWJUD_UNRESTRICTED = '1';
   env.TUNNEL_CLIENT_PROFILE = PROFILE_NAME;
   env.TUNNEL_CLIENT_PROFILE_DIR = profileDirectory;
   env.USERPROFILE = userProfile;
@@ -268,10 +366,10 @@ function tunnelClientEnv(apiKey: string, profileDirectory: string): NodeJS.Proce
   return env;
 }
 
-async function runTunnelDoctor(clientPath: string, apiKey: string, profileDirectory: string): Promise<void> {
+async function runTunnelDoctor(clientPath: string, apiKey: string, profileDirectory: string, dataPath: string): Promise<void> {
   try {
     await execFileAsync(clientPath, ['doctor', '--profile', PROFILE_NAME, '--profile-dir', profileDirectory, '--explain'], {
-      env: tunnelClientEnv(apiKey, profileDirectory),
+      env: tunnelClientEnv(apiKey, profileDirectory, dataPath),
       windowsHide: true,
       encoding: 'utf8',
       timeout: 60_000,

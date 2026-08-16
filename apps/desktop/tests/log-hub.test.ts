@@ -70,6 +70,62 @@ describe('LogHub', () => {
     expect(hub.snapshot().lines.find((line) => line.text === 'boom')?.level).toBe('error');
   });
 
+  it('tails MCP activity NDJSON into the mcp source without waiting for getDashboard', async () => {
+    vi.useFakeTimers();
+    const root = await mkdtemp(path.join(os.tmpdir(), 'lnwjud-loghub-mcp-'));
+    temporaryRoots.push(root);
+    const activityPath = path.join(root, 'mcp-activity.log');
+    await writeFile(activityPath, `${JSON.stringify({
+      callId: 'c1',
+      toolName: 'read_file',
+      phase: 'started',
+      resultCode: 'STARTED',
+      targetSummary: 'src\\\\app.ts',
+    })}\n`, 'utf8');
+    const hub = new LogHub({
+      tunnelLogPath: path.join(root, 'missing-tunnel.log'),
+      mcpActivityLogPath: activityPath,
+    });
+    hub.start();
+    await vi.advanceTimersByTimeAsync(700);
+    expect(hub.snapshot().lines.some((line) => line.source === 'mcp' && line.text.includes('read_file'))).toBe(true);
+
+    await appendFile(activityPath, `${JSON.stringify({
+      callId: 'c1',
+      toolName: 'read_file',
+      phase: 'completed',
+      resultCode: 'SUCCESS',
+      targetSummary: 'src\\\\app.ts',
+    })}\n`, 'utf8');
+    await vi.advanceTimersByTimeAsync(700);
+    hub.stop();
+    const mcpTexts = hub.snapshot().lines.filter((line) => line.source === 'mcp').map((line) => line.text);
+    expect(mcpTexts.some((text) => text.includes('[RESULT] read_file SUCCESS'))).toBe(true);
+  });
+
+  it('dedupes file-tail MCP lines against syncWorkLog using callId keys', () => {
+    const hub = new LogHub({ tunnelLogPath: 'Z:\\missing\\lnwjud-tunnel.log' });
+    hub.syncWorkLog([{
+      id: 'audit-1',
+      callId: 'c1',
+      kind: 'result',
+      toolName: 'read_file',
+      resultCode: 'SUCCESS',
+      errorMessage: null,
+      targetSummary: 'src\\app.ts',
+    }], []);
+    hub.syncWorkLog([{
+      id: 'audit-1',
+      callId: 'c1',
+      kind: 'result',
+      toolName: 'read_file',
+      resultCode: 'SUCCESS',
+      errorMessage: null,
+      targetSummary: 'src\\app.ts',
+    }], []);
+    expect(hub.snapshot().lines).toHaveLength(1);
+  });
+
   it('notifies subscribers of new lines', () => {
     const onLine = vi.fn();
     const hub = new LogHub({ tunnelLogPath: 'Z:\\missing\\lnwjud-tunnel.log', onLine });

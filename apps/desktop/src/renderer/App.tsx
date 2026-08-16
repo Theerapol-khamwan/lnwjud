@@ -14,6 +14,7 @@ import { ProjectsPage } from './features/projects/ProjectsPage.js';
 import { GitPage } from './features/git/GitPage.js';
 import { WorkLogPage } from './features/worklog/WorkLogPage.js';
 import { LiveLogsPage } from './features/live/LiveLogsPage.js';
+import { applyLogSnapshot } from './features/live/log-buffer.js';
 import { SettingsPage } from './features/settings/SettingsPage.js';
 import { DoctorPanel } from './features/doctor/DoctorPanel.js';
 import { createTranslator } from './i18n/index.js';
@@ -46,10 +47,13 @@ export function App(): ReactElement {
     let disposed = false;
     void window.lnwjud.getLogSnapshot().then((snapshot) => {
       if (disposed) return;
-      setLogLines(snapshot.lines);
+      setLogLines((previous) => {
+        const merged = applyLogSnapshot(previous, logIds.current, snapshot.lines);
+        logIds.current = merged.ids;
+        return merged.lines;
+      });
       setTunnelLogPath(snapshot.tunnelLogPath);
       setTunnelLogExists(snapshot.tunnelLogExists);
-      logIds.current = new Set(snapshot.lines.map((line) => line.id));
     }).catch(() => undefined);
     const unsubscribe = window.lnwjud.onLogEvent((line) => {
       appendLogLine(line);

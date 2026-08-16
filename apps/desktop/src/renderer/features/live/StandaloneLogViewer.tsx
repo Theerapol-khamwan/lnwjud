@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState, type ReactElement } from 'react';
 import type { LogLine, LogSource } from '@lnwjud/ipc-contracts';
 import { createTranslator } from '../../i18n/index.js';
+import { applyLogSnapshot } from './log-buffer.js';
 import { LogStreamPanel } from './LogStreamPanel.js';
 
 const MAX_CLIENT_LOG_LINES = 4_000;
@@ -23,10 +24,13 @@ export function StandaloneLogViewer(): ReactElement {
     let disposed = false;
     void window.lnwjud.getLogSnapshot().then((snapshot) => {
       if (disposed) return;
-      setLines(snapshot.lines);
+      setLines((previous) => {
+        const merged = applyLogSnapshot(previous, logIds.current, snapshot.lines);
+        logIds.current = merged.ids;
+        return merged.lines;
+      });
       setTunnelLogPath(snapshot.tunnelLogPath);
       setTunnelLogExists(snapshot.tunnelLogExists);
-      logIds.current = new Set(snapshot.lines.map((line) => line.id));
     }).catch(() => undefined);
     const unsubscribe = window.lnwjud.onLogEvent((line) => {
       appendLine(line);

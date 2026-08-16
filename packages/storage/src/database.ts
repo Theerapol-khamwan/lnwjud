@@ -26,7 +26,9 @@ export class SqliteDatabase {
   public readonly connection: DatabaseSync;
 
   public constructor(filename: string) {
-    this.connection = new DatabaseSync(filename);
+    this.connection = new DatabaseSync(filename, { timeout: 5_000 });
+    this.connection.exec('PRAGMA journal_mode = WAL;');
+    this.connection.exec('PRAGMA busy_timeout = 5000;');
     this.connection.exec('PRAGMA foreign_keys = ON;');
     this.connection.exec('CREATE TABLE IF NOT EXISTS schema_migrations (id TEXT PRIMARY KEY NOT NULL);');
     this.applyMigration({ id: '001_initial', sql: INITIAL_MIGRATION_SQL });

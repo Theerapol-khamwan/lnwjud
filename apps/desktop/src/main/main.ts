@@ -30,6 +30,7 @@ import {
 } from '@lnwjud/ipc-contracts';
 import { startMcpStdio } from '@lnwjud/mcp-server';
 import { createDesktopRuntime, type DesktopRuntime } from './desktop-services.js';
+import { shouldHoldSingleInstanceLock, wantsMcpStdio } from './instance-lock.js';
 import { createLogViewerWindow, createMainWindow, getRendererEntryPath, isAllowedRendererUrl } from './window.js';
 
 export interface DesktopIpcServices {
@@ -417,10 +418,6 @@ function readArgValue(flag: string): string | undefined {
   return typeof value === 'string' && value.trim().length > 0 ? value : undefined;
 }
 
-function wantsMcpStdio(): boolean {
-  return process.argv.includes('--mcp-stdio');
-}
-
 function redirectConsoleToStderr(): void {
   const write = (stream: NodeJS.WriteStream, args: unknown[]): void => {
     stream.write(`${args.map((entry) => typeof entry === 'string' ? entry : JSON.stringify(entry)).join(' ')}\n`);
@@ -617,24 +614,26 @@ function configureDataPath(): string {
   return app.getPath('userData');
 }
 
-const gotInstanceLock = app.requestSingleInstanceLock();
+const gotInstanceLock = shouldHoldSingleInstanceLock(process.argv) ? app.requestSingleInstanceLock() : true;
 if (!gotInstanceLock) {
   app.quit();
 } else {
-  app.on('second-instance', (_event, argv) => {
-    const existing = logViewerWindow !== null && !logViewerWindow.isDestroyed() ? logViewerWindow : null;
-    if (existing !== null) {
-      if (existing.isMinimized()) existing.restore();
-      existing.show();
-      existing.focus();
-    } else if (argv.includes('--log-viewer')) {
-      openLogViewerWindow();
-    } else if (mainWindow !== null) {
-      mainWindow.show();
-      mainWindow.focus();
-    }
-  });
-  if (wantsMcpStdio()) {
+  if (shouldHoldSingleInstanceLock(process.argv)) {
+    app.on('second-instance', (_event, argv) => {
+      const existing = logViewerWindow !== null && !logViewerWindow.isDestroyed() ? logViewerWindow : null;
+      if (existing !== null) {
+        if (existing.isMinimized()) existing.restore();
+        existing.show();
+        existing.focus();
+      } else if (argv.includes('--log-viewer')) {
+        openLogViewerWindow();
+      } else if (mainWindow !== null) {
+        mainWindow.show();
+        mainWindow.focus();
+      }
+    });
+  }
+  if (wantsMcpStdio(process.argv)) {
     bootstrapMcpStdio();
   } else if (process.argv.includes('--log-viewer')) {
     bootstrapLogViewerOnly();

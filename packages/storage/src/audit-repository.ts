@@ -43,6 +43,18 @@ export class SqliteAuditRepository implements AuditEventRepository {
     const rows = this.database.connection.prepare(
       'SELECT id, timestamp, actor_id, actor_name, workspace_id, action, target_summary, permission_decision, result_code, duration_ms, metadata_json FROM audit_events ORDER BY timestamp DESC, id DESC LIMIT ?',
     ).all(boundedLimit);
+    return this.toEvents(rows);
+  }
+
+  public async listByActionPrefix(prefix: string, limit = 100): Promise<AuditEvent[]> {
+    const boundedLimit = Number.isInteger(limit) && limit >= 1 && limit <= 500 ? limit : 100;
+    const rows = this.database.connection.prepare(
+      'SELECT id, timestamp, actor_id, actor_name, workspace_id, action, target_summary, permission_decision, result_code, duration_ms, metadata_json FROM audit_events WHERE action LIKE ? ORDER BY timestamp DESC, id DESC LIMIT ?',
+    ).all(`${prefix}%`, boundedLimit);
+    return this.toEvents(rows);
+  }
+
+  private toEvents(rows: unknown[]): AuditEvent[] {
     return rows.flatMap((row) => {
       const event = this.toEvent(row);
       return event === null ? [] : [event];

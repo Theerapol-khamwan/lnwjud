@@ -1,5 +1,6 @@
 import { createServer } from 'node:net';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import {
   DoctorService,
   CheckpointService,
@@ -26,6 +27,9 @@ import {
 } from '@lnwjud/extensions';
 import {
   ActivityTracker,
+  composeActivitySinks,
+  createFileActivitySink,
+  mcpActivityLogPath,
   type ActivitySinkEvent,
   type McpApplicationServices,
   type McpHttpServerOptions,
@@ -70,6 +74,7 @@ import { buildCapabilitySummary, createLocalCapabilityRuntime } from './capabili
 import { LogHub } from './log-hub.js';
 import { DesktopMcpLifecycle } from './mcp-lifecycle.js';
 import { CLIENT_PATH_SETTING, TunnelController } from './tunnel-controller.js';
+import { packagedStdioLauncherCandidates, resolveStdioLauncherPath } from './tunnel-profile.js';
 
 const actor: FileActor = { clientId: 'desktop-renderer', clientName: 'lnwjud desktop' };
 const mcpActor: FileActor = { clientId: 'desktop-mcp-http', clientName: 'lnwjud desktop MCP' };
@@ -77,7 +82,7 @@ const permissionSettingKey = 'permission_profile';
 const selectedWorkspaceSettingKey = 'selected_workspace_id';
 const workLogClearedSettingKey = 'work_log_cleared_at';
 const localeSettingKey = 'ui_locale';
-const APP_VERSION = '1.0.0';
+const APP_VERSION = '1.1.2';
 
 export interface DesktopRuntime {
   readonly services: DesktopIpcServices;
@@ -158,23 +163,27 @@ export function createDesktopRuntime(dataPath: string): DesktopRuntime {
     process: processService,
     codex: codexService,
   };
-  const activityTracker = new ActivityTracker({
-    async record(event: ActivitySinkEvent): Promise<void> {
-      await auditService.recordMcpTool({
-        actorId: mcpActor.clientId,
-        actorName: mcpActor.clientName,
-        ...(event.workspaceId === undefined ? {} : { workspaceId: event.workspaceId }),
-        toolName: event.toolName,
-        callId: event.callId,
-        phase: event.phase,
-        ...(event.targetSummary === undefined ? {} : { targetSummary: event.targetSummary }),
-        resultCode: event.resultCode,
-        ...(event.resultMessage === undefined ? {} : { resultMessage: event.resultMessage }),
-        durationMs: event.durationMs,
-        timestamp: event.timestamp,
-      });
+  const activityLogPath = mcpActivityLogPath(dataPath);
+  const activityTracker = new ActivityTracker(composeActivitySinks([
+    createFileActivitySink(activityLogPath),
+    {
+      async record(event: ActivitySinkEvent): Promise<void> {
+        await auditService.recordMcpTool({
+          actorId: mcpActor.clientId,
+          actorName: mcpActor.clientName,
+          ...(event.workspaceId === undefined ? {} : { workspaceId: event.workspaceId }),
+          toolName: event.toolName,
+          callId: event.callId,
+          phase: event.phase,
+          ...(event.targetSummary === undefined ? {} : { targetSummary: event.targetSummary }),
+          resultCode: event.resultCode,
+          ...(event.resultMessage === undefined ? {} : { resultMessage: event.resultMessage }),
+          durationMs: event.durationMs,
+          timestamp: event.timestamp,
+        });
+      },
     },
-  });
+  ]));
   const mcpPort = readMcpPort(process.env.LNWJUD_MCP_PORT);
   const mcpLifecycle = new DesktopMcpLifecycle({
     workspaceExists: async (workspaceId: string): Promise<boolean> => (await workspaceRepository.get(workspaceId)) !== null,
@@ -190,8 +199,21 @@ export function createDesktopRuntime(dataPath: string): DesktopRuntime {
   const tunnelController = new TunnelController({
     getClientPath: (): string | null => settingsRepository.get(CLIENT_PATH_SETTING),
     setClientPath: (value: string): void => { settingsRepository.set(CLIENT_PATH_SETTING, value); },
+    getDataPath: (): string => dataPath,
+    getStdioLauncherPath: (): string | null => {
+      const resourcesPath = (process as NodeJS.Process & { resourcesPath?: string }).resourcesPath;
+      return resolveStdioLauncherPath([
+        ...(typeof resourcesPath === 'string'
+          ? packagedStdioLauncherCandidates(process.execPath, resourcesPath)
+          : packagedStdioLauncherCandidates(process.execPath)),
+        path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..', 'build', 'lnwjud-mcp-stdio.cmd'),
+      ]);
+    },
   });
-  const logHub = new LogHub({ tunnelLogPath: tunnelController.logPath() });
+  const logHub = new LogHub({
+    tunnelLogPath: tunnelController.logPath(),
+    mcpActivityLogPath: activityLogPath,
+  });
   const trackedProcesses = new Map<string, string>();
   const doctorService = new DoctorService({
     os: async (): Promise<DoctorProbeResult> => ({ status: process.platform === 'win32' ? 'pass' : 'warn', message: `${process.platform} ${process.arch}` }),
@@ -430,7 +452,7 @@ export function createDesktopRuntime(dataPath: string): DesktopRuntime {
       try {
         logHub.stop();
         await mcpLifecycle.close();
-        await tunnelController.stop().catch(() => undefined);
+        await tunnelController.stopOwned().catch(() => undefined);
       } finally {
         await extensionsService.close().catch(() => undefined);
         database.close();
@@ -527,29 +549,40 @@ async function buildWorkLog(
   repository: AuditEventRepository,
   settingsRepository: SqliteSettingsRepository,
 ): Promise<readonly WorkLogEntry[]> {
-  const events = await listVisibleAuditEvents(repository, settingsRepository, 100);
-  return events
-    .filter((event) => event.action.startsWith('mcp_tool:'))
-    .map((event) => {
-      const toolName = typeof event.metadata.toolName === 'string' ? event.metadata.toolName : event.action.replace(/^mcp_tool:/, '');
-      const phase = event.metadata.phase === 'started' ? 'started' : 'completed';
-      const kind = phase === 'started'
-        ? 'task'
-        : event.resultCode === 'SUCCESS' || event.resultCode === 'STARTED'
-          ? 'result'
-          : 'error';
-      return {
-        id: event.id,
-        timestamp: event.timestamp,
-        kind,
-        toolName,
-        resultCode: event.resultCode,
-        errorMessage: typeof event.metadata.errorMessage === 'string' ? event.metadata.errorMessage : null,
-        targetSummary: event.targetSummary ?? null,
-        durationMs: event.durationMs,
-        workspaceId: event.workspaceId ?? null,
-      } satisfies WorkLogEntry;
-    });
+  const events = await listVisibleMcpEvents(repository, settingsRepository, 100);
+  return events.map((event) => {
+    const toolName = typeof event.metadata.toolName === 'string' ? event.metadata.toolName : event.action.replace(/^mcp_tool:/, '');
+    const phase = event.metadata.phase === 'started' ? 'started' : 'completed';
+    const kind = phase === 'started'
+      ? 'task'
+      : event.resultCode === 'SUCCESS' || event.resultCode === 'STARTED'
+        ? 'result'
+        : 'error';
+    const callId = typeof event.metadata.callId === 'string' ? event.metadata.callId : undefined;
+    return {
+      id: event.id,
+      timestamp: event.timestamp,
+      kind,
+      toolName,
+      resultCode: event.resultCode,
+      errorMessage: typeof event.metadata.errorMessage === 'string' ? event.metadata.errorMessage : null,
+      targetSummary: event.targetSummary ?? null,
+      durationMs: event.durationMs,
+      workspaceId: event.workspaceId ?? null,
+      ...(callId === undefined ? {} : { callId }),
+    } satisfies WorkLogEntry;
+  });
+}
+
+async function listVisibleMcpEvents(
+  repository: AuditEventRepository,
+  settingsRepository: SqliteSettingsRepository,
+  limit: number,
+): Promise<readonly AuditEvent[]> {
+  const clearedAt = settingsRepository.get(workLogClearedSettingKey);
+  const events = await repository.listByActionPrefix('mcp_tool:', limit);
+  if (clearedAt === null) return events;
+  return events.filter((event) => event.timestamp > clearedAt);
 }
 
 async function listVisibleAuditEvents(

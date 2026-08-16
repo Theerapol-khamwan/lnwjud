@@ -1,3 +1,4 @@
+export * from './activity-log-file.js';
 export * from './activity-tracker.js';
 export * from './http.js';
 export * from './origin-policy.js';
