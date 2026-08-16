@@ -28,8 +28,8 @@ export class WorkspacePathGuard {
 
     const rootResult = await this.resolveRoot(workspace);
     if (!rootResult.ok) return rootResult;
-    const absolutePath = path.resolve(workspace.rootPath, inputPath);
-    if (!isWithin(workspace.rootPath, absolutePath)) {
+    const absolutePath = path.resolve(rootResult.value, inputPath);
+    if (!isWithin(rootResult.value, absolutePath)) {
       return err(appError('PATH_OUTSIDE_WORKSPACE', 'Path is outside the workspace'));
     }
 
@@ -74,8 +74,8 @@ export class WorkspacePathGuard {
 
     const rootResult = await this.resolveRoot(workspace);
     if (!rootResult.ok) return rootResult;
-    const absolutePath = path.resolve(workspace.rootPath, inputPath);
-    if (!isWithin(workspace.rootPath, absolutePath)) {
+    const absolutePath = path.resolve(rootResult.value, inputPath);
+    if (!isWithin(rootResult.value, absolutePath)) {
       return err(appError('PATH_OUTSIDE_WORKSPACE', 'Path is outside the workspace'));
     }
 

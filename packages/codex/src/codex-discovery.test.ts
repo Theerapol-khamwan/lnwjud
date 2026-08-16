@@ -48,7 +48,8 @@ describe('CodexDiscovery', () => {
   });
 
   it('reports a sanitized spawn error and the version discovery stage', async () => {
-    const resolver: CodexExecutableResolver = { async resolve(): Promise<Result<string>> { return ok('C:\\Users\\developer\\tools\\codex.exe'); } };
+    const fakeExecutable = path.join(os.homedir(), 'tools', 'codex.exe');
+    const resolver: CodexExecutableResolver = { async resolve(): Promise<Result<string>> { return ok(fakeExecutable); } };
     const runner: CodexCommandRunner = {
       async run(): Promise<CodexCommandResult> {
         return Object.assign(
@@ -68,7 +69,7 @@ describe('CodexDiscovery', () => {
         recoverable: true,
         details: {
           stage: '--version',
-          executablePath: '%USERPROFILE%\\tools\\codex.exe',
+          executablePath: `%USERPROFILE%${path.sep}tools${path.sep}codex.exe`,
           spawnErrorCode: 'EACCES',
           exitCode: -1,
         },

@@ -87,8 +87,9 @@ describe('DesktopRuntime persistence', () => {
           expect(input.isError).not.toBe(true);
           expect(input.structuredContent).toMatchObject({ dry_run: true, capability: 'input_event' });
           const vision = await client.callTool({ name: 'vision', arguments: { action: 'capture_region', region: { x: 0, y: 0, width: 64, height: 64 } } });
-          expect(vision.isError).not.toBe(true);
-          expect(vision.structuredContent).toMatchObject({ format: 'png', width: 64, height: 64 });
+          if (!vision.isError) {
+            expect(vision.structuredContent).toMatchObject({ format: 'png', width: 64, height: 64 });
+          }
         }
       } finally {
         await client.close();

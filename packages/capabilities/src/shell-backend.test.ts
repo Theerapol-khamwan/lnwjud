@@ -2,7 +2,7 @@ import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
-import { ok } from '@lnwjud/domain';
+import { ok, type Result } from '@lnwjud/domain';
 import { ShellCapabilityBackend } from './shell-backend.js';
 
 const temporaryRoots: string[] = [];
@@ -146,7 +146,7 @@ describe('ShellCapabilityBackend unrestricted', () => {
     const backend = new ShellCapabilityBackend({
       allowedRoots: [root],
       unrestricted: true,
-      executableResolver: { async resolve(executable) { return ok(executable); } },
+      executableResolver: { async resolve(executable: string): Promise<Result<string>> { return ok(executable); } },
     });
 
     const rm = await backend.execute({
@@ -176,7 +176,7 @@ describe('ShellCapabilityBackend unrestricted', () => {
     const backend = new ShellCapabilityBackend({
       allowedRoots: [root],
       unrestricted: true,
-      executableResolver: { async resolve(executable) { return ok(executable); } },
+      executableResolver: { async resolve(executable: string): Promise<Result<string>> { return ok(executable); } },
     });
 
     const result = await backend.execute({

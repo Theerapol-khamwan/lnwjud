@@ -1,4 +1,4 @@
-import { mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, realpath, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -9,8 +9,9 @@ import { WorkspacePathGuard } from './workspace-path-guard.js';
 const temporaryRoots: string[] = [];
 
 async function createWorkspace(): Promise<Workspace> {
-  const rootPath = await mkdtemp(path.join(os.tmpdir(), 'lnwjud-workspace-'));
-  temporaryRoots.push(rootPath);
+  const rawRoot = await mkdtemp(path.join(os.tmpdir(), 'lnwjud-workspace-'));
+  temporaryRoots.push(rawRoot);
+  const rootPath = await realpath(rawRoot);
   await mkdir(path.join(rootPath, 'src'));
   await writeFile(path.join(rootPath, 'src', 'index.ts'), 'export const value = 42;\n', 'utf8');
   await writeFile(path.join(rootPath, '.env.example'), 'EXAMPLE=true\n', 'utf8');
