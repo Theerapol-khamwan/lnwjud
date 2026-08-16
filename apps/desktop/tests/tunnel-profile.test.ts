@@ -33,6 +33,13 @@ describe('tunnel profile MCP command', () => {
     );
   });
 
+  it('replaces a stale node command so the tunnel cannot attach to a GUI process', () => {
+    const yaml = '      command: "node"';
+    expect(rewriteTunnelYamlMcpCommand(yaml, 'D:/lnwjud/lnwjud-mcp-stdio.cmd')).toContain(
+      'command: "D:/lnwjud/lnwjud-mcp-stdio.cmd"',
+    );
+  });
+
   it('falls back to the cmd launcher when the host is not lnwjud.exe', () => {
     expect(preferredTunnelMcpCommand('C:\\Program Files\\nodejs\\node.exe', 'D:\\lnwjud\\lnwjud-mcp-stdio.cmd')).toBe(
       'D:\\lnwjud\\lnwjud-mcp-stdio.cmd',

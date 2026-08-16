@@ -1,7 +1,10 @@
 import { existsSync } from 'node:fs';
 import path from 'node:path';
 
-const COMMAND_LINE = /command:\s*"[^"]*lnwjud[^"]*"/i;
+// The profile can contain the old GUI executable, a node command, or a stale
+// launcher path. The desktop owns this lnwjud profile, so always replace the
+// MCP command with the packaged direct-node stdio launcher.
+const COMMAND_LINE = /(command:\s*)"[^"]*"/i;
 
 export function posixPath(filePath: string): string {
   return filePath.replace(/\\/g, '/');

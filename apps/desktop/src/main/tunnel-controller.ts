@@ -17,6 +17,8 @@ const CLIENT_PATH_SETTING = 'tunnel_client_path';
 const MCP_CONNECTION_MAX_TTL = '168h0m0s';
 const EXTERNAL_PROBE_TTL_MS = 4_000;
 const RESTART_DELAY_MS = 3_000;
+const MAX_AUTO_RESTARTS = 5;
+const RESTART_WINDOW_MS = 30_000;
 
 export interface TunnelControllerOptions {
   readonly getClientPath: () => string | null;
@@ -33,6 +35,9 @@ export class TunnelController {
   private lastExternalProbe = false;
   private intentionalStop = false;
   private restartTimer: ReturnType<typeof setTimeout> | null = null;
+  private stableTimer: ReturnType<typeof setTimeout> | null = null;
+  private restartAttempts = 0;
+  private restartWindowStartedAt = 0;
   private lastApiKey: string | null = null;
 
   public constructor(private readonly options: TunnelControllerOptions) {}
@@ -129,6 +134,9 @@ export class TunnelController {
   public async start(): Promise<TunnelStatus> {
     this.intentionalStop = false;
     this.clearRestartTimer();
+    this.clearStableTimer();
+    this.restartAttempts = 0;
+    this.restartWindowStartedAt = 0;
     if (this.state === 'running' || this.state === 'starting') return this.status();
     if (this.child !== null && this.child.exitCode === null) return this.status();
     if (await isLnwjudTunnelProcessRunning()) {
@@ -176,6 +184,7 @@ export class TunnelController {
 
     this.spawnRun(clientPath, apiKey);
     this.state = 'running';
+    this.scheduleStableReset();
     return this.status();
   }
 
@@ -185,6 +194,8 @@ export class TunnelController {
     this.state = 'stopped';
     this.message = null;
     this.lastApiKey = null;
+    this.restartAttempts = 0;
+    this.clearStableTimer();
     return this.status();
   }
 
@@ -193,6 +204,8 @@ export class TunnelController {
     this.state = 'stopped';
     this.message = null;
     this.lastApiKey = null;
+    this.restartAttempts = 0;
+    this.clearStableTimer();
     return this.status();
   }
 
@@ -246,6 +259,16 @@ export class TunnelController {
     const hint = await this.readExitHint();
     this.state = 'error';
     this.message = formatTunnelExitMessage(code, hint);
+    const now = Date.now();
+    if (this.restartWindowStartedAt === 0 || now - this.restartWindowStartedAt > RESTART_WINDOW_MS) {
+      this.restartWindowStartedAt = now;
+      this.restartAttempts = 0;
+    }
+    this.restartAttempts += 1;
+    if (this.restartAttempts > MAX_AUTO_RESTARTS) {
+      this.message = `${this.message} — automatic reconnect paused after ${MAX_AUTO_RESTARTS} rapid exits; press Start Tunnel to retry`;
+      return;
+    }
     this.scheduleRestart(clientPath);
   }
 
@@ -262,6 +285,7 @@ export class TunnelController {
   private scheduleRestart(clientPath: string): void {
     if (this.intentionalStop) return;
     this.clearRestartTimer();
+    const delay = Math.min(RESTART_DELAY_MS * (2 ** Math.max(0, this.restartAttempts - 1)), 30_000);
     this.restartTimer = setTimeout(() => {
       this.restartTimer = null;
       if (this.intentionalStop || this.lastApiKey === null) return;
@@ -270,16 +294,33 @@ export class TunnelController {
           if (this.intentionalStop || this.lastApiKey === null) return;
           this.spawnRun(clientPath, this.lastApiKey);
           this.state = 'running';
-          this.message = 'Tunnel reconnecting…';
+          this.message = `Tunnel reconnecting (attempt ${this.restartAttempts}/${MAX_AUTO_RESTARTS})…`;
+          this.scheduleStableReset();
         })
         .catch(() => undefined);
-    }, RESTART_DELAY_MS);
+    }, delay);
   }
 
   private clearRestartTimer(): void {
     if (this.restartTimer !== null) {
       clearTimeout(this.restartTimer);
       this.restartTimer = null;
+    }
+  }
+
+  private scheduleStableReset(): void {
+    this.clearStableTimer();
+    this.stableTimer = setTimeout(() => {
+      this.stableTimer = null;
+      this.restartAttempts = 0;
+      this.restartWindowStartedAt = 0;
+    }, RESTART_WINDOW_MS);
+  }
+
+  private clearStableTimer(): void {
+    if (this.stableTimer !== null) {
+      clearTimeout(this.stableTimer);
+      this.stableTimer = null;
     }
   }
 
