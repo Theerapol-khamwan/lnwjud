@@ -17,7 +17,6 @@ import { LiveLogsPage } from './features/live/LiveLogsPage.js';
 import { SettingsPage } from './features/settings/SettingsPage.js';
 import { DoctorPanel } from './features/doctor/DoctorPanel.js';
 import { createTranslator } from './i18n/index.js';
-import type { MessageKey } from './i18n/messages.js';
 
 const MAX_CLIENT_LOG_LINES = 4_000;
 

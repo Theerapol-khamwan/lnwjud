@@ -5,6 +5,11 @@ node_modules/
 # Build & Compilation
 dist/
 build/
+!apps/desktop/build/
+!apps/desktop/build/**
+apps/desktop/build/*.cjs
+apps/desktop/build/*.cmd
+apps/desktop/build/*.mjs
 *.tsbuildinfo
 *.tsbuildinfo.*
 *.last-run.json
