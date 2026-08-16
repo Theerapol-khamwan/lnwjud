@@ -36,7 +36,7 @@ import {
   type McpApplicationServices,
   type McpHttpServerOptions,
 } from '@lnwjud/mcp-server';
-import { permissionProfiles, type PermissionProfileName } from '@lnwjud/permissions';
+import { permissionProfiles, type PermissionProfile, type PermissionProfileName } from '@lnwjud/permissions';
 import type { ManagedProcess } from '@lnwjud/process';
 import { PathExecutableResolver } from '@lnwjud/search';
 import { isUnrestricted, UNRESTRICTED_SETTING_KEY } from '@lnwjud/shared';
@@ -84,7 +84,7 @@ const permissionSettingKey = 'permission_profile';
 const selectedWorkspaceSettingKey = 'selected_workspace_id';
 const workLogClearedSettingKey = 'work_log_cleared_at';
 const localeSettingKey = 'ui_locale';
-const APP_VERSION = '2.0.0';
+const APP_VERSION = '2.1.0';
 
 export interface DesktopRuntime {
   readonly services: DesktopIpcServices;
@@ -97,7 +97,11 @@ export interface DesktopRuntime {
   close(): Promise<void>;
 }
 
-export function createDesktopRuntime(dataPath: string): DesktopRuntime {
+export interface DesktopRuntimeOptions {
+  readonly permissionProfile?: PermissionProfileName;
+}
+
+export function createDesktopRuntime(dataPath: string, options: DesktopRuntimeOptions = {}): DesktopRuntime {
   const database = new SqliteDatabase(path.join(dataPath, 'lnwjud.sqlite'));
   const workspaceRepository = new SqliteWorkspaceRepository(database);
   const workspaceIndex = new WorkspaceIndexService(workspaceRepository, new JsonWorkspaceIndexStore(path.join(dataPath, 'workspace-index')));
@@ -109,23 +113,23 @@ export function createDesktopRuntime(dataPath: string): DesktopRuntime {
   const gitService = new GitService(workspaceRepository);
   const codexDiscovery = new CodexDiscovery();
   const executableResolver = new PathExecutableResolver();
-  let profileName: PermissionProfileName = 'full';
-  settingsRepository.set(permissionSettingKey, 'full');
+  const storedProfile = settingsRepository.get(permissionSettingKey);
+  let profileName: PermissionProfileName = options.permissionProfile ?? readPermissionProfile(storedProfile);
+  if (options.permissionProfile === undefined && storedProfile === null) settingsRepository.set(permissionSettingKey, profileName);
   const unrestricted = isUnrestricted(process.env, settingsRepository.get(UNRESTRICTED_SETTING_KEY));
-  const fullProfile = permissionProfiles.full;
   const projectService = new ProjectService(workspaceRepository);
   const processService = new ProcessService(workspaceRepository, {
     projectService,
-    profileProvider: (): typeof permissionProfiles.full => fullProfile,
+    profileProvider: (): PermissionProfile => permissionProfiles[profileName],
     unrestricted,
   });
   const checkpointService = new CheckpointService(workspaceRepository, checkpointRepository, {
-    profile: fullProfile,
+    profileProvider: (): PermissionProfile => permissionProfiles[profileName],
   });
   const pathGuard = unrestricted ? new WorkspacePathGuard(new SecretPolicy(), { unrestricted: true }) : undefined;
   const fileService = new FileService(workspaceRepository, pathGuard, undefined, {
     checkpointService,
-    profileProvider: (): typeof permissionProfiles.full => fullProfile,
+    profileProvider: (): PermissionProfile => permissionProfiles[profileName],
     unrestricted,
   });
   const workspaceInfoService = new WorkspaceInfoService(workspaceRepository, workspaceService, unrestricted);
@@ -139,7 +143,7 @@ export function createDesktopRuntime(dataPath: string): DesktopRuntime {
   });
   const codexService = new CodexService(workspaceRepository, {
     auditService,
-    profileProvider: (): typeof permissionProfiles.full => fullProfile,
+    profileProvider: (): PermissionProfile => permissionProfiles[profileName],
   });
   const capabilityRuntime = createLocalCapabilityRuntime(dataPath, async (): Promise<readonly string[]> => (
     (await workspaceRepository.list()).map((workspace) => workspace.realRootPath)
@@ -174,6 +178,7 @@ export function createDesktopRuntime(dataPath: string): DesktopRuntime {
     codex: codexService,
   };
   const activityLogPath = mcpActivityLogPath(dataPath);
+  let activityLogDiagnostic: ((key: string, message: string) => void) | null = null;
   const activityTracker = new ActivityTracker(composeActivitySinks([
     createFileActivitySink(activityLogPath),
     {
@@ -193,7 +198,13 @@ export function createDesktopRuntime(dataPath: string): DesktopRuntime {
         });
       },
     },
-  ]));
+  ]), (error, event) => {
+    const message = error instanceof Error ? error.message : String(error);
+    activityLogDiagnostic?.(
+      'activity-sink:' + event.callId + ':' + event.phase + ':' + message,
+      '[ERROR] MCP activity logging failed — ' + message,
+    );
+  });
   const mcpPort = readMcpPort(process.env.LNWJUD_MCP_PORT);
   const mcpLifecycle = new DesktopMcpLifecycle({
     workspaceExists: async (workspaceId: string): Promise<boolean> => (await workspaceRepository.get(workspaceId)) !== null,
@@ -204,6 +215,7 @@ export function createDesktopRuntime(dataPath: string): DesktopRuntime {
       services: mcpServices,
       actor: mcpActor,
       activityTracker,
+      profileProvider: (): PermissionProfile => permissionProfiles[profileName],
     }),
   });
   const tunnelController = new TunnelController({
@@ -225,6 +237,9 @@ export function createDesktopRuntime(dataPath: string): DesktopRuntime {
     tunnelLogPath: tunnelController.logPath(),
     mcpActivityLogPath: activityLogPath,
   });
+  activityLogDiagnostic = (key, message): void => {
+    logHub.feedIfNew('mcp', key, 'error', message);
+  };
   const trackedProcesses = new Map<string, string>();
   const doctorService = new DoctorService({
     os: async (): Promise<DoctorProbeResult> => ({ status: process.platform === 'win32' ? 'pass' : 'warn', message: `${process.platform} ${process.arch}` }),
@@ -319,8 +334,7 @@ export function createDesktopRuntime(dataPath: string): DesktopRuntime {
       };
     },
     setPermissionProfile: async (request: SetPermissionProfileRequest): Promise<{ readonly profile: IpcPermissionProfileName }> => {
-      void request;
-      profileName = 'full';
+      profileName = request.profile;
       settingsRepository.set(permissionSettingKey, profileName);
       return { profile: profileName };
     },
@@ -645,6 +659,10 @@ function buildConnectionModes(httpUrl: string | null): ConnectionModes {
     ? `${packaged} --mcp-stdio`
     : 'lnwjud.exe --mcp-stdio';
   return { httpUrl, stdioCommand };
+}
+
+function readPermissionProfile(value: string | null): PermissionProfileName {
+  return value === 'safe' || value === 'balanced' || value === 'full' || value === 'custom' ? value : 'full';
 }
 
 function readLocale(settingsRepository: SqliteSettingsRepository): UiLocale {

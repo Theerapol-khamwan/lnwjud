@@ -3,8 +3,16 @@ import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 
 const desktopRoot = path.resolve(import.meta.dirname, '..', '..', 'apps', 'desktop');
+const repositoryRoot = path.resolve(desktopRoot, '..', '..');
 
 describe('Windows desktop packaging', () => {
+  it('pins the product release to v2.1.0', async () => {
+    const rootPackage = JSON.parse(await readFile(path.join(repositoryRoot, 'package.json'), 'utf8')) as { version?: unknown };
+    const desktopPackage = JSON.parse(await readFile(path.join(desktopRoot, 'package.json'), 'utf8')) as { version?: unknown };
+    expect(rootPackage.version).toBe('2.1.0');
+    expect(desktopPackage.version).toBe('2.1.0');
+  });
+
   it('declares lnwjud x64 NSIS packaging and built runtime bundles', async () => {
     const configPath = path.join(desktopRoot, 'electron-builder.yml');
     const config = await readFile(configPath, 'utf8');
@@ -13,7 +21,9 @@ describe('Windows desktop packaging', () => {
     expect(config).toContain('output: dist/installers');
     expect(config).toContain('target: nsis');
     expect(config).toContain('- x64');
-    expect(config).toContain('signAndEditExecutable: false');
+    expect(config).toContain('icon: build/icon.ico');
+    expect(config).toContain('signAndEditExecutable: true');
+    expect(config).not.toContain('signAndEditExecutable: false');
     expect(config).toContain('extraResources:');
     expect(config).toContain('windows-capability-bridge.ps1');
     await access(path.join(desktopRoot, 'dist', 'main', 'main.js'));

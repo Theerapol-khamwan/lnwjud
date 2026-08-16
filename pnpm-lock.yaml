@@ -270,6 +270,9 @@ importers:
       '@lnwjud/extensions':
         specifier: workspace:*
         version: link:../extensions
+      '@lnwjud/permissions':
+        specifier: workspace:*
+        version: link:../permissions
       '@modelcontextprotocol/server':
         specifier: 2.0.0
         version: 2.0.0

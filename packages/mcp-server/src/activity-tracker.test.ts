@@ -27,6 +27,21 @@ describe('ActivityTracker', () => {
     ]);
   });
 
+  it('reports activity sink failures without failing the tool lifecycle', async () => {
+    const failures: string[] = [];
+    const tracker = new ActivityTracker({
+      async record(): Promise<void> {
+        throw new Error('activity storage unavailable');
+      },
+    }, (error) => {
+      failures.push(error instanceof Error ? error.message : String(error));
+    });
+
+    const callId = await tracker.begin('read_file', { path: 'src\\app.ts' });
+    await expect(tracker.end(callId, 'SUCCESS', 2)).resolves.toBeUndefined();
+    expect(failures).toEqual(['activity storage unavailable', 'activity storage unavailable']);
+  });
+
   it('summarizes common tool targets', () => {
     expect(summarizeToolTarget('search_text', { query: 'hello' })).toBe('hello');
     expect(summarizeToolTarget('shell', { executable: 'node', arguments: ['-e', '1'] })).toBe('node -e 1');

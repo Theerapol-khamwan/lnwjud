@@ -24,13 +24,14 @@ export interface CheckpointServiceDependencies {
   readonly writer?: AtomicFileWriter;
   readonly permissionEngine?: PermissionEngine;
   readonly profile?: PermissionProfile;
+  readonly profileProvider?: () => PermissionProfile;
 }
 
 export class CheckpointService implements CheckpointServicePort {
   private readonly guard: WorkspacePathGuard;
   private readonly writer: AtomicFileWriter;
   private readonly permissionEngine: PermissionEngine;
-  private readonly profile: PermissionProfile;
+  private readonly profileProvider: () => PermissionProfile;
 
   public constructor(
     private readonly workspaces: WorkspaceRepository,
@@ -40,7 +41,7 @@ export class CheckpointService implements CheckpointServicePort {
     this.guard = dependencies.guard ?? new WorkspacePathGuard();
     this.writer = dependencies.writer ?? new AtomicFileWriter();
     this.permissionEngine = dependencies.permissionEngine ?? new DefaultPermissionEngine();
-    this.profile = dependencies.profile ?? permissionProfiles.balanced;
+    this.profileProvider = dependencies.profileProvider ?? ((): PermissionProfile => dependencies.profile ?? permissionProfiles.balanced);
   }
 
   public async createForFiles(actor: FileActor, workspaceId: string, paths: readonly string[]): Promise<Result<Checkpoint>> {
@@ -86,7 +87,7 @@ export class CheckpointService implements CheckpointServicePort {
       resolvedFiles.push({ file, absolutePath: resolved.value.realPath ?? resolved.value.absolutePath });
     }
 
-    const profile = options.profile ?? this.profile;
+    const profile = options.profile ?? this.profileProvider();
     const decision = this.permissionEngine.decide(profile, { action: 'restore_checkpoint', level: 'WRITE', workspaceId, target: checkpointId, destructive: false });
     if (decision === 'DENY') return err(appError('PERMISSION_DENIED', 'Checkpoint restore is denied'));
     if (decision === 'ASK') return err(appError('PERMISSION_REQUIRED', 'Checkpoint restore requires permission'));

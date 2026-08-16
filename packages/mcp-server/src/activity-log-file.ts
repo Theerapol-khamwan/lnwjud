@@ -32,9 +32,15 @@ export function createFileActivitySink(filePath: string): ActivitySink {
 export function composeActivitySinks(sinks: readonly ActivitySink[]): ActivitySink {
   return {
     async record(event: ActivitySinkEvent): Promise<void> {
+      const errors: unknown[] = [];
       for (const sink of sinks) {
-        await sink.record(event);
+        try {
+          await sink.record(event);
+        } catch (error: unknown) {
+          errors.push(error);
+        }
       }
+      if (errors.length > 0) throw errors[0];
     },
   };
 }

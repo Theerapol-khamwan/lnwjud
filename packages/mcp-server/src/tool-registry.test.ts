@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { appError, err, ok } from '@lnwjud/domain';
+import { permissionProfiles } from '@lnwjud/permissions';
 import type { ActivitySinkEvent } from './activity-tracker.js';
 import { ToolRegistry, type McpApplicationServices } from './tool-registry.js';
 import { UPGRADE_TOOL_CATALOG } from './upgrade-catalog.js';
@@ -42,6 +43,28 @@ describe('MCP tool registry', () => {
     expect(byName.get('window')?.parse({ operation: 'list' })).toMatchObject({ ok: true });
     expect(byName.get('window')?.parse({ operation: 'set_window_frame', parameters: { x: 0, y: 0, width: 800, height: 600 } })).toMatchObject({ ok: true });
     expect(byName.get('health')?.parse({ operation: 'check_all' })).toMatchObject({ ok: true });
+  });
+
+  it('blocks dangerous capability execution under the safe profile before reaching the backend', async () => {
+    let executed = false;
+    const registry = new ToolRegistry({
+      capabilities: {
+        async execute(): Promise<ReturnType<typeof ok>> {
+          executed = true;
+          return ok({ executed: true });
+        },
+      },
+    }, actor, {
+      profileProvider: (): typeof permissionProfiles.safe => permissionProfiles.safe,
+    });
+
+    const response = await registry.invoke('dom_cdp', { action: 'query', parameters: { selector: 'body' } });
+
+    expect(response).toMatchObject({
+      isError: true,
+      structuredContent: { error: { code: 'PERMISSION_DENIED' } },
+    });
+    expect(executed).toBe(false);
   });
 
   it('rejects invalid workspace IDs, line ranges, oversized results, and process log queries at the schema boundary', async () => {

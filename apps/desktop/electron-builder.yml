@@ -36,7 +36,8 @@ win:
       arch:
         - x64
   artifactName: lnwjud-Setup-${version}.${ext}
-  signAndEditExecutable: false
+  # Keep the branded icon embedded in lnwjud.exe for Windows shortcuts and taskbar.
+  signAndEditExecutable: true
 nsis:
   oneClick: false
   perMachine: false

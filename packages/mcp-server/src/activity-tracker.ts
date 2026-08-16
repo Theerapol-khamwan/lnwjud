@@ -16,6 +16,8 @@ export interface ActivitySink {
   record(event: ActivitySinkEvent): Promise<void>;
 }
 
+export type ActivityRecordErrorHandler = (error: unknown, event: ActivitySinkEvent) => void;
+
 export interface InFlightToolCall {
   readonly callId: string;
   readonly toolName: string;
@@ -27,7 +29,10 @@ export interface InFlightToolCall {
 export class ActivityTracker {
   private readonly inflight = new Map<string, InFlightToolCall>();
 
-  public constructor(private readonly sink?: ActivitySink) {}
+  public constructor(
+    private readonly sink?: ActivitySink,
+    private readonly onRecordError?: ActivityRecordErrorHandler,
+  ) {}
 
   public listInFlight(): readonly InFlightToolCall[] {
     return [...this.inflight.values()];
@@ -80,8 +85,13 @@ export class ActivityTracker {
     if (this.sink === undefined) return;
     try {
       await this.sink.record(event);
-    } catch {
-      // Activity recording must never fail tool execution.
+    } catch (error: unknown) {
+      // Activity recording must never fail tool execution, but failures must remain observable.
+      try {
+        this.onRecordError?.(error, event);
+      } catch {
+        // Diagnostics must not fail tool execution either.
+      }
     }
   }
 }

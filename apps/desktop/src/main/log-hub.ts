@@ -146,7 +146,7 @@ export class LogHub {
   }
 
   private syncTunnelFile(): void {
-    this.tailPath(this.tunnelLogPath, this.tunnelFile, (raw) => {
+    this.tailPath(this.tunnelLogPath, this.tunnelFile, 'tunnel', (raw) => {
       const parsed = parseTunnelLine(raw);
       this.append('tunnel', parsed);
     });
@@ -155,14 +155,14 @@ export class LogHub {
   private syncMcpActivityFile(): void {
     const activityPath = this.mcpActivityLogPath;
     if (activityPath === undefined) return;
-    this.tailPath(activityPath, this.mcpFile, (raw) => {
+    this.tailPath(activityPath, this.mcpFile, 'mcp', (raw) => {
       const parsed = parseMcpActivityLine(raw);
       if (parsed === null) return;
       this.feedIfNew('mcp', parsed.key, parsed.level, parsed.text);
     });
   }
 
-  private tailPath(filePath: string, state: TailedFile, onRaw: (raw: string) => void): void {
+  private tailPath(filePath: string, state: TailedFile, source: LogSource, onRaw: (raw: string) => void): void {
     try {
       const stat = statSync(filePath);
       const size = stat.size;
@@ -190,8 +190,17 @@ export class LogHub {
         if (trimmed.length === 0) continue;
         onRaw(trimmed);
       }
-    } catch {
+    } catch (error: unknown) {
       this.closeFd(state);
+      if (!isMissingFileError(error)) {
+        const message = error instanceof Error ? error.message : String(error);
+        this.feedIfNew(
+          source,
+          `tail-error:${filePath}:${message}`,
+          'error',
+          `Unable to tail log file ${filePath}: ${message}`,
+        );
+      }
     }
   }
 
@@ -291,6 +300,10 @@ function parseMcpActivityLine(raw: string): { readonly key: string; readonly lev
       callId,
     }),
   };
+}
+
+function isMissingFileError(error: unknown): boolean {
+  return typeof error === 'object' && error !== null && 'code' in error && (error as { code?: unknown }).code === 'ENOENT';
 }
 
 function tryParseJson(value: string): unknown {

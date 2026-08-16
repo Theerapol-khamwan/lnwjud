@@ -2,8 +2,8 @@ import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
-import { ActivityTracker } from './activity-tracker.js';
-import { createFileActivitySink, formatActivityLogLine, mcpActivityLogPath } from './activity-log-file.js';
+import { ActivityTracker, type ActivitySinkEvent } from './activity-tracker.js';
+import { composeActivitySinks, createFileActivitySink, formatActivityLogLine, mcpActivityLogPath } from './activity-log-file.js';
 
 const temporaryRoots: string[] = [];
 
@@ -40,5 +40,31 @@ describe('mcp activity log file', () => {
       timestamp: '2026-01-01T00:00:00.000Z',
       resultMessage: 'missing',
     })).toContain('"toolName":"write_file"');
+  });
+
+  it('still records to later sinks when an earlier activity sink fails', async () => {
+    const recorded: ActivitySinkEvent[] = [];
+    const sink = composeActivitySinks([
+      {
+        async record(): Promise<void> {
+          throw new Error('file sink unavailable');
+        },
+      },
+      {
+        async record(event): Promise<void> {
+          recorded.push(event);
+        },
+      },
+    ]);
+
+    await expect(sink.record({
+      callId: 'c1',
+      toolName: 'read_file',
+      phase: 'started',
+      resultCode: 'STARTED',
+      durationMs: 0,
+      timestamp: '2026-08-17T00:00:00.000Z',
+    })).rejects.toThrow('file sink unavailable');
+    expect(recorded).toHaveLength(1);
   });
 });

@@ -1,5 +1,6 @@
 import { McpServer, type CallToolResult } from '@modelcontextprotocol/server';
 import type { DiagnosticLogger, FileActor } from '@lnwjud/application';
+import type { PermissionProfile } from '@lnwjud/permissions';
 import type { ActivitySink, ActivityTracker } from './activity-tracker.js';
 import { withProgressHeartbeat, type ProgressNotifyContext } from './progress-heartbeat.js';
 import { ToolRegistry, type McpApplicationServices } from './tool-registry.js';
@@ -10,6 +11,7 @@ export interface McpServerOptions {
   readonly diagnostic?: DiagnosticLogger;
   readonly activity?: ActivitySink;
   readonly activityTracker?: ActivityTracker;
+  readonly profileProvider?: () => PermissionProfile;
 }
 
 export function createMcpServer(options: McpServerOptions): McpServer {
@@ -17,8 +19,9 @@ export function createMcpServer(options: McpServerOptions): McpServer {
     ...(options.diagnostic === undefined ? {} : { diagnostic: options.diagnostic }),
     ...(options.activity === undefined ? {} : { activity: options.activity }),
     ...(options.activityTracker === undefined ? {} : { activityTracker: options.activityTracker }),
+    ...(options.profileProvider === undefined ? {} : { profileProvider: options.profileProvider }),
   });
-  const server = new McpServer({ name: 'lnwjud', version: '1.0.0' }, { capabilities: { tools: {} } });
+  const server = new McpServer({ name: 'lnwjud', version: '2.1.0' }, { capabilities: { tools: {} } });
   for (const tool of registry.list()) {
     server.registerTool(tool.name, {
       description: tool.description,

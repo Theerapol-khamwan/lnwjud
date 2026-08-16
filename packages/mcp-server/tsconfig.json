@@ -11,7 +11,8 @@
     { "path": "../application" },
     { "path": "../capabilities" },
     { "path": "../domain" },
-    { "path": "../extensions" }
+    { "path": "../extensions" },
+    { "path": "../permissions" }
   ],
   "include": ["src/**/*.ts"],
   "exclude": ["src/**/*.test.ts"]

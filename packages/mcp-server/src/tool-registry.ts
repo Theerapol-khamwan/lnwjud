@@ -1,5 +1,6 @@
 import { appError } from '@lnwjud/domain';
 import { sanitizeException, type DiagnosticLogger, type FileActor } from '@lnwjud/application';
+import { DefaultPermissionEngine, permissionProfiles, type PermissionProfile } from '@lnwjud/permissions';
 import { ActivityTracker, type ActivitySink } from './activity-tracker.js';
 import { ContextEngine } from './context-engine.js';
 import { FilePageEngine } from './file-page-engine.js';
@@ -27,6 +28,7 @@ export interface ToolRegistryOptions {
   readonly diagnostic?: DiagnosticLogger;
   readonly activity?: ActivitySink;
   readonly activityTracker?: ActivityTracker;
+  readonly profileProvider?: () => PermissionProfile;
 }
 
 export class ToolRegistry {
@@ -34,10 +36,13 @@ export class ToolRegistry {
   private readonly diagnostic: DiagnosticLogger | undefined;
   private readonly activity: ActivityTracker;
   private readonly schemaRegistry: ToolSchemaRegistry;
+  private readonly permissionEngine = new DefaultPermissionEngine();
+  private readonly profileProvider: () => PermissionProfile;
 
   public constructor(services: McpApplicationServices, actor: FileActor, options: ToolRegistryOptions = {}) {
     this.diagnostic = options.diagnostic;
     this.activity = options.activityTracker ?? new ActivityTracker(options.activity);
+    this.profileProvider = options.profileProvider ?? ((): PermissionProfile => permissionProfiles.full);
     const context: McpToolContext = { services, actor };
     const contextEngine = new ContextEngine(services, actor);
     const filePageEngine = new FilePageEngine(services, actor);
@@ -102,6 +107,22 @@ export class ToolRegistry {
         await this.activity.end(callId, parsed.error.code, Date.now() - started, parsed.error.message);
         return response;
       }
+      const permissionDecision = this.permissionEngine.decide(this.profileProvider(), {
+        action: 'mcp:' + tool.name,
+        level: tool.permission,
+        workspaceId: readWorkspaceId(parsed.value),
+        target: tool.name,
+        destructive: tool.annotations.destructiveHint,
+      });
+      if (permissionDecision !== 'ALLOW') {
+        const code = permissionDecision === 'DENY' ? 'PERMISSION_DENIED' : 'PERMISSION_REQUIRED';
+        const message = permissionDecision === 'DENY'
+          ? 'MCP tool ' + tool.name + ' is denied by the active permission profile'
+          : 'MCP tool ' + tool.name + ' requires permission approval';
+        const response = mapError(appError(code, message, permissionDecision === 'ASK'));
+        await this.activity.end(callId, code, Date.now() - started, message);
+        return response;
+      }
       const response = mapResult(await tool.execute(parsed.value));
       const resultCode = response.isError === true
         ? readErrorCode(response) ?? 'ERROR'
@@ -114,6 +135,14 @@ export class ToolRegistry {
       return response;
     }
   }
+}
+
+function readWorkspaceId(input: unknown): string {
+  if (typeof input === 'object' && input !== null && 'workspaceId' in input) {
+    const value = (input as { workspaceId?: unknown }).workspaceId;
+    if (typeof value === 'string' && value.trim().length > 0) return value;
+  }
+  return 'system';
 }
 
 function readErrorCode(response: McpToolResponse): string | undefined {

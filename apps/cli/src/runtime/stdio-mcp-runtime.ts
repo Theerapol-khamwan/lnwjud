@@ -67,7 +67,6 @@ export function createStdioMcpRuntime(dataPath: string, workspace: Workspace, un
   const checkpointRepository = new SqliteCheckpointRepository(database);
   const workspaceService = new WorkspaceService(workspaceRepository);
   const fullProfile = permissionProfiles.full;
-  settingsRepository.set('permission_profile', 'full');
 
   const projectService = new ProjectService(workspaceRepository);
   const processService = new ProcessService(workspaceRepository, {

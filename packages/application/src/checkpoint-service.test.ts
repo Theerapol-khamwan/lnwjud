@@ -2,7 +2,7 @@ import { mkdir, mkdtemp, readFile, realpath, rm, writeFile } from 'node:fs/promi
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
-import { permissionProfiles } from '@lnwjud/permissions';
+import { permissionProfiles, type PermissionProfile, type PermissionProfileName } from '@lnwjud/permissions';
 import type { Checkpoint, CheckpointRepository, Workspace, WorkspaceRepository } from '@lnwjud/workspace';
 import { CheckpointService } from './checkpoint-service.js';
 
@@ -45,6 +45,28 @@ describe('CheckpointService', () => {
     const restored = await service.restore(actor, workspace.id, created.value.id, { profile: permissionProfiles.full });
 
     expect(restored).toMatchObject({ ok: true, value: { restoredPaths: ['src\\file.txt'] } });
+    await expect(readFile(target, 'utf8')).resolves.toBe('before');
+  });
+
+  it('uses the current permission profile when restoring without an explicit override', async () => {
+    const { workspace, checkpoints } = await setup();
+    const target = path.join(workspace.rootPath, 'src', 'profile.txt');
+    await writeFile(target, 'before', 'utf8');
+    let profileName: PermissionProfileName = 'safe';
+    const service = new CheckpointService(workspaces(workspace), checkpoints, {
+      profileProvider: (): PermissionProfile => permissionProfiles[profileName],
+    });
+    const actor = { clientId: 'client-1', clientName: 'test' };
+    const created = await service.createForFiles(actor, workspace.id, ['src\\profile.txt']);
+    if (!created.ok) throw new Error('checkpoint creation failed');
+    await writeFile(target, 'after', 'utf8');
+
+    await expect(service.restore(actor, workspace.id, created.value.id)).resolves.toMatchObject({
+      ok: false,
+      error: { code: 'PERMISSION_REQUIRED' },
+    });
+    profileName = 'balanced';
+    await expect(service.restore(actor, workspace.id, created.value.id)).resolves.toMatchObject({ ok: true });
     await expect(readFile(target, 'utf8')).resolves.toBe('before');
   });
 

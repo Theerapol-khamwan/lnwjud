@@ -22,21 +22,26 @@ receive a public shell and does not read the local Codex configuration. For a
 ChatGPT web connection, OpenAI Secure MCP Tunnel forwards MCP requests to a
 local lnwjud process; the tunnel is outbound-only.
 
-## v2.0.0 upgrade status
+## v2.1.0 release status
 
-Release `v2.0.0` completes roadmap phases 00–40. It adds the 183-tool catalog,
-compound/parallel workflows, permission and lifecycle contracts, persistent
-workspace indexing, paged reads, Live Logs v2, recovery/session state,
-capability discovery, and project/visual inspection adapters. See the
-[phase completion checklist](docs/architecture/ROADMAP_PHASE_STATUS.md) and
-the [foundation benchmark](docs/benchmarks/PHASE-05.md).
+Release `v2.1.0` builds on the v2.0.0 MCP gateway with a branded Windows tray
+  mode, permission enforcement for Desktop MCP capability tools, profile-safe
+  stdio/tunnel startup, and stable external tunnel state detection. It keeps
+  the 183-tool catalog, compound/parallel workflows, persistent workspace
+  indexing, paged reads, Live Logs v2, recovery/session state, capability
+  discovery, and project/visual inspection adapters. See the
+  [phase completion checklist](docs/architecture/ROADMAP_PHASE_STATUS.md) and
+  the [foundation benchmark](docs/benchmarks/PHASE-05.md).
 
-The v2 visibility contract is intentionally full-access: reads, filename
+The v2 visibility contract is intentionally full-access for reads: filename
 search, text search, indexing, and watchers do not apply ignore patterns to
 `.env`, `.git`, `dist`, `node_modules`, or other hidden/heavy paths. Responses
 remain bounded or paged where appropriate, but unique paths are not filtered.
 The watcher queue only coalesces duplicate notifications and controls
-processing concurrency.
+processing concurrency. Desktop MCP applies the selected Permission profile to
+mutating, executable, dangerous, and capability tool calls. Packaged stdio and
+Secure Tunnel MCP intentionally use the full profile so Codex/AI can inspect
+all workspace paths, including `.env`, without changing the Desktop profile.
 
 > **Security boundary:** lnwjud is still path-checked and policy-checked. It is
 > not an administrator shell. Unrestricted mode is **on by default** so every
@@ -57,7 +62,7 @@ Choose your preferred setup method:
 Follow this 4-step quick start to connect ChatGPT or any AI agent to your Windows PC using the official pre-built installer:
 
 #### Step 1: Download & Install Lnwjud Desktop
-1. Download the latest installer (`lnwjud-Setup-2.0.0.exe`) from **[GitHub Releases](https://github.com/engasnm111/lnwjud/releases/latest)**.
+1. Download the latest installer (`lnwjud-Setup-2.1.0.exe`) from **[GitHub Releases](https://github.com/engasnm111/lnwjud/releases/latest)**.
 2. Run the installer (it automatically creates start menu and desktop shortcuts).
 3. Launch **Lnwjud Agent Control Center**.
 
@@ -187,10 +192,22 @@ Start the resilient tunnel loop (with auto-reconnect, long TTL, and live dashboa
 | Desktop dashboard or a local MCP client | Loopback Streamable HTTP | The lnwjud desktop app and its local MCP connection | Debugging and local browser/UI capabilities |
 | Responses API or another supported OpenAI surface | Secure MCP Tunnel or private HTTP | A running tunnel client or private HTTP MCP server | Programmatic tool calls |
 
+## Run in the Windows system tray
+
+Closing the main lnwjud window hides it instead of stopping the Desktop runtime,
+MCP listener, Live Logs, or tunnel services. The branded lnwjud icon remains in
+the Windows notification area while the app works in the background.
+
+Right-click the tray icon to use:
+
+- **เปิดหน้า** / **Open page** — show and focus the main dashboard.
+- **ตรวจอัปเดต** / **Check for updates** — ask the packaged app to check GitHub Releases.
+- **ปิดโปรแกรม** / **Quit program** — stop services and exit lnwjud completely.
+
 ### Important: the stdio launcher
 
 The tunnel command must start the stdio MCP entrypoint, not the Electron
-dashboard. The packaged v2.0.0 build ships this direct launcher:
+dashboard. The packaged v2.1.0 build ships this direct launcher:
 
 ```text
 lnwjud-mcp-stdio.cmd --workspace E:\lnwjud
@@ -303,7 +320,7 @@ corepack pnpm@10.15.0 package:windows
 The x64 NSIS installer is written to:
 
 ```text
-apps/desktop/dist/installers/lnwjud-Setup-2.0.0.exe
+apps/desktop/dist/installers/lnwjud-Setup-2.1.0.exe
 ```
 
 The installer is per-user by default. A common installed executable path is:
@@ -321,7 +338,7 @@ Always use the path shown by the installed shortcut or Get-Command.
 1. Start lnwjud (`pnpm desktop` or the installed app).
 2. On Home or Projects, add the project directory path.
 3. The selected project is persisted; switching projects restarts MCP automatically.
-4. Permission profile is forced to full for the MCP bridge.
+4. Desktop MCP uses the selected Permission profile; stdio/tunnel MCP remains full-access for AI clients.
 5. Run Doctor from the sidebar if a dependency is reported missing.
 
 Every file operation resolves the supplied path against a registered workspace,
@@ -337,11 +354,13 @@ escapes, and applies the secret policy after resolution.
 | full | allow | allow | allow | allow | Explicitly trusted local automation |
 | custom | configured | configured | configured | configured | Host-defined policy |
 
-Desktop MCP and stdio MCP runtimes force the **full** profile so every tool
-(including skills/MCP bridge meta-tools) runs with full access. Unrestricted
-mode is on by default (every fixed drive is a machine root). Filesystem
-deletion-style commands require confirmation. Disk format, shutdown, and reboot
-stay hard-blocked. Git including `rm` / `clean` / `reset` is allowed.
+Desktop MCP honors the selected profile for every MCP tool, including local
+capabilities. The packaged stdio/tunnel runtime intentionally uses the
+**full** profile so Codex/AI can inspect all workspace paths, including
+`.env`, and does not overwrite the Desktop profile stored in SQLite.
+Unrestricted mode is on by default (every fixed drive is a machine root).
+Filesystem deletion-style commands require confirmation. Disk format, shutdown,
+and reboot stay hard-blocked. Git including `rm` / `clean` / `reset` is allowed.
 
 ### Optional local capability roots
 
@@ -648,7 +667,7 @@ start a new chat.
 
 ## Complete MCP tool catalog
 
-The current v2.0.0 catalog contains 183 tools across workspace/project
+The current v2.1.0 catalog contains 183 tools across workspace/project
 primitives, paging and indexing, compound/parallel workflows, Git/test/cache
 surfaces, lifecycle and permission contracts, local Windows capabilities,
 skills/MCP bridge discovery, visual adapters, and recovery/session tools.
@@ -791,10 +810,11 @@ all discovered servers except lnwjud itself (recursion guard).
 | mcp_call | DANGEROUS | Forwards a tool call to a child MCP server |
 
 **Security note:** These tools are available on every transport, including the
-Secure MCP Tunnel. Combined with the forced full permission profile, a remote
-ChatGPT session can invoke local desktop/browser MCP servers if lnwjud and the
-tunnel are running. Disable individual servers through the lnwjud `extensions`
-settings JSON (`disabledServers`) when needed.
+Secure MCP Tunnel. Packaged stdio and Secure Tunnel connections intentionally
+use the full permission profile, so a remote ChatGPT session can invoke local
+desktop/browser MCP servers if lnwjud and the tunnel are running. Desktop MCP
+still applies the profile selected in Settings. Disable individual servers
+through the lnwjud `extensions` settings JSON (`disabledServers`) when needed.
 
 Settings key `extensions` (SQLite) example:
 

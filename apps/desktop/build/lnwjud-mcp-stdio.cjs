@@ -1587,14 +1587,14 @@ var CheckpointService = class {
   guard;
   writer;
   permissionEngine;
-  profile;
+  profileProvider;
   constructor(workspaces, repository, dependencies = {}) {
     this.workspaces = workspaces;
     this.repository = repository;
     this.guard = dependencies.guard ?? new WorkspacePathGuard();
     this.writer = dependencies.writer ?? new AtomicFileWriter();
     this.permissionEngine = dependencies.permissionEngine ?? new DefaultPermissionEngine();
-    this.profile = dependencies.profile ?? permissionProfiles.balanced;
+    this.profileProvider = dependencies.profileProvider ?? (() => dependencies.profile ?? permissionProfiles.balanced);
   }
   async createForFiles(actor, workspaceId, paths) {
     void actor;
@@ -1647,7 +1647,7 @@ var CheckpointService = class {
       }
       resolvedFiles.push({ file: file2, absolutePath: resolved.value.realPath ?? resolved.value.absolutePath });
     }
-    const profile = options.profile ?? this.profile;
+    const profile = options.profile ?? this.profileProvider();
     const decision = this.permissionEngine.decide(profile, { action: "restore_checkpoint", level: "WRITE", workspaceId, target: checkpointId, destructive: false });
     if (decision === "DENY")
       return err(appError("PERMISSION_DENIED", "Checkpoint restore is denied"));
@@ -3682,9 +3682,16 @@ function createFileActivitySink(filePath) {
 function composeActivitySinks(sinks) {
   return {
     async record(event) {
+      const errors = [];
       for (const sink of sinks) {
-        await sink.record(event);
+        try {
+          await sink.record(event);
+        } catch (error46) {
+          errors.push(error46);
+        }
       }
+      if (errors.length > 0)
+        throw errors[0];
     }
   };
 }
@@ -3693,9 +3700,11 @@ function composeActivitySinks(sinks) {
 var import_node_crypto7 = require("node:crypto");
 var ActivityTracker = class {
   sink;
+  onRecordError;
   inflight = /* @__PURE__ */ new Map();
-  constructor(sink) {
+  constructor(sink, onRecordError) {
     this.sink = sink;
+    this.onRecordError = onRecordError;
   }
   listInFlight() {
     return [...this.inflight.values()];
@@ -3746,7 +3755,11 @@ var ActivityTracker = class {
       return;
     try {
       await this.sink.record(event);
-    } catch {
+    } catch (error46) {
+      try {
+        this.onRecordError?.(error46, event);
+      } catch {
+      }
     }
   }
 };
@@ -33927,9 +33940,12 @@ var ToolRegistry = class {
   diagnostic;
   activity;
   schemaRegistry;
+  permissionEngine = new DefaultPermissionEngine();
+  profileProvider;
   constructor(services, actor, options = {}) {
     this.diagnostic = options.diagnostic;
     this.activity = options.activityTracker ?? new ActivityTracker(options.activity);
+    this.profileProvider = options.profileProvider ?? (() => permissionProfiles.full);
     const context = { services, actor };
     const contextEngine = new ContextEngine(services, actor);
     const filePageEngine = new FilePageEngine(services, actor);
@@ -33990,6 +34006,20 @@ var ToolRegistry = class {
         await this.activity.end(callId, parsed.error.code, Date.now() - started, parsed.error.message);
         return response2;
       }
+      const permissionDecision2 = this.permissionEngine.decide(this.profileProvider(), {
+        action: "mcp:" + tool.name,
+        level: tool.permission,
+        workspaceId: readWorkspaceId3(parsed.value),
+        target: tool.name,
+        destructive: tool.annotations.destructiveHint
+      });
+      if (permissionDecision2 !== "ALLOW") {
+        const code = permissionDecision2 === "DENY" ? "PERMISSION_DENIED" : "PERMISSION_REQUIRED";
+        const message = permissionDecision2 === "DENY" ? "MCP tool " + tool.name + " is denied by the active permission profile" : "MCP tool " + tool.name + " requires permission approval";
+        const response2 = mapError(appError(code, message, permissionDecision2 === "ASK"));
+        await this.activity.end(callId, code, Date.now() - started, message);
+        return response2;
+      }
       const response = mapResult(await tool.execute(parsed.value));
       const resultCode = response.isError === true ? readErrorCode(response) ?? "ERROR" : "SUCCESS";
       await this.activity.end(callId, resultCode, Date.now() - started, readErrorMessage(response));
@@ -34001,6 +34031,14 @@ var ToolRegistry = class {
     }
   }
 };
+function readWorkspaceId3(input) {
+  if (typeof input === "object" && input !== null && "workspaceId" in input) {
+    const value = input.workspaceId;
+    if (typeof value === "string" && value.trim().length > 0)
+      return value;
+  }
+  return "system";
+}
 function readErrorCode(response) {
   return readErrorField(response, "code");
 }
@@ -34023,9 +34061,10 @@ function createMcpServer(options) {
   const registry2 = new ToolRegistry(options.services, options.actor, {
     ...options.diagnostic === void 0 ? {} : { diagnostic: options.diagnostic },
     ...options.activity === void 0 ? {} : { activity: options.activity },
-    ...options.activityTracker === void 0 ? {} : { activityTracker: options.activityTracker }
+    ...options.activityTracker === void 0 ? {} : { activityTracker: options.activityTracker },
+    ...options.profileProvider === void 0 ? {} : { profileProvider: options.profileProvider }
   });
-  const server = new McpServer({ name: "lnwjud", version: "1.0.0" }, { capabilities: { tools: {} } });
+  const server = new McpServer({ name: "lnwjud", version: "2.1.0" }, { capabilities: { tools: {} } });
   for (const tool of registry2.list()) {
     server.registerTool(tool.name, {
       description: tool.description,
@@ -51273,7 +51312,6 @@ function createStdioMcpRuntime(dataPath, workspace, unrestricted = false) {
   const checkpointRepository = new SqliteCheckpointRepository(database);
   const workspaceService = new WorkspaceService(workspaceRepository);
   const fullProfile = permissionProfiles.full;
-  settingsRepository.set("permission_profile", "full");
   const projectService = new ProjectService(workspaceRepository);
   const processService = new ProcessService(workspaceRepository, {
     projectService,
@@ -51531,6 +51569,7 @@ async function main() {
     services: runtime.services,
     actor: runtime.actor,
     activityTracker: runtime.activityTracker,
+    profileProvider: () => permissionProfiles.full,
     onError: (error46) => {
       if (/EPIPE|ECONNRESET|broken pipe/i.test(error46.message)) {
         process.stderr.write(`lnwjud MCP stdio: peer closed (${error46.message})

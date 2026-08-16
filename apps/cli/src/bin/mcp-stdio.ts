@@ -3,6 +3,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { syncMachineRoots } from '@lnwjud/application';
 import { startMcpStdio } from '@lnwjud/mcp-server';
+import { permissionProfiles } from '@lnwjud/permissions';
 import { isUnrestricted, UNRESTRICTED_SETTING_KEY } from '@lnwjud/shared';
 import { SqliteDatabase, SqliteSettingsRepository, SqliteWorkspaceRepository } from '@lnwjud/storage';
 import { isUnderEDrive, machineRootPath, normalizeWorkspaceRoot, WorkspaceService } from '@lnwjud/workspace';
@@ -118,6 +119,7 @@ async function main(): Promise<void> {
     services: runtime.services,
     actor: runtime.actor,
     activityTracker: runtime.activityTracker,
+    profileProvider: (): typeof permissionProfiles.full => permissionProfiles.full,
     onError: (error): void => {
       if (/EPIPE|ECONNRESET|broken pipe/i.test(error.message)) {
         process.stderr.write(`lnwjud MCP stdio: peer closed (${error.message})\n`);

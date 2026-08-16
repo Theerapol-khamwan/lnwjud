@@ -1,6 +1,6 @@
 {
   "name": "@lnwjud/mcp-server",
-  "version": "2.0.0",
+  "version": "2.1.0",
   "private": true,
   "type": "module",
   "exports": {
@@ -17,6 +17,7 @@
     "@lnwjud/capabilities": "workspace:*",
     "@lnwjud/domain": "workspace:*",
     "@lnwjud/extensions": "workspace:*",
+    "@lnwjud/permissions": "workspace:*",
     "@modelcontextprotocol/server": "2.0.0",
     "zod": "4.2.0"
   },

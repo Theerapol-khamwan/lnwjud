@@ -1,4 +1,4 @@
-import { app, BrowserWindow, dialog, ipcMain, type IpcMainInvokeEvent } from 'electron';
+import { app, BrowserWindow, dialog, ipcMain, Menu, nativeImage, Tray, type IpcMainInvokeEvent } from 'electron';
 import { autoUpdater } from 'electron-updater';
 import { writeFile } from 'node:fs/promises';
 import {
@@ -31,7 +31,8 @@ import {
 import { startMcpStdio } from '@lnwjud/mcp-server';
 import { createDesktopRuntime, type DesktopRuntime } from './desktop-services.js';
 import { shouldHoldSingleInstanceLock, wantsMcpStdio } from './instance-lock.js';
-import { createLogViewerWindow, createMainWindow, getRendererEntryPath, isAllowedRendererUrl } from './window.js';
+import { createLogViewerWindow, createMainWindow, getRendererEntryPath, getWindowIconPath, isAllowedRendererUrl } from './window.js';
+import { createTrayMenuTemplate, shouldHideMainWindowOnClose } from './tray.js';
 
 export interface DesktopIpcServices {
   listWorkspaces(): Promise<IpcResponseMap[typeof ipcChannels.listWorkspaces]>;
@@ -97,7 +98,7 @@ const defaultDesktopServices: DesktopIpcServices = {
     workLog: [],
     inFlight: [],
     tunnel: emptyTunnel,
-    appVersion: '1.0.0',
+    appVersion: '2.1.0',
   }),
   setPermissionProfile: async (request): Promise<{ readonly profile: PermissionProfileName }> => ({ profile: request.profile }),
   setUnrestrictedMode: async (request): Promise<{ readonly unrestricted: boolean; readonly restartRequired: boolean }> => ({
@@ -387,6 +388,8 @@ function isPermissionProfile(value: unknown): value is PermissionProfileName {
 let mainWindow: BrowserWindow | null = null;
 let logViewerWindow: BrowserWindow | null = null;
 let desktopRuntime: DesktopRuntime | null = null;
+let tray: Tray | null = null;
+let quitRequested = false;
 let shutdownStarted = false;
 
 function openLogViewerWindow(): BrowserWindow | null {
@@ -406,9 +409,68 @@ function openLogViewerWindow(): BrowserWindow | null {
 
 function createDesktopWindow(): void {
   mainWindow = createMainWindow();
+  mainWindow.on('close', (event) => {
+    if (!shouldHideMainWindowOnClose(quitRequested)) return;
+    event.preventDefault();
+    if (mainWindow !== null && !mainWindow.isDestroyed()) mainWindow.hide();
+  });
   mainWindow.on('closed', () => {
     mainWindow = null;
   });
+}
+
+function revealMainWindow(): void {
+  if (mainWindow === null || mainWindow.isDestroyed()) {
+    createDesktopWindow();
+    return;
+  }
+  if (mainWindow.isMinimized()) mainWindow.restore();
+  mainWindow.show();
+  mainWindow.focus();
+}
+
+function checkForUpdatesFromTray(): void {
+  if (!app.isPackaged) {
+    void dialog.showMessageBox({
+      type: 'info',
+      title: 'ตรวจอัปเดต',
+      message: 'การตรวจอัปเดตจะทำงานเมื่อใช้แอปที่ติดตั้งจาก release แล้ว',
+      buttons: ['ตกลง'],
+    });
+    return;
+  }
+  void autoUpdater.checkForUpdates().catch((error: unknown) => {
+    const message = error instanceof Error ? error.message : 'ไม่สามารถตรวจอัปเดตได้';
+    console.error('[AutoUpdater] tray check failed: ' + message);
+    void dialog.showMessageBox({
+      type: 'error',
+      title: 'ตรวจอัปเดต',
+      message,
+      buttons: ['ตกลง'],
+    });
+  });
+}
+
+function createDesktopTray(): void {
+  const iconPath = getWindowIconPath();
+  if (iconPath === undefined) {
+    console.error('lnwjud tray icon was not found');
+    return;
+  }
+  tray?.destroy();
+  tray = new Tray(nativeImage.createFromPath(iconPath));
+  tray.setToolTip('lnwjud — ทำงานเบื้องหลัง');
+  tray.setContextMenu(Menu.buildFromTemplate(createTrayMenuTemplate({
+    openMainWindow: revealMainWindow,
+    checkForUpdates: checkForUpdatesFromTray,
+    quit: (): void => { app.quit(); },
+  })));
+  tray.on('click', revealMainWindow);
+}
+
+function destroyDesktopTray(): void {
+  tray?.destroy();
+  tray = null;
 }
 
 function readArgValue(flag: string): string | undefined {
@@ -434,7 +496,7 @@ function bootstrapMcpStdio(): void {
   app.commandLine.appendSwitch('disable-software-rasterizer');
   const dataPath = configureDataPath();
   void app.whenReady().then(async () => {
-    const runtime = createDesktopRuntime(dataPath);
+    const runtime = createDesktopRuntime(dataPath, { permissionProfile: 'full' });
     desktopRuntime = runtime;
     const workspacePath = readArgValue('--workspace')
       ?? process.env.LNWJUD_WORKSPACE
@@ -549,10 +611,15 @@ function bootstrapDesktop(): void {
       console.error(`MCP auto-start failed: ${error instanceof Error ? error.message : 'unknown error'}`);
     }
     createDesktopWindow();
+    createDesktopTray();
     initAutoUpdater();
     app.on('activate', () => {
       if (BrowserWindow.getAllWindows().length === 0) createDesktopWindow();
     });
+  });
+  app.on('before-quit', () => {
+    quitRequested = true;
+    destroyDesktopTray();
   });
   app.on('window-all-closed', () => {
     if (process.platform !== 'darwin') app.quit();

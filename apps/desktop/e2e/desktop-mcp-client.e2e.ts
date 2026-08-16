@@ -120,11 +120,10 @@ test('desktop serves the real MCP client development workflow', async () => {
     expect(toolRecord(search)).toMatchObject({ matches: [{ path: expect.stringContaining('src'), text: expect.stringContaining('before') }] });
 
     const safeWrite = await callTool(client, 'write_file', { workspaceId, path: 'src\\safe-blocked.ts', content: 'blocked\n' });
-    // Desktop MCP runtime is forced to the full permission profile.
     expect(toolRecord(safeWrite)).toMatchObject({ path: 'src\\safe-blocked.ts' });
     await page.getByRole('button', { name: 'ตั้งค่า', exact: true }).click();
     await page.getByLabel('Permission profile').selectOption('balanced');
-    await expect(page.getByLabel('Permission profile')).toHaveValue('full');
+    await expect(page.getByLabel('Permission profile')).toHaveValue('balanced');
     await page.getByRole('button', { name: 'หน้าหลัก', exact: true }).click();
 
     const write = await callTool(client, 'write_file', { workspaceId, path: 'src\\created.ts', content: 'export const created = true;\n' });

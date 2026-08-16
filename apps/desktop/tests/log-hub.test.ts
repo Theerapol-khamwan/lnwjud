@@ -121,6 +121,19 @@ describe('LogHub', () => {
     expect(mcpTexts.some((text) => text.includes('[RESULT] read_file SUCCESS'))).toBe(true);
   });
 
+  it('surfaces and dedupes tailing errors instead of silently dropping them', async () => {
+    vi.useFakeTimers();
+    const invalidPath = '\0invalid-log-path';
+    const hub = new LogHub({ tunnelLogPath: invalidPath });
+    hub.start();
+    await vi.advanceTimersByTimeAsync(1_200);
+    hub.stop();
+
+    const errors = hub.snapshot().lines.filter((line) => line.source === 'tunnel' && line.level === 'error');
+    expect(errors).toHaveLength(1);
+    expect(errors[0]?.text).toContain('Unable to tail log file');
+  });
+
   it('dedupes file-tail MCP lines against syncWorkLog using callId keys', () => {
     const hub = new LogHub({ tunnelLogPath: 'Z:\\missing\\lnwjud-tunnel.log' });
     hub.syncWorkLog([{

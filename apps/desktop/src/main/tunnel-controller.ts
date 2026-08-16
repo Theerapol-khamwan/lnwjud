@@ -25,6 +25,7 @@ export interface TunnelControllerOptions {
   readonly setClientPath: (value: string) => void;
   readonly getDataPath: () => string;
   readonly getStdioLauncherPath?: () => string | null;
+  readonly isExternalTunnelRunning?: () => Promise<boolean>;
 }
 
 export class TunnelController {
@@ -123,11 +124,11 @@ export class TunnelController {
     };
   }
 
-  private async probeExternalRunning(): Promise<boolean> {
+  private async probeExternalRunning(force = false): Promise<boolean> {
     const now = Date.now();
-    if (now - this.externalProbeAt < EXTERNAL_PROBE_TTL_MS) return this.lastExternalProbe;
+    if (!force && now - this.externalProbeAt < EXTERNAL_PROBE_TTL_MS) return this.lastExternalProbe;
     this.externalProbeAt = now;
-    this.lastExternalProbe = await isLnwjudTunnelProcessRunning();
+    this.lastExternalProbe = await (this.options.isExternalTunnelRunning?.() ?? isLnwjudTunnelProcessRunning());
     return this.lastExternalProbe;
   }
 
@@ -139,7 +140,7 @@ export class TunnelController {
     this.restartWindowStartedAt = 0;
     if (this.state === 'running' || this.state === 'starting') return this.status();
     if (this.child !== null && this.child.exitCode === null) return this.status();
-    if (await isLnwjudTunnelProcessRunning()) {
+    if (await this.probeExternalRunning(true)) {
       this.state = 'running';
       this.message = null;
       return this.status();

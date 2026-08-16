@@ -23,7 +23,7 @@ afterEach(async () => {
 });
 
 describe('DesktopRuntime persistence', () => {
-  it('restores workspaces and permission settings without restoring an MCP listener', async () => {
+  it('applies and restores permission settings without restoring an MCP listener', async () => {
     const rawDataRoot = await mkdtemp(path.join(os.tmpdir(), 'lnwjud-runtime-data-'));
     const rawWorkspaceRoot = await mkdtemp(path.join(os.tmpdir(), 'lnwjud-runtime-workspace-'));
     temporaryRoots.push(rawDataRoot, rawWorkspaceRoot);
@@ -34,7 +34,21 @@ describe('DesktopRuntime persistence', () => {
     let firstClosed = false;
     try {
       const workspace = await firstRuntime.services.addWorkspace({ rootPath: workspaceRoot });
-      await firstRuntime.services.setPermissionProfile({ profile: 'balanced' });
+
+      await expect(firstRuntime.services.setPermissionProfile({ profile: 'safe' })).resolves.toEqual({ profile: 'safe' });
+      const deniedWrite = await firstRuntime.mcpServices.file.writeFile(firstRuntime.mcpActor, workspace.id, {
+        path: 'permission-check.txt',
+        content: 'safe must require approval',
+      });
+      expect(deniedWrite).toMatchObject({ ok: false, error: { code: 'PERMISSION_REQUIRED' } });
+
+      await expect(firstRuntime.services.setPermissionProfile({ profile: 'balanced' })).resolves.toEqual({ profile: 'balanced' });
+      const allowedWrite = await firstRuntime.mcpServices.file.writeFile(firstRuntime.mcpActor, workspace.id, {
+        path: 'permission-check.txt',
+        content: 'balanced allows writes',
+      });
+      expect(allowedWrite).toMatchObject({ ok: true });
+      await expect(firstRuntime.services.getDashboard()).resolves.toMatchObject({ permissionProfile: 'balanced' });
       await expect(firstRuntime.services.startMcp({ workspaceId: workspace.id })).resolves.toMatchObject({ running: true });
       await firstRuntime.close();
       firstClosed = true;
@@ -46,7 +60,7 @@ describe('DesktopRuntime persistence', () => {
           expect.objectContaining({ id: workspace.id, rootPath: workspace.rootPath }),
         ]));
         await expect(restartedRuntime.services.getDashboard()).resolves.toMatchObject({
-          permissionProfile: 'full',
+          permissionProfile: 'balanced',
           mcp: { running: false, url: null, workspaceId: null },
         });
       } finally {
