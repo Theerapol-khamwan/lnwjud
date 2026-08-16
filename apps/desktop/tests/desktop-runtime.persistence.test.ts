@@ -1,4 +1,4 @@
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdtemp, realpath, rm } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { Client, StreamableHTTPClientTransport } from '@modelcontextprotocol/client';
@@ -18,9 +18,11 @@ afterEach(async () => {
 
 describe('DesktopRuntime persistence', () => {
   it('restores workspaces and permission settings without restoring an MCP listener', async () => {
-    const dataRoot = await mkdtemp(path.join(os.tmpdir(), 'lnwjud-runtime-data-'));
-    const workspaceRoot = await mkdtemp(path.join(os.tmpdir(), 'lnwjud-runtime-workspace-'));
-    temporaryRoots.push(dataRoot, workspaceRoot);
+    const rawDataRoot = await mkdtemp(path.join(os.tmpdir(), 'lnwjud-runtime-data-'));
+    const rawWorkspaceRoot = await mkdtemp(path.join(os.tmpdir(), 'lnwjud-runtime-workspace-'));
+    temporaryRoots.push(rawDataRoot, rawWorkspaceRoot);
+    const dataRoot = await realpath(rawDataRoot);
+    const workspaceRoot = await realpath(rawWorkspaceRoot);
 
     const firstRuntime = createDesktopRuntime(dataRoot);
     let firstClosed = false;
@@ -35,7 +37,7 @@ describe('DesktopRuntime persistence', () => {
       try {
         const listed = await restartedRuntime.services.listWorkspaces();
         expect(listed).toEqual(expect.arrayContaining([
-          expect.objectContaining({ id: workspace.id, realRootPath: workspaceRoot }),
+          expect.objectContaining({ id: workspace.id, rootPath: workspace.rootPath }),
         ]));
         await expect(restartedRuntime.services.getDashboard()).resolves.toMatchObject({
           permissionProfile: 'full',
@@ -48,17 +50,20 @@ describe('DesktopRuntime persistence', () => {
       if (!firstClosed) await closeRuntime(firstRuntime);
     }
   });
+
   it('serves the local capability health tool through the desktop MCP listener', async () => {
-    const dataRoot = await mkdtemp(path.join(os.tmpdir(), 'lnwjud-runtime-data-'));
-    const workspaceRoot = await mkdtemp(path.join(os.tmpdir(), 'lnwjud-runtime-workspace-'));
-    temporaryRoots.push(dataRoot, workspaceRoot);
+    const rawDataRoot = await mkdtemp(path.join(os.tmpdir(), 'lnwjud-runtime-data-'));
+    const rawWorkspaceRoot = await mkdtemp(path.join(os.tmpdir(), 'lnwjud-runtime-workspace-'));
+    temporaryRoots.push(rawDataRoot, rawWorkspaceRoot);
+    const dataRoot = await realpath(rawDataRoot);
+    const workspaceRoot = await realpath(rawWorkspaceRoot);
     const runtime = createDesktopRuntime(dataRoot);
     try {
       const workspace = await runtime.services.addWorkspace({ rootPath: workspaceRoot });
       const connection = await runtime.services.startMcp({ workspaceId: workspace.id });
       expect(connection.url).toMatch(/^http:\/\/127\.0\.0\.1:\d+\/mcp$/);
       if (connection.url === null) return;
-      const client = new Client({ name: 'desktop-capability-test', version: '0.1.0' });
+      const client = new Client({ name: 'desktop-capability-test', version: '1.0.0' });
       const transport = new StreamableHTTPClientTransport(new URL(connection.url));
       try {
         await client.connect(transport);
