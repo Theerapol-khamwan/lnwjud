@@ -46,6 +46,10 @@ export type MessageKey =
   | 'workLog.clear'
   | 'workLog.empty'
   | 'settings.title'
+  | 'settings.subtitle'
+  | 'settings.generalTitle'
+  | 'settings.securityTitle'
+  | 'settings.tunnelTitle'
   | 'settings.locale'
   | 'settings.tunnelKey'
   | 'settings.saveKey'
@@ -148,6 +152,10 @@ export const th: Messages = {
   'workLog.clear': 'ล้างประวัติ',
   'workLog.empty': 'ยังไม่มีกิจกรรม',
   'settings.title': 'ตั้งค่า',
+  'settings.subtitle': 'ปรับแต่งภาษา สิทธิ์ความปลอดภัย และการเชื่อมต่อ Remote Tunnel สำหรับ AI Agent',
+  'settings.generalTitle': 'ภาษาและการตั้งค่าทั่วไป',
+  'settings.securityTitle': 'โปรไฟล์สิทธิ์ความปลอดภัย',
+  'settings.tunnelTitle': 'Cloudflare Remote Tunnel สำหรับ ChatGPT',
   'settings.locale': 'ภาษา',
   'settings.tunnelKey': 'Runtime API key (บันทึกครั้งเดียว)',
   'settings.saveKey': 'บันทึกคีย์',
@@ -249,6 +257,10 @@ export const en: Messages = {
   'workLog.clear': 'Clear history',
   'workLog.empty': 'No activity yet',
   'settings.title': 'Settings',
+  'settings.subtitle': 'Configure system preferences, security profiles, and remote tunnel connections',
+  'settings.generalTitle': 'Language & General Preferences',
+  'settings.securityTitle': 'Security & Permission Profiles',
+  'settings.tunnelTitle': 'Cloudflare Remote Tunnel for ChatGPT',
   'settings.locale': 'Language',
   'settings.tunnelKey': 'Runtime API key (save once)',
   'settings.saveKey': 'Save key',

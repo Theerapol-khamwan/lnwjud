@@ -1,3 +1,4 @@
+import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { BrowserWindow } from 'electron';
@@ -10,6 +11,22 @@ export function getPreloadPath(): string {
 
 export function getRendererEntryPath(): string {
   return path.resolve(mainDirectory, '..', 'renderer', 'index.html');
+}
+
+export function getWindowIconPath(): string | undefined {
+  const candidates = [
+    path.resolve(mainDirectory, '..', 'renderer', 'favicon.ico'),
+    path.resolve(mainDirectory, '..', 'renderer', 'logo.png'),
+    path.resolve(mainDirectory, '..', 'renderer', 'logo-512.png'),
+    path.resolve(mainDirectory, '..', '..', 'build', 'icon.ico'),
+    path.resolve(mainDirectory, '..', '..', 'build', 'icon.png'),
+    path.resolve(mainDirectory, '..', '..', 'assets', 'logo', 'logo.ico'),
+    path.resolve(mainDirectory, '..', '..', 'assets', 'logo', 'logo-256x256.png'),
+  ];
+  for (const candidate of candidates) {
+    if (fs.existsSync(candidate)) return candidate;
+  }
+  return undefined;
 }
 
 export function isAllowedRendererUrl(navigationUrl: string, rendererEntryPath: string): boolean {
@@ -26,11 +43,13 @@ export function isAllowedRendererUrl(navigationUrl: string, rendererEntryPath: s
 
 export function createMainWindow(): BrowserWindow {
   const rendererEntryPath = getRendererEntryPath();
+  const iconPath = getWindowIconPath();
   const mainWindow = new BrowserWindow({
     width: 1280,
     height: 800,
     show: true,
     autoHideMenuBar: true,
+    ...(iconPath !== undefined ? { icon: iconPath } : {}),
     webPreferences: {
       preload: getPreloadPath(),
       nodeIntegration: false,
@@ -62,12 +81,14 @@ export function createMainWindow(): BrowserWindow {
 
 export function createLogViewerWindow(): BrowserWindow {
   const rendererEntryPath = getRendererEntryPath();
+  const iconPath = getWindowIconPath();
   const viewerWindow = new BrowserWindow({
     width: 960,
     height: 680,
     show: true,
     autoHideMenuBar: true,
     title: 'lnwjud — Live Logs',
+    ...(iconPath !== undefined ? { icon: iconPath } : {}),
     webPreferences: {
       preload: getPreloadPath(),
       nodeIntegration: false,

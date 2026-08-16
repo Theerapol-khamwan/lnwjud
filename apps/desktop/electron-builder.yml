@@ -8,6 +8,8 @@ files:
   - dist/main/**/*
   - dist/preload/**/*
   - dist/renderer/**/*
+  - build/icon.ico
+  - build/icon.png
   - package.json
 extraResources:
   - from: ../../packages/capabilities/src/windows-capability-bridge.ps1
@@ -23,6 +25,7 @@ extraFiles:
   - from: build/lnwjud-mcp-stdio.cmd
     to: lnwjud-mcp-stdio.cmd
 win:
+  icon: build/icon.ico
   signAndEditExecutable: false
   target:
     - target: nsis
@@ -33,4 +36,8 @@ nsis:
   oneClick: false
   perMachine: false
   allowToChangeInstallationDirectory: true
-  deleteAppDataOnUninstall: true
+  deleteAppDataOnUninstall: false
+  installerIcon: build/icon.ico
+  uninstallerIcon: build/icon.ico
+  uninstallDisplayName: ${productName}
+  include: build/installer.nsh

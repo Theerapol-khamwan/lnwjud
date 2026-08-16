@@ -15,6 +15,10 @@ describe('i18n translations', () => {
 
     const requiredKeys: MessageKey[] = [
       'app.loading',
+      'settings.subtitle',
+      'settings.generalTitle',
+      'settings.securityTitle',
+      'settings.tunnelTitle',
       'error.logBufferClear',
       'error.logExport',
       'error.logViewerOpen',
