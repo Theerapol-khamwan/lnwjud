@@ -6,7 +6,7 @@ import { ToolRegistry, type McpApplicationServices } from './tool-registry.js';
 const actor = { clientId: 'client-1', clientName: 'test' };
 
 describe('MCP tool registry', () => {
-  it('returns the exact deterministic V1 tool order', () => {
+  it('returns the exact deterministic tool order', () => {
     const registry = new ToolRegistry({}, actor);
 
     expect(registry.list().map((tool) => tool.name)).toEqual([
@@ -23,6 +23,7 @@ describe('MCP tool registry', () => {
       'workspace_context', 'workspace_context_continue', 'workspace_full_scan', 'workspace_full_scan_continue',
       'workspace_snapshot', 'search_all', 'read_many_files',
       'read_file_page', 'read_file_page_continue',
+      'workspace_index', 'workspace_index_status', 'workspace_index_watch', 'workspace_index_stop',
       'tool_batch',
     ]);
   });

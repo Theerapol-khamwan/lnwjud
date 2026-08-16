@@ -122,6 +122,17 @@ export const readManyFilesSchema = z.object({
   workspaceId: optionalWorkspaceIdSchema,
   files: z.array(readFileSchema.omit({ workspaceId: true })).min(1).max(500),
 }).strict();
+export const workspaceIndexSchema = z.object({
+  workspaceId: workspaceIdSchema,
+  rebuild: z.boolean().default(false),
+}).strict();
+export const workspaceIndexStatusSchema = workspaceInfoSchema;
+export const workspaceIndexWatchSchema = z.object({
+  workspaceId: workspaceIdSchema,
+  debounceMs: z.number().int().min(0).max(60_000).optional(),
+  concurrency: z.number().int().min(1).max(32).optional(),
+}).strict();
+export const workspaceIndexStopSchema = workspaceInfoSchema;
 
 const capabilityMetadataSchema = z.record(z.string(), z.unknown());
 const capabilityParametersSchema = z.record(z.string(), z.unknown());

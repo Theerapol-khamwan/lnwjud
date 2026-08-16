@@ -1,6 +1,6 @@
 # lnwjud Upgrade Architecture Contract
 
-Status: Phase 03 implementation checkpoint, based on `v1.1.4` / local upgrade commits.
+Status: Phase 04 implementation checkpoint, based on `v1.1.4` / local upgrade commits.
 
 This document is the architectural boundary for the upgrade roadmap. It describes
 the existing runtime before Phase 01 and the invariants every later phase must
@@ -38,7 +38,7 @@ MCP clients (ChatGPT / Codex / Claude / other agents)
              MCP stdio or loopback Streamable HTTP
                          |
                          v
-                  ToolRegistry (63 tools after Phase 03)
+                  ToolRegistry (67 tools after Phase 04)
                          |
        +-----------------+------------------+
        |                 |                  |
@@ -232,6 +232,17 @@ transport adapter for large responses. A page can target a response byte size,
 and the continuation state advances from the exact returned line so a caller can
 resume without silently skipping or overwriting context.
 
+## Phase 04 indexing checkpoint
+
+`WorkspaceIndexService` persists a full structural index outside the repository
+data tree and records files, directories, symlinks, hashes, Git blob hashes,
+language, tests, package metadata, symbols, imports, exports, functions,
+classes, and interfaces. Initial indexing traverses every discoverable path;
+there is no `.git`, `node_modules`, `dist`, `.env`, generated-file, or hidden-file
+ignore list. The watcher only coalesces duplicate notifications for the same
+path and limits active workers. Distinct paths are retained and queued, and a
+watcher stop drains the queue before closing.
+
 ## Upgrade sequencing
 
 The safe dependency direction is:
@@ -241,7 +252,7 @@ Phase 00 contract
   -> Phase 01 parallel primitives
   -> Phase 02 context aggregation
   -> Phase 03 continuation/streaming
-  -> Phase 04 index
+  -> Phase 04 full-visibility index/watcher
   -> Phase 05 code intelligence
   -> Phase 06 lossless ranking
   -> Phase 13 cache

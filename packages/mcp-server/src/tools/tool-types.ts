@@ -14,6 +14,7 @@ import type {
   ReadFileRequest,
   ReadFilesRequest,
   SearchService,
+  WorkspaceIndexService,
   WorkspaceQueryService,
   WriteFileRequest,
 } from '@lnwjud/application';
@@ -42,6 +43,7 @@ export interface McpApplicationServices {
   readonly project?: Pick<ProjectService, 'detect'>;
   readonly file?: Pick<FileService, 'readFile' | 'readFiles' | 'writeFile' | 'applyPatch' | 'moveFile' | 'copyFile' | 'deleteFile'>;
   readonly search?: Pick<SearchService, 'searchFiles' | 'searchText'>;
+  readonly workspaceIndex?: Pick<WorkspaceIndexService, 'indexWorkspace' | 'status' | 'startWatch' | 'stopWatch'>;
   readonly git?: Pick<GitService, 'status' | 'diff' | 'log' | 'run'>;
   readonly process?: Pick<ProcessService, 'start' | 'status' | 'logs' | 'stop' | 'startProjectCommand'>;
   readonly codex?: Pick<CodexService, 'status' | 'run' | 'taskStatus' | 'taskLogs' | 'stop'>;

@@ -11,6 +11,8 @@ import {
   ProjectSnapshotService,
   ProcessService,
   SearchService,
+  JsonWorkspaceIndexStore,
+  WorkspaceIndexService,
   syncMachineRoots,
   WorkspaceInfoService,
   WorkspaceQueryService,
@@ -98,6 +100,7 @@ export interface DesktopRuntime {
 export function createDesktopRuntime(dataPath: string): DesktopRuntime {
   const database = new SqliteDatabase(path.join(dataPath, 'lnwjud.sqlite'));
   const workspaceRepository = new SqliteWorkspaceRepository(database);
+  const workspaceIndex = new WorkspaceIndexService(workspaceRepository, new JsonWorkspaceIndexStore(path.join(dataPath, 'workspace-index')));
   const settingsRepository = new SqliteSettingsRepository(database);
   const auditRepository: AuditEventRepository = new SqliteAuditRepository(database);
   const auditService = new AuditService(auditRepository);
@@ -159,6 +162,7 @@ export function createDesktopRuntime(dataPath: string): DesktopRuntime {
     project: projectService,
     file: fileService,
     search: searchService,
+    workspaceIndex,
     git: gitService,
     process: processService,
     codex: codexService,
@@ -456,6 +460,7 @@ export function createDesktopRuntime(dataPath: string): DesktopRuntime {
         await tunnelController.stopOwned().catch(() => undefined);
       } finally {
         await extensionsService.close().catch(() => undefined);
+        await workspaceIndex.close().catch(() => undefined);
         database.close();
       }
     },

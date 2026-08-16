@@ -11,6 +11,8 @@ import {
   ProjectSnapshotService,
   SearchService,
   WorkspaceInfoService,
+  JsonWorkspaceIndexStore,
+  WorkspaceIndexService,
   WorkspaceQueryService,
   type FileActor,
 } from '@lnwjud/application';
@@ -58,6 +60,7 @@ export interface StdioMcpRuntime {
 export function createStdioMcpRuntime(dataPath: string, workspace: Workspace, unrestricted: boolean = false): StdioMcpRuntime {
   const database = new SqliteDatabase(path.join(dataPath, 'lnwjud.sqlite'));
   const workspaceRepository = new SqliteWorkspaceRepository(database);
+  const workspaceIndex = new WorkspaceIndexService(workspaceRepository, new JsonWorkspaceIndexStore(path.join(dataPath, 'workspace-index')));
   const settingsRepository = new SqliteSettingsRepository(database);
   const auditRepository = new SqliteAuditRepository(database);
   const auditService = new AuditService(auditRepository);
@@ -132,6 +135,7 @@ export function createStdioMcpRuntime(dataPath: string, workspace: Workspace, un
     project: projectService,
     file: fileService,
     search: new SearchService(workspaceRepository),
+    workspaceIndex,
     git: gitService,
     process: processService,
     codex: codexService,
@@ -144,6 +148,7 @@ export function createStdioMcpRuntime(dataPath: string, workspace: Workspace, un
     activityTracker,
     close: async (): Promise<void> => {
       await extensions.close().catch(() => undefined);
+      await workspaceIndex.close().catch(() => undefined);
       database.close();
     },
   };

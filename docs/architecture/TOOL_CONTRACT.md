@@ -1,12 +1,12 @@
 # lnwjud Tool Contract
 
-Status: Phase 03 contract snapshot for `v1.1.4` / local upgrade commits.
+Status: Phase 04 contract snapshot for `v1.1.4` / local upgrade commits.
 
 This is the compatibility contract for the current MCP surface. The runtime
 advertises the JSON Schema for every input through `tools/list`; the TypeScript
 Zod schemas in `packages/mcp-server/src/tools/` are the implementation source
 of truth. The existing human-oriented catalog remains useful for field details,
-while this document records the complete 63-tool runtime snapshot, policy class,
+while this document records the complete 67-tool runtime snapshot, policy class,
 annotations, and schema source.
 
 ## Protocol and result rules
@@ -109,6 +109,10 @@ contract test and a catalog update.
 | 61 | `read_many_files` | READ | yes | no | 2 | `context-tools.ts` |
 | 62 | `read_file_page` | READ | yes | no | 5 | `file-page-tools.ts` |
 | 63 | `read_file_page_continue` | READ | yes | no | 2 | `file-page-tools.ts` |
+| 64 | `workspace_index` | READ | yes | no | 2 | `workspace-index-tools.ts` |
+| 65 | `workspace_index_status` | READ | yes | no | 1 | `workspace-index-tools.ts` |
+| 66 | `workspace_index_watch` | READ | yes | no | 3 | `workspace-index-tools.ts` |
+| 67 | `workspace_index_stop` | READ | yes | no | 1 | `workspace-index-tools.ts` |
 
 ## Schema groups and contract examples
 
@@ -191,8 +195,8 @@ capability backends. Important invariants are:
   scheduler operations retain their existing interactive/destructive policy;
 - `vision`, `health`, and `system_info` remain truthful read-only diagnostics;
 - `web_fetch` remains HTTP(S)-only and bounded by explicit byte/timeout fields;
-- `skills_*` and `mcp_*` remain full-access bridge tools and do not silently
-  flatten child-server tools into the 61-tool catalog.
+  - `skills_*` and `mcp_*` remain full-access bridge tools and do not silently
+  flatten child-server tools into the 67-tool catalog.
 
 ### Context aggregation
 
@@ -233,6 +237,19 @@ read_file_page_continue: { continuationToken: string; pageSize?: number }
 Paged responses always expose whether more content remains. The page adapter
 does not replace or reduce the existing unrestricted trusted-workspace read
 path.
+
+### Full-visibility indexing
+
+```ts
+workspace_index: { workspaceId: string; rebuild?: boolean }
+workspace_index_status: { workspaceId: string }
+workspace_index_watch: { workspaceId: string; debounceMs?: number; concurrency?: number }
+workspace_index_stop: { workspaceId: string }
+```
+
+Index scheduling is an execution-performance control only. It must not be used
+to conceal a path from the AI; hidden, ignored, generated, dependency, and
+environment files remain eligible for indexing and direct read/search.
 
 ### Compound execution
 
