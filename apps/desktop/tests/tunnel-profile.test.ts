@@ -3,7 +3,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { afterEach, describe, expect, it } from 'vitest';
-import { packagedStdioLauncherCandidates, resolveStdioLauncherPath, rewriteTunnelYamlMcpCommand } from '../src/main/tunnel-profile.js';
+import { packagedStdioLauncherCandidates, preferredTunnelMcpCommand, resolveStdioLauncherPath, rewriteTunnelYamlMcpCommand } from '../src/main/tunnel-profile.js';
 
 const temporaryRoots: string[] = [];
 
@@ -12,23 +12,41 @@ afterEach(async () => {
 });
 
 describe('tunnel profile MCP command', () => {
-  it('rewrites lnwjud.exe --mcp-stdio to the packaged cmd launcher', () => {
+  it('rewrites a .cmd MCP launcher to the GUI lnwjud.exe --mcp-stdio command', () => {
     const yaml = [
       'mcp:',
       '  commands:',
       '    - channel: main',
-      '      command: "C:/Users/me/AppData/Local/Programs/lnwjud/lnwjud.exe --mcp-stdio"',
+      '      command: "C:/Users/me/AppData/Local/Programs/lnwjud/lnwjud-mcp-stdio.cmd"',
     ].join('\n');
-    const next = rewriteTunnelYamlMcpCommand(yaml, 'C:\\Users\\me\\AppData\\Local\\Programs\\lnwjud\\lnwjud-mcp-stdio.cmd');
-    expect(next).toContain('command: "C:/Users/me/AppData/Local/Programs/lnwjud/lnwjud-mcp-stdio.cmd"');
-    expect(next).not.toContain('--mcp-stdio');
-    expect(next).not.toContain('lnwjud.exe');
+    const next = rewriteTunnelYamlMcpCommand(
+      yaml,
+      'C:\\Users\\me\\AppData\\Local\\Programs\\lnwjud\\lnwjud.exe --mcp-stdio',
+    );
+    expect(next).toContain('command: "C:/Users/me/AppData/Local/Programs/lnwjud/lnwjud.exe --mcp-stdio"');
+    expect(next).not.toContain('lnwjud-mcp-stdio.cmd');
   });
 
-  it('points an old cmd path at the launcher next to lnwjud.exe', () => {
+  it('keeps lnwjud.exe --mcp-stdio as the tunnel MCP command', () => {
     const yaml = '      command: "C:/old/lnwjud-mcp-stdio.cmd --workspace E:/lnwjud"';
-    expect(rewriteTunnelYamlMcpCommand(yaml, 'D:/lnwjud/lnwjud-mcp-stdio.cmd')).toContain(
-      'command: "D:/lnwjud/lnwjud-mcp-stdio.cmd"',
+    expect(rewriteTunnelYamlMcpCommand(yaml, 'D:/lnwjud/lnwjud.exe --mcp-stdio')).toContain(
+      'command: "D:/lnwjud/lnwjud.exe --mcp-stdio"',
+    );
+  });
+
+  it('falls back to the cmd launcher when the host is not lnwjud.exe', () => {
+    expect(preferredTunnelMcpCommand('C:\\Program Files\\nodejs\\node.exe', 'D:\\lnwjud\\lnwjud-mcp-stdio.cmd')).toBe(
+      'D:\\lnwjud\\lnwjud-mcp-stdio.cmd',
+    );
+  });
+
+  it('prefers packaged lnwjud.exe --mcp-stdio over the cmd launcher', async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), 'lnwjud-stdio-exe-'));
+    temporaryRoots.push(root);
+    const exePath = path.join(root, 'lnwjud.exe');
+    await writeFile(exePath, 'stub', 'utf8');
+    expect(preferredTunnelMcpCommand(exePath, path.join(root, 'lnwjud-mcp-stdio.cmd'))).toBe(
+      `${exePath.replace(/\\/g, '/')} --mcp-stdio`,
     );
   });
 

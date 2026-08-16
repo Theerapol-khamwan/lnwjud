@@ -74,7 +74,7 @@ import { buildCapabilitySummary, createLocalCapabilityRuntime } from './capabili
 import { LogHub } from './log-hub.js';
 import { DesktopMcpLifecycle } from './mcp-lifecycle.js';
 import { CLIENT_PATH_SETTING, TunnelController } from './tunnel-controller.js';
-import { packagedStdioLauncherCandidates, resolveStdioLauncherPath } from './tunnel-profile.js';
+import { packagedStdioLauncherCandidates, preferredTunnelMcpCommand, resolveStdioLauncherPath } from './tunnel-profile.js';
 
 const actor: FileActor = { clientId: 'desktop-renderer', clientName: 'lnwjud desktop' };
 const mcpActor: FileActor = { clientId: 'desktop-mcp-http', clientName: 'lnwjud desktop MCP' };
@@ -82,7 +82,7 @@ const permissionSettingKey = 'permission_profile';
 const selectedWorkspaceSettingKey = 'selected_workspace_id';
 const workLogClearedSettingKey = 'work_log_cleared_at';
 const localeSettingKey = 'ui_locale';
-const APP_VERSION = '1.1.2';
+const APP_VERSION = '1.1.3';
 
 export interface DesktopRuntime {
   readonly services: DesktopIpcServices;
@@ -202,12 +202,13 @@ export function createDesktopRuntime(dataPath: string): DesktopRuntime {
     getDataPath: (): string => dataPath,
     getStdioLauncherPath: (): string | null => {
       const resourcesPath = (process as NodeJS.Process & { resourcesPath?: string }).resourcesPath;
-      return resolveStdioLauncherPath([
+      const cmdPath = resolveStdioLauncherPath([
         ...(typeof resourcesPath === 'string'
           ? packagedStdioLauncherCandidates(process.execPath, resourcesPath)
           : packagedStdioLauncherCandidates(process.execPath)),
         path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..', 'build', 'lnwjud-mcp-stdio.cmd'),
       ]);
+      return preferredTunnelMcpCommand(process.execPath, cmdPath);
     },
   });
   const logHub = new LogHub({

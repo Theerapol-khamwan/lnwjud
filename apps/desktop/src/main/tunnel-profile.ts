@@ -20,6 +20,18 @@ export function resolveStdioLauncherPath(candidates: readonly string[]): string 
   return null;
 }
 
+/**
+ * GUI-subsystem lnwjud.exe does not allocate a console. A .cmd / node.exe
+ * MCP child does, so Start Tunnel must prefer `lnwjud.exe --mcp-stdio`.
+ */
+export function preferredTunnelMcpCommand(execPath: string, cmdFallback: string | null): string | null {
+  const exe = path.resolve(execPath);
+  if (path.basename(exe).toLowerCase() === 'lnwjud.exe' && existsSync(exe)) {
+    return `${posixPath(exe)} --mcp-stdio`;
+  }
+  return cmdFallback;
+}
+
 export function packagedStdioLauncherCandidates(execPath: string, resourcesPath?: string): string[] {
   const execDir = path.dirname(execPath);
   const candidates = [

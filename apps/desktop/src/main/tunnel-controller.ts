@@ -219,13 +219,12 @@ export class TunnelController {
       {
         env: tunnelClientEnv(apiKey, this.profileDirectory(), this.options.getDataPath()),
         windowsHide: true,
-        detached: true,
-        stdio: ['ignore', 'pipe', 'pipe'],
+        // detached:true on Windows gives the child its own console window.
+        detached: false,
+        stdio: ['ignore', 'ignore', 'ignore'],
       },
     );
     this.child = child;
-    child.stdout?.on('data', () => undefined);
-    child.stderr?.on('data', () => undefined);
     child.on('error', (error) => {
       if (this.child === child) this.child = null;
       this.state = 'error';
