@@ -53,6 +53,7 @@ docs/*
 docs/architecture/*
 !docs/architecture/UPGRADE_ARCHITECTURE.md
 !docs/architecture/TOOL_CONTRACT.md
+!docs/architecture/ROADMAP_PHASE_STATUS.md
 !docs/benchmarks/
 docs/benchmarks/*
 !docs/benchmarks/BASELINE.md
