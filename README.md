@@ -22,6 +22,22 @@ receive a public shell and does not read the local Codex configuration. For a
 ChatGPT web connection, OpenAI Secure MCP Tunnel forwards MCP requests to a
 local lnwjud process; the tunnel is outbound-only.
 
+## v2.0.0 upgrade status
+
+Release `v2.0.0` completes roadmap phases 00–40. It adds the 183-tool catalog,
+compound/parallel workflows, permission and lifecycle contracts, persistent
+workspace indexing, paged reads, Live Logs v2, recovery/session state,
+capability discovery, and project/visual inspection adapters. See the
+[phase completion checklist](docs/architecture/ROADMAP_PHASE_STATUS.md) and
+the [foundation benchmark](docs/benchmarks/PHASE-05.md).
+
+The v2 visibility contract is intentionally full-access: reads, filename
+search, text search, indexing, and watchers do not apply ignore patterns to
+`.env`, `.git`, `dist`, `node_modules`, or other hidden/heavy paths. Responses
+remain bounded or paged where appropriate, but unique paths are not filtered.
+The watcher queue only coalesces duplicate notifications and controls
+processing concurrency.
+
 > **Security boundary:** lnwjud is still path-checked and policy-checked. It is
 > not an administrator shell. Unrestricted mode is **on by default** so every
 > local drive can be used. Filesystem deletion still requires a human
@@ -71,7 +87,7 @@ Choose your preferred tunnel provider:
 1. Open [ChatGPT](https://chatgpt.com) and switch to your developer workspace.
 2. Go to **Settings > Connected Apps / Developer Settings** > **Create App** (or add MCP Server).
 3. Choose **Tunnel** and select your `lnwjud` tunnel.
-4. Verify all 49+ native Windows tools load (e.g. `read_file`, `write_file`, `search_files`, `git`, `shell`, `dom_cdp`, `window`, `vision`, `system_info`).
+4. Verify the 183-tool catalog loads (e.g. `read_file`, `read_file_page`, `search_all`, `workspace_index`, `git`, `shell`, `dom_cdp`, `window`, `vision`, `system_info`).
 5. Open a new chat, enable the **lnwjud** plugin/tool, and test:
    > *"Check git status of my workspace, list active processes, and summarize recent code changes."*
 6. Watch real-time tool execution logs, commands, and audit records stream live in the **Lnwjud Live Log Hub**!
@@ -135,12 +151,13 @@ corepack pnpm@10.15.0 desktop
    profile: lnwjud
    tunnel_id: "tun_your_tunnel_id_here"
    mcp:
-     command: "node"
-     args:
-       - "E:/lnwjud/apps/desktop/build/lnwjud-mcp-stdio.cjs"
+     commands:
+       - channel: main
+         command: "C:/Users/<User>/AppData/Local/Programs/lnwjud/lnwjud-mcp-stdio.cmd"
      connection_max_ttl: 168h0m0s
    ```
-   *(Note: If you installed the packaged desktop app, you can use `C:/Users/<User>/AppData/Local/Programs/lnwjud/lnwjud.exe` with `args: ["--mcp-stdio"]` instead).*
+   Use the packaged `lnwjud-mcp-stdio.cmd` launcher for the tunnel. It starts
+   the direct Node MCP stdio server and does not open the desktop GUI.
 
 #### 5. Launch the Tunnel Service
 Start the resilient tunnel loop (with auto-reconnect, long TTL, and live dashboard sync):
@@ -153,7 +170,7 @@ Start the resilient tunnel loop (with auto-reconnect, long TTL, and live dashboa
 1. Open [ChatGPT](https://chatgpt.com) and switch to your developer workspace.
 2. Navigate to **Settings > Connected Apps / Developer Settings** > **Create App**.
 3. Select your tunnel `lnwjud` from the list.
-4. Verify that the tool catalog loads (includes `read_file`, `write_file`, `search_files`, `git_status`, `shell`, `system_info`, etc.).
+4. Verify that the 183-tool catalog loads (including `read_file`, `read_file_page`, `search_all`, `workspace_index`, `git_status`, `shell`, and `system_info`).
 5. Start a new conversation, activate the **lnwjud** tool, and try:
    > *"Inspect my current project, check git status, and summarize the last 5 commits."*
    > *"Find all TypeScript files that import `@lnwjud/domain`."*
@@ -166,23 +183,22 @@ Start the resilient tunnel loop (with auto-reconnect, long TTL, and live dashboa
 | Client | Connection | What must be running on Windows | Best for |
 | --- | --- | --- | --- |
 | ChatGPT web | OpenAI Secure MCP Tunnel | tunnel-client and a packaged stdio-capable lnwjud launcher | A ChatGPT chat working on a private local project |
-| ChatGPT desktop / Codex CLI / IDE | Local stdio MCP | lnwjud.exe --mcp-stdio | Lowest-latency local development |
+| ChatGPT desktop / Codex CLI / IDE | Local stdio MCP | packaged `lnwjud-mcp-stdio.cmd` | Lowest-latency local development |
 | Desktop dashboard or a local MCP client | Loopback Streamable HTTP | The lnwjud desktop app and its local MCP connection | Debugging and local browser/UI capabilities |
 | Responses API or another supported OpenAI surface | Secure MCP Tunnel or private HTTP | A running tunnel client or private HTTP MCP server | Programmatic tool calls |
 
 ### Important: the stdio launcher
 
 The tunnel command must start the stdio MCP entrypoint, not the Electron
-dashboard. A stdio-capable package must support this command:
+dashboard. The packaged v2.0.0 build ships this direct launcher:
 
 ```text
-lnwjud.exe --mcp-stdio
+lnwjud-mcp-stdio.cmd --workspace E:\lnwjud
 ```
 
 If the executable opens the graphical dashboard instead of waiting for MCP
-messages, it is a desktop-only build and cannot be used as a stdio tunnel
-command. Use a build/release that includes the packaged stdio launcher, or use
-the desktop HTTP connection.
+messages, it is a desktop-only entrypoint and cannot be used as the tunnel
+command. Use the packaged stdio launcher or the desktop HTTP connection.
 
 ## What must be configured
 
@@ -273,8 +289,9 @@ $env:LNWJUD_WORKSPACE = "D:\projects\my-app"
 corepack pnpm@10.15.0 desktop
 ```
 
-Use the same `LNWJUD_DATA_PATH` for desktop UI and `lnwjud.exe --mcp-stdio` so
-ChatGPT tool activity appears in the Work Log.
+Use the same `LNWJUD_DATA_PATH` for desktop UI and the packaged stdio launcher
+so ChatGPT tool activity appears in the Work Log. The launcher is the same
+direct MCP entrypoint used by the Codex/tunnel integration.
 
 ### Build a Windows installer
 
@@ -286,7 +303,7 @@ corepack pnpm@10.15.0 package:windows
 The x64 NSIS installer is written to:
 
 ```text
-apps/desktop/dist/installers/lnwjud-Setup-1.0.0.exe
+apps/desktop/dist/installers/lnwjud-Setup-2.0.0.exe
 ```
 
 The installer is per-user by default. A common installed executable path is:
@@ -335,8 +352,10 @@ semicolon-separated environment variable LNWJUD_CAPABILITY_ROOTS:
 $env:LNWJUD_CAPABILITY_ROOTS = 'E:/work;E:/projects'
 ```
 
-Only configure roots under drive **E:**. Paths on other drives are ignored.
-Core file tools still require a registered workspace. Stdio defaults capability roots to `E:/` when unset.
+In the default unrestricted mode, all fixed-drive roots are available to local
+capability tools. `LNWJUD_CAPABILITY_ROOTS` is optional extra configuration;
+it is not a visibility ignore list. Core file tools still require a registered
+workspace, and stdio defaults to the machine roots when the variable is unset.
 
 ### Start the local HTTP connection
 
@@ -440,7 +459,7 @@ profile:
 ```powershell
 $env:CONTROL_PLANE_API_KEY = '<runtime-key-for-this-session>'
 
-& $tc init --sample sample_mcp_stdio_local --profile lnwjud --tunnel-id 'tunnel_0123456789abcdef0123456789abcdef' --mcp-command 'C:/Users/<WindowsUser>/AppData/Local/Programs/lnwjud/lnwjud.exe --mcp-stdio'
+& $tc init --sample sample_mcp_stdio_local --profile lnwjud --tunnel-id 'tunnel_0123456789abcdef0123456789abcdef' --mcp-command 'C:/Users/<WindowsUser>/AppData/Local/Programs/lnwjud/lnwjud-mcp-stdio.cmd'
 ```
 
 Use forward slashes in the Windows executable path inside the profile.
@@ -501,7 +520,7 @@ app so Work Log entries appear in the Control Center.
 ### 6. Verify the command locally
 
 ```powershell
-$lnwjud = 'C:/Users/<WindowsUser>/AppData/Local/Programs/lnwjud/lnwjud.exe'
+$lnwjud = 'C:/Users/<WindowsUser>/AppData/Local/Programs/lnwjud/lnwjud-mcp-stdio.cmd'
 Test-Path $lnwjud
 Test-Path $tc
 ```
@@ -629,15 +648,17 @@ start a new chat.
 
 ## Complete MCP tool catalog
 
-The current catalog contains 28 workspace/project tools, 16 local desktop
-capability tools, and 5 skills/MCP bridge meta-tools (49 total).
+The current v2.0.0 catalog contains 183 tools across workspace/project
+primitives, paging and indexing, compound/parallel workflows, Git/test/cache
+surfaces, lifecycle and permission contracts, local Windows capabilities,
+skills/MCP bridge discovery, visual adapters, and recovery/session tools.
 
 ### Workspace and project inspection
 
 | Tool | Permission | What it does |
 | --- | --- | --- |
 | workspace_info | READ | Returns display name, canonical root, project profile, and Git summary |
-| workspace_tree | READ | Returns a bounded directory tree; heavy folders such as .git, node_modules, dist, and coverage are ignored |
+| workspace_tree | READ | Returns a bounded directory tree; hidden and heavy folders are included, with depth/entry bounds and truncation metadata |
 | project_snapshot | READ | Returns profile, Git counts, top-level tree, managed processes, and recent error summaries without source contents |
 
 ### Optional machine-root discovery extension
@@ -654,10 +675,11 @@ desktop UI.
 | workspace_register | WRITE | parentWorkspaceId, path, optional displayName | Registers an existing project directory below a machine root (idempotent; any drive root in unrestricted mode) |
 
 The extension still validates the parent ID, canonical path, and reparse points.
-**Secret and hidden files under `E:\` are intentionally readable** (including
-`.env`, keys, and credentials). Image and other binary files are returned as
-base64 with no application size cap. Paths outside `E:\` remain denied unless
-Unrestricted mode is enabled.
+**Secret and hidden files are intentionally readable in the default unrestricted
+mode** (including `.env`, keys, and credentials) on every fixed drive. Image and
+other binary files are returned as base64 with no application size cap. Paths
+outside registered roots remain denied only when unrestricted mode is explicitly
+disabled.
 
 Local capability tools (`shell`, `vision`, `accessibility`, `input_event`,
 `window`, `dom_cdp`, `health`) are available on both desktop HTTP MCP and
@@ -680,9 +702,10 @@ from the desktop dashboard and use its workspace ID.
 | copy_file | WRITE | Copies a file or directory within one workspace, creating missing destination parents |
 | delete_file | DANGEROUS | Deletes one file or an empty directory after the user confirms in chat (`userConfirmed: true`) |
 
-Default-denied secrets apply only to workspaces **outside** `E:\`. Under the
-trusted `E:\` agent surface, `.env`, `.env.*`, `*.pem`, `*.key`, `id_rsa*`,
-`id_ed25519*`, `.ssh/**`, `.aws/**`, and `credentials.json` are readable.
+In the default unrestricted mode, `.env`, `.env.*`, `*.pem`, `*.key`, `id_rsa*`,
+`id_ed25519*`, `.ssh/**`, `.aws/**`, and `credentials.json` are readable on
+every fixed drive. Explicitly setting unrestricted mode to false restores the
+restricted-drive secret policy.
 
 ### Git
 
@@ -810,8 +833,9 @@ process_stop.
 ### Delegate to Codex
 
 Run codex_status first. If available, use codex_run, poll the returned task ID,
-inspect the logs, and review git_diff yourself. Do not ask it to bypass policy
-or read secret files.
+inspect the logs, and review git_diff yourself. In unrestricted mode Codex can
+read the full registered workspace, including `.env`; keep credentials out of
+logs, commits, and prompts when they are not needed.
 
 ### Automate Windows applications
 
@@ -863,6 +887,10 @@ launched directly:
 The app is single-instance: launching with `--log-viewer` while the dashboard
 is already open focuses/opens the viewer in the running instance.
 
+Live Logs v2 preserves partial lines across tunnel-client chunks, correlates
+MCP activity, and keeps the tunnel/process streams visible while the app is
+running. It is covered by the desktop log-hub and tunnel lifecycle tests.
+
 ## Tunnel state sync between the script and the app
 
 The tunnel can be started from the PowerShell script or from the app's Start
@@ -888,7 +916,9 @@ disconnect), writes `lnwjud-tunnel.log`, aligns `LNWJUD_DATA_PATH` with the
 desktop app so ChatGPT activity shows in the Work Log and Live Logs, enables
 unrestricted mode, restarts the tunnel automatically when it drops (including
 TTL shutdowns that exit 0), avoids double-starting, and opens the log viewer
-window. Parameters: `-NoViewer`, `-OpenDashboard`, `-ForceRestart`, `-Once`.
+window. Rapid failures are bounded with backoff; after five failures in a
+30-second window it stops retrying and asks for a manual Start Tunnel. Parameters:
+`-NoViewer`, `-OpenDashboard`, `-ForceRestart`, `-Once`.
 
 ## Security and operational model
 
@@ -956,7 +986,7 @@ standalone `git_reset` / `git_clean` tools.
 | The desktop window opens when the tunnel starts | A GUI-only executable was configured; install/use the stdio launcher |
 | WORKSPACE_NOT_FOUND | Use the exact registered workspace ID, not a path or display name |
 | PATH_OUTSIDE_WORKSPACE | Register/select the correct root and use a workspace-relative path |
-| A secret file is denied | Enable Unrestricted mode (Settings or LNWJUD_UNRESTRICTED=1) to read secrets on every drive |
+| A secret file is denied | Check that unrestricted mode was not explicitly disabled (`LNWJUD_UNRESTRICTED=0` or Settings) and that the root is registered |
 | process_start refuses PowerShell/CMD | Shell hosts are denied in default mode; enable Unrestricted mode to allow cmd/powershell/pwsh (deletion commands stay blocked) |
 | Child process windows are visible | This is expected for the current visible-window Windows build; use handles/logs to manage them |
 | codex_status is unavailable | Install Codex or continue with process_* and project_*; lnwjud does not inspect credentials |
