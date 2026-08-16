@@ -22,6 +22,8 @@ describe('RipgrepAdapter', () => {
 
     expect(result).toEqual({ ok: true, value: { matches: [], truncated: false } });
     expect(executable).toBe('rg.exe');
+    expect(receivedArgs).toContain('--no-ignore');
+    expect(receivedArgs).toContain('--hidden');
     expect(receivedArgs).toContain(query);
     expect(receivedArgs).not.toContain(receivedArgs.join(' '));
   });

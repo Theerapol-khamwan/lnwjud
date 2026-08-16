@@ -79,6 +79,39 @@ export const toolBatchSchema = z.object({
     return (value.calls?.length ?? 0) + grouped <= 50;
   }, 'A batch cannot contain more than 50 calls');
 
+export const workspaceContextSchema = z.object({
+  query: z.string().trim().min(1).max(32_768),
+  workspaceId: optionalWorkspaceIdSchema,
+  path: pathSchema.optional(),
+  intent: z.enum(['auto', 'debug', 'implement', 'review', 'trace', 'explore']).default('auto'),
+  mode: z.enum(['optimized', 'full', 'exhaustive']).default('optimized'),
+  responseTargetBytes: z.number().int().min(1024).max(8 * 1024 * 1024).optional(),
+  pageSize: z.number().int().min(1).max(500).optional(),
+}).strict();
+export const workspaceContextContinueSchema = z.object({
+  continuationToken: z.string().trim().min(1).max(128),
+  pageSize: z.number().int().min(1).max(500).optional(),
+}).strict();
+export const workspaceFullScanSchema = z.object({
+  workspaceId: optionalWorkspaceIdSchema,
+  path: pathSchema.optional(),
+  glob: z.string().max(1024).optional(),
+  pageSize: z.number().int().min(1).max(500).optional(),
+}).strict();
+export const workspaceFullScanContinueSchema = workspaceContextContinueSchema;
+export const workspaceSnapshotSchema = workspaceInfoSchema;
+export const searchAllSchema = z.object({
+  query: z.string().trim().min(1).max(32_768),
+  workspaceId: optionalWorkspaceIdSchema,
+  path: pathSchema.optional(),
+  glob: z.string().max(1024).optional(),
+  maxResults: z.number().int().min(1).max(500).optional(),
+}).strict();
+export const readManyFilesSchema = z.object({
+  workspaceId: optionalWorkspaceIdSchema,
+  files: z.array(readFileSchema.omit({ workspaceId: true })).min(1).max(500),
+}).strict();
+
 const capabilityMetadataSchema = z.record(z.string(), z.unknown());
 const capabilityParametersSchema = z.record(z.string(), z.unknown());
 const capabilityApprovalSchema = z.enum(['use_policy', 'always_ask', 'skip']).default('use_policy');

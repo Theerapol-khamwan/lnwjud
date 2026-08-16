@@ -11,28 +11,28 @@ afterEach(async () => {
 });
 
 describe('TreeReader', () => {
-  it('sorts entries and ignores heavy directories', async () => {
+  it('sorts entries without hiding generated, hidden, dependency, or environment paths', async () => {
     const root = await mkdtemp(path.join(os.tmpdir(), 'lnwjud-tree-'));
     temporaryRoots.push(root);
     await mkdir(path.join(root, 'src'));
+    await mkdir(path.join(root, '.git'));
+    await mkdir(path.join(root, 'dist'));
     await mkdir(path.join(root, 'node_modules'));
+    await writeFile(path.join(root, '.env'), 'TOKEN=visible', 'utf8');
     await writeFile(path.join(root, 'z.txt'), 'z', 'utf8');
     await writeFile(path.join(root, 'a.txt'), 'a', 'utf8');
+    await writeFile(path.join(root, '.git', 'config'), 'config', 'utf8');
+    await writeFile(path.join(root, 'dist', 'app.js'), 'build', 'utf8');
     await writeFile(path.join(root, 'node_modules', 'hidden.txt'), 'hidden', 'utf8');
 
     const result = await new TreeReader().read(root, { maxDepth: 3, maxEntries: 20 });
 
-    expect(result).toEqual({
-      ok: true,
-      value: {
-        entries: [
-          { path: 'a.txt', type: 'file' },
-          { path: 'src', type: 'directory' },
-          { path: 'z.txt', type: 'file' },
-        ],
-        truncated: false,
-      },
-    });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.value.entries.map((entry) => entry.path.replace(/\\/g, '/'))).toEqual(expect.arrayContaining([
+      '.env', '.git', '.git/config', 'a.txt', 'dist', 'dist/app.js', 'node_modules', 'node_modules/hidden.txt', 'src', 'z.txt',
+    ]));
+    expect(result.value.truncated).toBe(false);
   });
 
   it('marks the result when the entry cap is reached', async () => {

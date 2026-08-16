@@ -3,8 +3,6 @@ import path from 'node:path';
 import { DEFAULT_TREE_DEPTH, DEFAULT_TREE_ENTRIES, err, MAX_TREE_DEPTH, MAX_TREE_ENTRIES, ok, type Result } from '@lnwjud/domain';
 import { isWithin } from '@lnwjud/workspace';
 
-const IGNORED_DIRECTORIES = new Set(['.git', '.next', 'build', 'coverage', 'dist', 'node_modules', 'vendor']);
-
 export interface TreeOptions {
   readonly maxDepth?: number;
   readonly maxEntries?: number;
@@ -51,7 +49,6 @@ export class TreeReader {
           truncated = true;
           return;
         }
-        if (directoryEntry.isDirectory() && IGNORED_DIRECTORIES.has(directoryEntry.name)) continue;
         const absoluteEntryPath = path.join(currentPath, directoryEntry.name);
         let entryRealPath: string;
         try {

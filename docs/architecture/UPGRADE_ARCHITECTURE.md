@@ -1,6 +1,6 @@
 # lnwjud Upgrade Architecture Contract
 
-Status: Phase 00 baseline, recorded against `v1.1.4` / commit `d6f3173`.
+Status: Phase 02 implementation checkpoint, based on `v1.1.4` / local upgrade commits.
 
 This document is the architectural boundary for the upgrade roadmap. It describes
 the existing runtime before Phase 01 and the invariants every later phase must
@@ -38,7 +38,7 @@ MCP clients (ChatGPT / Codex / Claude / other agents)
              MCP stdio or loopback Streamable HTTP
                          |
                          v
-                  ToolRegistry (54 tools after Phase 01)
+                  ToolRegistry (61 tools after Phase 02)
                          |
        +-----------------+------------------+
        |                 |                  |
@@ -211,6 +211,17 @@ strictly `READ` plus read-only and non-destructive is treated as mutation work
 and is serialized inside a batch, so one compound request cannot fan out
 multiple side effects accidentally. A failed, timed-out, or cancelled child is
 reported in the combined result without discarding successful siblings.
+
+## Phase 02 context checkpoint
+
+The local context engine adds `workspace_context` and continuation plus
+`workspace_full_scan`, `workspace_snapshot`, `search_all`, and
+`read_many_files`. It searches registered workspaces in parallel, ranks without
+an LLM, reads selected candidates in parallel, and reports the files scanned,
+matches, symbols, Git/test relevance, and remaining context. Page and response
+targets shape transport size only; they do not hide a path from direct search or
+read. Hidden, ignored, generated, dependency, and environment paths remain
+eligible candidates.
 
 ## Upgrade sequencing
 

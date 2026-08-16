@@ -69,7 +69,7 @@ export class RipgrepAdapter {
     }
     const executable = await this.resolver.resolve('rg');
     if (!executable.ok) return executable;
-    const args = ['--json', '--no-heading', '--color', 'never', '--hidden'];
+    const args = ['--json', '--no-heading', '--color', 'never', '--hidden', '--no-ignore'];
     if (request.glob !== undefined) args.push('--glob', request.glob);
     args.push('--', request.query, '.');
     const processResult = await this.runner.run(executable.value, args, request.rootPath);
@@ -93,7 +93,7 @@ export class RipgrepAdapter {
     }
     const executable = await this.resolver.resolve('rg');
     if (!executable.ok) return executable;
-    const args = ['--files', '--hidden'];
+    const args = ['--files', '--hidden', '--no-ignore'];
     if (request.glob !== undefined) args.push('--glob', request.glob);
     args.push('--');
     const processResult = await this.runner.run(executable.value, args, request.rootPath);

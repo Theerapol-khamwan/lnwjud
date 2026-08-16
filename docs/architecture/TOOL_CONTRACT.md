@@ -1,12 +1,12 @@
 # lnwjud Tool Contract
 
-Status: Phase 00 contract snapshot for `v1.1.4` / commit `d6f3173`.
+Status: Phase 02 contract snapshot for `v1.1.4` / local upgrade commits.
 
 This is the compatibility contract for the current MCP surface. The runtime
 advertises the JSON Schema for every input through `tools/list`; the TypeScript
 Zod schemas in `packages/mcp-server/src/tools/` are the implementation source
 of truth. The existing human-oriented catalog remains useful for field details,
-while this document records the complete 54-tool runtime snapshot, policy class,
+while this document records the complete 61-tool runtime snapshot, policy class,
 annotations, and schema source.
 
 ## Protocol and result rules
@@ -100,6 +100,13 @@ contract test and a catalog update.
 | 52 | `mcp_describe` | DANGEROUS | no | yes | 1 | `mcp-bridge-tools.ts` |
 | 53 | `mcp_call` | DANGEROUS | no | yes | 3 | `mcp-bridge-tools.ts` |
 | 54 | `tool_batch` | DANGEROUS | no | yes | 3 | `batch-tools.ts` |
+| 55 | `workspace_context` | READ | yes | no | 7 | `context-tools.ts` |
+| 56 | `workspace_context_continue` | READ | yes | no | 2 | `context-tools.ts` |
+| 57 | `workspace_full_scan` | READ | yes | no | 4 | `context-tools.ts` |
+| 58 | `workspace_full_scan_continue` | READ | yes | no | 2 | `context-tools.ts` |
+| 59 | `workspace_snapshot` | READ | yes | no | 1 | `context-tools.ts` |
+| 60 | `search_all` | READ | yes | no | 5 | `context-tools.ts` |
+| 61 | `read_many_files` | READ | yes | no | 2 | `context-tools.ts` |
 
 ## Schema groups and contract examples
 
@@ -183,7 +190,30 @@ capability backends. Important invariants are:
 - `vision`, `health`, and `system_info` remain truthful read-only diagnostics;
 - `web_fetch` remains HTTP(S)-only and bounded by explicit byte/timeout fields;
 - `skills_*` and `mcp_*` remain full-access bridge tools and do not silently
-  flatten child-server tools into the 54-tool catalog.
+  flatten child-server tools into the 61-tool catalog.
+
+### Context aggregation
+
+```ts
+workspace_context: {
+  query: string;
+  workspaceId?: string;
+  path?: string;
+  intent?: 'auto' | 'debug' | 'implement' | 'review' | 'trace' | 'explore';
+  mode?: 'optimized' | 'full' | 'exhaustive';
+  responseTargetBytes?: number;
+  pageSize?: number;
+}
+workspace_context_continue: { continuationToken: string; pageSize?: number }
+workspace_full_scan: { workspaceId?: string; path?: string; glob?: string; pageSize?: number }
+workspace_full_scan_continue: { continuationToken: string; pageSize?: number }
+workspace_snapshot: { workspaceId: string }
+search_all: { query: string; workspaceId?: string; path?: string; glob?: string; maxResults?: number }
+read_many_files: { workspaceId?: string; files: Array<{ path: string; startLine?: number; endLine?: number }> }
+```
+
+Context pages are transport windows, not capability limits. The engine keeps
+continuation state and preserves the full primitive search/read tools.
 
 ### Compound execution
 

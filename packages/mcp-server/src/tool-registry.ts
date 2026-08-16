@@ -1,8 +1,10 @@
 import { appError } from '@lnwjud/domain';
 import { sanitizeException, type DiagnosticLogger, type FileActor } from '@lnwjud/application';
 import { ActivityTracker, type ActivitySink } from './activity-tracker.js';
+import { ContextEngine } from './context-engine.js';
 import { mapError, mapResult, type McpToolResponse } from './result-mapper.js';
 import { batchTools } from './tools/batch-tools.js';
+import { contextTools } from './tools/context-tools.js';
 import { codexTools } from './tools/codex-tools.js';
 import { capabilityTools } from './tools/capability-tools.js';
 import { fileTools } from './tools/file-tools.js';
@@ -31,6 +33,7 @@ export class ToolRegistry {
     this.diagnostic = options.diagnostic;
     this.activity = options.activityTracker ?? new ActivityTracker(options.activity);
     const context: McpToolContext = { services, actor };
+    const contextEngine = new ContextEngine(services, actor);
     const workspace = workspaceTools(context);
     const files = fileTools(context);
     const baseTools: readonly McpToolDefinition[] = [
@@ -44,6 +47,7 @@ export class ToolRegistry {
       ...capabilityTools(context),
       ...skillTools(context),
       ...mcpBridgeTools(context),
+      ...contextTools(context, contextEngine),
     ];
     this.tools = [
       ...baseTools,

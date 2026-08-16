@@ -20,6 +20,8 @@ describe('MCP tool registry', () => {
       'system_info', 'notification', 'file_dialog', 'clipboard', 'web_fetch',
       'audio', 'screen_record', 'office', 'scheduler',
       'skills_list', 'skills_read', 'mcp_list', 'mcp_describe', 'mcp_call',
+      'workspace_context', 'workspace_context_continue', 'workspace_full_scan', 'workspace_full_scan_continue',
+      'workspace_snapshot', 'search_all', 'read_many_files',
       'tool_batch',
     ]);
   });
@@ -59,6 +61,7 @@ describe('MCP tool registry', () => {
     expect(byName.get('mcp_call')?.permission).toBe('DANGEROUS');
     expect(byName.get('tool_batch')?.permission).toBe('DANGEROUS');
     expect(byName.get('tool_batch')?.annotations).toMatchObject({ readOnlyHint: false, destructiveHint: true });
+    expect(byName.get('workspace_context')?.annotations).toMatchObject({ readOnlyHint: true, destructiveHint: false });
     expect(registry.list().some((tool) => ['run_shell', 'powershell', 'cmd', 'git_reset', 'git_clean', 'kill_pid'].includes(tool.name))).toBe(false);
   });
 
