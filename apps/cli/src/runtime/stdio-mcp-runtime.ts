@@ -122,6 +122,7 @@ export function createStdioMcpRuntime(dataPath: string, workspace: Workspace, un
     },
   ]));
   const services: McpApplicationServices = {
+    runtimeStatePath: path.join(dataPath, 'upgrade-runtime.json'),
     capabilities: capabilityService,
     extensions,
     workspaceInfo: new WorkspaceInfoService(workspaceRepository, workspaceService, unrestricted),

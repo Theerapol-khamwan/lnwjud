@@ -35,6 +35,7 @@ export interface ProjectSnapshotPort {
 }
 
 export interface McpApplicationServices {
+  readonly runtimeStatePath?: string;
   readonly capabilities?: CapabilityService;
   readonly extensions?: ExtensionsService;
   readonly workspaceInfo?: WorkspaceInfoPort;

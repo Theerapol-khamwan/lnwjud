@@ -233,6 +233,10 @@ export class ContextEngine {
   public async fullScan(request: WorkspaceFullScanRequest): Promise<Result<WorkspaceFullScanResult>> {
     const workspaceIds = await this.resolveWorkspaceIds(request.workspaceId);
     if (!workspaceIds.ok) return workspaceIds;
+    if (request.workspaceId !== undefined && this.services.workspaceIndex !== undefined) {
+      const indexed = await this.fullScanFromIndex(request.workspaceId, request.path, request.pageSize);
+      if (indexed !== null) return indexed;
+    }
     if (this.services.search === undefined) return err({ code: 'INTERNAL_ERROR', message: 'Search service is unavailable', recoverable: true });
     const maxResults = 500;
     const settled = await Promise.allSettled(workspaceIds.value.map(async (workspaceId) => ({
@@ -325,6 +329,27 @@ export class ContextEngine {
       ...(workspace?.ok === true ? { workspace: workspace.value } : {}),
       ...(project?.ok === true ? { project: project.value } : {}),
     });
+  }
+
+  private async fullScanFromIndex(workspaceId: string, requestedPath: string | undefined, pageSize: number | undefined): Promise<Result<WorkspaceFullScanResult> | null> {
+    const status = await this.services.workspaceIndex!.status(workspaceId);
+    if (!status.ok || status.value.snapshot === null) return null;
+    const prefix = requestedPath === undefined ? '' : normalizePath(requestedPath).replace(/^\.\//, '').replace(/\/$/, '');
+    const allFiles = status.value.snapshot.entries
+      .filter((entry) => entry.kind === 'file' || entry.kind === 'symlink')
+      .map((entry) => entry.relativePath)
+      .filter((entry) => prefix.length === 0 || entry === prefix || entry.startsWith(`${prefix}/`))
+      .sort((left, right) => normalizePath(left).localeCompare(normalizePath(right)))
+      .map((path) => ({ workspaceId, path }));
+    const size = normalizePageSize(pageSize ?? 200);
+    const files = allFiles.slice(0, size);
+    const remaining = allFiles.slice(files.length);
+    let continuationToken: string | undefined;
+    if (remaining.length > 0) {
+      continuationToken = randomUUID();
+      this.scanContinuations.set(continuationToken, { files: remaining, scannedWorkspaces: 1, scannedFiles: allFiles.length });
+    }
+    return ok({ files, scannedWorkspaces: 1, scannedFiles: allFiles.length, hasMore: remaining.length > 0, ...(continuationToken === undefined ? {} : { continuationToken }) });
   }
 
   private async resolveWorkspaceIds(workspaceId: string | undefined): Promise<Result<readonly string[]>> {

@@ -154,6 +154,7 @@ export function createDesktopRuntime(dataPath: string): DesktopRuntime {
     },
   });
   const mcpServices: McpApplicationServices = {
+    runtimeStatePath: path.join(dataPath, 'upgrade-runtime.json'),
     capabilities: capabilityRuntime.service,
     extensions: extensionsService,
     workspaceInfo: workspaceInfoService,

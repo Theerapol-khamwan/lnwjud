@@ -1,6 +1,8 @@
 import { createHash, randomUUID } from 'node:crypto';
+import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import path from 'node:path';
 import type { Result } from '@lnwjud/domain';
-import { err, ok } from '@lnwjud/domain';
+import { ok } from '@lnwjud/domain';
 import type { FileActor } from '@lnwjud/application';
 import type { McpApplicationServices } from './tools/tool-types.js';
 import { ContextEngine } from './context-engine.js';
@@ -28,6 +30,13 @@ interface CacheCounters {
   bytesSaved: number;
 }
 
+interface PersistedRuntimeState {
+  readonly tasks?: readonly RuntimeTask[];
+  readonly checkpoints?: readonly SessionCheckpoint[];
+  readonly plugins?: readonly { readonly name: string; readonly enabled: boolean }[];
+  readonly session?: readonly [string, unknown][];
+}
+
 export class UpgradeRuntimeService {
   private readonly contextEngine: ContextEngine;
   private readonly actor: FileActor;
@@ -37,6 +46,7 @@ export class UpgradeRuntimeService {
   private readonly plugins = new Map<string, { readonly name: string; enabled: boolean }>();
   private readonly cache: CacheCounters = { hits: 0, misses: 0, bytesSaved: 0 };
   private readonly session = new Map<string, unknown>();
+  private loaded = false;
 
   public constructor(
     private readonly services: McpApplicationServices,
@@ -47,6 +57,7 @@ export class UpgradeRuntimeService {
   }
 
   public async execute(name: string, input: Record<string, unknown>): Promise<Result<unknown>> {
+    await this.loadState();
     switch (name) {
       case 'tool_search':
       case 'tool_function_find':
@@ -103,7 +114,7 @@ export class UpgradeRuntimeService {
       case 'plugin_enable':
       case 'plugin_disable':
       case 'plugin_remove':
-        return ok(this.changePlugin(name, readString(input, 'name') ?? readString(input, 'plugin')));
+        return ok(await this.changePlugin(name, readString(input, 'name') ?? readString(input, 'plugin')));
       case 'session_context':
       case 'session_resume':
         return ok({ session: Object.fromEntries(this.session), checkpoints: this.checkpoints });
@@ -111,13 +122,14 @@ export class UpgradeRuntimeService {
         const checkpoint: SessionCheckpoint = { id: randomUUID(), createdAt: new Date().toISOString(), summary: summarize(readString(input, 'summary') ?? readString(input, 'prompt') ?? ''), inputDigest: digest(input) };
         this.checkpoints.push(checkpoint);
         this.session.set('lastCheckpointId', checkpoint.id);
+        await this.persistState();
         return ok(checkpoint);
       }
       case 'session_history':
         return ok({ checkpoints: this.checkpoints });
       case 'task_create':
       case 'delegate': {
-        const task = this.createTask(name === 'delegate' ? 'delegate' : 'task', input);
+        const task = await this.createTask(name === 'delegate' ? 'delegate' : 'task', input);
         return ok(task);
       }
       case 'task_status':
@@ -129,7 +141,7 @@ export class UpgradeRuntimeService {
         return ok({ tasks: [...this.tasks.values()].map(publicTask) });
       case 'task_cancel':
       case 'delegate_cancel':
-        return ok(this.cancelTask(readString(input, 'taskId') ?? readString(input, 'delegateId') ?? readString(input, 'id')));
+        return ok(await this.cancelTask(readString(input, 'taskId') ?? readString(input, 'delegateId') ?? readString(input, 'id')));
       case 'parallel_delegate':
         return ok(parallelDelegatePlan(input));
       case 'repo_map':
@@ -246,17 +258,23 @@ export class UpgradeRuntimeService {
     return { categories: [...counts.entries()].sort(([left], [right]) => left.localeCompare(right)).map(([category, tools]) => ({ category, tools })) };
   }
 
-  private changePlugin(operation: string, name: string | undefined): unknown {
+  private async changePlugin(operation: string, name: string | undefined): Promise<unknown> {
     if (name === undefined || name.trim().length === 0) return { changed: false, reason: 'plugin name is required' };
-    if (operation === 'plugin_remove') return { changed: this.plugins.delete(name), name };
+    if (operation === 'plugin_remove') {
+      const changed = this.plugins.delete(name);
+      await this.persistState();
+      return { changed, name };
+    }
     const plugin = { name, enabled: operation !== 'plugin_disable' };
     this.plugins.set(name, plugin);
+    await this.persistState();
     return { changed: true, ...plugin };
   }
 
-  private createTask(kind: RuntimeTask['kind'], input: Record<string, unknown>): RuntimeTask {
+  private async createTask(kind: RuntimeTask['kind'], input: Record<string, unknown>): Promise<RuntimeTask> {
     const task: RuntimeTask = { id: randomUUID(), kind, createdAt: new Date().toISOString(), inputDigest: digest(input), state: 'queued' };
     this.tasks.set(task.id, task);
+    await this.persistState();
     return task;
   }
 
@@ -265,10 +283,11 @@ export class UpgradeRuntimeService {
     return task === undefined ? { found: false, id: id ?? null } : publicTask(task);
   }
 
-  private cancelTask(id: string | undefined): unknown {
+  private async cancelTask(id: string | undefined): Promise<unknown> {
     const task = id === undefined ? undefined : this.tasks.get(id);
     if (task === undefined) return { cancelled: false, id: id ?? null };
     task.state = 'cancelled';
+    await this.persistState();
     return { cancelled: true, id };
   }
 
@@ -323,6 +342,40 @@ export class UpgradeRuntimeService {
 
   private actorForOperation(): FileActor {
     return this.actor;
+  }
+
+  private async loadState(): Promise<void> {
+    if (this.loaded) return;
+    this.loaded = true;
+    const statePath = this.services.runtimeStatePath;
+    if (statePath === undefined) return;
+    try {
+      const parsed: unknown = JSON.parse(await readFile(statePath, 'utf8'));
+      if (typeof parsed !== 'object' || parsed === null) return;
+      const state = parsed as PersistedRuntimeState;
+      for (const task of state.tasks ?? []) if (isRuntimeTask(task)) this.tasks.set(task.id, { ...task });
+      for (const checkpoint of state.checkpoints ?? []) if (isCheckpoint(checkpoint)) this.checkpoints.push(checkpoint);
+      for (const plugin of state.plugins ?? []) if (isPlugin(plugin)) this.plugins.set(plugin.name, { ...plugin });
+      for (const pair of state.session ?? []) if (Array.isArray(pair) && pair.length === 2 && typeof pair[0] === 'string') this.session.set(pair[0], pair[1]);
+    } catch {
+      // A corrupt optional state file is recoverable; the next mutation writes a fresh state.
+    }
+  }
+
+  private async persistState(): Promise<void> {
+    const statePath = this.services.runtimeStatePath;
+    if (statePath === undefined) return;
+    try {
+      await mkdir(path.dirname(statePath), { recursive: true });
+      await writeFile(statePath, `${JSON.stringify({
+        tasks: [...this.tasks.values()],
+        checkpoints: this.checkpoints,
+        plugins: [...this.plugins.values()],
+        session: [...this.session.entries()],
+      })}\n`, 'utf8');
+    } catch {
+      // State persistence must never break the MCP operation itself.
+    }
   }
 }
 
@@ -401,6 +454,24 @@ function parallelDelegatePlan(input: Record<string, unknown>): unknown {
   const tasks = Array.isArray(input.tasks) ? input.tasks : [];
   const writesRequested = tasks.some((task) => typeof task === 'object' && task !== null && JSON.stringify(task).toLowerCase().includes('write'));
   return { tasks: tasks.map((task, index) => ({ id: `delegate-${index + 1}`, mode: writesRequested ? 'serialized-mutation' : 'read-only-parallel', inputDigest: digest(task) })), collisionDetected: writesRequested, mutationPolicy: 'one-writer-at-a-time', cancellationSupported: true };
+}
+
+function isRuntimeTask(value: unknown): value is RuntimeTask {
+  if (typeof value !== 'object' || value === null) return false;
+  const record = value as Record<string, unknown>;
+  return typeof record.id === 'string' && (record.kind === 'task' || record.kind === 'delegate') && typeof record.createdAt === 'string' && typeof record.inputDigest === 'string' && (record.state === 'queued' || record.state === 'running' || record.state === 'completed' || record.state === 'cancelled');
+}
+
+function isCheckpoint(value: unknown): value is SessionCheckpoint {
+  if (typeof value !== 'object' || value === null) return false;
+  const record = value as Record<string, unknown>;
+  return typeof record.id === 'string' && typeof record.createdAt === 'string' && typeof record.summary === 'string' && typeof record.inputDigest === 'string';
+}
+
+function isPlugin(value: unknown): value is { readonly name: string; readonly enabled: boolean } {
+  if (typeof value !== 'object' || value === null) return false;
+  const record = value as Record<string, unknown>;
+  return typeof record.name === 'string' && typeof record.enabled === 'boolean';
 }
 
 export function upgradeCatalogByName(name: string): UpgradeToolCatalogEntry | undefined {

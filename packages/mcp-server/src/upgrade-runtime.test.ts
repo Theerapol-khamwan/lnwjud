@@ -1,4 +1,7 @@
 import { describe, expect, it } from 'vitest';
+import { mkdtemp } from 'node:fs/promises';
+import os from 'node:os';
+import path from 'node:path';
 import type { FileActor } from '@lnwjud/application';
 import { UpgradeRuntimeService } from './upgrade-runtime.js';
 import { UPGRADE_TOOL_CATALOG } from './upgrade-catalog.js';
@@ -28,5 +31,17 @@ describe('upgrade runtime', () => {
     const remove = await runtime.execute('permission_check', { action: 'filesystem.delete' });
     expect(read).toMatchObject({ ok: true, value: { decision: 'allow', contextAccess: 'unrestricted' } });
     expect(remove).toMatchObject({ ok: true, value: { decision: 'ask', contextAccess: 'unrestricted' } });
+  });
+
+  it('persists redacted session/task state outside the repository', async () => {
+    const directory = await mkdtemp(path.join(os.tmpdir(), 'lnwjud-runtime-'));
+    const statePath = path.join(directory, 'runtime.json');
+    const first = new UpgradeRuntimeService({ runtimeStatePath: statePath }, actor);
+    await first.execute('session_checkpoint', { summary: 'inspect logs', token: 'must-not-be-retained' });
+    const second = new UpgradeRuntimeService({ runtimeStatePath: statePath }, actor);
+    const resumed = await second.execute('session_context', {});
+    expect(resumed).toMatchObject({ ok: true, value: { checkpoints: [{ summary: 'inspect logs' }] } });
+    const task = await second.execute('task_create', { instruction: 'run tests' });
+    expect(task).toMatchObject({ ok: true, value: { inputDigest: expect.any(String) } });
   });
 });

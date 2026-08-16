@@ -5,7 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { appError, err, ok, type Result } from '@lnwjud/domain';
 import type { Workspace, WorkspaceRepository } from '@lnwjud/workspace';
-import { WorkspaceIndexQueue, type WorkspaceIndexEvent, type WorkspaceIndexQueueOptions, type WorkspaceIndexQueueStatus } from './workspace-index-queue.js';
+import { WorkspaceIndexQueue, type WorkspaceIndexQueueOptions, type WorkspaceIndexQueueStatus } from './workspace-index-queue.js';
 
 export interface WorkspaceIndexEntry {
   readonly relativePath: string;
@@ -66,7 +66,7 @@ export class JsonWorkspaceIndexStore implements WorkspaceIndexStore {
   }
 }
 
-export interface WorkspaceIndexWatchOptions extends WorkspaceIndexQueueOptions {}
+export type WorkspaceIndexWatchOptions = WorkspaceIndexQueueOptions;
 
 export interface WorkspaceIndexStatus {
   readonly indexed: boolean;
