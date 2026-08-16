@@ -540,6 +540,7 @@ function initAutoUpdater(): void {
 function bootstrapDesktop(): void {
   const dataPath = configureDataPath();
   void app.whenReady().then(async () => {
+    app.setAppUserModelId('com.lnwjud.desktop');
     const runtime = createDesktopRuntime(dataPath);
     desktopRuntime = runtime;
     runtime.logHub.setOnLine((line) => broadcastToAllWindows(pushChannels.logEvent, line));
@@ -570,6 +571,7 @@ function bootstrapDesktop(): void {
 function bootstrapLogViewerOnly(): void {
   const dataPath = configureDataPath();
   void app.whenReady().then(async () => {
+    app.setAppUserModelId('com.lnwjud.desktop');
     const runtime = createDesktopRuntime(dataPath);
     desktopRuntime = runtime;
     runtime.logHub.setOnLine((line) => broadcastToAllWindows(pushChannels.logEvent, line));

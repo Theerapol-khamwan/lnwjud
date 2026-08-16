@@ -31,7 +31,6 @@ extraFiles:
     to: lnwjud-mcp-stdio.cmd
 win:
   icon: build/icon.ico
-  signAndEditExecutable: false
   target:
     - target: nsis
       arch:
