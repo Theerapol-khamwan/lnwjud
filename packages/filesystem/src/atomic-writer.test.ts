@@ -20,4 +20,14 @@ describe('AtomicFileWriter', () => {
     expect(result).toEqual({ ok: true, value: undefined });
     await expect(readFile(target, 'utf8')).resolves.toBe('new content\n');
   });
+
+  it('creates missing nested parent directories before writing', async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), 'lnwjud-write-'));
+    temporaryRoots.push(root);
+    const target = path.join(root, 'docs', 'superpowers', 'plans', 'plan.md');
+    const result = await new AtomicFileWriter().write(target, 'nested\n');
+
+    expect(result).toEqual({ ok: true, value: undefined });
+    await expect(readFile(target, 'utf8')).resolves.toBe('nested\n');
+  });
 });

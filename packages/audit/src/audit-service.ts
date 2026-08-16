@@ -58,6 +58,7 @@ export class AuditService {
         toolName: input.toolName,
         callId: input.callId,
         phase: input.phase,
+        ...(input.resultMessage === undefined ? {} : { errorMessage: input.resultMessage }),
       },
     });
   }

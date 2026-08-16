@@ -62,6 +62,7 @@ export function WorkLogPanel(props: WorkLogPanelProps): ReactElement {
             <span className="tag">{tagFor(entry.kind)}</span>
             <strong>{entry.toolName}</strong>
             <span>{entry.targetSummary ?? entry.resultCode}</span>
+            {entry.kind === 'error' && entry.errorMessage !== null ? <span>{entry.errorMessage}</span> : null}
             {entry.kind !== 'task' ? <em>{entry.durationMs}ms</em> : null}
           </div>
         ))}

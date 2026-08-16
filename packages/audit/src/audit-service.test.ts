@@ -54,15 +54,16 @@ describe('AuditService', () => {
       callId: 'call-1',
       phase: 'completed',
       targetSummary: 'src\\app.ts',
-      resultCode: 'SUCCESS',
+      resultCode: 'FILE_NOT_FOUND',
+      resultMessage: 'File or directory was not found',
       durationMs: 8,
     });
 
     expect(repository.events[0]).toMatchObject({
       action: 'mcp_tool:read_file',
       targetSummary: 'src\\app.ts',
-      resultCode: 'SUCCESS',
-      metadata: { toolName: 'read_file', callId: 'call-1', phase: 'completed' },
+      resultCode: 'FILE_NOT_FOUND',
+      metadata: { toolName: 'read_file', callId: 'call-1', phase: 'completed', errorMessage: 'File or directory was not found' },
     });
   });
 });

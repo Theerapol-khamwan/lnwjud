@@ -18,9 +18,9 @@ describe('CommandPolicy', () => {
     expect(policy.decide(permissionProfiles.full, 'cmd.exe', 'project')).toBe('DENY');
   });
 
-  it('denies delete/remove executables', () => {
-    expect(policy.decide(permissionProfiles.full, 'rm.exe', 'client', ['-rf', 'tmp'])).toBe('DENY');
-    expect(policy.decide(permissionProfiles.full, 'del', 'client', ['file.txt'])).toBe('DENY');
+  it('asks before delete/remove executables', () => {
+    expect(policy.decide(permissionProfiles.full, 'rm.exe', 'client', ['-rf', 'tmp'])).toBe('ASK');
+    expect(policy.decide(permissionProfiles.full, 'del', 'client', ['file.txt'])).toBe('ASK');
   });
 
   it('asks before every execute operation in Safe', () => {
@@ -37,14 +37,17 @@ describe('CommandPolicy unrestricted', () => {
     expect(unrestricted.decide(permissionProfiles.full, 'pwsh', 'client')).toBe('ALLOW');
   });
 
-  it('still denies delete/remove executables in unrestricted mode', () => {
-    expect(unrestricted.decide(permissionProfiles.full, 'rm.exe', 'client', ['-rf', 'tmp'])).toBe('DENY');
-    expect(unrestricted.decide(permissionProfiles.full, 'del', 'client', ['file.txt'])).toBe('DENY');
-    expect(unrestricted.decide(permissionProfiles.full, 'remove-item', 'client')).toBe('DENY');
+  it('asks before delete/remove executables in unrestricted mode', () => {
+    expect(unrestricted.decide(permissionProfiles.full, 'rm.exe', 'client', ['-rf', 'tmp'])).toBe('ASK');
+    expect(unrestricted.decide(permissionProfiles.full, 'del', 'client', ['file.txt'])).toBe('ASK');
+    expect(unrestricted.decide(permissionProfiles.full, 'remove-item', 'client')).toBe('ASK');
   });
 
-  it('still denies git clean/reset in unrestricted mode', () => {
-    expect(unrestricted.decide(permissionProfiles.full, 'git', 'client', ['clean', '-fd'])).toBe('DENY');
-    expect(unrestricted.decide(permissionProfiles.full, 'git.exe', 'client', ['reset', '--hard'])).toBe('DENY');
+  it('allows every git subcommand including rm, clean, and reset', () => {
+    expect(unrestricted.decide(permissionProfiles.full, 'git', 'client', ['init'])).toBe('ALLOW');
+    expect(unrestricted.decide(permissionProfiles.full, 'git', 'client', ['rm', '-rf', 'old.txt'])).toBe('ALLOW');
+    expect(unrestricted.decide(permissionProfiles.full, 'git', 'client', ['clean', '-fd'])).toBe('ALLOW');
+    expect(unrestricted.decide(permissionProfiles.full, 'git.exe', 'client', ['reset', '--hard'])).toBe('ALLOW');
+    expect(unrestricted.decide(permissionProfiles.full, 'git', 'client', ['push', '-u', 'origin', 'main'])).toBe('ALLOW');
   });
 });

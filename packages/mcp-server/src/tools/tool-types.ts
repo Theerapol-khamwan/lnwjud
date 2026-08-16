@@ -40,9 +40,9 @@ export interface McpApplicationServices {
   readonly workspaceQuery?: Pick<WorkspaceQueryService, 'tree'>;
   readonly projectSnapshot?: ProjectSnapshotPort;
   readonly project?: Pick<ProjectService, 'detect'>;
-  readonly file?: Pick<FileService, 'readFile' | 'readFiles' | 'writeFile' | 'applyPatch' | 'moveFile' | 'deleteFile'>;
+  readonly file?: Pick<FileService, 'readFile' | 'readFiles' | 'writeFile' | 'applyPatch' | 'moveFile' | 'copyFile' | 'deleteFile'>;
   readonly search?: Pick<SearchService, 'searchFiles' | 'searchText'>;
-  readonly git?: Pick<GitService, 'status' | 'diff' | 'log'>;
+  readonly git?: Pick<GitService, 'status' | 'diff' | 'log' | 'run'>;
   readonly process?: Pick<ProcessService, 'start' | 'status' | 'logs' | 'stop' | 'startProjectCommand'>;
   readonly codex?: Pick<CodexService, 'status' | 'run' | 'taskStatus' | 'taskLogs' | 'stop'>;
 }

@@ -2,6 +2,7 @@ import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
+import { ok } from '@lnwjud/domain';
 import { ShellCapabilityBackend } from './shell-backend.js';
 
 const temporaryRoots: string[] = [];
@@ -137,5 +138,56 @@ describe('ShellCapabilityBackend unrestricted', () => {
     });
 
     expect(result).toMatchObject({ ok: false, error: { code: 'PERMISSION_REQUIRED' } });
+  });
+
+  it('allows git rm and git reset as dry-run', async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), 'lnwjud-shell-'));
+    temporaryRoots.push(root);
+    const backend = new ShellCapabilityBackend({
+      allowedRoots: [root],
+      unrestricted: true,
+      executableResolver: { async resolve(executable) { return ok(executable); } },
+    });
+
+    const rm = await backend.execute({
+      operation: 'run',
+      executable: 'git',
+      arguments: ['rm', 'file.txt'],
+      cwd: root,
+      dry_run: true,
+      execution: 'foreground',
+    });
+    const reset = await backend.execute({
+      operation: 'run',
+      executable: 'git.exe',
+      arguments: ['reset', '--hard'],
+      cwd: root,
+      dry_run: true,
+      execution: 'foreground',
+    });
+
+    expect(rm).toMatchObject({ ok: true, value: { dry_run: true } });
+    expect(reset).toMatchObject({ ok: true, value: { dry_run: true } });
+  });
+
+  it('does not treat powershell git rm as a filesystem delete', async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), 'lnwjud-shell-'));
+    temporaryRoots.push(root);
+    const backend = new ShellCapabilityBackend({
+      allowedRoots: [root],
+      unrestricted: true,
+      executableResolver: { async resolve(executable) { return ok(executable); } },
+    });
+
+    const result = await backend.execute({
+      operation: 'run',
+      executable: 'powershell',
+      arguments: ['-NoProfile', '-Command', 'git rm file.txt'],
+      cwd: root,
+      dry_run: true,
+      execution: 'foreground',
+    });
+
+    expect(result).toMatchObject({ ok: true, value: { dry_run: true } });
   });
 });

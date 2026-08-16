@@ -74,8 +74,8 @@ test('desktop serves the real MCP client development workflow', async () => {
     const tools = await client.listTools();
     expect(tools.tools.map((tool) => tool.name)).toEqual([
       'workspace_list', 'workspace_register', 'workspace_info', 'workspace_tree', 'project_snapshot', 'read_file', 'read_files',
-      'search_files', 'search_text', 'git_status', 'git_diff', 'git_log', 'write_file',
-      'apply_patch', 'move_file', 'delete_file', 'process_start', 'process_status',
+      'search_files', 'search_text', 'git_status', 'git_diff', 'git_log', 'git', 'write_file',
+      'apply_patch', 'move_file', 'copy_file', 'delete_file', 'process_start', 'process_status',
       'process_logs', 'process_stop', 'project_dev', 'project_test', 'project_lint',
       'project_typecheck', 'project_build', 'codex_status', 'codex_run',
       'codex_task_status', 'codex_task_logs', 'codex_stop',

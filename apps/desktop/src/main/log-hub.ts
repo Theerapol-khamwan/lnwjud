@@ -83,7 +83,7 @@ export class LogHub {
         'mcp',
         `entry:${entry.id}`,
         entry.kind === 'error' ? 'error' : 'info',
-        `${entry.kind === 'task' ? '[TASK]' : entry.kind === 'error' ? '[ERROR]' : '[RESULT]'} ${entry.toolName} ${entry.resultCode}${entry.targetSummary === null ? '' : ` — ${entry.targetSummary}`}`,
+        `${entry.kind === 'task' ? '[TASK]' : entry.kind === 'error' ? '[ERROR]' : '[RESULT]'} ${entry.toolName} ${entry.resultCode}${entry.errorMessage === null || entry.errorMessage === undefined || entry.errorMessage.length === 0 ? '' : ` — ${entry.errorMessage}`}${entry.targetSummary === null ? '' : ` — ${entry.targetSummary}`}`,
       );
     }
   }
@@ -177,6 +177,7 @@ export interface WorkLogFeedEntry {
   readonly kind: 'task' | 'result' | 'error';
   readonly toolName: string;
   readonly resultCode: string;
+  readonly errorMessage?: string | null;
   readonly targetSummary: string | null;
 }
 

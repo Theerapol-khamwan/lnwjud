@@ -8,6 +8,7 @@ export interface ActivitySinkEvent {
   readonly durationMs: number;
   readonly workspaceId?: string;
   readonly targetSummary?: string;
+  readonly resultMessage?: string;
   readonly timestamp: string;
 }
 
@@ -58,7 +59,7 @@ export class ActivityTracker {
     return callId;
   }
 
-  public async end(callId: string, resultCode: string, durationMs: number): Promise<void> {
+  public async end(callId: string, resultCode: string, durationMs: number, resultMessage?: string): Promise<void> {
     const existing = this.inflight.get(callId);
     this.inflight.delete(callId);
     const timestamp = new Date().toISOString();
@@ -71,6 +72,7 @@ export class ActivityTracker {
       timestamp,
       ...(existing?.workspaceId === undefined ? {} : { workspaceId: existing.workspaceId }),
       ...(existing?.targetSummary === undefined ? {} : { targetSummary: existing.targetSummary }),
+      ...(resultMessage === undefined || resultMessage.length === 0 ? {} : { resultMessage }),
     });
   }
 
@@ -86,7 +88,7 @@ export class ActivityTracker {
 
 export function summarizeToolTarget(toolName: string, input: unknown): string | undefined {
   if (!isRecord(input)) return undefined;
-  const pathValue = firstString(input, ['path', 'relativePath', 'filePath', 'targetPath']);
+  const pathValue = firstString(input, ['path', 'relativePath', 'filePath', 'targetPath', 'sourcePath', 'destinationPath']);
   if (pathValue !== undefined) return truncate(pathValue, 160);
   const query = firstString(input, ['query', 'pattern']);
   if (query !== undefined) return truncate(query, 120);

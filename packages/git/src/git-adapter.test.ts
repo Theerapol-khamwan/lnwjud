@@ -47,6 +47,23 @@ describe('GitAdapter', () => {
     expect(runner.calls[0]?.args).toEqual(['log', '--no-color', '--format=%H%x1f%an%x1f%aI%x1f%s%x1e', '-n', '3', '--']);
   });
 
+  it('returns stdout, stderr, and a non-zero exit code for a failing git command', async () => {
+    const runner = new FakeGitRunner({ exitCode: 1, stdout: '', stderr: 'nothing to commit' });
+    const result = await new GitAdapter(runner).run('C:\\workspace', ['commit', '-m', 'empty']);
+
+    expect(result).toEqual({ ok: true, value: { exitCode: 1, stdout: '', stderr: 'nothing to commit' } });
+    expect(runner.calls).toEqual([{ args: ['commit', '-m', 'empty'], cwd: 'C:\\workspace' }]);
+  });
+
+  it('rejects an empty git argv', async () => {
+    const runner = new FakeGitRunner({ exitCode: 0, stdout: '', stderr: '' });
+    await expect(new GitAdapter(runner).run('C:\\workspace', [])).resolves.toMatchObject({
+      ok: false,
+      error: { code: 'INVALID_INPUT' },
+    });
+    expect(runner.calls).toEqual([]);
+  });
+
   it('maps a non-repository exit to a structured error', async () => {
     const runner = new FakeGitRunner({ exitCode: 128, stdout: '', stderr: 'fatal: not a git repository' });
 

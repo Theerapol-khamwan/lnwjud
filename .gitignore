@@ -1,13 +1,22 @@
+# Dependencies & Package Managers
 node_modules/
+.pnpm-store/
+
+# Build & Compilation
 dist/
+build/
+*.tsbuildinfo
+*.tsbuildinfo.*
+*.last-run.json
+
+# Test & Coverage
 coverage/
 test-results/
-.pnpm-store/
-*.tsbuildinfo
-*.db
-*.db-*
+
+# Environment Variables & Secrets
 .env
 .env.*
+.env.local
 !.env.example
 *.pem
 *.key
@@ -16,3 +25,30 @@ id_ed25519*
 .ssh/
 .aws/
 credentials.json
+
+# Local Databases & Storage
+*.db
+*.db-*
+*.sqlite
+*.sqlite3
+
+# Logs & Diagnostics
+*.log
+logs/
+diagnostics/
+
+# Scratch & Codebase Dumps
+repomix-output.xml
+scripts/analyze_*.py
+scripts/audit_*.py
+
+# IDE & Editor Settings
+.cursor/
+.vscode/*
+!.vscode/extensions.json
+!.vscode/settings.json
+.idea/
+*.swp
+*.swo
+.DS_Store
+Thumbs.db

@@ -60,6 +60,7 @@ export interface WorkLogEntry {
   readonly kind: 'task' | 'result' | 'error';
   readonly toolName: string;
   readonly resultCode: string;
+  readonly errorMessage: string | null;
   readonly targetSummary: string | null;
   readonly durationMs: number;
   readonly workspaceId: string | null;

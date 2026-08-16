@@ -149,7 +149,7 @@ export function capabilityTools(context: McpToolContext): McpToolDefinition[] {
     }),
     defineTool({
       name: 'scheduler',
-      description: 'Manage Windows scheduled tasks with schtasks.exe. list enumerates tasks, create registers a new task, run starts one immediately, and delete removes one. Windows only.',
+      description: 'Manage Windows scheduled tasks with schtasks.exe. list enumerates tasks, create registers a new task, run starts one immediately. delete requires the user to confirm in chat first, then pass userConfirmed: true.',
       permission: 'DANGEROUS',
       annotations: { readOnlyHint: false, destructiveHint: true },
       inputSchema: schedulerCapabilitySchema,

@@ -41,7 +41,14 @@ export class SchedulerCapabilityBackend implements CapabilityBackend {
       switch (request.action) {
         case 'list': return ok({ tasks: await this.list() });
         case 'create': return ok(await this.create(request.taskName, request.command, request.arguments ?? [], request.schedule ?? 'DAILY', request.startTime ?? '09:00'));
-        case 'delete': return ok(await this.delete(request.taskName));
+        case 'delete':
+          if (request.userConfirmed !== true) {
+            return err(appError(
+              'PERMISSION_REQUIRED',
+              'Deleting a scheduled task requires the user to confirm in chat first, then retry scheduler with userConfirmed: true',
+            ));
+          }
+          return ok(await this.delete(request.taskName));
         case 'run': return ok(await this.run(request.taskName));
       }
     } catch (error: unknown) {
@@ -105,6 +112,7 @@ interface SchedulerRequest {
   readonly arguments: readonly string[];
   readonly schedule: string;
   readonly startTime: string;
+  readonly userConfirmed: boolean;
 }
 
 function parseRequest(value: unknown): Result<SchedulerRequest> {
@@ -133,6 +141,7 @@ function parseRequest(value: unknown): Result<SchedulerRequest> {
   if (action === 'create' && (typeof startTime !== 'string' || !/^([01]\d|2[0-3]):[0-5]\d$/.test(startTime))) {
     return err(appError('INVALID_INPUT', 'start_time must be HH:MM'));
   }
+  const userConfirmed = value.userConfirmed === true;
   return ok({
     action,
     taskName: typeof taskName === 'string' ? taskName.trim() : '',
@@ -140,6 +149,7 @@ function parseRequest(value: unknown): Result<SchedulerRequest> {
     arguments: action === 'create' && Array.isArray(argumentsValue) ? argumentsValue.filter((entry): entry is string => typeof entry === 'string') : [],
     schedule: typeof schedule === 'string' ? schedule.toUpperCase() : 'DAILY',
     startTime: typeof startTime === 'string' ? startTime : '09:00',
+    userConfirmed,
   });
 }
 

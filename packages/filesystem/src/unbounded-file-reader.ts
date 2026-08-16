@@ -27,6 +27,16 @@ export class UnboundedFileReader {
     }
 
     const mimeType = guessMimeType(filePath);
+    if (mimeType.startsWith('image/')) {
+      return ok({
+        content: data.toString('base64'),
+        encoding: 'base64',
+        mimeType,
+        byteLength: data.byteLength,
+        startLine: 1,
+        endLine: 1,
+      });
+    }
     if (!data.subarray(0, 8192).includes(0)) {
       const content = data.toString('utf8');
       const lineCount = content.length === 0 ? 0 : content.split(/\r?\n/).length;
@@ -61,6 +71,12 @@ function guessMimeType(filePath: string): string {
     case '.webp': return 'image/webp';
     case '.bmp': return 'image/bmp';
     case '.svg': return 'image/svg+xml';
+    case '.ico': return 'image/x-icon';
+    case '.tif':
+    case '.tiff': return 'image/tiff';
+    case '.heic': return 'image/heic';
+    case '.heif': return 'image/heif';
+    case '.avif': return 'image/avif';
     case '.pdf': return 'application/pdf';
     case '.json': return 'application/json';
     case '.txt':

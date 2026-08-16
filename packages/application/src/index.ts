@@ -1,4 +1,5 @@
 export * from './file-service.js';
+export * from './workspace-locator.js';
 export * from './checkpoint-service.js';
 export * from './codex-service.js';
 export * from './doctor-service.js';

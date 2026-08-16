@@ -38,6 +38,19 @@ describe('SchedulerCapabilityBackend', () => {
     ]));
   });
 
+  it('requires confirmation before deleting a scheduled task', async () => {
+    const runImpl = vi.fn(async (): Promise<{ stdout: string; stderr: string }> => ({ stdout: 'SUCCESS', stderr: '' }));
+    const backend = new SchedulerCapabilityBackend({ platform: 'win32', runImpl });
+
+    await expect(backend.execute({ action: 'delete', task_name: 'LnwjudTest' }))
+      .resolves.toMatchObject({ ok: false, error: { code: 'PERMISSION_REQUIRED' } });
+    expect(runImpl).not.toHaveBeenCalled();
+
+    await expect(backend.execute({ action: 'delete', task_name: 'LnwjudTest', userConfirmed: true }))
+      .resolves.toMatchObject({ ok: true, value: { deleted: true, task_name: 'LnwjudTest' } });
+    expect(runImpl).toHaveBeenCalledWith('schtasks.exe', ['/Delete', '/TN', 'LnwjudTest', '/F']);
+  });
+
   it('rejects invalid task names', async () => {
     const backend = new SchedulerCapabilityBackend({ platform: 'win32', runImpl: async (): Promise<{ stdout: string; stderr: string }> => ({ stdout: '', stderr: '' }) });
 

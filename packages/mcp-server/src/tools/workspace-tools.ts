@@ -49,7 +49,7 @@ export function workspaceTools(context: McpToolContext): McpToolDefinition[] {
     }),
     defineTool({
       name: 'workspace_tree',
-      description: 'List a bounded workspace tree.',
+      description: 'List a bounded workspace tree. Absolute path does not require workspaceId.',
       permission: 'READ',
       annotations: { readOnlyHint: true, destructiveHint: false },
       inputSchema: workspaceTreeSchema,

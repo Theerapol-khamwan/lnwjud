@@ -12,7 +12,7 @@ const execFileAsync = promisify(execFile);
 const PROFILE_NAME = 'lnwjud';
 const SECRET_FILE = 'lnwjud.runtime.secret';
 const CLIENT_PATH_SETTING = 'tunnel_client_path';
-const MCP_CONNECTION_MAX_TTL = '168h';
+const MCP_CONNECTION_MAX_TTL = '168h0m0s';
 const EXTERNAL_PROBE_TTL_MS = 4_000;
 
 export interface TunnelControllerOptions {

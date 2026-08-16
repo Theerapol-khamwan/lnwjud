@@ -121,7 +121,7 @@ export function createDesktopRuntime(dataPath: string): DesktopRuntime {
     unrestricted,
   });
   const workspaceInfoService = new WorkspaceInfoService(workspaceRepository, workspaceService, unrestricted);
-  const workspaceQueryService = new WorkspaceQueryService(workspaceRepository);
+  const workspaceQueryService = new WorkspaceQueryService(workspaceRepository, pathGuard);
   const searchService = new SearchService(workspaceRepository);
   const projectSnapshotService = new ProjectSnapshotService(workspaceRepository, {
     projectService,
@@ -136,7 +136,7 @@ export function createDesktopRuntime(dataPath: string): DesktopRuntime {
   const capabilityRuntime = createLocalCapabilityRuntime(dataPath, async (): Promise<readonly string[]> => (
     (await workspaceRepository.list()).map((workspace) => workspace.realRootPath)
   ), unrestricted);
-  // Ensure machine roots exist (E:\ only by default; every fixed drive in unrestricted mode).
+  // Ensure machine roots exist (every fixed drive in unrestricted mode, which is the default).
   const machineRootReady = syncMachineRoots(workspaceService, unrestricted);
   const extensionsService: ExtensionsService = createLocalExtensionsService({
     settingsJson: settingsRepository.get(EXTENSIONS_SETTINGS_KEY),
@@ -169,6 +169,7 @@ export function createDesktopRuntime(dataPath: string): DesktopRuntime {
         phase: event.phase,
         ...(event.targetSummary === undefined ? {} : { targetSummary: event.targetSummary }),
         resultCode: event.resultCode,
+        ...(event.resultMessage === undefined ? {} : { resultMessage: event.resultMessage }),
         durationMs: event.durationMs,
         timestamp: event.timestamp,
       });
@@ -530,6 +531,7 @@ async function buildWorkLog(
         kind,
         toolName,
         resultCode: event.resultCode,
+        errorMessage: typeof event.metadata.errorMessage === 'string' ? event.metadata.errorMessage : null,
         targetSummary: event.targetSummary ?? null,
         durationMs: event.durationMs,
         workspaceId: event.workspaceId ?? null,

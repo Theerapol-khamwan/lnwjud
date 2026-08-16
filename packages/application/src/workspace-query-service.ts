@@ -1,7 +1,8 @@
-import { appError, err, type Result } from '@lnwjud/domain';
+import { type Result } from '@lnwjud/domain';
 import { TreeReader, type TreeOptions, type TreeResult } from '@lnwjud/filesystem';
 import { WorkspacePathGuard, type WorkspaceRepository } from '@lnwjud/workspace';
 import type { FileActor } from './file-service.js';
+import { resolveWorkspaceForPath } from './workspace-locator.js';
 
 export interface TreeRequest extends TreeOptions {
   readonly path?: string;
@@ -14,11 +15,12 @@ export class WorkspaceQueryService {
     private readonly treeReader: TreeReader = new TreeReader(),
   ) {}
 
-  public async tree(actor: FileActor, workspaceId: string, request: TreeRequest = {}): Promise<Result<TreeResult>> {
+  public async tree(actor: FileActor, workspaceId: string | undefined, request: TreeRequest = {}): Promise<Result<TreeResult>> {
     void actor;
-    const workspace = await this.workspaces.get(workspaceId);
-    if (workspace === null) return err(appError('WORKSPACE_NOT_FOUND', 'Workspace was not found'));
-    const resolved = await this.guard.resolveForRead(workspace, request.path ?? '.');
+    const hintPath = request.path ?? '.';
+    const workspace = await resolveWorkspaceForPath(this.workspaces, workspaceId, hintPath);
+    if (!workspace.ok) return workspace;
+    const resolved = await this.guard.resolveForRead(workspace.value, hintPath);
     if (!resolved.ok) return resolved;
     return this.treeReader.read(resolved.value.realPath ?? resolved.value.absolutePath, request);
   }

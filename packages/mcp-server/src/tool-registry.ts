@@ -61,34 +61,42 @@ export class ToolRegistry {
       const tool = this.tools.find((candidate) => candidate.name === name);
       if (tool === undefined) {
         const response = mapError(appError('INVALID_INPUT', 'Unknown MCP tool'));
-        await this.activity.end(callId, 'INVALID_INPUT', Date.now() - started);
+        await this.activity.end(callId, 'INVALID_INPUT', Date.now() - started, 'Unknown MCP tool');
         return response;
       }
       const parsed = tool.parse(input);
       if (!parsed.ok) {
         const response = mapError(parsed.error);
-        await this.activity.end(callId, parsed.error.code, Date.now() - started);
+        await this.activity.end(callId, parsed.error.code, Date.now() - started, parsed.error.message);
         return response;
       }
       const response = mapResult(await tool.execute(parsed.value));
       const resultCode = response.isError === true
         ? readErrorCode(response) ?? 'ERROR'
         : 'SUCCESS';
-      await this.activity.end(callId, resultCode, Date.now() - started);
+      await this.activity.end(callId, resultCode, Date.now() - started, readErrorMessage(response));
       return response;
     } catch (error: unknown) {
       const response = mapError(sanitizeException(error, this.diagnostic));
-      await this.activity.end(callId, 'INTERNAL_ERROR', Date.now() - started);
+      await this.activity.end(callId, 'INTERNAL_ERROR', Date.now() - started, 'Operation failed');
       return response;
     }
   }
 }
 
 function readErrorCode(response: McpToolResponse): string | undefined {
+  return readErrorField(response, 'code');
+}
+
+function readErrorMessage(response: McpToolResponse): string | undefined {
+  return readErrorField(response, 'message');
+}
+
+function readErrorField(response: McpToolResponse, field: 'code' | 'message'): string | undefined {
   const content = response.structuredContent;
   if (typeof content !== 'object' || content === null || !('error' in content)) return undefined;
   const error = (content as { error?: unknown }).error;
-  if (typeof error !== 'object' || error === null || !('code' in error)) return undefined;
-  const code = (error as { code?: unknown }).code;
-  return typeof code === 'string' ? code : undefined;
+  if (typeof error !== 'object' || error === null || !(field in error)) return undefined;
+  const value = (error as Record<string, unknown>)[field];
+  return typeof value === 'string' ? value : undefined;
 }

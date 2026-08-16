@@ -82,7 +82,7 @@ export function createStdioMcpRuntime(dataPath: string, workspace: Workspace, un
     unrestricted,
   });
   const gitService = new GitService(workspaceRepository);
-  const workspaceQuery = new WorkspaceQueryService(workspaceRepository);
+  const workspaceQuery = new WorkspaceQueryService(workspaceRepository, pathGuard);
   const extensions = createLocalExtensionsService({
     settingsJson: settingsRepository.get(EXTENSIONS_SETTINGS_KEY),
     workspaceRootProvider: async (): Promise<string> => workspace.realRootPath,
@@ -109,6 +109,7 @@ export function createStdioMcpRuntime(dataPath: string, workspace: Workspace, un
         phase: event.phase,
         ...(event.targetSummary === undefined ? {} : { targetSummary: event.targetSummary }),
         resultCode: event.resultCode,
+        ...(event.resultMessage === undefined ? {} : { resultMessage: event.resultMessage }),
         durationMs: event.durationMs,
         timestamp: event.timestamp,
       });

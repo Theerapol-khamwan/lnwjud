@@ -5,20 +5,21 @@ export function searchTools(context: McpToolContext): McpToolDefinition[] {
   return [
     defineTool({
       name: 'search_files',
-      description: 'Search workspace filenames with bounded results.',
+      description: 'Search workspace filenames. Absolute path does not require workspaceId.',
       permission: 'READ',
       annotations: { readOnlyHint: true, destructiveHint: false },
       inputSchema: searchFilesSchema,
       handler: async (input) => context.services.search === undefined
         ? missingService()
         : context.services.search.searchFiles(context.actor, input.workspaceId, {
+          ...(input.path === undefined ? {} : { path: input.path }),
           ...(input.glob === undefined ? {} : { glob: input.glob }),
           ...(input.maxResults === undefined ? {} : { maxResults: input.maxResults }),
         }),
     }),
     defineTool({
       name: 'search_text',
-      description: 'Search workspace text using direct ripgrep arguments.',
+      description: 'Search workspace text using direct ripgrep arguments. Absolute path does not require workspaceId.',
       permission: 'READ',
       annotations: { readOnlyHint: true, destructiveHint: false },
       inputSchema: searchTextSchema,
@@ -26,6 +27,7 @@ export function searchTools(context: McpToolContext): McpToolDefinition[] {
         ? missingService()
         : context.services.search.searchText(context.actor, input.workspaceId, {
           query: input.query,
+          ...(input.path === undefined ? {} : { path: input.path }),
           ...(input.glob === undefined ? {} : { glob: input.glob }),
           ...(input.maxResults === undefined ? {} : { maxResults: input.maxResults }),
         }),

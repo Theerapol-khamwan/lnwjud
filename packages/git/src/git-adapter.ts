@@ -34,6 +34,17 @@ export interface GitLogResult {
   readonly truncated: boolean;
 }
 
+export interface GitCommandResult {
+  readonly exitCode: number;
+  readonly stdout: string;
+  readonly stderr: string;
+}
+
+const MAX_GIT_ARGS = 128;
+const MAX_GIT_ARG_LENGTH = 32_768;
+const DEFAULT_GIT_TIMEOUT_MS = 60_000;
+const MAX_GIT_TIMEOUT_MS = 300_000;
+
 export class GitAdapter {
   public constructor(private readonly runner: GitRunner = new DirectGitRunner()) {}
 
@@ -76,6 +87,29 @@ export class GitAdapter {
         : [];
     });
     return ok({ entries, truncated: bounded.truncated });
+  }
+
+  public async run(cwd: string, args: readonly string[], timeoutMs: number = DEFAULT_GIT_TIMEOUT_MS): Promise<Result<GitCommandResult>> {
+    const validation = this.validateArgs(args, timeoutMs);
+    if (!validation.ok) return validation;
+    const result = await this.runner.run(args, cwd, { timeoutMs });
+    if (result.exitCode === -1 && /ENOENT/i.test(result.stderr)) {
+      return err(appError('EXECUTABLE_NOT_FOUND', 'Git executable was not found'));
+    }
+    return ok({ exitCode: result.exitCode, stdout: result.stdout, stderr: result.stderr });
+  }
+
+  private validateArgs(args: readonly string[], timeoutMs: number): Result<void> {
+    if (!Array.isArray(args) || args.length === 0 || args.length > MAX_GIT_ARGS) {
+      return err(appError('INVALID_INPUT', 'Git args must be a non-empty array'));
+    }
+    if (!args.every((arg) => typeof arg === 'string' && arg.length > 0 && arg.length <= MAX_GIT_ARG_LENGTH)) {
+      return err(appError('INVALID_INPUT', 'Git args must be non-empty strings'));
+    }
+    if (!Number.isFinite(timeoutMs) || timeoutMs < 100 || timeoutMs > MAX_GIT_TIMEOUT_MS) {
+      return err(appError('INVALID_INPUT', 'Git timeout is invalid'));
+    }
+    return ok(undefined);
   }
 
   private mapError(result: GitRunResult): Result<never> | null {

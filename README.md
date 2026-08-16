@@ -1,4 +1,15 @@
-# lnwjud
+<p align="center">
+  <img src="assets/logo/logo-256x256.png" width="160" alt="lnwjud logo" />
+</p>
+
+<h1 align="center">lnwjud</h1>
+
+<p align="center">
+  <strong>Windows-first Local Development & MCP Gateway for AI Agents</strong><br />
+  <em>Supercharge ChatGPT, Codex, and Claude with native Windows capabilities, secure tunnels, and live monitoring.</em>
+</p>
+
+---
 
 lnwjud is a Windows-first local development gateway that exposes an approved
 development workspace through [Model Context Protocol (MCP)](https://modelcontextprotocol.io).
@@ -11,10 +22,11 @@ receive a public shell and does not read the local Codex configuration. For a
 ChatGPT web connection, OpenAI Secure MCP Tunnel forwards MCP requests to a
 local lnwjud process; the tunnel is outbound-only.
 
-> **Security boundary:** lnwjud is workspace-scoped and policy-checked. It is
-> not an unrestricted administrator shell. Full Access changes the approval
-> profile, but it does not remove operating-system hard blocks, path guards, or
-> the prohibition on arbitrary shell-string execution.
+> **Security boundary:** lnwjud is still path-checked and policy-checked. It is
+> not an administrator shell. Unrestricted mode is **on by default** so every
+> local drive can be used. Filesystem deletion still requires a human
+> confirmation. Disk format / shutdown stay hard-blocked. Every Git subcommand
+> including `git rm`, `git clean`, and `git reset` is allowed.
 
 ## Choose a connection mode
 
@@ -100,12 +112,18 @@ corepack pnpm@10.15.0 install --frozen-lockfile
 Do not silently upgrade the package manager: the lockfile is pinned to
 pnpm@10.15.0.
 
+### Configure Environment
+
+```powershell
+Copy-Item .env.example .env
+```
+
 ### Build and run the desktop dashboard
 
 One command from the repository root:
 
 ```powershell
-Set-Location E:\lnwjud
+Set-Location .\lnwjud
 corepack pnpm@10.15.0 desktop
 ```
 
@@ -170,10 +188,10 @@ escapes, and applies the secret policy after resolution.
 | custom | configured | configured | configured | configured | Host-defined policy |
 
 Desktop MCP and stdio MCP runtimes force the **full** profile so every tool
-(including skills/MCP bridge meta-tools) runs with full access. Full Access is
-still not an administrator bypass: path validation, secret-file policy,
-shell-host blocking, process ownership, Windows privilege limits, and
-destructive Git hard blocks still apply.
+(including skills/MCP bridge meta-tools) runs with full access. Unrestricted
+mode is on by default (every fixed drive is a machine root). Filesystem
+deletion-style commands require confirmation. Disk format, shutdown, and reboot
+stay hard-blocked. Git including `rm` / `clean` / `reset` is allowed.
 
 ### Optional local capability roots
 
@@ -318,10 +336,11 @@ log:
   level: info
   format: json
 mcp:
-  # Do not put connection_max_ttl in YAML if your tunnel-client build rejects it.
-  # Force a long ceiling via flag/env instead (default is only 10m):
-  #   --mcp.connection-max-ttl 168h
-  #   MCP_CONNECTION_MAX_TTL=168h
+  # Force a long ceiling via flag/env/YAML (default is only 10m):
+  #   --mcp.connection-max-ttl 168h0m0s
+  #   MCP_CONNECTION_MAX_TTL=168h0m0s
+  #   mcp.connection_max_ttl: 168h0m0s  (snake_case; hyphenated YAML key is rejected)
+  connection_max_ttl: 168h0m0s
   commands:
     - channel: main
       command: "C:/Users/<WindowsUser>/AppData/Local/Programs/lnwjud/lnwjud-mcp-stdio.cmd"
@@ -336,10 +355,10 @@ Manual session (still supported):
 
 ```powershell
 $env:CONTROL_PLANE_API_KEY = '<runtime-key-for-this-session>'
-$env:MCP_CONNECTION_MAX_TTL = '168h'
+$env:MCP_CONNECTION_MAX_TTL = '168h0m0s'
 & $tc doctor --profile lnwjud --explain
 if ($LASTEXITCODE -ne 0) { throw 'tunnel-client doctor failed' }
-& $tc run --profile lnwjud --mcp.connection-max-ttl 168h
+& $tc run --profile lnwjud --mcp.connection-max-ttl 168h0m0s
 ```
 
 Keep this process and the child `lnwjud-mcp-stdio.cmd` process alive while
@@ -518,29 +537,32 @@ from the desktop dashboard and use its workspace ID.
 
 | Tool | Permission | What it does |
 | --- | --- | --- |
-| read_file | READ | Reads a workspace file (UTF-8 text, or base64 for binary/images under E:\\; no app size cap on E:\\) |
-| read_files | READ | Reads up to 20 workspace files (aggregate size cap applies outside E:\\ only) |
+| read_file | READ | Reads a workspace file as UTF-8 or an image/binary payload. Absolute paths do not require workspaceId. |
+| read_files | READ | Reads up to 20 workspace files. Absolute paths do not require workspaceId. |
 | search_files | READ | Searches workspace filenames with bounded results |
 | search_text | READ | Searches text through direct ripgrep arguments; no shell string is built |
-| write_file | WRITE | Writes UTF-8 text and checkpoints an existing target before overwrite |
-| apply_patch | WRITE | Validates and atomically applies bounded file changes |
-| move_file | WRITE | Moves a file within one authorized workspace |
-| delete_file | DANGEROUS | Deletes one file or an empty directory; recursive deletion is not exposed |
+| write_file | WRITE | Writes UTF-8 text, creates missing parents, and checkpoints an existing target before overwrite |
+| apply_patch | WRITE | Validates and applies bounded file changes, creating missing parents |
+| move_file | WRITE | Moves a file or directory within one workspace, creating missing destination parents |
+| copy_file | WRITE | Copies a file or directory within one workspace, creating missing destination parents |
+| delete_file | DANGEROUS | Deletes one file or an empty directory after the user confirms in chat (`userConfirmed: true`) |
 
 Default-denied secrets apply only to workspaces **outside** `E:\`. Under the
 trusted `E:\` agent surface, `.env`, `.env.*`, `*.pem`, `*.key`, `id_rsa*`,
 `id_ed25519*`, `.ssh/**`, `.aws/**`, and `credentials.json` are readable.
 
-### Git inspection
+### Git
 
 | Tool | Permission | What it does |
 | --- | --- | --- |
+| git | EXECUTE | Runs any git subcommand immediately (`args` array; `cwd` may be absolute) |
 | git_status | READ | Parsed read-only working-tree status |
 | git_diff | READ | Bounded read-only diff with truncation metadata |
 | git_log | READ | Bounded structured commit history |
 
-No MCP tool automatically commits changes. Destructive reset/clean operations
-are not exposed.
+Use `git` for init, add, commit, remote, push, pull, rm, clean, reset, and
+branch deletes. `git_status` / `git_diff` / `git_log` remain structured
+read-only views. Filesystem `rm` / `del` / `delete_file` still need confirmation.
 
 ### Processes and project commands
 
@@ -591,7 +613,7 @@ Typical flow: codex_run → poll task status/logs → inspect git_diff → run c
 | audio | DANGEROUS | Microphone WAV recording (up to 600s), local audio playback, stop |
 | screen_record | DANGEROUS | ffmpeg gdigrab screen recording with start/stop/status (requires ffmpeg on PATH) |
 | office | DANGEROUS | Excel range read/write/save_as and Word read_text/replace/save_as via COM (requires Office) |
-| scheduler | DANGEROUS | Windows scheduled task list/create/run/delete via schtasks.exe (argument arrays, shell false) |
+| scheduler | DANGEROUS | Windows scheduled task list/create/run; delete requires userConfirmed after a chat confirmation |
 
 Use dom_cdp for web pages, accessibility for semantic native controls, and
 input_event only as a low-level fallback. shell remains direct executable
@@ -686,9 +708,9 @@ When enabled:
 - Shell working directories may be anywhere and the full environment is passed
   through to child processes.
 
-Still blocked in every mode: `del`/`erase`/`rm`/`rmdir`/`rd`/`unlink`/
-`remove-item`, `git clean`, `git reset`, and `delete_file` without
-`userConfirmed: true`.
+Still blocked in every mode: filesystem `del`/`erase`/`rm`/`rmdir`/`rd`/
+`unlink`/`remove-item`, and `delete_file` without `userConfirmed: true`.
+Git subcommands including `git rm`, `git clean`, and `git reset` are allowed.
 
 ## Real-time Live Logs
 
@@ -729,12 +751,12 @@ run it instead of a manual `tunnel-client run`:
 powershell -NoProfile -ExecutionPolicy Bypass -File "C:\Users\<WindowsUser>\Downloads\tunnel\start-lnwjud-tunnel.ps1"
 ```
 
-The script sets `--mcp.connection-max-ttl 168h` (prevents the 10-minute
+The script sets `--mcp.connection-max-ttl 168h0m0s` (prevents the 10-minute
 disconnect), writes `lnwjud-tunnel.log`, aligns `LNWJUD_DATA_PATH` with the
 desktop app so ChatGPT activity shows in the Work Log and Live Logs, enables
-unrestricted mode, restarts the tunnel automatically when it drops, avoids
-double-starting, and opens the log viewer window. Parameters: `-NoViewer`,
-`-OpenDashboard`, `-ForceRestart`.
+unrestricted mode, restarts the tunnel automatically when it drops (including
+TTL shutdowns that exit 0), avoids double-starting, and opens the log viewer
+window. Parameters: `-NoViewer`, `-OpenDashboard`, `-ForceRestart`, `-Once`.
 
 ## คู่มือภาษาไทย (Thai manual)
 
@@ -789,8 +811,10 @@ read_arbitrary_path
 ```
 
 `powershell` and `cmd` are not standalone tools. They are executable names:
-`process_start`/`shell` allow them in unrestricted mode and deny them
-otherwise; deletion-style invocations stay blocked in every mode.
+`process_start`/`shell` allow them in unrestricted mode (the default) and deny
+them otherwise; filesystem deletion-style invocations require confirmation.
+Git itself is invoked with the `git` tool or `shell` + `git.exe`, not as
+standalone `git_reset` / `git_clean` tools.
 
 ## Troubleshooting
 
@@ -808,9 +832,9 @@ otherwise; deletion-style invocations stay blocked in every mode.
 | process_start refuses PowerShell/CMD | Shell hosts are denied in default mode; enable Unrestricted mode to allow cmd/powershell/pwsh (deletion commands stay blocked) |
 | Child process windows are visible | This is expected for the current visible-window Windows build; use handles/logs to manage them |
 | codex_status is unavailable | Install Codex or continue with process_* and project_*; lnwjud does not inspect credentials |
-| Tunnel disconnects with context canceled / context deadline exceeded | Usually MCP connection TTL teardown; keep one launcher open (auto-restart). After restart, Refresh the connector or start a new ChatGPT message |
+| Tunnel disconnects with context canceled / context deadline exceeded | MCP connection TTL teardown; start-lnwjud-tunnel.ps1 restarts even on exit 0. After restart, Refresh the connector or send a new ChatGPT message |
 | ChatGPT advertises old tools | Restart server/tunnel, Refresh the connector, and start a new conversation |
-| Long tool run looks dead / silent | lnwjud emits progress heartbeats every ~15s after the first 15s; ensure tunnel-client is current and TTL is set via `--mcp.connection-max-ttl 168h` |
+| Long tool run looks dead / silent | lnwjud emits progress heartbeats every ~15s after the first 15s; ensure tunnel-client is current and TTL is set via `--mcp.connection-max-ttl 168h0m0s` |
 
 For ambiguous failures, call health locally and run tunnel-client doctor
 --explain before restarting both layers.

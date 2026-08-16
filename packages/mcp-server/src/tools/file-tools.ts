@@ -1,11 +1,19 @@
 import { defineTool, missingService, type McpToolContext, type McpToolDefinition } from './tool-types.js';
-import { applyPatchSchema, deleteFileSchema, moveFileSchema, readFileSchema, readFilesSchema, writeFileSchema } from './schemas.js';
+import {
+  applyPatchSchema,
+  copyFileSchema,
+  deleteFileSchema,
+  moveFileSchema,
+  readFileSchema,
+  readFilesSchema,
+  writeFileSchema,
+} from './schemas.js';
 
 export function fileTools(context: McpToolContext): McpToolDefinition[] {
   return [
     defineTool({
       name: 'read_file',
-      description: 'Read bounded UTF-8 text from a workspace file.',
+      description: 'Read a workspace file as UTF-8 text or as an image/binary payload. Absolute paths (C:\\...) do not require workspaceId.',
       permission: 'READ',
       annotations: { readOnlyHint: true, destructiveHint: false },
       inputSchema: readFileSchema,
@@ -19,7 +27,7 @@ export function fileTools(context: McpToolContext): McpToolDefinition[] {
     }),
     defineTool({
       name: 'read_files',
-      description: 'Read up to twenty bounded UTF-8 workspace files.',
+      description: 'Read up to twenty workspace files. Absolute paths do not require workspaceId.',
       permission: 'READ',
       annotations: { readOnlyHint: true, destructiveHint: false },
       inputSchema: readFilesSchema,
@@ -35,7 +43,7 @@ export function fileTools(context: McpToolContext): McpToolDefinition[] {
     }),
     defineTool({
       name: 'write_file',
-      description: 'Write UTF-8 text, checkpointing an existing target first.',
+      description: 'Write UTF-8 text, creating missing parent directories. Checkpoints an existing target first. Absolute paths do not require workspaceId.',
       permission: 'WRITE',
       annotations: { readOnlyHint: false, destructiveHint: false },
       inputSchema: writeFileSchema,
@@ -45,7 +53,7 @@ export function fileTools(context: McpToolContext): McpToolDefinition[] {
     }),
     defineTool({
       name: 'apply_patch',
-      description: 'Validate and atomically apply bounded workspace file changes.',
+      description: 'Validate and apply bounded file changes, creating missing parent directories.',
       permission: 'WRITE',
       annotations: { readOnlyHint: false, destructiveHint: false },
       inputSchema: applyPatchSchema,
@@ -55,7 +63,7 @@ export function fileTools(context: McpToolContext): McpToolDefinition[] {
     }),
     defineTool({
       name: 'move_file',
-      description: 'Move a file within one authorized workspace.',
+      description: 'Move a file or directory within one workspace, creating missing destination parents.',
       permission: 'WRITE',
       annotations: { readOnlyHint: false, destructiveHint: false },
       inputSchema: moveFileSchema,
@@ -64,8 +72,18 @@ export function fileTools(context: McpToolContext): McpToolDefinition[] {
         : context.services.file.moveFile(context.actor, input.workspaceId, { sourcePath: input.sourcePath, destinationPath: input.destinationPath }),
     }),
     defineTool({
+      name: 'copy_file',
+      description: 'Copy a file or directory within one workspace, creating missing destination parents.',
+      permission: 'WRITE',
+      annotations: { readOnlyHint: false, destructiveHint: false },
+      inputSchema: copyFileSchema,
+      handler: async (input) => context.services.file === undefined
+        ? missingService()
+        : context.services.file.copyFile(context.actor, input.workspaceId, { sourcePath: input.sourcePath, destinationPath: input.destinationPath }),
+    }),
+    defineTool({
       name: 'delete_file',
-      description: 'Delete one file or an empty directory. Blocked until the user confirms in chat; then pass userConfirmed: true.',
+      description: 'Delete one file or an empty directory. Always ask the user in chat first, then retry with userConfirmed: true.',
       permission: 'DANGEROUS',
       annotations: { readOnlyHint: false, destructiveHint: true },
       inputSchema: deleteFileSchema,

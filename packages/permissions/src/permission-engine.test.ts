@@ -32,10 +32,15 @@ describe('DefaultPermissionEngine', () => {
   it('denies hard-blocked destructive actions even for Full Access', () => {
     const decision = engine.decide(
       permissionProfiles.full,
-      operation('DANGEROUS', 'git_reset', true),
+      operation('DANGEROUS', 'disk_format', true),
     );
 
     expect(decision).toBe('DENY');
+  });
+
+  it('allows git reset and git clean under Full Access', () => {
+    expect(engine.decide(permissionProfiles.full, operation('DANGEROUS', 'git_reset', true))).toBe('ALLOW');
+    expect(engine.decide(permissionProfiles.full, operation('DANGEROUS', 'git_clean', true))).toBe('ALLOW');
   });
 
   it('denies destructive workspace-root deletion for every profile', () => {

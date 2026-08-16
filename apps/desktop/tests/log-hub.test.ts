@@ -12,6 +12,20 @@ afterEach(async () => {
 });
 
 describe('LogHub', () => {
+  it('includes filesystem error messages in work-log lines', () => {
+    const hub = new LogHub({ tunnelLogPath: 'Z:\\missing\\lnwjud-tunnel.log' });
+    hub.syncWorkLog([{
+      id: '1',
+      kind: 'error',
+      toolName: 'write_file',
+      resultCode: 'FILE_NOT_FOUND',
+      errorMessage: 'File or directory was not found',
+      targetSummary: 'docs\\plan.md',
+    }], []);
+
+    expect(hub.snapshot().lines[0]?.text).toContain('[ERROR] write_file FILE_NOT_FOUND — File or directory was not found');
+  });
+
   it('feeds and snapshots lines per source with dedupe', () => {
     const hub = new LogHub({ tunnelLogPath: 'Z:\\missing\\lnwjud-tunnel.log' });
     hub.feedIfNew('mcp', 'a', 'info', 'first');

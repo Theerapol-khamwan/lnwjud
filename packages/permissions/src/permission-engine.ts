@@ -5,8 +5,6 @@ const HARD_BLOCKED_ACTIONS = new Set([
   'delete_outside_workspace',
   'delete_workspace_root',
   'disk_format',
-  'git_clean',
-  'git_reset',
   'kill_unowned_process',
   'registry_delete',
   'system_reboot',

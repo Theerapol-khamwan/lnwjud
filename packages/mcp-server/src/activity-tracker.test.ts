@@ -19,11 +19,11 @@ describe('ActivityTracker', () => {
       targetSummary: 'src\\app.ts',
     });
 
-    await tracker.end(callId, 'SUCCESS', 12);
+    await tracker.end(callId, 'FILE_NOT_FOUND', 12, 'File or directory was not found');
     expect(tracker.listInFlight()).toHaveLength(0);
     expect(events).toEqual([
       expect.objectContaining({ phase: 'started', resultCode: 'STARTED', toolName: 'read_file' }),
-      expect.objectContaining({ phase: 'completed', resultCode: 'SUCCESS', durationMs: 12, callId }),
+      expect.objectContaining({ phase: 'completed', resultCode: 'FILE_NOT_FOUND', durationMs: 12, callId, resultMessage: 'File or directory was not found' }),
     ]);
   });
 

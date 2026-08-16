@@ -2,14 +2,17 @@ import { appError, err, ok, type Result } from '@lnwjud/domain';
 import { RipgrepAdapter, type SearchFilesRequest as AdapterFilesRequest, type SearchFilesResult, type SearchTextRequest as AdapterTextRequest, type SearchTextResult } from '@lnwjud/search';
 import type { WorkspaceRepository } from '@lnwjud/workspace';
 import type { FileActor } from './file-service.js';
+import { resolveWorkspaceForPath } from './workspace-locator.js';
 
 export interface SearchTextRequest {
   readonly query: string;
+  readonly path?: string;
   readonly glob?: string;
   readonly maxResults?: number;
 }
 
 export interface SearchFilesRequest {
+  readonly path?: string;
   readonly glob?: string;
   readonly maxResults?: number;
 }
@@ -25,29 +28,29 @@ export class SearchService {
     private readonly adapter: SearchAdapter = new RipgrepAdapter(),
   ) {}
 
-  public async searchText(actor: FileActor, workspaceId: string, request: SearchTextRequest): Promise<Result<SearchTextResult>> {
+  public async searchText(actor: FileActor, workspaceId: string | undefined, request: SearchTextRequest): Promise<Result<SearchTextResult>> {
     void actor;
     const validation = this.validateLimit(request.maxResults);
     if (!validation.ok) return validation;
     if (request.query.length === 0) return err(appError('INVALID_INPUT', 'Search query is required'));
-    const workspace = await this.workspaces.get(workspaceId);
-    if (workspace === null) return err(appError('WORKSPACE_NOT_FOUND', 'Workspace was not found'));
+    const workspace = await resolveWorkspaceForPath(this.workspaces, workspaceId, request.path ?? '.');
+    if (!workspace.ok) return workspace;
     return this.adapter.searchText({
-      rootPath: workspace.realRootPath,
+      rootPath: workspace.value.realRootPath,
       query: request.query,
       ...(request.glob === undefined ? {} : { glob: request.glob }),
       ...(request.maxResults === undefined ? {} : { maxResults: request.maxResults }),
     });
   }
 
-  public async searchFiles(actor: FileActor, workspaceId: string, request: SearchFilesRequest): Promise<Result<SearchFilesResult>> {
+  public async searchFiles(actor: FileActor, workspaceId: string | undefined, request: SearchFilesRequest): Promise<Result<SearchFilesResult>> {
     void actor;
     const validation = this.validateLimit(request.maxResults);
     if (!validation.ok) return validation;
-    const workspace = await this.workspaces.get(workspaceId);
-    if (workspace === null) return err(appError('WORKSPACE_NOT_FOUND', 'Workspace was not found'));
+    const workspace = await resolveWorkspaceForPath(this.workspaces, workspaceId, request.path ?? '.');
+    if (!workspace.ok) return workspace;
     return this.adapter.searchFiles({
-      rootPath: workspace.realRootPath,
+      rootPath: workspace.value.realRootPath,
       ...(request.glob === undefined ? {} : { glob: request.glob }),
       ...(request.maxResults === undefined ? {} : { maxResults: request.maxResults }),
     });

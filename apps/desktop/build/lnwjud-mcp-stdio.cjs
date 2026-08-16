@@ -35,7 +35,7 @@ var require_windows = __commonJS({
     module2.exports = isexe;
     isexe.sync = sync;
     var fs2 = require("fs");
-    function checkPathExt(path25, options) {
+    function checkPathExt(path29, options) {
       var pathext = options.pathExt !== void 0 ? options.pathExt : process.env.PATHEXT;
       if (!pathext) {
         return true;
@@ -46,25 +46,25 @@ var require_windows = __commonJS({
       }
       for (var i = 0; i < pathext.length; i++) {
         var p = pathext[i].toLowerCase();
-        if (p && path25.substr(-p.length).toLowerCase() === p) {
+        if (p && path29.substr(-p.length).toLowerCase() === p) {
           return true;
         }
       }
       return false;
     }
-    function checkStat(stat11, path25, options) {
-      if (!stat11.isSymbolicLink() && !stat11.isFile()) {
+    function checkStat(stat12, path29, options) {
+      if (!stat12.isSymbolicLink() && !stat12.isFile()) {
         return false;
       }
-      return checkPathExt(path25, options);
+      return checkPathExt(path29, options);
     }
-    function isexe(path25, options, cb) {
-      fs2.stat(path25, function(er, stat11) {
-        cb(er, er ? false : checkStat(stat11, path25, options));
+    function isexe(path29, options, cb) {
+      fs2.stat(path29, function(er, stat12) {
+        cb(er, er ? false : checkStat(stat12, path29, options));
       });
     }
-    function sync(path25, options) {
-      return checkStat(fs2.statSync(path25), path25, options);
+    function sync(path29, options) {
+      return checkStat(fs2.statSync(path29), path29, options);
     }
   }
 });
@@ -75,21 +75,21 @@ var require_mode = __commonJS({
     module2.exports = isexe;
     isexe.sync = sync;
     var fs2 = require("fs");
-    function isexe(path25, options, cb) {
-      fs2.stat(path25, function(er, stat11) {
-        cb(er, er ? false : checkStat(stat11, options));
+    function isexe(path29, options, cb) {
+      fs2.stat(path29, function(er, stat12) {
+        cb(er, er ? false : checkStat(stat12, options));
       });
     }
-    function sync(path25, options) {
-      return checkStat(fs2.statSync(path25), options);
+    function sync(path29, options) {
+      return checkStat(fs2.statSync(path29), options);
     }
-    function checkStat(stat11, options) {
-      return stat11.isFile() && checkMode(stat11, options);
+    function checkStat(stat12, options) {
+      return stat12.isFile() && checkMode(stat12, options);
     }
-    function checkMode(stat11, options) {
-      var mod = stat11.mode;
-      var uid = stat11.uid;
-      var gid = stat11.gid;
+    function checkMode(stat12, options) {
+      var mod = stat12.mode;
+      var uid = stat12.uid;
+      var gid = stat12.gid;
       var myUid = options.uid !== void 0 ? options.uid : process.getuid && process.getuid();
       var myGid = options.gid !== void 0 ? options.gid : process.getgid && process.getgid();
       var u = parseInt("100", 8);
@@ -114,7 +114,7 @@ var require_isexe = __commonJS({
     }
     module2.exports = isexe;
     isexe.sync = sync;
-    function isexe(path25, options, cb) {
+    function isexe(path29, options, cb) {
       if (typeof options === "function") {
         cb = options;
         options = {};
@@ -124,7 +124,7 @@ var require_isexe = __commonJS({
           throw new TypeError("callback not provided");
         }
         return new Promise(function(resolve, reject) {
-          isexe(path25, options || {}, function(er, is) {
+          isexe(path29, options || {}, function(er, is) {
             if (er) {
               reject(er);
             } else {
@@ -133,7 +133,7 @@ var require_isexe = __commonJS({
           });
         });
       }
-      core(path25, options || {}, function(er, is) {
+      core(path29, options || {}, function(er, is) {
         if (er) {
           if (er.code === "EACCES" || options && options.ignoreErrors) {
             er = null;
@@ -143,9 +143,9 @@ var require_isexe = __commonJS({
         cb(er, is);
       });
     }
-    function sync(path25, options) {
+    function sync(path29, options) {
       try {
-        return core.sync(path25, options || {});
+        return core.sync(path29, options || {});
       } catch (er) {
         if (options && options.ignoreErrors || er.code === "EACCES") {
           return false;
@@ -161,7 +161,7 @@ var require_isexe = __commonJS({
 var require_which = __commonJS({
   "../../node_modules/.pnpm/which@2.0.2/node_modules/which/which.js"(exports2, module2) {
     var isWindows = process.platform === "win32" || process.env.OSTYPE === "cygwin" || process.env.OSTYPE === "msys";
-    var path25 = require("path");
+    var path29 = require("path");
     var COLON = isWindows ? ";" : ":";
     var isexe = require_isexe();
     var getNotFoundError = (cmd) => Object.assign(new Error(`not found: ${cmd}`), { code: "ENOENT" });
@@ -199,7 +199,7 @@ var require_which = __commonJS({
           return opt.all && found.length ? resolve(found) : reject(getNotFoundError(cmd));
         const ppRaw = pathEnv[i];
         const pathPart = /^".*"$/.test(ppRaw) ? ppRaw.slice(1, -1) : ppRaw;
-        const pCmd = path25.join(pathPart, cmd);
+        const pCmd = path29.join(pathPart, cmd);
         const p = !pathPart && /^\.[\\\/]/.test(cmd) ? cmd.slice(0, 2) + pCmd : pCmd;
         resolve(subStep(p, i, 0));
       });
@@ -226,7 +226,7 @@ var require_which = __commonJS({
       for (let i = 0; i < pathEnv.length; i++) {
         const ppRaw = pathEnv[i];
         const pathPart = /^".*"$/.test(ppRaw) ? ppRaw.slice(1, -1) : ppRaw;
-        const pCmd = path25.join(pathPart, cmd);
+        const pCmd = path29.join(pathPart, cmd);
         const p = !pathPart && /^\.[\\\/]/.test(cmd) ? cmd.slice(0, 2) + pCmd : pCmd;
         for (let j = 0; j < pathExt.length; j++) {
           const cur = p + pathExt[j];
@@ -274,7 +274,7 @@ var require_path_key = __commonJS({
 var require_resolveCommand = __commonJS({
   "../../node_modules/.pnpm/cross-spawn@7.0.6/node_modules/cross-spawn/lib/util/resolveCommand.js"(exports2, module2) {
     "use strict";
-    var path25 = require("path");
+    var path29 = require("path");
     var which = require_which();
     var getPathKey = require_path_key();
     function resolveCommandAttempt(parsed, withoutPathExt) {
@@ -292,7 +292,7 @@ var require_resolveCommand = __commonJS({
       try {
         resolved = which.sync(parsed.command, {
           path: env[getPathKey({ env })],
-          pathExt: withoutPathExt ? path25.delimiter : void 0
+          pathExt: withoutPathExt ? path29.delimiter : void 0
         });
       } catch (e) {
       } finally {
@@ -301,7 +301,7 @@ var require_resolveCommand = __commonJS({
         }
       }
       if (resolved) {
-        resolved = path25.resolve(hasCustomCwd ? parsed.options.cwd : "", resolved);
+        resolved = path29.resolve(hasCustomCwd ? parsed.options.cwd : "", resolved);
       }
       return resolved;
     }
@@ -355,8 +355,8 @@ var require_shebang_command = __commonJS({
       if (!match) {
         return null;
       }
-      const [path25, argument] = match[0].replace(/#! ?/, "").split(" ");
-      const binary = path25.split("/").pop();
+      const [path29, argument] = match[0].replace(/#! ?/, "").split(" ");
+      const binary = path29.split("/").pop();
       if (binary === "env") {
         return argument;
       }
@@ -391,7 +391,7 @@ var require_readShebang = __commonJS({
 var require_parse = __commonJS({
   "../../node_modules/.pnpm/cross-spawn@7.0.6/node_modules/cross-spawn/lib/parse.js"(exports2, module2) {
     "use strict";
-    var path25 = require("path");
+    var path29 = require("path");
     var resolveCommand = require_resolveCommand();
     var escape2 = require_escape();
     var readShebang = require_readShebang();
@@ -416,7 +416,7 @@ var require_parse = __commonJS({
       const needsShell = !isExecutableRegExp.test(commandFile);
       if (parsed.options.forceShell || needsShell) {
         const needsDoubleEscapeMetaChars = isCmdShimRegExp.test(commandFile);
-        parsed.command = path25.normalize(parsed.command);
+        parsed.command = path29.normalize(parsed.command);
         parsed.command = escape2.command(parsed.command);
         parsed.args = parsed.args.map((arg) => escape2.argument(arg, needsDoubleEscapeMetaChars));
         const shellCommand = [parsed.command].concat(parsed.args).join(" ");
@@ -463,19 +463,19 @@ var require_enoent = __commonJS({
         spawnargs: original.args
       });
     }
-    function hookChildProcess(cp, parsed) {
+    function hookChildProcess(cp2, parsed) {
       if (!isWin) {
         return;
       }
-      const originalEmit = cp.emit;
-      cp.emit = function(name, arg1) {
+      const originalEmit = cp2.emit;
+      cp2.emit = function(name, arg1) {
         if (name === "exit") {
           const err2 = verifyENOENT(arg1, parsed);
           if (err2) {
-            return originalEmit.call(cp, "error", err2);
+            return originalEmit.call(cp2, "error", err2);
           }
         }
-        return originalEmit.apply(cp, arguments);
+        return originalEmit.apply(cp2, arguments);
       };
     }
     function verifyENOENT(status, parsed) {
@@ -503,18 +503,18 @@ var require_enoent = __commonJS({
 var require_cross_spawn = __commonJS({
   "../../node_modules/.pnpm/cross-spawn@7.0.6/node_modules/cross-spawn/index.js"(exports2, module2) {
     "use strict";
-    var cp = require("child_process");
+    var cp2 = require("child_process");
     var parse3 = require_parse();
     var enoent = require_enoent();
     function spawn10(command, args, options) {
       const parsed = parse3(command, args, options);
-      const spawned = cp.spawn(parsed.command, parsed.args, parsed.options);
+      const spawned = cp2.spawn(parsed.command, parsed.args, parsed.options);
       enoent.hookChildProcess(spawned, parsed);
       return spawned;
     }
     function spawnSync(command, args, options) {
       const parsed = parse3(command, args, options);
-      const result = cp.spawnSync(parsed.command, parsed.args, parsed.options);
+      const result = cp2.spawnSync(parsed.command, parsed.args, parsed.options);
       result.error = result.error || enoent.verifyENOENTSync(result.status, parsed);
       return result;
     }
@@ -527,12 +527,14 @@ var require_cross_spawn = __commonJS({
 });
 
 // ../cli/src/bin/mcp-stdio.ts
-var import_node_fs5 = __toESM(require("node:fs"), 1);
+var import_node_fs6 = __toESM(require("node:fs"), 1);
 var import_node_os5 = __toESM(require("node:os"), 1);
-var import_node_path24 = __toESM(require("node:path"), 1);
+var import_node_path28 = __toESM(require("node:path"), 1);
 
 // ../../packages/application/dist/file-service.js
-var import_promises7 = require("node:fs/promises");
+var import_node_fs2 = require("node:fs");
+var import_promises8 = require("node:fs/promises");
+var import_node_path11 = __toESM(require("node:path"), 1);
 
 // ../../packages/domain/dist/errors.js
 function appError(code, message, recoverable = false) {
@@ -558,23 +560,59 @@ var MAX_TREE_ENTRIES = 5e3;
 
 // ../../packages/filesystem/dist/atomic-writer.js
 var import_node_crypto = require("node:crypto");
+var import_promises2 = require("node:fs/promises");
+var import_node_path2 = __toESM(require("node:path"), 1);
+
+// ../../packages/filesystem/dist/ensure-parent.js
 var import_promises = require("node:fs/promises");
 var import_node_path = __toESM(require("node:path"), 1);
+
+// ../../packages/filesystem/dist/fs-error.js
+function nodeErrorCode(error46) {
+  if (typeof error46 !== "object" || error46 === null || !("code" in error46))
+    return void 0;
+  return typeof error46.code === "string" ? error46.code : void 0;
+}
+function mapNodeFsError(error46, fallbackMessage) {
+  const code = nodeErrorCode(error46);
+  if (code === "ENOENT")
+    return appError("FILE_NOT_FOUND", "File or directory was not found");
+  if (code === "ENOTDIR")
+    return appError("INVALID_INPUT", "A parent path exists as a file, not a directory");
+  if (code === "EEXIST")
+    return appError("INVALID_INPUT", "Destination already exists");
+  return appError("INTERNAL_ERROR", fallbackMessage, true);
+}
+
+// ../../packages/filesystem/dist/ensure-parent.js
+async function ensureParentDirectory(filePath) {
+  try {
+    await (0, import_promises.mkdir)(import_node_path.default.dirname(filePath), { recursive: true });
+    return ok(void 0);
+  } catch (error46) {
+    return err(mapNodeFsError(error46, "Unable to create parent directory"));
+  }
+}
+
+// ../../packages/filesystem/dist/atomic-writer.js
 var MAX_FILE_WRITE_BYTES = 4 * 1024 * 1024;
 var AtomicFileWriter = class {
   async write(filePath, content) {
     if (Buffer.byteLength(content, "utf8") > MAX_FILE_WRITE_BYTES) {
       return err(appError("FILE_TOO_LARGE", "File exceeds the maximum write size"));
     }
-    const temporaryPath = import_node_path.default.join(import_node_path.default.dirname(filePath), `.${import_node_path.default.basename(filePath)}.${(0, import_node_crypto.randomUUID)()}.tmp`);
+    const parentResult = await ensureParentDirectory(filePath);
+    if (!parentResult.ok)
+      return parentResult;
+    const temporaryPath = import_node_path2.default.join(import_node_path2.default.dirname(filePath), `.${import_node_path2.default.basename(filePath)}.${(0, import_node_crypto.randomUUID)()}.tmp`);
     try {
-      await (0, import_promises.writeFile)(temporaryPath, content, { encoding: "utf8", flag: "wx" });
-      await (0, import_promises.rename)(temporaryPath, filePath);
+      await (0, import_promises2.writeFile)(temporaryPath, content, { encoding: "utf8", flag: "wx" });
+      await (0, import_promises2.rename)(temporaryPath, filePath);
       return ok(void 0);
-    } catch {
-      return err(appError("INTERNAL_ERROR", "Atomic file write failed", true));
+    } catch (error46) {
+      return err(mapNodeFsError(error46, "Atomic file write failed"));
     } finally {
-      await (0, import_promises.unlink)(temporaryPath).catch(() => void 0);
+      await (0, import_promises2.unlink)(temporaryPath).catch(() => void 0);
     }
   }
 };
@@ -604,14 +642,14 @@ var PatchApplier = class {
 };
 
 // ../../packages/filesystem/dist/text-file-reader.js
-var import_promises2 = require("node:fs/promises");
+var import_promises3 = require("node:fs/promises");
 var TextFileReader = class {
   async read(filePath, range = {}) {
     if (!this.isValidRange(range))
       return err({ code: "INVALID_INPUT", message: "Line range is invalid", recoverable: false });
     let size;
     try {
-      size = (await (0, import_promises2.stat)(filePath)).size;
+      size = (await (0, import_promises3.stat)(filePath)).size;
     } catch {
       return err({ code: "FILE_NOT_FOUND", message: "File was not found", recoverable: false });
     }
@@ -620,7 +658,7 @@ var TextFileReader = class {
     }
     let data;
     try {
-      data = await (0, import_promises2.readFile)(filePath);
+      data = await (0, import_promises3.readFile)(filePath);
     } catch {
       return err({ code: "FILE_NOT_FOUND", message: "File was not found", recoverable: false });
     }
@@ -655,12 +693,12 @@ var TextFileReader = class {
 };
 
 // ../../packages/filesystem/dist/tree-reader.js
-var import_promises5 = require("node:fs/promises");
-var import_node_path6 = __toESM(require("node:path"), 1);
+var import_promises6 = require("node:fs/promises");
+var import_node_path7 = __toESM(require("node:path"), 1);
 
 // ../../packages/workspace/dist/machine-root.js
 var import_node_fs = require("node:fs");
-var import_node_path2 = __toESM(require("node:path"), 1);
+var import_node_path3 = __toESM(require("node:path"), 1);
 var MACHINE_ROOT_LETTER = "E";
 function coerceWindowsPath(rootPath) {
   const raw = rootPath.trim().replaceAll("/", "\\");
@@ -669,21 +707,21 @@ function coerceWindowsPath(rootPath) {
   return raw;
 }
 function normalizeWorkspaceRoot(rootPath) {
-  const resolved = import_node_path2.default.resolve(coerceWindowsPath(rootPath));
-  return resolved.endsWith(import_node_path2.default.sep) ? resolved : `${resolved}${import_node_path2.default.sep}`;
+  const resolved = import_node_path3.default.resolve(coerceWindowsPath(rootPath));
+  return resolved.endsWith(import_node_path3.default.sep) ? resolved : `${resolved}${import_node_path3.default.sep}`;
 }
 function isEMachineRoot(rootPath) {
-  const resolved = import_node_path2.default.resolve(coerceWindowsPath(rootPath));
+  const resolved = import_node_path3.default.resolve(coerceWindowsPath(rootPath));
   const stripped = resolved.replace(/[\\/]+$/, "");
   return /^E:$/i.test(stripped);
 }
 function isDriveRoot(rootPath) {
-  const resolved = import_node_path2.default.resolve(coerceWindowsPath(rootPath));
+  const resolved = import_node_path3.default.resolve(coerceWindowsPath(rootPath));
   const stripped = resolved.replace(/[\\/]+$/, "");
   return /^[A-Za-z]:$/i.test(stripped);
 }
 function isUnderEDrive(rootPath) {
-  const resolved = import_node_path2.default.resolve(coerceWindowsPath(rootPath));
+  const resolved = import_node_path3.default.resolve(coerceWindowsPath(rootPath));
   const normalized = normalizeWorkspaceRoot(resolved).replaceAll("/", "\\").toLowerCase();
   return normalized.startsWith("e:\\");
 }
@@ -701,10 +739,10 @@ function allFixedDriveRoots() {
 }
 
 // ../../packages/workspace/dist/path-containment.js
-var import_node_path3 = __toESM(require("node:path"), 1);
+var import_node_path4 = __toESM(require("node:path"), 1);
 function isWithin(rootPath, candidatePath) {
-  const relativePath = import_node_path3.default.relative(import_node_path3.default.resolve(rootPath), import_node_path3.default.resolve(candidatePath));
-  return relativePath === "" || !relativePath.startsWith(`..${import_node_path3.default.sep}`) && relativePath !== ".." && !import_node_path3.default.isAbsolute(relativePath);
+  const relativePath = import_node_path4.default.relative(import_node_path4.default.resolve(rootPath), import_node_path4.default.resolve(candidatePath));
+  return relativePath === "" || !relativePath.startsWith(`..${import_node_path4.default.sep}`) && relativePath !== ".." && !import_node_path4.default.isAbsolute(relativePath);
 }
 
 // ../../packages/workspace/dist/secret-policy.js
@@ -726,8 +764,8 @@ var SecretPolicy = class {
 };
 
 // ../../packages/workspace/dist/workspace-path-guard.js
-var import_promises3 = require("node:fs/promises");
-var import_node_path4 = __toESM(require("node:path"), 1);
+var import_promises4 = require("node:fs/promises");
+var import_node_path5 = __toESM(require("node:path"), 1);
 var WorkspacePathGuard = class {
   secretPolicy;
   options;
@@ -742,17 +780,17 @@ var WorkspacePathGuard = class {
     const rootResult = await this.resolveRoot(workspace);
     if (!rootResult.ok)
       return rootResult;
-    const absolutePath = import_node_path4.default.resolve(workspace.rootPath, inputPath);
+    const absolutePath = import_node_path5.default.resolve(workspace.rootPath, inputPath);
     if (!isWithin(workspace.rootPath, absolutePath)) {
       return err(appError("PATH_OUTSIDE_WORKSPACE", "Path is outside the workspace"));
     }
     let realTarget;
     try {
-      realTarget = await (0, import_promises3.realpath)(absolutePath);
+      realTarget = await (0, import_promises4.realpath)(absolutePath);
     } catch {
       const ancestorResult = await this.findExistingAncestor(absolutePath);
       if (ancestorResult.ok) {
-        const ancestorRealPath = await (0, import_promises3.realpath)(ancestorResult.value.path);
+        const ancestorRealPath = await (0, import_promises4.realpath)(ancestorResult.value.path);
         if (!isWithin(rootResult.value, ancestorRealPath)) {
           return err(appError("PATH_OUTSIDE_WORKSPACE", "Path is outside the workspace"));
         }
@@ -762,12 +800,12 @@ var WorkspacePathGuard = class {
     if (!isWithin(rootResult.value, realTarget)) {
       return err(appError("PATH_OUTSIDE_WORKSPACE", "Path is outside the workspace"));
     }
-    const relativePath = import_node_path4.default.relative(rootResult.value, realTarget);
+    const relativePath = import_node_path5.default.relative(rootResult.value, realTarget);
     const secretResult = this.assertSecretReadable(workspace, relativePath);
     if (!secretResult.ok)
       return secretResult;
     try {
-      await (0, import_promises3.stat)(realTarget);
+      await (0, import_promises4.stat)(realTarget);
     } catch {
       return err(appError("FILE_NOT_FOUND", "File was not found"));
     }
@@ -786,21 +824,21 @@ var WorkspacePathGuard = class {
     const rootResult = await this.resolveRoot(workspace);
     if (!rootResult.ok)
       return rootResult;
-    const absolutePath = import_node_path4.default.resolve(workspace.rootPath, inputPath);
+    const absolutePath = import_node_path5.default.resolve(workspace.rootPath, inputPath);
     if (!isWithin(workspace.rootPath, absolutePath)) {
       return err(appError("PATH_OUTSIDE_WORKSPACE", "Path is outside the workspace"));
     }
     const ancestorResult = await this.findExistingAncestor(absolutePath);
     if (!ancestorResult.ok)
       return ancestorResult;
-    const ancestorRealPath = await (0, import_promises3.realpath)(ancestorResult.value.path);
+    const ancestorRealPath = await (0, import_promises4.realpath)(ancestorResult.value.path);
     if (!isWithin(rootResult.value, ancestorRealPath)) {
       return err(appError("PATH_OUTSIDE_WORKSPACE", "Path is outside the workspace"));
     }
     let exists = false;
     let realTarget;
     try {
-      realTarget = await (0, import_promises3.realpath)(absolutePath);
+      realTarget = await (0, import_promises4.realpath)(absolutePath);
       exists = true;
     } catch {
       exists = false;
@@ -808,7 +846,7 @@ var WorkspacePathGuard = class {
     if (realTarget !== void 0 && !isWithin(rootResult.value, realTarget)) {
       return err(appError("PATH_OUTSIDE_WORKSPACE", "Path is outside the workspace"));
     }
-    const relativePath = realTarget === void 0 ? import_node_path4.default.relative(rootResult.value, absolutePath) : import_node_path4.default.relative(rootResult.value, realTarget);
+    const relativePath = realTarget === void 0 ? import_node_path5.default.relative(rootResult.value, absolutePath) : import_node_path5.default.relative(rootResult.value, realTarget);
     const secretResult = this.assertSecretReadable(workspace, relativePath);
     if (!secretResult.ok)
       return secretResult;
@@ -834,7 +872,7 @@ var WorkspacePathGuard = class {
   }
   async resolveRoot(workspace) {
     try {
-      return ok(await (0, import_promises3.realpath)(workspace.rootPath));
+      return ok(await (0, import_promises4.realpath)(workspace.rootPath));
     } catch {
       return err(appError("WORKSPACE_NOT_FOUND", "Workspace root was not found"));
     }
@@ -844,14 +882,14 @@ var WorkspacePathGuard = class {
     let currentPath = absolutePath;
     while (true) {
       try {
-        await (0, import_promises3.lstat)(currentPath);
+        await (0, import_promises4.lstat)(currentPath);
         return ok({ path: currentPath, relativeMissing: missing });
       } catch {
-        const parentPath = import_node_path4.default.dirname(currentPath);
+        const parentPath = import_node_path5.default.dirname(currentPath);
         if (parentPath === currentPath) {
           return err(appError("PATH_OUTSIDE_WORKSPACE", "Path has no existing ancestor"));
         }
-        missing.unshift(import_node_path4.default.basename(currentPath));
+        missing.unshift(import_node_path5.default.basename(currentPath));
         currentPath = parentPath;
       }
     }
@@ -859,8 +897,8 @@ var WorkspacePathGuard = class {
 };
 
 // ../../packages/workspace/dist/workspace-service.js
-var import_promises4 = require("node:fs/promises");
-var import_node_path5 = __toESM(require("node:path"), 1);
+var import_promises5 = require("node:fs/promises");
+var import_node_path6 = __toESM(require("node:path"), 1);
 var import_node_crypto2 = require("node:crypto");
 var WorkspaceService = class {
   repository;
@@ -871,10 +909,10 @@ var WorkspaceService = class {
     if (displayName.trim().length === 0 || rootPath.trim().length === 0) {
       return err(appError("INVALID_INPUT", "Workspace name and root path are required"));
     }
-    const absoluteRootPath = import_node_path5.default.resolve(rootPath);
+    const absoluteRootPath = import_node_path6.default.resolve(rootPath);
     let rootStats;
     try {
-      rootStats = await (0, import_promises4.stat)(absoluteRootPath);
+      rootStats = await (0, import_promises5.stat)(absoluteRootPath);
     } catch {
       return err(appError("WORKSPACE_NOT_FOUND", "Workspace root was not found"));
     }
@@ -883,7 +921,7 @@ var WorkspaceService = class {
     }
     let canonicalRootPath;
     try {
-      canonicalRootPath = await (0, import_promises4.realpath)(absoluteRootPath);
+      canonicalRootPath = await (0, import_promises5.realpath)(absoluteRootPath);
     } catch {
       return err(appError("WORKSPACE_NOT_FOUND", "Workspace root could not be canonicalized"));
     }
@@ -919,7 +957,7 @@ var TreeReader = class {
     }
     let rootRealPath;
     try {
-      rootRealPath = await (0, import_promises5.realpath)(rootPath);
+      rootRealPath = await (0, import_promises6.realpath)(rootPath);
     } catch {
       return err({ code: "FILE_NOT_FOUND", message: "Tree root was not found", recoverable: false });
     }
@@ -930,7 +968,7 @@ var TreeReader = class {
         return;
       let directoryEntries;
       try {
-        directoryEntries = await (0, import_promises5.readdir)(currentPath, { withFileTypes: true });
+        directoryEntries = await (0, import_promises6.readdir)(currentPath, { withFileTypes: true });
       } catch {
         return;
       }
@@ -942,16 +980,16 @@ var TreeReader = class {
         }
         if (directoryEntry.isDirectory() && IGNORED_DIRECTORIES.has(directoryEntry.name))
           continue;
-        const absoluteEntryPath = import_node_path6.default.join(currentPath, directoryEntry.name);
+        const absoluteEntryPath = import_node_path7.default.join(currentPath, directoryEntry.name);
         let entryRealPath;
         try {
-          entryRealPath = await (0, import_promises5.realpath)(absoluteEntryPath);
+          entryRealPath = await (0, import_promises6.realpath)(absoluteEntryPath);
         } catch {
           continue;
         }
         if (!isWithin(rootRealPath, entryRealPath))
           continue;
-        const relativePath = import_node_path6.default.join(relativeDirectory, directoryEntry.name);
+        const relativePath = import_node_path7.default.join(relativeDirectory, directoryEntry.name);
         const isDirectory = directoryEntry.isDirectory();
         if (!isDirectory && !directoryEntry.isFile())
           continue;
@@ -961,7 +999,7 @@ var TreeReader = class {
       }
     };
     try {
-      if (!(await (0, import_promises5.lstat)(rootPath)).isDirectory())
+      if (!(await (0, import_promises6.lstat)(rootPath)).isDirectory())
         return err({ code: "INVALID_INPUT", message: "Tree root must be a directory", recoverable: false });
     } catch {
       return err({ code: "FILE_NOT_FOUND", message: "Tree root was not found", recoverable: false });
@@ -972,19 +1010,29 @@ var TreeReader = class {
 };
 
 // ../../packages/filesystem/dist/unbounded-file-reader.js
-var import_promises6 = require("node:fs/promises");
-var import_node_path7 = __toESM(require("node:path"), 1);
+var import_promises7 = require("node:fs/promises");
+var import_node_path8 = __toESM(require("node:path"), 1);
 var UnboundedFileReader = class {
   async read(filePath) {
     let data;
     try {
-      const size = (await (0, import_promises6.stat)(filePath)).size;
+      const size = (await (0, import_promises7.stat)(filePath)).size;
       void size;
-      data = await (0, import_promises6.readFile)(filePath);
+      data = await (0, import_promises7.readFile)(filePath);
     } catch {
       return err({ code: "FILE_NOT_FOUND", message: "File was not found", recoverable: false });
     }
     const mimeType = guessMimeType(filePath);
+    if (mimeType.startsWith("image/")) {
+      return ok({
+        content: data.toString("base64"),
+        encoding: "base64",
+        mimeType,
+        byteLength: data.byteLength,
+        startLine: 1,
+        endLine: 1
+      });
+    }
     if (!data.subarray(0, 8192).includes(0)) {
       const content = data.toString("utf8");
       const lineCount = content.length === 0 ? 0 : content.split(/\r?\n/).length;
@@ -1008,7 +1056,7 @@ var UnboundedFileReader = class {
   }
 };
 function guessMimeType(filePath) {
-  const ext = import_node_path7.default.extname(filePath).toLowerCase();
+  const ext = import_node_path8.default.extname(filePath).toLowerCase();
   switch (ext) {
     case ".png":
       return "image/png";
@@ -1023,6 +1071,17 @@ function guessMimeType(filePath) {
       return "image/bmp";
     case ".svg":
       return "image/svg+xml";
+    case ".ico":
+      return "image/x-icon";
+    case ".tif":
+    case ".tiff":
+      return "image/tiff";
+    case ".heic":
+      return "image/heic";
+    case ".heif":
+      return "image/heif";
+    case ".avif":
+      return "image/avif";
     case ".pdf":
       return "application/pdf";
     case ".json":
@@ -1037,7 +1096,7 @@ function guessMimeType(filePath) {
 }
 
 // ../../packages/permissions/dist/command-policy.js
-var import_node_path8 = __toESM(require("node:path"), 1);
+var import_node_path9 = __toESM(require("node:path"), 1);
 var SHELL_HOSTS = /* @__PURE__ */ new Set(["bash", "bash.exe", "cmd", "cmd.exe", "powershell", "powershell.exe", "pwsh", "pwsh.exe", "sh", "sh.exe"]);
 var DELETE_EXECUTABLES = /* @__PURE__ */ new Set([
   "del",
@@ -1060,11 +1119,12 @@ var CommandPolicy = class {
     this.options = options;
   }
   decide(profile, executable, source, args = []) {
-    const basename = import_node_path8.default.win32.basename(executable).toLowerCase();
+    void args;
+    const basename = import_node_path9.default.win32.basename(executable).toLowerCase();
     if (this.options.unrestricted !== true && SHELL_HOSTS.has(basename))
       return "DENY";
-    if (DELETE_EXECUTABLES.has(basename) || looksLikeDeleteInvocation(basename, args))
-      return "DENY";
+    if (DELETE_EXECUTABLES.has(basename))
+      return "ASK";
     if (source === "project") {
       if (!profile.allowedProjectExecutables.includes(basename))
         return "DENY";
@@ -1075,13 +1135,6 @@ var CommandPolicy = class {
     return profile.defaults.EXECUTE;
   }
 };
-function looksLikeDeleteInvocation(basename, args) {
-  const joined = args.join(" ").toLowerCase();
-  if (basename === "git.exe" || basename === "git") {
-    return /\bclean\b/.test(joined) || /\breset\b/.test(joined);
-  }
-  return false;
-}
 
 // ../../packages/permissions/dist/permission-engine.js
 var HARD_BLOCKED_ACTIONS = /* @__PURE__ */ new Set([
@@ -1089,8 +1142,6 @@ var HARD_BLOCKED_ACTIONS = /* @__PURE__ */ new Set([
   "delete_outside_workspace",
   "delete_workspace_root",
   "disk_format",
-  "git_clean",
-  "git_reset",
   "kill_unowned_process",
   "registry_delete",
   "system_reboot",
@@ -1149,6 +1200,52 @@ var permissionProfiles = Object.freeze({
   })
 });
 
+// ../../packages/application/dist/workspace-locator.js
+var import_node_path10 = __toESM(require("node:path"), 1);
+function isAbsoluteFsPath(inputPath) {
+  return import_node_path10.default.win32.isAbsolute(inputPath) || import_node_path10.default.posix.isAbsolute(inputPath);
+}
+async function resolveWorkspaceForPath(workspaces, workspaceId, inputPath) {
+  if (workspaceId !== void 0 && workspaceId.trim().length > 0) {
+    const workspace = await workspaces.get(workspaceId);
+    if (workspace === null)
+      return err(appError("WORKSPACE_NOT_FOUND", "Workspace was not found"));
+    if (isAbsoluteFsPath(inputPath) && !workspaceContains(workspace, inputPath)) {
+      return err(appError("PATH_OUTSIDE_WORKSPACE", "Path is outside the workspace"));
+    }
+    return ok(workspace);
+  }
+  if (!isAbsoluteFsPath(inputPath)) {
+    return err(appError("INVALID_INPUT", "workspaceId is required unless path is absolute"));
+  }
+  const listed = await workspaces.list();
+  const matches = listed.filter((workspace) => workspaceContains(workspace, inputPath));
+  if (matches.length === 0) {
+    return err(appError("PATH_OUTSIDE_WORKSPACE", "Path is not inside a registered workspace"));
+  }
+  matches.sort((left, right) => longestRoot(right).length - longestRoot(left).length);
+  return ok(matches[0]);
+}
+async function resolveSharedWorkspace(workspaces, workspaceId, sourcePath, destinationPath) {
+  const source = await resolveWorkspaceForPath(workspaces, workspaceId, sourcePath);
+  if (!source.ok)
+    return source;
+  const destination = await resolveWorkspaceForPath(workspaces, workspaceId, destinationPath);
+  if (!destination.ok)
+    return destination;
+  if (source.value.id !== destination.value.id) {
+    return err(appError("PATH_OUTSIDE_WORKSPACE", "Source and destination must be in the same workspace"));
+  }
+  return source;
+}
+function workspaceContains(workspace, inputPath) {
+  const absolutePath = import_node_path10.default.resolve(inputPath);
+  return isWithin(workspace.realRootPath, absolutePath) || isWithin(workspace.rootPath, absolutePath);
+}
+function longestRoot(workspace) {
+  return workspace.realRootPath.length >= workspace.rootPath.length ? workspace.realRootPath : workspace.rootPath;
+}
+
 // ../../packages/application/dist/file-service.js
 var FileService = class {
   workspaces;
@@ -1178,7 +1275,7 @@ var FileService = class {
   }
   async readFile(actor, workspaceId, request) {
     void actor;
-    const workspaceResult = await this.getWorkspace(workspaceId);
+    const workspaceResult = await resolveWorkspaceForPath(this.workspaces, workspaceId, request.path);
     if (!workspaceResult.ok)
       return workspaceResult;
     const workspace = workspaceResult.value;
@@ -1216,14 +1313,23 @@ var FileService = class {
     if (!Array.isArray(request.files) || request.files.length > 20) {
       return err(appError("INVALID_INPUT", "At most 20 files may be read"));
     }
-    const workspaceResult = await this.getWorkspace(workspaceId);
+    const firstPath = request.files[0]?.path;
+    if (typeof firstPath !== "string")
+      return err(appError("INVALID_INPUT", "At least one file is required"));
+    const workspaceResult = await resolveWorkspaceForPath(this.workspaces, workspaceId, firstPath);
     if (!workspaceResult.ok)
       return workspaceResult;
     const trustedE = this.isTrustedWorkspace(workspaceResult.value);
     const files = [];
     let totalBytes = 0;
     for (const fileRequest of request.files) {
-      const result = await this.readFile(actor, workspaceId, fileRequest);
+      const fileWorkspace = await resolveWorkspaceForPath(this.workspaces, workspaceId, fileRequest.path);
+      if (!fileWorkspace.ok)
+        return fileWorkspace;
+      if (fileWorkspace.value.id !== workspaceResult.value.id) {
+        return err(appError("PATH_OUTSIDE_WORKSPACE", "All files must be in the same workspace"));
+      }
+      const result = await this.readFile(actor, fileWorkspace.value.id, fileRequest);
       if (!result.ok)
         return result;
       totalBytes += result.value.byteLength ?? Buffer.byteLength(result.value.content, result.value.encoding === "base64" ? "base64" : "utf8");
@@ -1241,10 +1347,11 @@ var FileService = class {
     if (Buffer.byteLength(request.content, "utf8") > MAX_FILE_WRITE_BYTES) {
       return err(appError("FILE_TOO_LARGE", "File exceeds the maximum write size"));
     }
-    const workspaceResult = await this.getWorkspace(workspaceId);
+    const workspaceResult = await resolveWorkspaceForPath(this.workspaces, workspaceId, request.path);
     if (!workspaceResult.ok)
       return workspaceResult;
-    const resolved = await this.guard.resolveForWrite(workspaceResult.value, request.path);
+    const workspace = workspaceResult.value;
+    const resolved = await this.guard.resolveForWrite(workspace, request.path);
     if (!resolved.ok)
       return resolved;
     const existing = await this.inspectExistingFile(resolved.value.absolutePath);
@@ -1252,12 +1359,12 @@ var FileService = class {
       return existing;
     if (existing.value === "directory")
       return err(appError("INVALID_INPUT", "Directories cannot be written as files"));
-    const permission = this.decide(workspaceId, "write_file", "WRITE", resolved.value.relativePath, false);
+    const permission = this.decide(workspace.id, "write_file", "WRITE", resolved.value.relativePath, false);
     if (!permission.ok)
       return permission;
     let checkpointId;
     if (existing.value) {
-      const checkpoint = await this.createCheckpoint(actor, workspaceId, [resolved.value.relativePath]);
+      const checkpoint = await this.createCheckpoint(actor, workspace.id, [resolved.value.relativePath]);
       if (!checkpoint.ok)
         return checkpoint;
       checkpointId = checkpoint.value.id;
@@ -1275,13 +1382,23 @@ var FileService = class {
     const validation = this.patchApplier.validate(request?.files ?? []);
     if (!validation.ok)
       return validation;
-    const workspaceResult = await this.getWorkspace(workspaceId);
+    const firstPath = request.files[0]?.path;
+    if (typeof firstPath !== "string")
+      return err(appError("INVALID_INPUT", "At least one file is required"));
+    const workspaceResult = await resolveWorkspaceForPath(this.workspaces, workspaceId, firstPath);
     if (!workspaceResult.ok)
       return workspaceResult;
+    const workspace = workspaceResult.value;
     const resolvedFiles = [];
     const existingPaths = [];
     for (const patch of request.files) {
-      const resolved = await this.guard.resolveForWrite(workspaceResult.value, patch.path);
+      const fileWorkspace = await resolveWorkspaceForPath(this.workspaces, workspaceId, patch.path);
+      if (!fileWorkspace.ok)
+        return fileWorkspace;
+      if (fileWorkspace.value.id !== workspace.id) {
+        return err(appError("PATH_OUTSIDE_WORKSPACE", "All files must be in the same workspace"));
+      }
+      const resolved = await this.guard.resolveForWrite(workspace, patch.path);
       if (!resolved.ok)
         return resolved;
       const existing = await this.inspectExistingFile(resolved.value.absolutePath);
@@ -1297,12 +1414,12 @@ var FileService = class {
         relativePath: resolved.value.relativePath
       });
     }
-    const permission = this.decide(workspaceId, "apply_patch", "WRITE", void 0, false);
+    const permission = this.decide(workspace.id, "apply_patch", "WRITE", void 0, false);
     if (!permission.ok)
       return permission;
     let checkpointId;
     if (existingPaths.length > 0) {
-      const checkpoint = await this.createCheckpoint(actor, workspaceId, existingPaths);
+      const checkpoint = await this.createCheckpoint(actor, workspace.id, existingPaths);
       if (!checkpoint.ok)
         return checkpoint;
       checkpointId = checkpoint.value.id;
@@ -1318,40 +1435,47 @@ var FileService = class {
     });
   }
   async moveFile(actor, workspaceId, request) {
-    void actor;
-    if (typeof request?.sourcePath !== "string" || typeof request.destinationPath !== "string") {
-      return err(appError("INVALID_INPUT", "Move request is invalid"));
-    }
-    const workspaceResult = await this.getWorkspace(workspaceId);
-    if (!workspaceResult.ok)
-      return workspaceResult;
-    const source = await this.guard.resolveForRead(workspaceResult.value, request.sourcePath);
-    if (!source.ok)
-      return source;
-    const destination = await this.guard.resolveForWrite(workspaceResult.value, request.destinationPath);
-    if (!destination.ok)
-      return destination;
-    const sourceType = await this.inspectExistingFile(source.value.realPath ?? source.value.absolutePath);
-    if (!sourceType.ok)
-      return sourceType;
-    if (!sourceType.value)
-      return err(appError("FILE_NOT_FOUND", "Source file was not found"));
-    const destinationType = await this.inspectExistingFile(destination.value.absolutePath);
-    if (!destinationType.ok)
-      return destinationType;
-    if (destinationType.value)
-      return err(appError("INVALID_INPUT", "Destination already exists"));
-    if (sourceType.value === "directory")
-      return err(appError("INVALID_INPUT", "Directories cannot be moved by this operation"));
-    const permission = this.decide(workspaceId, "move_file", "WRITE", source.value.relativePath, false);
-    if (!permission.ok)
-      return permission;
+    const prepared = await this.prepareTransfer(actor, workspaceId, request, "move_file");
+    if (!prepared.ok)
+      return prepared;
+    const { sourceAbs, destinationAbs, isDirectory } = prepared.value;
+    const parent = await ensureParentDirectory(destinationAbs);
+    if (!parent.ok)
+      return parent;
     try {
-      await (0, import_promises7.rename)(source.value.realPath ?? source.value.absolutePath, destination.value.absolutePath);
-    } catch {
-      return err(appError("INTERNAL_ERROR", "File move failed", true));
+      await (0, import_promises8.rename)(sourceAbs, destinationAbs);
+    } catch (error46) {
+      if (nodeErrorCode(error46) !== "EXDEV")
+        return err(mapNodeFsError(error46, "File move failed"));
+      try {
+        if (isDirectory)
+          await (0, import_promises8.cp)(sourceAbs, destinationAbs, { recursive: true, errorOnExist: true, force: false });
+        else
+          await (0, import_promises8.copyFile)(sourceAbs, destinationAbs, import_node_fs2.constants.COPYFILE_EXCL);
+        await (0, import_promises8.rm)(sourceAbs, { recursive: isDirectory, force: false });
+      } catch (copyError) {
+        return err(mapNodeFsError(copyError, "File move failed"));
+      }
     }
     return ok(void 0);
+  }
+  async copyFile(actor, workspaceId, request) {
+    const prepared = await this.prepareTransfer(actor, workspaceId, request, "copy_file");
+    if (!prepared.ok)
+      return prepared;
+    const { sourceAbs, destinationAbs, isDirectory, sourceRelative, destinationRelative } = prepared.value;
+    const parent = await ensureParentDirectory(destinationAbs);
+    if (!parent.ok)
+      return parent;
+    try {
+      if (isDirectory)
+        await (0, import_promises8.cp)(sourceAbs, destinationAbs, { recursive: true, errorOnExist: true, force: false });
+      else
+        await (0, import_promises8.copyFile)(sourceAbs, destinationAbs, import_node_fs2.constants.COPYFILE_EXCL);
+    } catch (error46) {
+      return err(mapNodeFsError(error46, "File copy failed"));
+    }
+    return ok({ sourcePath: sourceRelative, destinationPath: destinationRelative });
   }
   async deleteFile(actor, workspaceId, request) {
     void actor;
@@ -1360,7 +1484,7 @@ var FileService = class {
     if (request.userConfirmed !== true) {
       return err(appError("PERMISSION_REQUIRED", "Deletion requires the user to confirm in chat first, then retry delete_file with userConfirmed: true"));
     }
-    const workspaceResult = await this.getWorkspace(workspaceId);
+    const workspaceResult = await resolveWorkspaceForPath(this.workspaces, workspaceId, request.path);
     if (!workspaceResult.ok)
       return workspaceResult;
     const resolved = await this.guard.resolveForRead(workspaceResult.value, request.path);
@@ -1368,24 +1492,65 @@ var FileService = class {
       return resolved;
     if (resolved.value.relativePath.length === 0)
       return err(appError("PERMISSION_DENIED", "Workspace root cannot be deleted"));
-    const permission = this.decide(workspaceId, "delete_file", "DANGEROUS", resolved.value.relativePath, true);
+    const permission = this.decide(workspaceResult.value.id, "delete_file", "DANGEROUS", resolved.value.relativePath, true);
     if (!permission.ok)
       return permission;
     const targetPath = resolved.value.realPath ?? resolved.value.absolutePath;
     try {
-      const target = await (0, import_promises7.lstat)(targetPath);
+      const target = await (0, import_promises8.lstat)(targetPath);
       if (target.isDirectory()) {
-        const entries = await (0, import_promises7.readdir)(targetPath);
+        const entries = await (0, import_promises8.readdir)(targetPath);
         if (entries.length > 0)
           return err(appError("INVALID_INPUT", "Non-empty directories cannot be deleted"));
-        await (0, import_promises7.rmdir)(targetPath);
+        await (0, import_promises8.rmdir)(targetPath);
       } else {
-        await (0, import_promises7.unlink)(targetPath);
+        await (0, import_promises8.unlink)(targetPath);
       }
-    } catch {
-      return err(appError("INTERNAL_ERROR", "File deletion failed", true));
+    } catch (error46) {
+      return err(mapNodeFsError(error46, "File deletion failed"));
     }
     return ok(void 0);
+  }
+  async prepareTransfer(actor, workspaceId, request, action) {
+    void actor;
+    if (typeof request?.sourcePath !== "string" || typeof request.destinationPath !== "string") {
+      return err(appError("INVALID_INPUT", "Transfer request is invalid"));
+    }
+    const workspaceResult = await resolveSharedWorkspace(this.workspaces, workspaceId, request.sourcePath, request.destinationPath);
+    if (!workspaceResult.ok)
+      return workspaceResult;
+    const workspace = workspaceResult.value;
+    const source = await this.guard.resolveForRead(workspace, request.sourcePath);
+    if (!source.ok)
+      return source;
+    const destination = await this.guard.resolveForWrite(workspace, request.destinationPath);
+    if (!destination.ok)
+      return destination;
+    const sourceAbs = source.value.realPath ?? source.value.absolutePath;
+    const destinationAbs = destination.value.absolutePath;
+    const sourceType = await this.inspectExistingFile(sourceAbs);
+    if (!sourceType.ok)
+      return sourceType;
+    if (!sourceType.value)
+      return err(appError("FILE_NOT_FOUND", "Source file was not found"));
+    const destinationType = await this.inspectExistingFile(destinationAbs);
+    if (!destinationType.ok)
+      return destinationType;
+    if (destinationType.value)
+      return err(appError("INVALID_INPUT", "Destination already exists"));
+    if (sourceType.value === "directory" && isWithin(sourceAbs, destinationAbs) && import_node_path11.default.resolve(sourceAbs) !== import_node_path11.default.resolve(destinationAbs)) {
+      return err(appError("INVALID_INPUT", "Destination cannot be inside the source directory"));
+    }
+    const permission = this.decide(workspace.id, action, "WRITE", source.value.relativePath, false);
+    if (!permission.ok)
+      return permission;
+    return ok({
+      sourceAbs,
+      destinationAbs,
+      isDirectory: sourceType.value === "directory",
+      sourceRelative: source.value.relativePath,
+      destinationRelative: destination.value.relativePath
+    });
   }
   decide(workspaceId, action, level, target, destructive) {
     const operation = { action, level, workspaceId, destructive, ...target === void 0 ? {} : { target } };
@@ -1406,28 +1571,19 @@ var FileService = class {
   }
   async inspectExistingFile(filePath) {
     try {
-      const target = await (0, import_promises7.lstat)(filePath);
+      const target = await (0, import_promises8.lstat)(filePath);
       return ok(target.isDirectory() ? "directory" : true);
     } catch (error46) {
-      if (!isFileNotFoundError(error46))
-        return err(appError("INTERNAL_ERROR", "Unable to inspect file target", true));
+      if (nodeErrorCode(error46) !== "ENOENT")
+        return err(mapNodeFsError(error46, "Unable to inspect file target"));
       return ok(false);
     }
   }
-  async getWorkspace(workspaceId) {
-    const workspace = await this.workspaces.get(workspaceId);
-    return workspace === null ? err(appError("WORKSPACE_NOT_FOUND", "Workspace was not found")) : ok(workspace);
-  }
 };
-function isFileNotFoundError(error46) {
-  if (typeof error46 !== "object" || error46 === null || !("code" in error46))
-    return false;
-  return error46.code === "ENOENT";
-}
 
 // ../../packages/application/dist/checkpoint-service.js
 var import_node_crypto3 = require("node:crypto");
-var import_promises8 = require("node:fs/promises");
+var import_promises9 = require("node:fs/promises");
 var CheckpointService = class {
   workspaces;
   repository;
@@ -1513,9 +1669,9 @@ var CheckpointService = class {
   async readCheckpointFile(filePath, relativePath) {
     let data;
     try {
-      if (!(await (0, import_promises8.lstat)(filePath)).isFile())
+      if (!(await (0, import_promises9.lstat)(filePath)).isFile())
         return err(appError("INVALID_INPUT", "Checkpoint target must be a file"));
-      data = await (0, import_promises8.readFile)(filePath);
+      data = await (0, import_promises9.readFile)(filePath);
     } catch {
       return err(appError("FILE_NOT_FOUND", "Checkpoint file was not found"));
     }
@@ -1528,7 +1684,7 @@ var CheckpointService = class {
   }
   async hashCurrentFile(filePath) {
     try {
-      const data = await (0, import_promises8.readFile)(filePath);
+      const data = await (0, import_promises9.readFile)(filePath);
       return hash(data.toString("utf8"));
     } catch {
       return null;
@@ -1548,12 +1704,12 @@ var import_node_crypto5 = require("node:crypto");
 
 // ../../packages/process/dist/process-manager.js
 var import_node_child_process2 = require("node:child_process");
-var import_node_path11 = __toESM(require("node:path"), 1);
+var import_node_path14 = __toESM(require("node:path"), 1);
 var import_node_crypto4 = require("node:crypto");
 
 // ../../packages/process/dist/executable-resolver.js
-var import_promises9 = require("node:fs/promises");
-var import_node_path9 = __toESM(require("node:path"), 1);
+var import_promises10 = require("node:fs/promises");
+var import_node_path12 = __toESM(require("node:path"), 1);
 var PathExecutableResolver = class {
   environment;
   constructor(environment = process.env) {
@@ -1562,13 +1718,13 @@ var PathExecutableResolver = class {
   async resolve(executable) {
     if (executable.trim().length === 0)
       return err({ code: "INVALID_INPUT", message: "Executable is required", recoverable: false });
-    const pathEntries = (this.environment.Path ?? this.environment.PATH ?? "").split(import_node_path9.default.delimiter).filter(Boolean);
-    const hasPath = import_node_path9.default.isAbsolute(executable) || executable.includes(import_node_path9.default.sep) || executable.includes("/") || executable.includes("\\");
-    const candidates = hasPath ? this.withWindowsExtensions(executable) : pathEntries.flatMap((entry) => this.withWindowsExtensions(import_node_path9.default.join(entry, executable)));
+    const pathEntries = (this.environment.Path ?? this.environment.PATH ?? "").split(import_node_path12.default.delimiter).filter(Boolean);
+    const hasPath = import_node_path12.default.isAbsolute(executable) || executable.includes(import_node_path12.default.sep) || executable.includes("/") || executable.includes("\\");
+    const candidates = hasPath ? this.withWindowsExtensions(executable) : pathEntries.flatMap((entry) => this.withWindowsExtensions(import_node_path12.default.join(entry, executable)));
     for (const candidate of candidates) {
       try {
-        await (0, import_promises9.access)(candidate, import_promises9.constants.F_OK);
-        if ((await (0, import_promises9.stat)(candidate)).isFile())
+        await (0, import_promises10.access)(candidate, import_promises10.constants.F_OK);
+        if ((await (0, import_promises10.stat)(candidate)).isFile())
           return ok(candidate);
       } catch {
         continue;
@@ -1577,7 +1733,7 @@ var PathExecutableResolver = class {
     return err({ code: "EXECUTABLE_NOT_FOUND", message: `Executable '${executable}' was not found`, recoverable: true });
   }
   withWindowsExtensions(candidate) {
-    if (import_node_path9.default.extname(candidate).length > 0 || process.platform !== "win32")
+    if (import_node_path12.default.extname(candidate).length > 0 || process.platform !== "win32")
       return [candidate];
     const extensions = (this.environment.PATHEXT ?? ".EXE;.CMD;.BAT;.COM").split(";");
     return [...extensions.map((extension) => `${candidate}${extension.toLowerCase()}`), candidate];
@@ -1656,7 +1812,7 @@ var WindowsProcessTree = class {
 };
 
 // ../../packages/process/dist/windows-spawn.js
-var import_node_path10 = __toESM(require("node:path"), 1);
+var import_node_path13 = __toESM(require("node:path"), 1);
 function toWindowsSpawnInvocation(executable, args, options = {}) {
   if (process.platform !== "win32" || !isWindowsCommandShim(executable)) {
     return ok({ executable, args });
@@ -1676,7 +1832,7 @@ function wrapWindowsCommandShim(executable, args, options = {}) {
   });
 }
 function isWindowsCommandShim(executable) {
-  return [".cmd", ".bat"].includes(import_node_path10.default.extname(executable).toLowerCase());
+  return [".cmd", ".bat"].includes(import_node_path13.default.extname(executable).toLowerCase());
 }
 function quoteWindowsCommandArgument(value) {
   return /\s/.test(value) ? `"${value}"` : value;
@@ -1774,7 +1930,7 @@ var ProcessManager = class {
     if (typeof spec.executable !== "string" || spec.executable.trim().length === 0 || !Array.isArray(spec.args) || !spec.args.every((arg) => typeof arg === "string")) {
       return err(appError("INVALID_INPUT", "Executable and args are required"));
     }
-    if (typeof spec.cwd !== "string" || !import_node_path11.default.isAbsolute(spec.cwd)) {
+    if (typeof spec.cwd !== "string" || !import_node_path14.default.isAbsolute(spec.cwd)) {
       return err(appError("INVALID_INPUT", "Process cwd must be an absolute path"));
     }
     const timeoutMs = spec.timeoutMs ?? DEFAULT_TIMEOUT_MS;
@@ -1854,8 +2010,8 @@ function createSafeEnvironment(source) {
 // ../../packages/codex/dist/codex-discovery.js
 var import_node_child_process3 = require("node:child_process");
 var import_node_os = __toESM(require("node:os"), 1);
-var import_node_path12 = __toESM(require("node:path"), 1);
-var import_promises10 = require("node:fs/promises");
+var import_node_path15 = __toESM(require("node:path"), 1);
+var import_promises11 = require("node:fs/promises");
 
 // ../../packages/codex/dist/codex-capabilities.js
 var CodexInvocationBuilder = class {
@@ -1890,12 +2046,12 @@ var PathCodexExecutableResolver = class {
   }
   async resolve() {
     const pathValue = this.environment.Path ?? this.environment.PATH ?? "";
-    const entries = pathValue.split(import_node_path12.default.delimiter).filter(Boolean);
-    const candidates = entries.flatMap((entry) => this.withWindowsExtensions(import_node_path12.default.join(entry, "codex")));
+    const entries = pathValue.split(import_node_path15.default.delimiter).filter(Boolean);
+    const candidates = entries.flatMap((entry) => this.withWindowsExtensions(import_node_path15.default.join(entry, "codex")));
     for (const candidate of candidates) {
       try {
-        await (0, import_promises10.access)(candidate, import_promises10.constants.F_OK);
-        if ((await (0, import_promises10.stat)(candidate)).isFile())
+        await (0, import_promises11.access)(candidate, import_promises11.constants.F_OK);
+        if ((await (0, import_promises11.stat)(candidate)).isFile())
           return ok(candidate);
       } catch {
         continue;
@@ -1988,12 +2144,12 @@ function sanitizeSpawnErrorCode(value) {
 }
 function sanitizeExecutablePath(value) {
   const home = import_node_os.default.homedir();
-  const relative = import_node_path12.default.relative(home, value);
-  if (relative.length > 0 && !relative.startsWith("..") && !import_node_path12.default.isAbsolute(relative)) {
-    return `%USERPROFILE%${import_node_path12.default.sep}${relative}`;
+  const relative = import_node_path15.default.relative(home, value);
+  if (relative.length > 0 && !relative.startsWith("..") && !import_node_path15.default.isAbsolute(relative)) {
+    return `%USERPROFILE%${import_node_path15.default.sep}${relative}`;
   }
-  const windowsBaseName = import_node_path12.default.win32.basename(value);
-  return windowsBaseName === value ? import_node_path12.default.basename(value) : windowsBaseName;
+  const windowsBaseName = import_node_path15.default.win32.basename(value);
+  return windowsBaseName === value ? import_node_path15.default.basename(value) : windowsBaseName;
 }
 function parseVersion(value) {
   return value.match(/\b\d+\.\d+(?:\.\d+)?(?:[-+][0-9A-Za-z.-]+)?\b/)?.[0];
@@ -2160,26 +2316,56 @@ function toDiagnosticError(error46) {
   return { name: redactDiagnosticText(error46.name), message, ...stack === void 0 ? {} : { stack } };
 }
 
+// ../../packages/application/dist/git-service.js
+var import_promises12 = require("node:fs/promises");
+var import_node_path16 = __toESM(require("node:path"), 1);
+
 // ../../packages/git/dist/git-runner.js
 var import_node_child_process4 = require("node:child_process");
+var DEFAULT_TIMEOUT_MS2 = 6e4;
+var MAX_TIMEOUT_MS2 = 3e5;
+var MAX_CAPTURE_BYTES = 8 * 1024 * 1024;
 var DirectGitRunner = class {
-  run(args, cwd) {
+  run(args, cwd, options = {}) {
+    const timeoutMs = clampTimeout(options.timeoutMs ?? DEFAULT_TIMEOUT_MS2);
     return new Promise((resolve) => {
-      const child = (0, import_node_child_process4.spawn)("git", [...args], { cwd, shell: false, windowsHide: true });
+      const child = (0, import_node_child_process4.spawn)("git", [...args], {
+        cwd,
+        env: { ...process.env, GIT_TERMINAL_PROMPT: "0" },
+        shell: false,
+        windowsHide: true
+      });
       let stdout = "";
       let stderr = "";
-      const append = (current, chunk) => `${current}${chunk.toString("utf8")}`.slice(-8 * 1024 * 1024);
+      let settled = false;
+      const append = (current, chunk) => `${current}${chunk.toString("utf8")}`.slice(-MAX_CAPTURE_BYTES);
+      const finish = (exitCode, extraStderr = "") => {
+        if (settled)
+          return;
+        settled = true;
+        clearTimeout(timer);
+        resolve({ exitCode, stdout, stderr: extraStderr.length === 0 ? stderr : `${stderr}${extraStderr}` });
+      };
+      const timer = setTimeout(() => {
+        child.kill();
+        finish(-1, "Git command timed out");
+      }, timeoutMs);
       child.stdout?.on("data", (chunk) => {
         stdout = append(stdout, chunk);
       });
       child.stderr?.on("data", (chunk) => {
         stderr = append(stderr, chunk);
       });
-      child.on("error", (error46) => resolve({ exitCode: -1, stdout, stderr: `${stderr}${error46.message}` }));
-      child.on("close", (exitCode) => resolve({ exitCode: exitCode ?? -1, stdout, stderr }));
+      child.on("error", (error46) => finish(-1, error46.message));
+      child.on("close", (exitCode) => finish(exitCode ?? -1));
     });
   }
 };
+function clampTimeout(value) {
+  if (!Number.isFinite(value))
+    return DEFAULT_TIMEOUT_MS2;
+  return Math.min(MAX_TIMEOUT_MS2, Math.max(100, Math.floor(value)));
+}
 
 // ../../packages/git/dist/parsers/status-parser.js
 function parsePorcelainStatus(output) {
@@ -2233,6 +2419,10 @@ function getKind(indexStatus, worktreeStatus) {
 }
 
 // ../../packages/git/dist/git-adapter.js
+var MAX_GIT_ARGS = 128;
+var MAX_GIT_ARG_LENGTH = 32768;
+var DEFAULT_GIT_TIMEOUT_MS = 6e4;
+var MAX_GIT_TIMEOUT_MS = 3e5;
 var GitAdapter = class {
   runner;
   constructor(runner = new DirectGitRunner()) {
@@ -2279,6 +2469,28 @@ var GitAdapter = class {
       return fields.length === 4 && fields.every((field) => field.length > 0) ? [{ hash: fields[0] ?? "", author: fields[1] ?? "", date: fields[2] ?? "", subject: fields[3] ?? "" }] : [];
     });
     return ok({ entries, truncated: bounded.truncated });
+  }
+  async run(cwd, args, timeoutMs = DEFAULT_GIT_TIMEOUT_MS) {
+    const validation = this.validateArgs(args, timeoutMs);
+    if (!validation.ok)
+      return validation;
+    const result = await this.runner.run(args, cwd, { timeoutMs });
+    if (result.exitCode === -1 && /ENOENT/i.test(result.stderr)) {
+      return err(appError("EXECUTABLE_NOT_FOUND", "Git executable was not found"));
+    }
+    return ok({ exitCode: result.exitCode, stdout: result.stdout, stderr: result.stderr });
+  }
+  validateArgs(args, timeoutMs) {
+    if (!Array.isArray(args) || args.length === 0 || args.length > MAX_GIT_ARGS) {
+      return err(appError("INVALID_INPUT", "Git args must be a non-empty array"));
+    }
+    if (!args.every((arg) => typeof arg === "string" && arg.length > 0 && arg.length <= MAX_GIT_ARG_LENGTH)) {
+      return err(appError("INVALID_INPUT", "Git args must be non-empty strings"));
+    }
+    if (!Number.isFinite(timeoutMs) || timeoutMs < 100 || timeoutMs > MAX_GIT_TIMEOUT_MS) {
+      return err(appError("INVALID_INPUT", "Git timeout is invalid"));
+    }
+    return ok(void 0);
   }
   mapError(result) {
     if (result.exitCode === 0)
@@ -2344,6 +2556,43 @@ var GitService = class {
       return workspace;
     return this.adapter.log(workspace.value.realRootPath, request);
   }
+  async run(actor, request) {
+    void actor;
+    const cwd = await this.resolveCwd(request.workspaceId, request.cwd);
+    if (!cwd.ok)
+      return cwd;
+    return this.adapter.run(cwd.value, request.args, request.timeoutMs);
+  }
+  async resolveCwd(workspaceId, requestedCwd) {
+    if (requestedCwd !== void 0 && isAbsoluteFsPath(requestedCwd)) {
+      const workspace2 = await resolveWorkspaceForPath(this.workspaces, workspaceId, requestedCwd);
+      if (!workspace2.ok)
+        return workspace2;
+      return this.existingDirectory(requestedCwd);
+    }
+    if (workspaceId === void 0 || workspaceId.trim().length === 0) {
+      return err(appError("INVALID_INPUT", "workspaceId is required unless cwd is an absolute path"));
+    }
+    const workspace = await this.getWorkspace(workspaceId);
+    if (!workspace.ok)
+      return workspace;
+    if (requestedCwd === void 0)
+      return ok(workspace.value.realRootPath);
+    const resolved = await this.guard.resolveForRead(workspace.value, requestedCwd);
+    if (!resolved.ok)
+      return resolved;
+    return this.existingDirectory(resolved.value.realPath ?? resolved.value.absolutePath);
+  }
+  async existingDirectory(directoryPath) {
+    try {
+      const canonical = await (0, import_promises12.realpath)(import_node_path16.default.resolve(directoryPath));
+      if (!(await (0, import_promises12.stat)(canonical)).isDirectory())
+        return err(appError("INVALID_INPUT", "Git cwd must be a directory"));
+      return ok(canonical);
+    } catch {
+      return err(appError("FILE_NOT_FOUND", "Git cwd was not found"));
+    }
+  }
   async getWorkspace(workspaceId) {
     const workspace = await this.workspaces.get(workspaceId);
     return workspace === null ? err(appError("WORKSPACE_NOT_FOUND", "Workspace was not found")) : ok(workspace);
@@ -2351,7 +2600,7 @@ var GitService = class {
 };
 
 // ../../packages/application/dist/machine-root-sync.js
-var import_node_fs2 = require("node:fs");
+var import_node_fs3 = require("node:fs");
 async function syncEMachineRoot(workspaceService) {
   const existing = await workspaceService.list();
   for (const workspace of existing) {
@@ -2360,7 +2609,7 @@ async function syncEMachineRoot(workspaceService) {
     }
   }
   const root = machineRootPath();
-  if (!(0, import_node_fs2.existsSync)(root))
+  if (!(0, import_node_fs3.existsSync)(root))
     return null;
   const afterPrune = await workspaceService.list();
   const target = normalizeWorkspaceRoot(root).toLowerCase();
@@ -2414,15 +2663,15 @@ var JsCommandDetector = class {
 };
 
 // ../../packages/project/dist/project-detector.js
-var import_promises11 = require("node:fs/promises");
-var import_node_path13 = __toESM(require("node:path"), 1);
+var import_promises13 = require("node:fs/promises");
+var import_node_path17 = __toESM(require("node:path"), 1);
 var NodeProjectFileSystem = class {
   readFile(filePath) {
-    return (0, import_promises11.readFile)(filePath, "utf8");
+    return (0, import_promises13.readFile)(filePath, "utf8");
   }
   async exists(filePath) {
     try {
-      await (0, import_promises11.access)(filePath);
+      await (0, import_promises13.access)(filePath);
       return true;
     } catch {
       return false;
@@ -2457,7 +2706,7 @@ var ProjectDetector = class {
     this.fileSystem = fileSystem;
   }
   async detect(rootPath) {
-    const packageJsonPath = import_node_path13.default.join(rootPath, "package.json");
+    const packageJsonPath = import_node_path17.default.join(rootPath, "package.json");
     if (!await this.fileSystem.exists(packageJsonPath)) {
       return ok({
         rootPath,
@@ -2488,7 +2737,7 @@ var ProjectDetector = class {
   }
   async detectPackageManager(rootPath) {
     for (const [filename, manager] of LOCKFILE_PRECEDENCE) {
-      if (await this.fileSystem.exists(import_node_path13.default.join(rootPath, filename)))
+      if (await this.fileSystem.exists(import_node_path17.default.join(rootPath, filename)))
         return manager;
     }
     return "npm";
@@ -2502,14 +2751,14 @@ var ProjectDetector = class {
     const frameworks = /* @__PURE__ */ new Set();
     if (dependencyNames.has("react") || dependencyNames.has("react-dom"))
       frameworks.add("react");
-    if (dependencyNames.has("typescript") || await this.fileSystem.exists(import_node_path13.default.join(rootPath, "tsconfig.json")))
+    if (dependencyNames.has("typescript") || await this.fileSystem.exists(import_node_path17.default.join(rootPath, "tsconfig.json")))
       frameworks.add("typescript");
-    if (dependencyNames.has("vite") || await this.fileSystem.exists(import_node_path13.default.join(rootPath, "vite.config.ts")))
+    if (dependencyNames.has("vite") || await this.fileSystem.exists(import_node_path17.default.join(rootPath, "vite.config.ts")))
       frameworks.add("vite");
     return [...frameworks].sort();
   }
   async findConfigFiles(rootPath) {
-    const existing = await Promise.all(CONFIG_FILE_NAMES.map(async (filename) => await this.fileSystem.exists(import_node_path13.default.join(rootPath, filename)) ? filename : null));
+    const existing = await Promise.all(CONFIG_FILE_NAMES.map(async (filename) => await this.fileSystem.exists(import_node_path17.default.join(rootPath, filename)) ? filename : null));
     return existing.flatMap((filename) => filename === null ? [] : [filename]).sort();
   }
   isPackageJson(value) {
@@ -2553,8 +2802,8 @@ var ProjectService = class {
 };
 
 // ../../packages/application/dist/process-service.js
-var import_promises12 = require("node:fs/promises");
-var import_node_path14 = __toESM(require("node:path"), 1);
+var import_promises14 = require("node:fs/promises");
+var import_node_path18 = __toESM(require("node:path"), 1);
 var ProcessService = class {
   workspaces;
   processManager;
@@ -2649,10 +2898,10 @@ var ProcessService = class {
     return started;
   }
   async resolveCwd(workspace, requestedCwd) {
-    if (this.unrestricted && requestedCwd !== void 0 && import_node_path14.default.isAbsolute(requestedCwd)) {
+    if (this.unrestricted && requestedCwd !== void 0 && import_node_path18.default.isAbsolute(requestedCwd)) {
       try {
-        const canonical = await (0, import_promises12.realpath)(requestedCwd);
-        if (!(await (0, import_promises12.stat)(canonical)).isDirectory())
+        const canonical = await (0, import_promises14.realpath)(requestedCwd);
+        if (!(await (0, import_promises14.stat)(canonical)).isDirectory())
           return err(appError("INVALID_INPUT", "Process cwd must be a directory"));
         return ok(canonical);
       } catch {
@@ -2664,7 +2913,7 @@ var ProcessService = class {
       return resolved;
     const cwd = resolved.value.realPath ?? resolved.value.absolutePath;
     try {
-      if (!(await (0, import_promises12.stat)(cwd)).isDirectory())
+      if (!(await (0, import_promises14.stat)(cwd)).isDirectory())
         return err(appError("INVALID_INPUT", "Process cwd must be a directory"));
     } catch {
       return err(appError("FILE_NOT_FOUND", "Process cwd was not found"));
@@ -2710,10 +2959,11 @@ var WorkspaceQueryService = class {
   }
   async tree(actor, workspaceId, request = {}) {
     void actor;
-    const workspace = await this.workspaces.get(workspaceId);
-    if (workspace === null)
-      return err(appError("WORKSPACE_NOT_FOUND", "Workspace was not found"));
-    const resolved = await this.guard.resolveForRead(workspace, request.path ?? ".");
+    const hintPath = request.path ?? ".";
+    const workspace = await resolveWorkspaceForPath(this.workspaces, workspaceId, hintPath);
+    if (!workspace.ok)
+      return workspace;
+    const resolved = await this.guard.resolveForRead(workspace.value, hintPath);
     if (!resolved.ok)
       return resolved;
     return this.treeReader.read(resolved.value.realPath ?? resolved.value.absolutePath, request);
@@ -2799,8 +3049,8 @@ function redactProcessError(value) {
 }
 
 // ../../packages/search/dist/executable-resolver.js
-var import_promises13 = require("node:fs/promises");
-var import_node_path15 = __toESM(require("node:path"), 1);
+var import_promises15 = require("node:fs/promises");
+var import_node_path19 = __toESM(require("node:path"), 1);
 var PathExecutableResolver2 = class {
   environment;
   constructor(environment = process.env) {
@@ -2809,12 +3059,12 @@ var PathExecutableResolver2 = class {
   async resolve(executable) {
     if (executable.trim().length === 0)
       return err({ code: "INVALID_INPUT", message: "Executable is required", recoverable: false });
-    const pathEntries = (this.environment.Path ?? this.environment.PATH ?? "").split(import_node_path15.default.delimiter).filter(Boolean);
-    const candidates = import_node_path15.default.isAbsolute(executable) || executable.includes(import_node_path15.default.sep) || executable.includes("/") ? [executable] : pathEntries.flatMap((entry) => this.withWindowsExtensions(import_node_path15.default.join(entry, executable)));
+    const pathEntries = (this.environment.Path ?? this.environment.PATH ?? "").split(import_node_path19.default.delimiter).filter(Boolean);
+    const candidates = import_node_path19.default.isAbsolute(executable) || executable.includes(import_node_path19.default.sep) || executable.includes("/") ? [executable] : pathEntries.flatMap((entry) => this.withWindowsExtensions(import_node_path19.default.join(entry, executable)));
     for (const candidate of candidates) {
       try {
-        await (0, import_promises13.access)(candidate, import_promises13.constants.F_OK);
-        if ((await (0, import_promises13.stat)(candidate)).isFile())
+        await (0, import_promises15.access)(candidate, import_promises15.constants.F_OK);
+        if ((await (0, import_promises15.stat)(candidate)).isFile())
           return ok(candidate);
       } catch {
         continue;
@@ -2823,7 +3073,7 @@ var PathExecutableResolver2 = class {
     return err({ code: "EXECUTABLE_NOT_FOUND", message: `Executable '${executable}' was not found`, recoverable: true });
   }
   withWindowsExtensions(candidate) {
-    if (import_node_path15.default.extname(candidate).length > 0)
+    if (import_node_path19.default.extname(candidate).length > 0)
       return [candidate];
     const extensions = (this.environment.PATHEXT ?? ".EXE;.CMD;.BAT;.COM").split(";");
     return [candidate, ...extensions.map((extension) => `${candidate}${extension.toLowerCase()}`)];
@@ -2942,11 +3192,11 @@ var SearchService = class {
       return validation;
     if (request.query.length === 0)
       return err(appError("INVALID_INPUT", "Search query is required"));
-    const workspace = await this.workspaces.get(workspaceId);
-    if (workspace === null)
-      return err(appError("WORKSPACE_NOT_FOUND", "Workspace was not found"));
+    const workspace = await resolveWorkspaceForPath(this.workspaces, workspaceId, request.path ?? ".");
+    if (!workspace.ok)
+      return workspace;
     return this.adapter.searchText({
-      rootPath: workspace.realRootPath,
+      rootPath: workspace.value.realRootPath,
       query: request.query,
       ...request.glob === void 0 ? {} : { glob: request.glob },
       ...request.maxResults === void 0 ? {} : { maxResults: request.maxResults }
@@ -2957,11 +3207,11 @@ var SearchService = class {
     const validation = this.validateLimit(request.maxResults);
     if (!validation.ok)
       return validation;
-    const workspace = await this.workspaces.get(workspaceId);
-    if (workspace === null)
-      return err(appError("WORKSPACE_NOT_FOUND", "Workspace was not found"));
+    const workspace = await resolveWorkspaceForPath(this.workspaces, workspaceId, request.path ?? ".");
+    if (!workspace.ok)
+      return workspace;
     return this.adapter.searchFiles({
-      rootPath: workspace.realRootPath,
+      rootPath: workspace.value.realRootPath,
       ...request.glob === void 0 ? {} : { glob: request.glob },
       ...request.maxResults === void 0 ? {} : { maxResults: request.maxResults }
     });
@@ -2972,7 +3222,7 @@ var SearchService = class {
 };
 
 // ../../packages/application/dist/workspace-info-service.js
-var import_node_path16 = __toESM(require("node:path"), 1);
+var import_node_path20 = __toESM(require("node:path"), 1);
 var WorkspaceInfoService = class {
   workspaces;
   workspaceService;
@@ -3019,7 +3269,7 @@ var WorkspaceInfoService = class {
     } else if (!isEMachineRoot(parent.realRootPath) && !isEMachineRoot(parent.rootPath)) {
       return err(appError("INVALID_INPUT", "parentWorkspaceId must be the E:\\ machine root"));
     }
-    const absolutePath = import_node_path16.default.isAbsolute(request.path) ? import_node_path16.default.resolve(request.path) : import_node_path16.default.resolve(parent.rootPath, request.path);
+    const absolutePath = import_node_path20.default.isAbsolute(request.path) ? import_node_path20.default.resolve(request.path) : import_node_path20.default.resolve(parent.rootPath, request.path);
     if (!this.unrestricted && !isUnderEDrive(absolutePath)) {
       return err(appError("INVALID_INPUT", "Registered path must be under E:\\"));
     }
@@ -3029,7 +3279,7 @@ var WorkspaceInfoService = class {
     if (duplicate !== void 0) {
       return ok(this.toWorkspaceInfo(duplicate));
     }
-    const displayName = request.displayName?.trim() || import_node_path16.default.basename(absolutePath) || "Workspace";
+    const displayName = request.displayName?.trim() || import_node_path20.default.basename(absolutePath) || "Workspace";
     const added = await this.workspaceService.add(displayName, absolutePath);
     if (!added.ok)
       return added;
@@ -3037,8 +3287,8 @@ var WorkspaceInfoService = class {
   }
 };
 function normalizeCompare(rootPath) {
-  const resolved = import_node_path16.default.resolve(rootPath);
-  const withSep = resolved.endsWith(import_node_path16.default.sep) ? resolved : `${resolved}${import_node_path16.default.sep}`;
+  const resolved = import_node_path20.default.resolve(rootPath);
+  const withSep = resolved.endsWith(import_node_path20.default.sep) ? resolved : `${resolved}${import_node_path20.default.sep}`;
   return withSep.toLowerCase();
 }
 
@@ -3078,7 +3328,7 @@ var ActivityTracker = class {
     });
     return callId;
   }
-  async end(callId, resultCode, durationMs) {
+  async end(callId, resultCode, durationMs, resultMessage) {
     const existing = this.inflight.get(callId);
     this.inflight.delete(callId);
     const timestamp = (/* @__PURE__ */ new Date()).toISOString();
@@ -3090,7 +3340,8 @@ var ActivityTracker = class {
       durationMs,
       timestamp,
       ...existing?.workspaceId === void 0 ? {} : { workspaceId: existing.workspaceId },
-      ...existing?.targetSummary === void 0 ? {} : { targetSummary: existing.targetSummary }
+      ...existing?.targetSummary === void 0 ? {} : { targetSummary: existing.targetSummary },
+      ...resultMessage === void 0 || resultMessage.length === 0 ? {} : { resultMessage }
     });
   }
   async safeRecord(event) {
@@ -3105,7 +3356,7 @@ var ActivityTracker = class {
 function summarizeToolTarget(toolName, input) {
   if (!isRecord(input))
     return void 0;
-  const pathValue = firstString(input, ["path", "relativePath", "filePath", "targetPath"]);
+  const pathValue = firstString(input, ["path", "relativePath", "filePath", "targetPath", "sourcePath", "destinationPath"]);
   if (pathValue !== void 0)
     return truncate(pathValue, 160);
   const query = firstString(input, ["query", "pattern"]);
@@ -3965,10 +4216,10 @@ function mergeDefs(...defs) {
 function cloneDef(schema) {
   return mergeDefs(schema._zod.def);
 }
-function getElementAtPath(obj, path25) {
-  if (!path25)
+function getElementAtPath(obj, path29) {
+  if (!path29)
     return obj;
-  return path25.reduce((acc, key) => acc?.[key], obj);
+  return path29.reduce((acc, key) => acc?.[key], obj);
 }
 function promiseAllObject(promisesObj) {
   const keys = Object.keys(promisesObj);
@@ -4334,11 +4585,11 @@ function aborted(x, startIndex = 0) {
   }
   return false;
 }
-function prefixIssues(path25, issues) {
+function prefixIssues(path29, issues) {
   return issues.map((iss) => {
     var _a2;
     (_a2 = iss).path ?? (_a2.path = []);
-    iss.path.unshift(path25);
+    iss.path.unshift(path29);
     return iss;
   });
 }
@@ -4500,7 +4751,7 @@ function formatError(error46, mapper = (issue2) => issue2.message) {
 }
 function treeifyError(error46, mapper = (issue2) => issue2.message) {
   const result = { errors: [] };
-  const processError = (error47, path25 = []) => {
+  const processError = (error47, path29 = []) => {
     var _a2, _b;
     for (const issue2 of error47.issues) {
       if (issue2.code === "invalid_union" && issue2.errors.length) {
@@ -4510,7 +4761,7 @@ function treeifyError(error46, mapper = (issue2) => issue2.message) {
       } else if (issue2.code === "invalid_element") {
         processError({ issues: issue2.issues }, issue2.path);
       } else {
-        const fullpath = [...path25, ...issue2.path];
+        const fullpath = [...path29, ...issue2.path];
         if (fullpath.length === 0) {
           result.errors.push(mapper(issue2));
           continue;
@@ -4542,8 +4793,8 @@ function treeifyError(error46, mapper = (issue2) => issue2.message) {
 }
 function toDotPath(_path) {
   const segs = [];
-  const path25 = _path.map((seg) => typeof seg === "object" ? seg.key : seg);
-  for (const seg of path25) {
+  const path29 = _path.map((seg) => typeof seg === "object" ? seg.key : seg);
+  for (const seg of path29) {
     if (typeof seg === "number")
       segs.push(`[${seg}]`);
     else if (typeof seg === "symbol")
@@ -16137,13 +16388,13 @@ function resolveRef(ref, ctx) {
   if (!ref.startsWith("#")) {
     throw new Error("External $ref is not supported, only local refs (#/...) are allowed");
   }
-  const path25 = ref.slice(1).split("/").filter(Boolean);
-  if (path25.length === 0) {
+  const path29 = ref.slice(1).split("/").filter(Boolean);
+  if (path29.length === 0) {
     return ctx.rootSchema;
   }
   const defsKey = ctx.version === "draft-2020-12" ? "$defs" : "definitions";
-  if (path25[0] === defsKey) {
-    const key = path25[1];
+  if (path29[0] === defsKey) {
+    const key = path29[1];
     if (!key || !ctx.defs[key]) {
       throw new Error(`Reference not found: ${ref}`);
     }
@@ -20083,9 +20334,9 @@ var rev2026Codec = {
     });
     const parsed = buildSchemas2026().RequestMetaEnvelopeSchema.safeParse(meta3);
     if (!parsed.success) for (const issue2 of parsed.error.issues) {
-      const path25 = issue2.path.map(String);
-      const key = path25.length > 0 ? path25.join(".") : "_meta";
-      if (path25.length === 1 && issues.some((existing) => existing.key === key && existing.problem === "missing")) continue;
+      const path29 = issue2.path.map(String);
+      const key = path29.length > 0 ? path29.join(".") : "_meta";
+      if (path29.length === 1 && issues.some((existing) => existing.key === key && existing.problem === "missing")) continue;
       issues.push({
         key,
         problem: issue2.message
@@ -20406,29 +20657,29 @@ var PERMITTED_X_MCP_HEADER_TYPES = /* @__PURE__ */ new Set([
 function scanXMcpHeaderDeclarations(inputSchema) {
   const declarations = [];
   const seenLower = /* @__PURE__ */ new Map();
-  const visit = (node, path25, reachable) => {
+  const visit = (node, path29, reachable) => {
     if (node === null || typeof node !== "object") return void 0;
     const schema = node;
     if (X_MCP_HEADER_KEY in schema) {
-      if (!reachable || path25.length === 0) return `${pathName(path25)}: x-mcp-header is only permitted on properties statically reachable via a chain of 'properties' keys (not under items, additionalProperties, oneOf/anyOf/allOf/not, if/then/else, or $ref)`;
+      if (!reachable || path29.length === 0) return `${pathName(path29)}: x-mcp-header is only permitted on properties statically reachable via a chain of 'properties' keys (not under items, additionalProperties, oneOf/anyOf/allOf/not, if/then/else, or $ref)`;
       const raw = schema[X_MCP_HEADER_KEY];
-      if (typeof raw !== "string" || raw.length === 0) return `${pathName(path25)}: x-mcp-header MUST be a non-empty string`;
-      if (!RFC9110_TOKEN.test(raw)) return `${pathName(path25)}: x-mcp-header '${raw}' is not a valid RFC 9110 token (no spaces, control characters or HTTP delimiters)`;
+      if (typeof raw !== "string" || raw.length === 0) return `${pathName(path29)}: x-mcp-header MUST be a non-empty string`;
+      if (!RFC9110_TOKEN.test(raw)) return `${pathName(path29)}: x-mcp-header '${raw}' is not a valid RFC 9110 token (no spaces, control characters or HTTP delimiters)`;
       const type = typeof schema.type === "string" ? schema.type : void 0;
-      if (type === void 0 || !PERMITTED_X_MCP_HEADER_TYPES.has(type)) return `${pathName(path25)}: x-mcp-header is only permitted on primitive-typed properties (string, integer, boolean); got ${type ?? "<none>"}`;
+      if (type === void 0 || !PERMITTED_X_MCP_HEADER_TYPES.has(type)) return `${pathName(path29)}: x-mcp-header is only permitted on primitive-typed properties (string, integer, boolean); got ${type ?? "<none>"}`;
       const lower = raw.toLowerCase();
       const prior = seenLower.get(lower);
       if (prior !== void 0) return `x-mcp-header '${raw}' is not case-insensitively unique (also declared as '${prior}')`;
       seenLower.set(lower, raw);
       declarations.push({
-        path: path25,
+        path: path29,
         headerName: raw,
         type
       });
     }
     const properties = schema.properties;
     if (properties !== null && typeof properties === "object") for (const [key, child] of Object.entries(properties)) {
-      const fault$1 = visit(child, [...path25, key], reachable);
+      const fault$1 = visit(child, [...path29, key], reachable);
       if (fault$1 !== void 0) return fault$1;
     }
     for (const k of NON_REACHABLE_SUBSCHEMA_KEYWORDS) {
@@ -20436,7 +20687,7 @@ function scanXMcpHeaderDeclarations(inputSchema) {
       if (sub === void 0) continue;
       const branches = Array.isArray(sub) ? sub : sub !== null && typeof sub === "object" && OBJECT_VALUED_SUBSCHEMA_KEYWORDS.has(k) ? Object.values(sub) : [sub];
       for (const branch of branches) {
-        const fault$1 = visit(branch, [...path25, `<${k}>`], false);
+        const fault$1 = visit(branch, [...path29, `<${k}>`], false);
         if (fault$1 !== void 0) return fault$1;
       }
     }
@@ -20476,8 +20727,8 @@ var OBJECT_VALUED_SUBSCHEMA_KEYWORDS = /* @__PURE__ */ new Set([
   "$defs",
   "definitions"
 ]);
-function pathName(path25) {
-  return path25.length === 0 ? "<root>" : path25.join(".");
+function pathName(path29) {
+  return path29.length === 0 ? "<root>" : path29.join(".");
 }
 var HEADER_MISMATCH_ERROR_CODE = -32020;
 var INBOUND_VALIDATION_LADDER = [
@@ -20766,7 +21017,7 @@ var PROPERTY_KEYS_BY_TYPE = {
   array: shapeKeys([UntitledMultiSelectEnumSchemaSchema, TitledMultiSelectEnumSchemaSchema])
 };
 var SUPPORTED_STRING_FORMATS = new Set(StringSchemaSchema.shape.format.unwrap().options);
-function walkProperty(node, path25, vendor, unsupported) {
+function walkProperty(node, path29, vendor, unsupported) {
   if (!isJsonObject(node)) return node;
   const allowedKeys = typeof node.type === "string" && Object.hasOwn(PROPERTY_KEYS_BY_TYPE, node.type) ? PROPERTY_KEYS_BY_TYPE[node.type] : void 0;
   if (allowedKeys === void 0) return node;
@@ -20774,8 +21025,8 @@ function walkProperty(node, path25, vendor, unsupported) {
   for (const [key, value] of Object.entries(node)) if (allowedKeys.has(key) || isAnnotationOnlyJsonSchemaKeyword(key)) pruned[key] = value;
   else if (key === "pattern" && node.type === "string" && typeof node.format === "string") {
     if (!SUPPORTED_STRING_FORMATS.has(node.format)) pruned[key] = value;
-    else if (typeof value !== "string" || !isLibraryFormatPattern(node.format, value, vendor)) unsupported.push(`${path25}.${key}`);
-  } else unsupported.push(`${path25}.${key}`);
+    else if (typeof value !== "string" || !isLibraryFormatPattern(node.format, value, vendor)) unsupported.push(`${path29}.${key}`);
+  } else unsupported.push(`${path29}.${key}`);
   return pruned;
 }
 function walkRequestedSchema(converted, vendor) {
@@ -20792,11 +21043,11 @@ function describeUnsupportedProperties(pruned, fallback) {
   const offenders = Object.entries(pruned.properties).filter(([, node]) => !parseSchema(PrimitiveSchemaDefinitionSchema, node).success).map(([name]) => `properties.${name}`);
   return offenders.length > 0 ? offenders.join(", ") : fallback;
 }
-function findDroppedConstraintPaths(original, parsed, path25 = "") {
-  if (Array.isArray(original) && Array.isArray(parsed)) return original.flatMap((item, index) => findDroppedConstraintPaths(item, parsed[index], `${path25}[${index}]`));
+function findDroppedConstraintPaths(original, parsed, path29 = "") {
+  if (Array.isArray(original) && Array.isArray(parsed)) return original.flatMap((item, index) => findDroppedConstraintPaths(item, parsed[index], `${path29}[${index}]`));
   if (!isJsonObject(original) || !isJsonObject(parsed)) return [];
   return Object.entries(original).flatMap(([key, value]) => {
-    const childPath = path25 ? `${path25}.${key}` : key;
+    const childPath = path29 ? `${path29}.${key}` : key;
     if (!Object.prototype.hasOwnProperty.call(parsed, key)) return isAnnotationOnlyJsonSchemaKeyword(key) ? [] : [childPath];
     return findDroppedConstraintPaths(value, parsed[key], childPath);
   });
@@ -24874,8 +25125,8 @@ var require_utils = /* @__PURE__ */ __commonJSMin(((exports2, module2) => {
     for (let i = 0; i < str.length; i++) if (str[i] === token) ind++;
     return ind;
   }
-  function removeDotSegments(path25) {
-    let input = path25;
+  function removeDotSegments(path29) {
+    let input = path29;
     const output = [];
     let nextSlash = -1;
     let len = 0;
@@ -25028,8 +25279,8 @@ var require_schemes = /* @__PURE__ */ __commonJSMin(((exports2, module2) => {
       wsComponent.secure = void 0;
     }
     if (wsComponent.resourceName) {
-      const [path25, query] = wsComponent.resourceName.split("?");
-      wsComponent.path = path25 && path25 !== "/" ? path25 : void 0;
+      const [path29, query] = wsComponent.resourceName.split("?");
+      wsComponent.path = path29 && path29 !== "/" ? path29 : void 0;
       wsComponent.query = query;
       wsComponent.resourceName = void 0;
     }
@@ -30734,26 +30985,34 @@ var MAX_PATH_LENGTH = 4096;
 var MAX_WORKSPACE_ID_LENGTH = 128;
 var MAX_INSTRUCTION_BYTES = 256 * 1024;
 var workspaceIdSchema = external_exports.string().trim().min(1).max(MAX_WORKSPACE_ID_LENGTH);
+var optionalWorkspaceIdSchema = workspaceIdSchema.optional();
 var pathSchema = external_exports.string().min(1).max(MAX_PATH_LENGTH).refine((value) => !value.includes("\0"), "Path is invalid");
 var lineRangeSchema = external_exports.object({
   startLine: external_exports.number().int().min(1).max(1e6).optional(),
   endLine: external_exports.number().int().min(1).max(1e6).optional()
 }).refine((value) => value.startLine === void 0 || value.endLine === void 0 || value.startLine <= value.endLine, "Line range is invalid");
 var workspaceInfoSchema = external_exports.object({ workspaceId: workspaceIdSchema }).strict();
-var workspaceTreeSchema = external_exports.object({ workspaceId: workspaceIdSchema, path: pathSchema.optional(), maxDepth: external_exports.number().int().min(1).max(MAX_TREE_DEPTH).optional(), maxEntries: external_exports.number().int().min(1).max(MAX_TREE_ENTRIES).optional() }).strict();
+var workspaceTreeSchema = external_exports.object({ workspaceId: optionalWorkspaceIdSchema, path: pathSchema.optional(), maxDepth: external_exports.number().int().min(1).max(MAX_TREE_DEPTH).optional(), maxEntries: external_exports.number().int().min(1).max(MAX_TREE_ENTRIES).optional() }).strict();
 var projectSnapshotSchema = external_exports.object({ workspaceId: workspaceIdSchema }).strict();
-var readFileSchema = external_exports.object({ workspaceId: workspaceIdSchema, path: pathSchema, ...lineRangeSchema.shape }).strict().refine((value) => value.startLine === void 0 || value.endLine === void 0 || value.startLine <= value.endLine, "Line range is invalid");
-var readFilesSchema = external_exports.object({ workspaceId: workspaceIdSchema, files: external_exports.array(readFileSchema.omit({ workspaceId: true })).min(1).max(20) }).strict();
-var searchFilesSchema = external_exports.object({ workspaceId: workspaceIdSchema, glob: external_exports.string().max(1024).optional(), maxResults: external_exports.number().int().min(1).max(MAX_SEARCH_RESULTS).optional() }).strict();
+var readFileSchema = external_exports.object({ workspaceId: optionalWorkspaceIdSchema, path: pathSchema, ...lineRangeSchema.shape }).strict().refine((value) => value.startLine === void 0 || value.endLine === void 0 || value.startLine <= value.endLine, "Line range is invalid");
+var readFilesSchema = external_exports.object({ workspaceId: optionalWorkspaceIdSchema, files: external_exports.array(readFileSchema.omit({ workspaceId: true })).min(1).max(20) }).strict();
+var searchFilesSchema = external_exports.object({ workspaceId: optionalWorkspaceIdSchema, path: pathSchema.optional(), glob: external_exports.string().max(1024).optional(), maxResults: external_exports.number().int().min(1).max(MAX_SEARCH_RESULTS).optional() }).strict();
 var searchTextSchema = searchFilesSchema.extend({ query: external_exports.string().min(1).max(32768) }).strict();
 var gitStatusSchema = workspaceInfoSchema;
 var gitDiffSchema = external_exports.object({ workspaceId: workspaceIdSchema, path: pathSchema.optional(), staged: external_exports.boolean().optional(), maxBytes: external_exports.number().int().min(1).max(4 * 1024 * 1024).optional() }).strict();
 var gitLogSchema = external_exports.object({ workspaceId: workspaceIdSchema, maxCommits: external_exports.number().int().min(1).max(100).optional(), maxBytes: external_exports.number().int().min(1).max(4 * 1024 * 1024).optional() }).strict();
-var writeFileSchema = external_exports.object({ workspaceId: workspaceIdSchema, path: pathSchema, content: external_exports.string().refine((value) => Buffer.byteLength(value, "utf8") <= MAX_MULTI_FILE_BYTES, "File is too large") }).strict();
-var applyPatchSchema = external_exports.object({ workspaceId: workspaceIdSchema, files: external_exports.array(external_exports.object({ path: pathSchema, content: external_exports.string().refine((value) => Buffer.byteLength(value, "utf8") <= MAX_MULTI_FILE_BYTES, "File is too large") }).strict()).min(1).max(20) }).strict();
-var moveFileSchema = external_exports.object({ workspaceId: workspaceIdSchema, sourcePath: pathSchema, destinationPath: pathSchema }).strict();
+var gitRunSchema = external_exports.object({
+  workspaceId: optionalWorkspaceIdSchema,
+  cwd: pathSchema.optional(),
+  args: external_exports.array(external_exports.string().min(1).max(32768)).min(1).max(128),
+  timeoutSeconds: external_exports.number().min(0.1).max(300).optional()
+}).strict();
+var writeFileSchema = external_exports.object({ workspaceId: optionalWorkspaceIdSchema, path: pathSchema, content: external_exports.string().refine((value) => Buffer.byteLength(value, "utf8") <= MAX_MULTI_FILE_BYTES, "File is too large") }).strict();
+var applyPatchSchema = external_exports.object({ workspaceId: optionalWorkspaceIdSchema, files: external_exports.array(external_exports.object({ path: pathSchema, content: external_exports.string().refine((value) => Buffer.byteLength(value, "utf8") <= MAX_MULTI_FILE_BYTES, "File is too large") }).strict()).min(1).max(20) }).strict();
+var moveFileSchema = external_exports.object({ workspaceId: optionalWorkspaceIdSchema, sourcePath: pathSchema, destinationPath: pathSchema }).strict();
+var copyFileSchema = moveFileSchema;
 var deleteFileSchema = external_exports.object({
-  workspaceId: workspaceIdSchema,
+  workspaceId: optionalWorkspaceIdSchema,
   path: pathSchema,
   /** Must be true after the human confirms deletion in chat. Silent deletes are blocked. */
   userConfirmed: external_exports.boolean().optional()
@@ -30917,6 +31176,7 @@ var schedulerCapabilitySchema = external_exports.object({
   arguments: external_exports.array(external_exports.string().max(2048)).max(64).optional(),
   schedule: external_exports.string().regex(/^[A-Z]{1,16}$/i).optional(),
   start_time: external_exports.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/).optional(),
+  userConfirmed: external_exports.boolean().optional(),
   ...capabilityRequestSchema
 }).strict();
 var skillsListSchema = external_exports.object({
@@ -31112,7 +31372,7 @@ function capabilityTools(context) {
     }),
     defineTool({
       name: "scheduler",
-      description: "Manage Windows scheduled tasks with schtasks.exe. list enumerates tasks, create registers a new task, run starts one immediately, and delete removes one. Windows only.",
+      description: "Manage Windows scheduled tasks with schtasks.exe. list enumerates tasks, create registers a new task, run starts one immediately. delete requires the user to confirm in chat first, then pass userConfirmed: true.",
       permission: "DANGEROUS",
       annotations: { readOnlyHint: false, destructiveHint: true },
       inputSchema: schedulerCapabilitySchema,
@@ -31126,7 +31386,7 @@ function fileTools(context) {
   return [
     defineTool({
       name: "read_file",
-      description: "Read bounded UTF-8 text from a workspace file.",
+      description: "Read a workspace file as UTF-8 text or as an image/binary payload. Absolute paths (C:\\...) do not require workspaceId.",
       permission: "READ",
       annotations: { readOnlyHint: true, destructiveHint: false },
       inputSchema: readFileSchema,
@@ -31138,7 +31398,7 @@ function fileTools(context) {
     }),
     defineTool({
       name: "read_files",
-      description: "Read up to twenty bounded UTF-8 workspace files.",
+      description: "Read up to twenty workspace files. Absolute paths do not require workspaceId.",
       permission: "READ",
       annotations: { readOnlyHint: true, destructiveHint: false },
       inputSchema: readFilesSchema,
@@ -31152,7 +31412,7 @@ function fileTools(context) {
     }),
     defineTool({
       name: "write_file",
-      description: "Write UTF-8 text, checkpointing an existing target first.",
+      description: "Write UTF-8 text, creating missing parent directories. Checkpoints an existing target first. Absolute paths do not require workspaceId.",
       permission: "WRITE",
       annotations: { readOnlyHint: false, destructiveHint: false },
       inputSchema: writeFileSchema,
@@ -31160,7 +31420,7 @@ function fileTools(context) {
     }),
     defineTool({
       name: "apply_patch",
-      description: "Validate and atomically apply bounded workspace file changes.",
+      description: "Validate and apply bounded file changes, creating missing parent directories.",
       permission: "WRITE",
       annotations: { readOnlyHint: false, destructiveHint: false },
       inputSchema: applyPatchSchema,
@@ -31168,15 +31428,23 @@ function fileTools(context) {
     }),
     defineTool({
       name: "move_file",
-      description: "Move a file within one authorized workspace.",
+      description: "Move a file or directory within one workspace, creating missing destination parents.",
       permission: "WRITE",
       annotations: { readOnlyHint: false, destructiveHint: false },
       inputSchema: moveFileSchema,
       handler: async (input) => context.services.file === void 0 ? missingService() : context.services.file.moveFile(context.actor, input.workspaceId, { sourcePath: input.sourcePath, destinationPath: input.destinationPath })
     }),
     defineTool({
+      name: "copy_file",
+      description: "Copy a file or directory within one workspace, creating missing destination parents.",
+      permission: "WRITE",
+      annotations: { readOnlyHint: false, destructiveHint: false },
+      inputSchema: copyFileSchema,
+      handler: async (input) => context.services.file === void 0 ? missingService() : context.services.file.copyFile(context.actor, input.workspaceId, { sourcePath: input.sourcePath, destinationPath: input.destinationPath })
+    }),
+    defineTool({
       name: "delete_file",
-      description: "Delete one file or an empty directory. Blocked until the user confirms in chat; then pass userConfirmed: true.",
+      description: "Delete one file or an empty directory. Always ask the user in chat first, then retry with userConfirmed: true.",
       permission: "DANGEROUS",
       annotations: { readOnlyHint: false, destructiveHint: true },
       inputSchema: deleteFileSchema,
@@ -31193,7 +31461,7 @@ function gitTools(context) {
   return [
     defineTool({
       name: "git_status",
-      description: "Inspect parsed read-only Git status.",
+      description: "Inspect parsed read-only Git status. For writes (init, add, commit, remote, push, rm, clean, reset) use the git tool.",
       permission: "READ",
       annotations: { readOnlyHint: true, destructiveHint: false },
       inputSchema: gitStatusSchema,
@@ -31201,7 +31469,7 @@ function gitTools(context) {
     }),
     defineTool({
       name: "git_diff",
-      description: "Return a bounded read-only Git diff.",
+      description: "Return a bounded read-only Git diff. For writes use the git tool.",
       permission: "READ",
       annotations: { readOnlyHint: true, destructiveHint: false },
       inputSchema: gitDiffSchema,
@@ -31213,13 +31481,26 @@ function gitTools(context) {
     }),
     defineTool({
       name: "git_log",
-      description: "Return bounded structured Git history.",
+      description: "Return bounded structured Git history. For writes use the git tool.",
       permission: "READ",
       annotations: { readOnlyHint: true, destructiveHint: false },
       inputSchema: gitLogSchema,
       handler: async (input) => context.services.git === void 0 ? missingService() : context.services.git.log(context.actor, input.workspaceId, {
         ...input.maxCommits === void 0 ? {} : { maxCommits: input.maxCommits },
         ...input.maxBytes === void 0 ? {} : { maxBytes: input.maxBytes }
+      })
+    }),
+    defineTool({
+      name: "git",
+      description: "Run any git subcommand immediately with a separate args array (init, clone, add, commit, remote, fetch, pull, push, rm, mv, restore, checkout, switch, branch, tag, stash, merge, rebase, cherry-pick, reset, clean, revert). cwd may be an absolute path; workspaceId is then optional. Returns exitCode, stdout, and stderr. Git deletions do not need extra confirmation. Do not wrap git in powershell/cmd.",
+      permission: "EXECUTE",
+      annotations: { readOnlyHint: false, destructiveHint: true },
+      inputSchema: gitRunSchema,
+      handler: async (input) => context.services.git === void 0 ? missingService() : context.services.git.run(context.actor, {
+        args: input.args,
+        ...input.workspaceId === void 0 ? {} : { workspaceId: input.workspaceId },
+        ...input.cwd === void 0 ? {} : { cwd: input.cwd },
+        ...input.timeoutSeconds === void 0 ? {} : { timeoutMs: Math.floor(input.timeoutSeconds * 1e3) }
       })
     })
   ];
@@ -31329,23 +31610,25 @@ function searchTools(context) {
   return [
     defineTool({
       name: "search_files",
-      description: "Search workspace filenames with bounded results.",
+      description: "Search workspace filenames. Absolute path does not require workspaceId.",
       permission: "READ",
       annotations: { readOnlyHint: true, destructiveHint: false },
       inputSchema: searchFilesSchema,
       handler: async (input) => context.services.search === void 0 ? missingService() : context.services.search.searchFiles(context.actor, input.workspaceId, {
+        ...input.path === void 0 ? {} : { path: input.path },
         ...input.glob === void 0 ? {} : { glob: input.glob },
         ...input.maxResults === void 0 ? {} : { maxResults: input.maxResults }
       })
     }),
     defineTool({
       name: "search_text",
-      description: "Search workspace text using direct ripgrep arguments.",
+      description: "Search workspace text using direct ripgrep arguments. Absolute path does not require workspaceId.",
       permission: "READ",
       annotations: { readOnlyHint: true, destructiveHint: false },
       inputSchema: searchTextSchema,
       handler: async (input) => context.services.search === void 0 ? missingService() : context.services.search.searchText(context.actor, input.workspaceId, {
         query: input.query,
+        ...input.path === void 0 ? {} : { path: input.path },
         ...input.glob === void 0 ? {} : { glob: input.glob },
         ...input.maxResults === void 0 ? {} : { maxResults: input.maxResults }
       })
@@ -31416,7 +31699,7 @@ function workspaceTools(context) {
     }),
     defineTool({
       name: "workspace_tree",
-      description: "List a bounded workspace tree.",
+      description: "List a bounded workspace tree. Absolute path does not require workspaceId.",
       permission: "READ",
       annotations: { readOnlyHint: true, destructiveHint: false },
       inputSchema: workspaceTreeSchema,
@@ -31474,35 +31757,41 @@ var ToolRegistry = class {
       const tool = this.tools.find((candidate) => candidate.name === name);
       if (tool === void 0) {
         const response2 = mapError(appError("INVALID_INPUT", "Unknown MCP tool"));
-        await this.activity.end(callId, "INVALID_INPUT", Date.now() - started);
+        await this.activity.end(callId, "INVALID_INPUT", Date.now() - started, "Unknown MCP tool");
         return response2;
       }
       const parsed = tool.parse(input);
       if (!parsed.ok) {
         const response2 = mapError(parsed.error);
-        await this.activity.end(callId, parsed.error.code, Date.now() - started);
+        await this.activity.end(callId, parsed.error.code, Date.now() - started, parsed.error.message);
         return response2;
       }
       const response = mapResult(await tool.execute(parsed.value));
       const resultCode = response.isError === true ? readErrorCode(response) ?? "ERROR" : "SUCCESS";
-      await this.activity.end(callId, resultCode, Date.now() - started);
+      await this.activity.end(callId, resultCode, Date.now() - started, readErrorMessage(response));
       return response;
     } catch (error46) {
       const response = mapError(sanitizeException(error46, this.diagnostic));
-      await this.activity.end(callId, "INTERNAL_ERROR", Date.now() - started);
+      await this.activity.end(callId, "INTERNAL_ERROR", Date.now() - started, "Operation failed");
       return response;
     }
   }
 };
 function readErrorCode(response) {
+  return readErrorField(response, "code");
+}
+function readErrorMessage(response) {
+  return readErrorField(response, "message");
+}
+function readErrorField(response, field) {
   const content = response.structuredContent;
   if (typeof content !== "object" || content === null || !("error" in content))
     return void 0;
   const error46 = content.error;
-  if (typeof error46 !== "object" || error46 === null || !("code" in error46))
+  if (typeof error46 !== "object" || error46 === null || !(field in error46))
     return void 0;
-  const code = error46.code;
-  return typeof code === "string" ? code : void 0;
+  const value = error46[field];
+  return typeof value === "string" ? value : void 0;
 }
 
 // ../../packages/mcp-server/dist/server.js
@@ -32278,8 +32567,8 @@ var SqliteWorkspaceRepository = class {
 };
 
 // ../cli/src/runtime/stdio-mcp-runtime.ts
-var import_node_fs4 = require("node:fs");
-var import_node_path23 = __toESM(require("node:path"), 1);
+var import_node_fs5 = require("node:fs");
+var import_node_path27 = __toESM(require("node:path"), 1);
 var import_node_url = require("node:url");
 
 // ../../packages/audit/dist/audit-service.js
@@ -32373,7 +32662,8 @@ var AuditService = class {
       metadata: {
         toolName: input.toolName,
         callId: input.callId,
-        phase: input.phase
+        phase: input.phase,
+        ...input.resultMessage === void 0 ? {} : { errorMessage: input.resultMessage }
       }
     });
   }
@@ -32429,8 +32719,8 @@ var LocalCapabilityService = class {
 
 // ../../packages/capabilities/dist/shell-backend.js
 var import_node_child_process6 = require("node:child_process");
-var import_promises14 = require("node:fs/promises");
-var import_node_path17 = __toESM(require("node:path"), 1);
+var import_promises16 = require("node:fs/promises");
+var import_node_path21 = __toESM(require("node:path"), 1);
 var import_node_crypto9 = require("node:crypto");
 var SHELL_OPERATIONS = ["run", "status", "wait", "logs", "result", "cancel", "resume", "approve", "deny"];
 var DEFAULT_TIMEOUT_SECONDS = 3600;
@@ -32451,7 +32741,7 @@ var ShellCapabilityBackend = class {
   constructor(options) {
     if (options.allowedRoots.length === 0)
       throw new Error("At least one local capability root is required");
-    this.allowedRoots = options.allowedRoots.map((root) => import_node_path17.default.resolve(root));
+    this.allowedRoots = options.allowedRoots.map((root) => import_node_path21.default.resolve(root));
     this.allowedRootsProvider = options.allowedRootsProvider;
     this.executableResolver = options.executableResolver ?? new PathExecutableResolver();
     this.terminator = options.terminator ?? new WindowsProcessTree();
@@ -32497,7 +32787,7 @@ var ShellCapabilityBackend = class {
     const executable = await this.executableResolver.resolve(request.executable);
     if (!executable.ok)
       return executable;
-    const invocation = toSpawnInvocation(executable.value, request.arguments, this.unrestricted);
+    const invocation = toWindowsSpawnInvocation(executable.value, request.arguments, { allowMetacharacters: this.unrestricted });
     if (!invocation.ok)
       return invocation;
     if (request.dryRun) {
@@ -32595,10 +32885,10 @@ var ShellCapabilityBackend = class {
     return task === void 0 ? err(appError("PROCESS_NOT_FOUND", "Task was not found")) : ok(task);
   }
   async resolveCwd(requestedCwd) {
-    if (this.unrestricted && requestedCwd !== void 0 && import_node_path17.default.isAbsolute(requestedCwd)) {
+    if (this.unrestricted && requestedCwd !== void 0 && import_node_path21.default.isAbsolute(requestedCwd)) {
       try {
-        const canonical = await (0, import_promises14.realpath)(requestedCwd);
-        if (!(await (0, import_promises14.stat)(canonical)).isDirectory())
+        const canonical = await (0, import_promises16.realpath)(requestedCwd);
+        if (!(await (0, import_promises16.stat)(canonical)).isDirectory())
           return err(appError("INVALID_INPUT", "Working directory must be a directory"));
         return ok(canonical);
       } catch {
@@ -32609,19 +32899,19 @@ var ShellCapabilityBackend = class {
     const canonicalRoots = [];
     for (const root of configuredRoots) {
       try {
-        if ((await (0, import_promises14.stat)(root)).isDirectory())
-          canonicalRoots.push(await (0, import_promises14.realpath)(root));
+        if ((await (0, import_promises16.stat)(root)).isDirectory())
+          canonicalRoots.push(await (0, import_promises16.realpath)(root));
       } catch {
         continue;
       }
     }
     if (canonicalRoots.length === 0)
       return err(appError("FILE_NOT_FOUND", "No local capability root is available"));
-    const candidate = import_node_path17.default.resolve(requestedCwd ?? canonicalRoots[0]);
+    const candidate = import_node_path21.default.resolve(requestedCwd ?? canonicalRoots[0]);
     let canonicalCandidate;
     try {
-      canonicalCandidate = await (0, import_promises14.realpath)(candidate);
-      if (!(await (0, import_promises14.stat)(canonicalCandidate)).isDirectory())
+      canonicalCandidate = await (0, import_promises16.realpath)(candidate);
+      if (!(await (0, import_promises16.stat)(canonicalCandidate)).isDirectory())
         return err(appError("INVALID_INPUT", "Working directory must be a directory"));
     } catch {
       return err(appError("FILE_NOT_FOUND", "Working directory was not found"));
@@ -32735,17 +33025,8 @@ function isRecord4(value) {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 function isWithin2(root, candidate) {
-  const relative = import_node_path17.default.relative(root, candidate);
-  return relative === "" || relative !== ".." && !relative.startsWith(`..${import_node_path17.default.sep}`) && !import_node_path17.default.isAbsolute(relative);
-}
-function toSpawnInvocation(executable, args, unrestricted) {
-  if (process.platform !== "win32" || ![".cmd", ".bat"].includes(import_node_path17.default.extname(executable).toLowerCase()))
-    return ok({ executable, args });
-  const values = [executable, ...args];
-  if (!unrestricted && values.some((value) => /[\r\n&|<>^%!]/.test(value) || value.includes('"')))
-    return err(appError("INVALID_INPUT", "Windows command shim arguments contain unsupported shell metacharacters"));
-  const commandLine = values.map((value) => /\s/.test(value) ? `"${value}"` : value).join(" ");
-  return ok({ executable: process.env.ComSpec ?? "cmd.exe", args: ["/d", "/s", "/c", commandLine], windowsVerbatimArguments: true });
+  const relative = import_node_path21.default.relative(root, candidate);
+  return relative === "" || relative !== ".." && !relative.startsWith(`..${import_node_path21.default.sep}`) && !import_node_path21.default.isAbsolute(relative);
 }
 function createSafeEnvironment2(source, unrestricted) {
   if (unrestricted)
@@ -32763,13 +33044,18 @@ function clampNumber(value, minimum, maximum) {
   return Math.min(maximum, Math.max(minimum, value));
 }
 function isDeleteLikeShellCommand(executable, args) {
-  const basename = import_node_path17.default.win32.basename(executable).toLowerCase();
+  const basename = import_node_path21.default.win32.basename(executable).toLowerCase();
+  if (basename === "git" || basename === "git.exe")
+    return false;
   const deleteNames = /* @__PURE__ */ new Set(["del", "del.exe", "erase", "erase.exe", "rm", "rm.exe", "rmdir", "rmdir.exe", "rd", "rd.exe", "unlink", "unlink.exe"]);
   if (deleteNames.has(basename))
     return true;
   const joined = args.map((entry) => entry.toLowerCase()).join(" ");
   if (basename === "powershell.exe" || basename === "powershell" || basename === "pwsh.exe" || basename === "pwsh") {
-    return /\bremove-item\b/.test(joined) || /\brm\b/.test(joined) || /\bdel\b/.test(joined);
+    if (/\bremove-item\b/.test(joined))
+      return true;
+    const withoutGitRm = joined.replace(/\bgit(?:\.exe)?\s+rm\b/g, " ");
+    return /\brm\b/.test(withoutGitRm) || /\bdel\b/.test(withoutGitRm);
   }
   if (basename === "cmd.exe" || basename === "cmd") {
     return /(^|[\s&|])(del|erase|rd|rmdir)\b/.test(joined);
@@ -32781,10 +33067,10 @@ function delay(milliseconds) {
 }
 
 // ../../packages/capabilities/dist/browser-cdp-protocol.js
-var import_promises15 = require("node:fs/promises");
-var import_node_fs3 = require("node:fs");
+var import_promises17 = require("node:fs/promises");
+var import_node_fs4 = require("node:fs");
 var import_node_os2 = __toESM(require("node:os"), 1);
-var import_node_path18 = __toESM(require("node:path"), 1);
+var import_node_path22 = __toESM(require("node:path"), 1);
 var import_node_child_process7 = require("node:child_process");
 var NodeBrowserCdpProtocol = class {
   port;
@@ -32792,7 +33078,7 @@ var NodeBrowserCdpProtocol = class {
   chromeExecutable;
   constructor(options = {}) {
     this.port = options.port ?? readPort(process.env.LNWJUD_BROWSER_CDP_PORT);
-    this.profileDir = options.profileDir ?? process.env.LNWJUD_BROWSER_PROFILE ?? import_node_path18.default.join(import_node_os2.default.tmpdir(), "lnwjud-browser-profile");
+    this.profileDir = options.profileDir ?? process.env.LNWJUD_BROWSER_PROFILE ?? import_node_path22.default.join(import_node_os2.default.tmpdir(), "lnwjud-browser-profile");
     this.chromeExecutable = options.chromeExecutable ?? process.env.LNWJUD_BROWSER_EXECUTABLE;
   }
   async status() {
@@ -32842,7 +33128,7 @@ var NodeBrowserCdpProtocol = class {
     if (executable === void 0)
       return err(appError("EXECUTABLE_NOT_FOUND", "Google Chrome was not found"));
     try {
-      await (0, import_promises15.mkdir)(this.profileDir, { recursive: true });
+      await (0, import_promises17.mkdir)(this.profileDir, { recursive: true });
       const args = [
         `--remote-debugging-port=${this.port}`,
         `--user-data-dir=${this.profileDir}`,
@@ -32882,14 +33168,14 @@ var NodeBrowserCdpProtocol = class {
     const programFiles = process.env.ProgramFiles;
     const programFilesX86 = process.env["ProgramFiles(x86)"];
     const candidates = [
-      localAppData === void 0 ? void 0 : import_node_path18.default.join(localAppData, "Google", "Chrome", "Application", "chrome.exe"),
-      programFiles === void 0 ? void 0 : import_node_path18.default.join(programFiles, "Google", "Chrome", "Application", "chrome.exe"),
-      programFilesX86 === void 0 ? void 0 : import_node_path18.default.join(programFilesX86, "Google", "Chrome", "Application", "chrome.exe"),
-      localAppData === void 0 ? void 0 : import_node_path18.default.join(localAppData, "Microsoft", "Edge", "Application", "msedge.exe"),
-      programFiles === void 0 ? void 0 : import_node_path18.default.join(programFiles, "Microsoft", "Edge", "Application", "msedge.exe"),
-      programFilesX86 === void 0 ? void 0 : import_node_path18.default.join(programFilesX86, "Microsoft", "Edge", "Application", "msedge.exe")
+      localAppData === void 0 ? void 0 : import_node_path22.default.join(localAppData, "Google", "Chrome", "Application", "chrome.exe"),
+      programFiles === void 0 ? void 0 : import_node_path22.default.join(programFiles, "Google", "Chrome", "Application", "chrome.exe"),
+      programFilesX86 === void 0 ? void 0 : import_node_path22.default.join(programFilesX86, "Google", "Chrome", "Application", "chrome.exe"),
+      localAppData === void 0 ? void 0 : import_node_path22.default.join(localAppData, "Microsoft", "Edge", "Application", "msedge.exe"),
+      programFiles === void 0 ? void 0 : import_node_path22.default.join(programFiles, "Microsoft", "Edge", "Application", "msedge.exe"),
+      programFilesX86 === void 0 ? void 0 : import_node_path22.default.join(programFilesX86, "Microsoft", "Edge", "Application", "msedge.exe")
     ];
-    return candidates.find((candidate) => candidate !== void 0 && (0, import_node_fs3.existsSync)(candidate));
+    return candidates.find((candidate) => candidate !== void 0 && (0, import_node_fs4.existsSync)(candidate));
   }
 };
 function toTab(value) {
@@ -33360,6 +33646,9 @@ var SchedulerCapabilityBackend = class {
         case "create":
           return ok(await this.create(request.taskName, request.command, request.arguments ?? [], request.schedule ?? "DAILY", request.startTime ?? "09:00"));
         case "delete":
+          if (request.userConfirmed !== true) {
+            return err(appError("PERMISSION_REQUIRED", "Deleting a scheduled task requires the user to confirm in chat first, then retry scheduler with userConfirmed: true"));
+          }
           return ok(await this.delete(request.taskName));
         case "run":
           return ok(await this.run(request.taskName));
@@ -33451,13 +33740,15 @@ function parseRequest2(value) {
   if (action === "create" && (typeof startTime !== "string" || !/^([01]\d|2[0-3]):[0-5]\d$/.test(startTime))) {
     return err(appError("INVALID_INPUT", "start_time must be HH:MM"));
   }
+  const userConfirmed = value.userConfirmed === true;
   return ok({
     action,
     taskName: typeof taskName === "string" ? taskName.trim() : "",
     command: typeof command === "string" ? command.trim() : "",
     arguments: action === "create" && Array.isArray(argumentsValue) ? argumentsValue.filter((entry) => typeof entry === "string") : [],
     schedule: typeof schedule === "string" ? schedule.toUpperCase() : "DAILY",
-    startTime: typeof startTime === "string" ? startTime : "09:00"
+    startTime: typeof startTime === "string" ? startTime : "09:00",
+    userConfirmed
   });
 }
 function buildTaskRun(command, args) {
@@ -33478,7 +33769,7 @@ function isRecord9(value) {
 }
 
 // ../../packages/capabilities/dist/windows-native-backend.js
-var import_node_path19 = __toESM(require("node:path"), 1);
+var import_node_path23 = __toESM(require("node:path"), 1);
 var PATH_FIELDS = {
   accessibility: [],
   input_event: [],
@@ -33523,11 +33814,11 @@ var WindowsNativeCapabilityBackend = class {
     for (const field of fields) {
       const value = input[field];
       if (typeof value === "string" && value.trim().length > 0)
-        targets.push(import_node_path19.default.resolve(value.trim()));
+        targets.push(import_node_path23.default.resolve(value.trim()));
     }
     if (targets.length === 0)
       return ok(void 0);
-    const roots = this.options.allowedRootsProvider === void 0 ? [] : (await this.options.allowedRootsProvider()).map((root) => import_node_path19.default.resolve(root));
+    const roots = this.options.allowedRootsProvider === void 0 ? [] : (await this.options.allowedRootsProvider()).map((root) => import_node_path23.default.resolve(root));
     for (const target of targets) {
       const within = roots.some((root) => isWithin3(root, target));
       if (!within)
@@ -33537,8 +33828,8 @@ var WindowsNativeCapabilityBackend = class {
   }
 };
 function isWithin3(root, candidate) {
-  const relative = import_node_path19.default.relative(root, candidate);
-  return relative === "" || relative !== ".." && !relative.startsWith(`..${import_node_path19.default.sep}`) && !import_node_path19.default.isAbsolute(relative);
+  const relative = import_node_path23.default.relative(root, candidate);
+  return relative === "" || relative !== ".." && !relative.startsWith(`..${import_node_path23.default.sep}`) && !import_node_path23.default.isAbsolute(relative);
 }
 function isRecord10(value) {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -33546,7 +33837,7 @@ function isRecord10(value) {
 
 // ../../packages/capabilities/dist/windows-bridge.js
 var import_node_child_process9 = require("node:child_process");
-var import_node_path20 = __toESM(require("node:path"), 1);
+var import_node_path24 = __toESM(require("node:path"), 1);
 var DEFAULT_TIMEOUT_SECONDS4 = 600;
 var MAX_TIMEOUT_SECONDS4 = 14400;
 var DEFAULT_MAX_OUTPUT_BYTES2 = 8 * 1024 * 1024;
@@ -33574,7 +33865,7 @@ var PowerShellWindowsCapabilityBridge = class {
   maxOutputBytes;
   terminator;
   constructor(options) {
-    this.scriptPath = import_node_path20.default.resolve(options.scriptPath);
+    this.scriptPath = import_node_path24.default.resolve(options.scriptPath);
     this.powershellPath = options.powershellPath ?? powershellExecutable();
     this.platform = options.platform ?? process.platform;
     this.maxOutputBytes = Math.max(1, Math.min(options.maxOutputBytes ?? DEFAULT_MAX_OUTPUT_BYTES2, DEFAULT_MAX_OUTPUT_BYTES2));
@@ -33583,7 +33874,7 @@ var PowerShellWindowsCapabilityBridge = class {
   execute(request) {
     if (this.platform !== "win32")
       return Promise.resolve(err(appError("INTERNAL_ERROR", "Windows bridge is unavailable on this platform", true)));
-    if (!import_node_path20.default.isAbsolute(this.scriptPath))
+    if (!import_node_path24.default.isAbsolute(this.scriptPath))
       return Promise.resolve(err(appError("INVALID_INPUT", "Windows bridge script path must be absolute")));
     let serialized;
     try {
@@ -33668,7 +33959,7 @@ function readTimeout(value) {
   return Math.min(MAX_TIMEOUT_SECONDS4, Math.max(0.1, value.timeout_seconds));
 }
 function powershellExecutable() {
-  return process.platform === "win32" && process.env.SystemRoot !== void 0 ? import_node_path20.default.join(process.env.SystemRoot, "System32", "WindowsPowerShell", "v1.0", "powershell.exe") : "powershell.exe";
+  return process.platform === "win32" && process.env.SystemRoot !== void 0 ? import_node_path24.default.join(process.env.SystemRoot, "System32", "WindowsPowerShell", "v1.0", "powershell.exe") : "powershell.exe";
 }
 function isRecord11(value) {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -33776,9 +34067,9 @@ function normalizePathKey(value) {
 }
 
 // ../../packages/extensions/dist/skill-catalog.js
-var import_promises16 = require("node:fs/promises");
+var import_promises18 = require("node:fs/promises");
 var import_node_os3 = __toESM(require("node:os"), 1);
-var import_node_path21 = __toESM(require("node:path"), 1);
+var import_node_path25 = __toESM(require("node:path"), 1);
 var SkillCatalog = class {
   options;
   constructor(options) {
@@ -33803,20 +34094,20 @@ var SkillCatalog = class {
     if (skill === void 0)
       return err(appError("FILE_NOT_FOUND", `Skill not found: ${input.skillId}`));
     const relativePath = input.relativePath?.trim() || "SKILL.md";
-    if (relativePath.includes("\0") || import_node_path21.default.isAbsolute(relativePath)) {
+    if (relativePath.includes("\0") || import_node_path25.default.isAbsolute(relativePath)) {
       return err(appError("PATH_OUTSIDE_WORKSPACE", "Skill relative path must stay inside the skill folder"));
     }
-    const skillDir = import_node_path21.default.dirname(skill.skillPath);
-    const resolved = import_node_path21.default.resolve(skillDir, relativePath);
+    const skillDir = import_node_path25.default.dirname(skill.skillPath);
+    const resolved = import_node_path25.default.resolve(skillDir, relativePath);
     if (!isPathInside(skillDir, resolved)) {
       return err(appError("PATH_OUTSIDE_WORKSPACE", "Skill relative path must stay inside the skill folder"));
     }
     try {
-      const content = await (0, import_promises16.readFile)(resolved, "utf8");
+      const content = await (0, import_promises18.readFile)(resolved, "utf8");
       if (Buffer.byteLength(content, "utf8") > 2 * 1024 * 1024) {
         return err(appError("FILE_TOO_LARGE", "Skill file exceeds 2 MiB"));
       }
-      const meta3 = parseSkillMarkdown(content, import_node_path21.default.basename(skillDir));
+      const meta3 = parseSkillMarkdown(content, import_node_path25.default.basename(skillDir));
       return ok({
         id: skill.id,
         name: meta3.name,
@@ -33838,8 +34129,8 @@ var SkillCatalog = class {
       const skillFiles = await findSkillFiles(root.path, 3);
       for (const skillPath of skillFiles) {
         try {
-          const content = await (0, import_promises16.readFile)(skillPath, "utf8");
-          const fallbackName = import_node_path21.default.basename(import_node_path21.default.dirname(skillPath));
+          const content = await (0, import_promises18.readFile)(skillPath, "utf8");
+          const fallbackName = import_node_path25.default.basename(import_node_path25.default.dirname(skillPath));
           const meta3 = parseSkillMarkdown(content, fallbackName);
           skills.push({
             id: `${root.source}/${meta3.name}`,
@@ -33859,17 +34150,17 @@ var SkillCatalog = class {
   roots() {
     const home = this.options.homeDir ?? import_node_os3.default.homedir();
     const defaults = [
-      { source: "cursor-skills-cursor", path: import_node_path21.default.join(home, ".cursor", "skills-cursor") },
-      { source: "cursor-skills", path: import_node_path21.default.join(home, ".cursor", "skills") },
-      { source: "claude-skills", path: import_node_path21.default.join(home, ".claude", "skills") },
-      { source: "agents-skills", path: import_node_path21.default.join(home, ".agents", "skills") }
+      { source: "cursor-skills-cursor", path: import_node_path25.default.join(home, ".cursor", "skills-cursor") },
+      { source: "cursor-skills", path: import_node_path25.default.join(home, ".cursor", "skills") },
+      { source: "claude-skills", path: import_node_path25.default.join(home, ".claude", "skills") },
+      { source: "agents-skills", path: import_node_path25.default.join(home, ".agents", "skills") }
     ];
     const workspaceRoot = this.options.workspaceRoot?.trim();
     if (workspaceRoot !== void 0 && workspaceRoot.length > 0) {
-      defaults.push({ source: "workspace-cursor-skills", path: import_node_path21.default.join(workspaceRoot, ".cursor", "skills") }, { source: "workspace-claude-skills", path: import_node_path21.default.join(workspaceRoot, ".claude", "skills") });
+      defaults.push({ source: "workspace-cursor-skills", path: import_node_path25.default.join(workspaceRoot, ".cursor", "skills") }, { source: "workspace-claude-skills", path: import_node_path25.default.join(workspaceRoot, ".claude", "skills") });
     }
     for (const extra of [...this.options.settings.extraSkillRoots, ...this.options.extraRoots ?? []]) {
-      defaults.push({ source: `extra:${import_node_path21.default.basename(extra)}`, path: import_node_path21.default.resolve(extra) });
+      defaults.push({ source: `extra:${import_node_path25.default.basename(extra)}`, path: import_node_path25.default.resolve(extra) });
     }
     return defaults;
   }
@@ -33951,7 +34242,7 @@ async function findSkillFiles(root, maxDepth) {
 async function walkForSkills(current, depth, maxDepth, results) {
   if (depth > maxDepth)
     return;
-  const skillPath = import_node_path21.default.join(current, "SKILL.md");
+  const skillPath = import_node_path25.default.join(current, "SKILL.md");
   if (depth > 0 && await isFile(skillPath)) {
     results.push(skillPath);
     return;
@@ -33959,12 +34250,12 @@ async function walkForSkills(current, depth, maxDepth, results) {
   if (depth === maxDepth)
     return;
   for (const entry of await safeReaddir(current)) {
-    await walkForSkills(import_node_path21.default.join(current, entry), depth + 1, maxDepth, results);
+    await walkForSkills(import_node_path25.default.join(current, entry), depth + 1, maxDepth, results);
   }
 }
 async function safeReaddir(root) {
   try {
-    const entries = await (0, import_promises16.readdir)(root, { withFileTypes: true });
+    const entries = await (0, import_promises18.readdir)(root, { withFileTypes: true });
     return entries.filter((entry) => entry.isDirectory()).map((entry) => entry.name);
   } catch {
     return [];
@@ -33972,14 +34263,14 @@ async function safeReaddir(root) {
 }
 async function isFile(filePath) {
   try {
-    return (await (0, import_promises16.stat)(filePath)).isFile();
+    return (await (0, import_promises18.stat)(filePath)).isFile();
   } catch {
     return false;
   }
 }
 function isPathInside(root, candidate) {
-  const relative = import_node_path21.default.relative(import_node_path21.default.resolve(root), import_node_path21.default.resolve(candidate));
-  return relative === "" || !relative.startsWith("..") && !import_node_path21.default.isAbsolute(relative);
+  const relative = import_node_path25.default.relative(import_node_path25.default.resolve(root), import_node_path25.default.resolve(candidate));
+  return relative === "" || !relative.startsWith("..") && !import_node_path25.default.isAbsolute(relative);
 }
 function dedupeById(skills) {
   const seen = /* @__PURE__ */ new Set();
@@ -33994,9 +34285,9 @@ function dedupeById(skills) {
 }
 
 // ../../packages/extensions/dist/mcp-config-loader.js
-var import_promises17 = require("node:fs/promises");
+var import_promises19 = require("node:fs/promises");
 var import_node_os4 = __toESM(require("node:os"), 1);
-var import_node_path22 = __toESM(require("node:path"), 1);
+var import_node_path26 = __toESM(require("node:path"), 1);
 var McpConfigLoader = class {
   options;
   constructor(options) {
@@ -34004,10 +34295,10 @@ var McpConfigLoader = class {
   }
   async discover() {
     const home = this.options.homeDir ?? import_node_os4.default.homedir();
-    const appData = this.options.appDataDir ?? process.env.APPDATA ?? import_node_path22.default.join(home, "AppData", "Roaming");
+    const appData = this.options.appDataDir ?? process.env.APPDATA ?? import_node_path26.default.join(home, "AppData", "Roaming");
     const discovered = [];
-    await this.loadFile(discovered, import_node_path22.default.join(home, ".cursor", "mcp.json"), "cursor");
-    await this.loadFile(discovered, import_node_path22.default.join(appData, "Claude", "claude_desktop_config.json"), "claude-desktop");
+    await this.loadFile(discovered, import_node_path26.default.join(home, ".cursor", "mcp.json"), "cursor");
+    await this.loadFile(discovered, import_node_path26.default.join(appData, "Claude", "claude_desktop_config.json"), "claude-desktop");
     for (const [name, config2] of Object.entries(this.options.settings.extraMcpServers)) {
       discovered.push(this.toServer(name, "lnwjud-settings", config2));
     }
@@ -34015,7 +34306,7 @@ var McpConfigLoader = class {
   }
   async loadFile(target, filePath, source) {
     try {
-      const raw = await (0, import_promises17.readFile)(filePath, "utf8");
+      const raw = await (0, import_promises19.readFile)(filePath, "utf8");
       const parsed = JSON.parse(raw);
       if (typeof parsed !== "object" || parsed === null)
         return;
@@ -34066,7 +34357,7 @@ function exclusionReason(name, config2) {
   if (lowered === "lnwjud" || lowered.startsWith("lnwjud-")) {
     return "Refusing to aggregate lnwjud itself";
   }
-  const command = import_node_path22.default.basename(config2.command).toLowerCase();
+  const command = import_node_path26.default.basename(config2.command).toLowerCase();
   if (command === "lnwjud" || command === "lnwjud.exe" || command.includes("lnwjud")) {
     return "Refusing to aggregate lnwjud itself";
   }
@@ -36716,9 +37007,9 @@ var rev2026Codec2 = {
     });
     const parsed = buildSchemas20262().RequestMetaEnvelopeSchema.safeParse(meta3);
     if (!parsed.success) for (const issue2 of parsed.error.issues) {
-      const path25 = issue2.path.map(String);
-      const key = path25.length > 0 ? path25.join(".") : "_meta";
-      if (path25.length === 1 && issues.some((existing) => existing.key === key && existing.problem === "missing")) continue;
+      const path29 = issue2.path.map(String);
+      const key = path29.length > 0 ? path29.join(".") : "_meta";
+      if (path29.length === 1 && issues.some((existing) => existing.key === key && existing.problem === "missing")) continue;
       issues.push({
         key,
         problem: issue2.message
@@ -37015,29 +37306,29 @@ var PERMITTED_X_MCP_HEADER_TYPES2 = /* @__PURE__ */ new Set([
 function scanXMcpHeaderDeclarations2(inputSchema) {
   const declarations = [];
   const seenLower = /* @__PURE__ */ new Map();
-  const visit = (node, path25, reachable) => {
+  const visit = (node, path29, reachable) => {
     if (node === null || typeof node !== "object") return void 0;
     const schema = node;
     if (X_MCP_HEADER_KEY2 in schema) {
-      if (!reachable || path25.length === 0) return `${pathName2(path25)}: x-mcp-header is only permitted on properties statically reachable via a chain of 'properties' keys (not under items, additionalProperties, oneOf/anyOf/allOf/not, if/then/else, or $ref)`;
+      if (!reachable || path29.length === 0) return `${pathName2(path29)}: x-mcp-header is only permitted on properties statically reachable via a chain of 'properties' keys (not under items, additionalProperties, oneOf/anyOf/allOf/not, if/then/else, or $ref)`;
       const raw = schema[X_MCP_HEADER_KEY2];
-      if (typeof raw !== "string" || raw.length === 0) return `${pathName2(path25)}: x-mcp-header MUST be a non-empty string`;
-      if (!RFC9110_TOKEN2.test(raw)) return `${pathName2(path25)}: x-mcp-header '${raw}' is not a valid RFC 9110 token (no spaces, control characters or HTTP delimiters)`;
+      if (typeof raw !== "string" || raw.length === 0) return `${pathName2(path29)}: x-mcp-header MUST be a non-empty string`;
+      if (!RFC9110_TOKEN2.test(raw)) return `${pathName2(path29)}: x-mcp-header '${raw}' is not a valid RFC 9110 token (no spaces, control characters or HTTP delimiters)`;
       const type = typeof schema.type === "string" ? schema.type : void 0;
-      if (type === void 0 || !PERMITTED_X_MCP_HEADER_TYPES2.has(type)) return `${pathName2(path25)}: x-mcp-header is only permitted on primitive-typed properties (string, integer, boolean); got ${type ?? "<none>"}`;
+      if (type === void 0 || !PERMITTED_X_MCP_HEADER_TYPES2.has(type)) return `${pathName2(path29)}: x-mcp-header is only permitted on primitive-typed properties (string, integer, boolean); got ${type ?? "<none>"}`;
       const lower = raw.toLowerCase();
       const prior = seenLower.get(lower);
       if (prior !== void 0) return `x-mcp-header '${raw}' is not case-insensitively unique (also declared as '${prior}')`;
       seenLower.set(lower, raw);
       declarations.push({
-        path: path25,
+        path: path29,
         headerName: raw,
         type
       });
     }
     const properties = schema.properties;
     if (properties !== null && typeof properties === "object") for (const [key, child] of Object.entries(properties)) {
-      const fault$1 = visit(child, [...path25, key], reachable);
+      const fault$1 = visit(child, [...path29, key], reachable);
       if (fault$1 !== void 0) return fault$1;
     }
     for (const k of NON_REACHABLE_SUBSCHEMA_KEYWORDS2) {
@@ -37045,7 +37336,7 @@ function scanXMcpHeaderDeclarations2(inputSchema) {
       if (sub === void 0) continue;
       const branches = Array.isArray(sub) ? sub : sub !== null && typeof sub === "object" && OBJECT_VALUED_SUBSCHEMA_KEYWORDS2.has(k) ? Object.values(sub) : [sub];
       for (const branch of branches) {
-        const fault$1 = visit(branch, [...path25, `<${k}>`], false);
+        const fault$1 = visit(branch, [...path29, `<${k}>`], false);
         if (fault$1 !== void 0) return fault$1;
       }
     }
@@ -37085,8 +37376,8 @@ var OBJECT_VALUED_SUBSCHEMA_KEYWORDS2 = /* @__PURE__ */ new Set([
   "$defs",
   "definitions"
 ]);
-function pathName2(path25) {
-  return path25.length === 0 ? "<root>" : path25.join(".");
+function pathName2(path29) {
+  return path29.length === 0 ? "<root>" : path29.join(".");
 }
 var BASE64_SENTINEL_PREFIX = "=?base64?";
 var BASE64_SENTINEL_SUFFIX = "?=";
@@ -37119,9 +37410,9 @@ function utf8ToBase64(s) {
 function encodeMcpParamValue(value) {
   return needsBase64(value) ? `${BASE64_SENTINEL_PREFIX}${utf8ToBase64(value)}${BASE64_SENTINEL_SUFFIX}` : value;
 }
-function valueAtPath(root, path25) {
+function valueAtPath(root, path29) {
   let node = root;
-  for (const key of path25) {
+  for (const key of path29) {
     if (node === null || typeof node !== "object") return void 0;
     node = node[key];
   }
@@ -37376,7 +37667,7 @@ var PROPERTY_KEYS_BY_TYPE2 = {
   array: shapeKeys2([UntitledMultiSelectEnumSchemaSchema, TitledMultiSelectEnumSchemaSchema])
 };
 var SUPPORTED_STRING_FORMATS2 = new Set(StringSchemaSchema.shape.format.unwrap().options);
-function walkProperty2(node, path25, vendor, unsupported) {
+function walkProperty2(node, path29, vendor, unsupported) {
   if (!isJsonObject2(node)) return node;
   const allowedKeys = typeof node.type === "string" && Object.hasOwn(PROPERTY_KEYS_BY_TYPE2, node.type) ? PROPERTY_KEYS_BY_TYPE2[node.type] : void 0;
   if (allowedKeys === void 0) return node;
@@ -37384,8 +37675,8 @@ function walkProperty2(node, path25, vendor, unsupported) {
   for (const [key, value] of Object.entries(node)) if (allowedKeys.has(key) || isAnnotationOnlyJsonSchemaKeyword2(key)) pruned[key] = value;
   else if (key === "pattern" && node.type === "string" && typeof node.format === "string") {
     if (!SUPPORTED_STRING_FORMATS2.has(node.format)) pruned[key] = value;
-    else if (typeof value !== "string" || !isLibraryFormatPattern2(node.format, value, vendor)) unsupported.push(`${path25}.${key}`);
-  } else unsupported.push(`${path25}.${key}`);
+    else if (typeof value !== "string" || !isLibraryFormatPattern2(node.format, value, vendor)) unsupported.push(`${path29}.${key}`);
+  } else unsupported.push(`${path29}.${key}`);
   return pruned;
 }
 function walkRequestedSchema2(converted, vendor) {
@@ -37402,11 +37693,11 @@ function describeUnsupportedProperties2(pruned, fallback) {
   const offenders = Object.entries(pruned.properties).filter(([, node]) => !parseSchema2(PrimitiveSchemaDefinitionSchema, node).success).map(([name]) => `properties.${name}`);
   return offenders.length > 0 ? offenders.join(", ") : fallback;
 }
-function findDroppedConstraintPaths2(original, parsed, path25 = "") {
-  if (Array.isArray(original) && Array.isArray(parsed)) return original.flatMap((item, index) => findDroppedConstraintPaths2(item, parsed[index], `${path25}[${index}]`));
+function findDroppedConstraintPaths2(original, parsed, path29 = "") {
+  if (Array.isArray(original) && Array.isArray(parsed)) return original.flatMap((item, index) => findDroppedConstraintPaths2(item, parsed[index], `${path29}[${index}]`));
   if (!isJsonObject2(original) || !isJsonObject2(parsed)) return [];
   return Object.entries(original).flatMap(([key, value]) => {
-    const childPath = path25 ? `${path25}.${key}` : key;
+    const childPath = path29 ? `${path29}.${key}` : key;
     if (!Object.prototype.hasOwnProperty.call(parsed, key)) return isAnnotationOnlyJsonSchemaKeyword2(key) ? [] : [childPath];
     return findDroppedConstraintPaths2(value, parsed[key], childPath);
   });
@@ -41557,8 +41848,8 @@ var require_utils2 = /* @__PURE__ */ __commonJSMin2(((exports2, module2) => {
     for (let i = 0; i < str.length; i++) if (str[i] === token) ind++;
     return ind;
   }
-  function removeDotSegments(path25) {
-    let input = path25;
+  function removeDotSegments(path29) {
+    let input = path29;
     const output = [];
     let nextSlash = -1;
     let len = 0;
@@ -41711,8 +42002,8 @@ var require_schemes2 = /* @__PURE__ */ __commonJSMin2(((exports2, module2) => {
       wsComponent.secure = void 0;
     }
     if (wsComponent.resourceName) {
-      const [path25, query] = wsComponent.resourceName.split("?");
-      wsComponent.path = path25 && path25 !== "/" ? path25 : void 0;
+      const [path29, query] = wsComponent.resourceName.split("?");
+      wsComponent.path = path29 && path29 !== "/" ? path29 : void 0;
       wsComponent.query = query;
       wsComponent.resourceName = void 0;
     }
@@ -48728,7 +49019,7 @@ function createLocalExtensionsService(options = {}) {
 // ../cli/src/runtime/stdio-mcp-runtime.ts
 var import_meta = {};
 function createStdioMcpRuntime(dataPath, workspace, unrestricted = false) {
-  const database = new SqliteDatabase(import_node_path23.default.join(dataPath, "lnwjud.sqlite"));
+  const database = new SqliteDatabase(import_node_path27.default.join(dataPath, "lnwjud.sqlite"));
   const workspaceRepository = new SqliteWorkspaceRepository(database);
   const settingsRepository = new SqliteSettingsRepository(database);
   const auditRepository = new SqliteAuditRepository(database);
@@ -48753,7 +49044,7 @@ function createStdioMcpRuntime(dataPath, workspace, unrestricted = false) {
     unrestricted
   });
   const gitService = new GitService(workspaceRepository);
-  const workspaceQuery = new WorkspaceQueryService(workspaceRepository);
+  const workspaceQuery = new WorkspaceQueryService(workspaceRepository, pathGuard);
   const extensions = createLocalExtensionsService({
     settingsJson: settingsRepository.get(EXTENSIONS_SETTINGS_KEY),
     workspaceRootProvider: async () => workspace.realRootPath
@@ -48780,6 +49071,7 @@ function createStdioMcpRuntime(dataPath, workspace, unrestricted = false) {
         phase: event.phase,
         ...event.targetSummary === void 0 ? {} : { targetSummary: event.targetSummary },
         resultCode: event.resultCode,
+        ...event.resultMessage === void 0 ? {} : { resultMessage: event.resultMessage },
         durationMs: event.durationMs,
         timestamp: event.timestamp
       });
@@ -48825,7 +49117,7 @@ function createStdioCapabilityService(dataPath, workspaceRootsProvider, unrestri
     },
     unrestricted
   });
-  const browserProtocol = new NodeBrowserCdpProtocol({ profileDir: import_node_path23.default.join(dataPath, "browser-profile") });
+  const browserProtocol = new NodeBrowserCdpProtocol({ profileDir: import_node_path27.default.join(dataPath, "browser-profile") });
   const browserBackend = new BrowserCdpBackend({
     protocol: browserProtocol,
     launcher: (url2) => browserProtocol.launch(url2)
@@ -48857,36 +49149,36 @@ function createStdioCapabilityService(dataPath, workspaceRootsProvider, unrestri
 }
 function readCapabilityRoots(value) {
   if (value === void 0 || value.trim().length === 0) return [];
-  return value.split(";").map((root) => root.trim()).filter((root) => root.length > 0).map((root) => import_node_path23.default.resolve(root));
+  return value.split(";").map((root) => root.trim()).filter((root) => root.length > 0).map((root) => import_node_path27.default.resolve(root));
 }
 function capabilityBridgeScriptPath() {
   const configured = process.env.LNWJUD_CAPABILITY_BRIDGE_SCRIPT;
-  if (configured !== void 0 && configured.trim().length > 0) return import_node_path23.default.resolve(configured);
+  if (configured !== void 0 && configured.trim().length > 0) return import_node_path27.default.resolve(configured);
   const scriptDir = resolveScriptDirectory();
   const resourcesPath = process.resourcesPath;
   const candidates = [
-    scriptDir === void 0 ? void 0 : import_node_path23.default.join(scriptDir, "windows-capability-bridge.ps1"),
-    scriptDir === void 0 ? void 0 : import_node_path23.default.join(scriptDir, "resources", "windows-capability-bridge.ps1"),
-    import_node_path23.default.resolve(process.cwd(), "packages", "capabilities", "src", "windows-capability-bridge.ps1"),
-    import_node_path23.default.resolve(process.cwd(), "..", "..", "packages", "capabilities", "src", "windows-capability-bridge.ps1"),
-    resourcesPath === void 0 ? void 0 : import_node_path23.default.join(resourcesPath, "windows-capability-bridge.ps1"),
-    import_node_path23.default.join(import_node_path23.default.dirname(process.execPath), "windows-capability-bridge.ps1"),
-    import_node_path23.default.join(import_node_path23.default.dirname(process.execPath), "resources", "windows-capability-bridge.ps1")
+    scriptDir === void 0 ? void 0 : import_node_path27.default.join(scriptDir, "windows-capability-bridge.ps1"),
+    scriptDir === void 0 ? void 0 : import_node_path27.default.join(scriptDir, "resources", "windows-capability-bridge.ps1"),
+    import_node_path27.default.resolve(process.cwd(), "packages", "capabilities", "src", "windows-capability-bridge.ps1"),
+    import_node_path27.default.resolve(process.cwd(), "..", "..", "packages", "capabilities", "src", "windows-capability-bridge.ps1"),
+    resourcesPath === void 0 ? void 0 : import_node_path27.default.join(resourcesPath, "windows-capability-bridge.ps1"),
+    import_node_path27.default.join(import_node_path27.default.dirname(process.execPath), "windows-capability-bridge.ps1"),
+    import_node_path27.default.join(import_node_path27.default.dirname(process.execPath), "resources", "windows-capability-bridge.ps1")
   ].filter((candidate) => candidate !== void 0);
-  return candidates.find((candidate) => (0, import_node_fs4.existsSync)(candidate)) ?? candidates[0];
+  return candidates.find((candidate) => (0, import_node_fs5.existsSync)(candidate)) ?? candidates[0];
 }
 function resolveScriptDirectory() {
   const arg1 = process.argv[1];
   if (typeof arg1 === "string" && arg1.trim().length > 0) {
     try {
-      return import_node_path23.default.dirname(import_node_path23.default.resolve(arg1));
+      return import_node_path27.default.dirname(import_node_path27.default.resolve(arg1));
     } catch {
     }
   }
   try {
     const metaUrl = import_meta.url;
     if (typeof metaUrl === "string" && metaUrl.length > 0) {
-      return import_node_path23.default.dirname((0, import_node_url.fileURLToPath)(metaUrl));
+      return import_node_path27.default.dirname((0, import_node_url.fileURLToPath)(metaUrl));
     }
   } catch {
   }
@@ -48906,24 +49198,24 @@ function hasFlag(flag) {
 function resolveDataPath() {
   const configured = process.env.LNWJUD_DATA_PATH?.trim();
   if (configured) return configured;
-  return import_node_path24.default.join(process.env.APPDATA ?? import_node_path24.default.join(import_node_os5.default.homedir(), "AppData", "Roaming"), "lnwjud");
+  return import_node_path28.default.join(process.env.APPDATA ?? import_node_path28.default.join(import_node_os5.default.homedir(), "AppData", "Roaming"), "lnwjud");
 }
 async function main() {
   const eRoot = machineRootPath();
-  if (!import_node_fs5.default.existsSync(eRoot)) {
+  if (!import_node_fs6.default.existsSync(eRoot)) {
     process.stderr.write("lnwjud MCP stdio: E:\\ drive is required but was not found\n");
     process.exit(2);
   }
   const dataPath = resolveDataPath();
-  import_node_fs5.default.mkdirSync(dataPath, { recursive: true });
-  const database = new SqliteDatabase(import_node_path24.default.join(dataPath, "lnwjud.sqlite"));
+  import_node_fs6.default.mkdirSync(dataPath, { recursive: true });
+  const database = new SqliteDatabase(import_node_path28.default.join(dataPath, "lnwjud.sqlite"));
   const workspaceRepository = new SqliteWorkspaceRepository(database);
   const settingsRepository = new SqliteSettingsRepository(database);
   const workspaceService = new WorkspaceService(workspaceRepository);
   const unrestricted = isUnrestricted(process.env, settingsRepository.get(UNRESTRICTED_SETTING_KEY));
   const requestedRaw = readArg("--workspace") ?? process.env.LNWJUD_WORKSPACE;
-  const requestedPath = import_node_path24.default.resolve(requestedRaw && requestedRaw.trim().length > 0 ? requestedRaw : eRoot);
-  if (!import_node_fs5.default.existsSync(requestedPath)) {
+  const requestedPath = import_node_path28.default.resolve(requestedRaw && requestedRaw.trim().length > 0 ? requestedRaw : eRoot);
+  if (!import_node_fs6.default.existsSync(requestedPath)) {
     process.stderr.write(`lnwjud MCP stdio: workspace path does not exist: ${requestedPath}
 `);
     process.exit(2);
@@ -48950,7 +49242,7 @@ async function main() {
   const workspaces = await workspaceService.list();
   let workspace = workspaces.find((entry) => normalizeWorkspaceRoot(entry.realRootPath).toLowerCase() === requestedNorm) ?? workspaces.find((entry) => requestedNorm.startsWith(normalizeWorkspaceRoot(entry.realRootPath).toLowerCase()));
   if (workspace === void 0 && requestedNorm !== normalizeWorkspaceRoot(eRoot).toLowerCase()) {
-    const displayName = import_node_path24.default.basename(requestedPath) || "Workspace";
+    const displayName = import_node_path28.default.basename(requestedPath) || "Workspace";
     const added = await workspaceService.add(displayName, requestedPath);
     if (!added.ok) {
       process.stderr.write(`lnwjud MCP stdio: could not register ${requestedPath} (${added.error.message})

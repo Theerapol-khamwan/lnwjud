@@ -1,7 +1,25 @@
+import { realpath, stat } from 'node:fs/promises';
+import path from 'node:path';
 import { appError, err, ok, type Result } from '@lnwjud/domain';
-import { GitAdapter, type GitDiffRequest, type GitDiffResult, type GitLogRequest, type GitLogResult, type GitStatusResult } from '@lnwjud/git';
+import {
+  GitAdapter,
+  type GitCommandResult,
+  type GitDiffRequest,
+  type GitDiffResult,
+  type GitLogRequest,
+  type GitLogResult,
+  type GitStatusResult,
+} from '@lnwjud/git';
 import { WorkspacePathGuard, type Workspace, type WorkspaceRepository } from '@lnwjud/workspace';
 import type { FileActor } from './file-service.js';
+import { isAbsoluteFsPath, resolveWorkspaceForPath } from './workspace-locator.js';
+
+export interface GitRunRequest {
+  readonly args: readonly string[];
+  readonly workspaceId?: string;
+  readonly cwd?: string;
+  readonly timeoutMs?: number;
+}
 
 export class GitService {
   public constructor(
@@ -39,6 +57,43 @@ export class GitService {
     const workspace = await this.getWorkspace(workspaceId);
     if (!workspace.ok) return workspace;
     return this.adapter.log(workspace.value.realRootPath, request);
+  }
+
+  public async run(actor: FileActor, request: GitRunRequest): Promise<Result<GitCommandResult>> {
+    void actor;
+    const cwd = await this.resolveCwd(request.workspaceId, request.cwd);
+    if (!cwd.ok) return cwd;
+    return this.adapter.run(cwd.value, request.args, request.timeoutMs);
+  }
+
+  private async resolveCwd(workspaceId: string | undefined, requestedCwd: string | undefined): Promise<Result<string>> {
+    if (requestedCwd !== undefined && isAbsoluteFsPath(requestedCwd)) {
+      const workspace = await resolveWorkspaceForPath(this.workspaces, workspaceId, requestedCwd);
+      if (!workspace.ok) return workspace;
+      return this.existingDirectory(requestedCwd);
+    }
+
+    if (workspaceId === undefined || workspaceId.trim().length === 0) {
+      return err(appError('INVALID_INPUT', 'workspaceId is required unless cwd is an absolute path'));
+    }
+
+    const workspace = await this.getWorkspace(workspaceId);
+    if (!workspace.ok) return workspace;
+    if (requestedCwd === undefined) return ok(workspace.value.realRootPath);
+
+    const resolved = await this.guard.resolveForRead(workspace.value, requestedCwd);
+    if (!resolved.ok) return resolved;
+    return this.existingDirectory(resolved.value.realPath ?? resolved.value.absolutePath);
+  }
+
+  private async existingDirectory(directoryPath: string): Promise<Result<string>> {
+    try {
+      const canonical = await realpath(path.resolve(directoryPath));
+      if (!(await stat(canonical)).isDirectory()) return err(appError('INVALID_INPUT', 'Git cwd must be a directory'));
+      return ok(canonical);
+    } catch {
+      return err(appError('FILE_NOT_FOUND', 'Git cwd was not found'));
+    }
   }
 
   private async getWorkspace(workspaceId: string): Promise<Result<Workspace>> {

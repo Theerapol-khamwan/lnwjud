@@ -51,5 +51,6 @@ export interface McpToolAuditInput {
   readonly phase: 'started' | 'completed';
   readonly targetSummary?: string;
   readonly resultCode: string;
+  readonly resultMessage?: string;
   readonly durationMs: number;
 }

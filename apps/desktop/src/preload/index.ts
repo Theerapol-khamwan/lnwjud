@@ -107,6 +107,7 @@ function workLogEntries(value: unknown): readonly WorkLogEntry[] {
       kind,
       toolName: stringField(entry, 'toolName'),
       resultCode: stringField(entry, 'resultCode'),
+      errorMessage: nullableString(entry.errorMessage),
       targetSummary: nullableString(entry.targetSummary),
       durationMs: numberField(entry, 'durationMs'),
       workspaceId: nullableString(entry.workspaceId),

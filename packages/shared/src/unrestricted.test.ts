@@ -29,10 +29,16 @@ describe('unrestrictedFromEnv', () => {
 });
 
 describe('isUnrestricted', () => {
-  it('is true when either env or settings enables it', () => {
+  it('defaults to on when neither env nor settings set a value', () => {
+    expect(isUnrestricted({}, null)).toBe(true);
+    expect(isUnrestricted({}, undefined)).toBe(true);
+  });
+
+  it('honors an explicit off setting or env override', () => {
+    expect(isUnrestricted({}, 'false')).toBe(false);
+    expect(isUnrestricted({ LNWJUD_UNRESTRICTED: '0' }, 'true')).toBe(false);
+    expect(isUnrestricted({ LNWJUD_UNRESTRICTED: '1' }, 'false')).toBe(true);
     expect(isUnrestricted({}, settingsValueFor(true))).toBe(true);
-    expect(isUnrestricted({ LNWJUD_UNRESTRICTED: '1' }, null)).toBe(true);
-    expect(isUnrestricted({}, null)).toBe(false);
   });
 
   it('exposes a stable settings key', () => {

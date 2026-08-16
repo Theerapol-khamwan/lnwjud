@@ -64,4 +64,38 @@ describe('GitService', () => {
 
     expect(result).toMatchObject({ ok: false, error: { code: 'PATH_OUTSIDE_WORKSPACE' } });
   });
+
+  it('runs git against an absolute cwd in a registered workspace', async () => {
+    const workspace = await createWorkspace();
+    const adapter = {
+      async status(): Promise<never> { throw new Error('not used'); },
+      async diff(): Promise<never> { throw new Error('not used'); },
+      async log(): Promise<never> { throw new Error('not used'); },
+      async run(cwd: string, args: readonly string[]): Promise<{ ok: true; value: { exitCode: number; stdout: string; stderr: string } }> {
+        expect(path.resolve(cwd).toLowerCase()).toBe(path.resolve(workspace.realRootPath).toLowerCase());
+        expect(args).toEqual(['init']);
+        return { ok: true, value: { exitCode: 0, stdout: 'Initialized empty Git repository', stderr: '' } };
+      },
+    } as unknown as GitAdapter;
+    const service = new GitService(repository(workspace), undefined, adapter);
+
+    const result = await service.run({ clientId: 'test', clientName: 'test' }, {
+      args: ['init'],
+      cwd: workspace.realRootPath,
+    });
+
+    expect(result).toEqual({
+      ok: true,
+      value: { exitCode: 0, stdout: 'Initialized empty Git repository', stderr: '' },
+    });
+  });
+
+  it('requires workspaceId unless cwd is an absolute path', async () => {
+    const workspace = await createWorkspace();
+    const service = new GitService(repository(workspace));
+
+    const result = await service.run({ clientId: 'test', clientName: 'test' }, { args: ['status'] });
+
+    expect(result).toMatchObject({ ok: false, error: { code: 'INVALID_INPUT' } });
+  });
 });

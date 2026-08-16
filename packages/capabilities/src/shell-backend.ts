@@ -38,7 +38,7 @@ export interface ShellCapabilityOptions {
   /**
    * Full-access mode: cwd may be any existing directory, the full environment is
    * passed through, and .cmd/.bat argument metacharacters are not rejected.
-   * Delete-like commands stay blocked in every mode.
+   * Delete-like commands stay blocked in every mode. git rm/clean/reset are allowed.
    */
   readonly unrestricted?: boolean;
 }
@@ -369,11 +369,14 @@ function clampNumber(value: number, minimum: number, maximum: number): number {
 
 function isDeleteLikeShellCommand(executable: string, args: readonly string[]): boolean {
   const basename = path.win32.basename(executable).toLowerCase();
+  if (basename === 'git' || basename === 'git.exe') return false;
   const deleteNames = new Set(['del', 'del.exe', 'erase', 'erase.exe', 'rm', 'rm.exe', 'rmdir', 'rmdir.exe', 'rd', 'rd.exe', 'unlink', 'unlink.exe']);
   if (deleteNames.has(basename)) return true;
   const joined = args.map((entry) => entry.toLowerCase()).join(' ');
   if (basename === 'powershell.exe' || basename === 'powershell' || basename === 'pwsh.exe' || basename === 'pwsh') {
-    return /\bremove-item\b/.test(joined) || /\brm\b/.test(joined) || /\bdel\b/.test(joined);
+    if (/\bremove-item\b/.test(joined)) return true;
+    const withoutGitRm = joined.replace(/\bgit(?:\.exe)?\s+rm\b/g, ' ');
+    return /\brm\b/.test(withoutGitRm) || /\bdel\b/.test(withoutGitRm);
   }
   if (basename === 'cmd.exe' || basename === 'cmd') {
     return /(^|[\s&|])(del|erase|rd|rmdir)\b/.test(joined);
