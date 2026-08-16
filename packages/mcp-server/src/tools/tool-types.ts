@@ -19,6 +19,7 @@ import type {
   WriteFileRequest,
 } from '@lnwjud/application';
 import type { z } from 'zod';
+import type { ContextEconomyRuntime } from '../context-economy.js';
 
 export interface WorkspaceInfoPort {
   info(actor: FileActor, workspaceId: string): Promise<Result<unknown>>;
@@ -70,6 +71,7 @@ export interface McpToolDefinition {
 export interface McpToolContext {
   readonly actor: FileActor;
   readonly services: McpApplicationServices;
+  readonly contextEconomy: ContextEconomyRuntime;
 }
 
 export interface ToolConfig<T extends z.ZodType> {

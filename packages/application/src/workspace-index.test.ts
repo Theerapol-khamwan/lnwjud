@@ -15,7 +15,7 @@ function fixtureRepository(workspace: Workspace): WorkspaceRepository {
 }
 
 describe('WorkspaceIndexService', () => {
-  it('indexes all visible paths and persists the snapshot', async () => {
+  it('indexes source and metadata paths by default while allowing an explicit ignored subtree', async () => {
     const root = await mkdtemp(path.join(os.tmpdir(), 'lnwjud-index-'));
     await mkdir(path.join(root, '.git'), { recursive: true });
     await mkdir(path.join(root, 'dist'), { recursive: true });
@@ -35,7 +35,8 @@ describe('WorkspaceIndexService', () => {
     expect(result.ok).toBe(true);
     if (!result.ok) return;
     const paths = result.value.entries.map((entry) => entry.relativePath);
-    expect(paths).toEqual(expect.arrayContaining(['.env', '.git', '.git/config', 'dist', 'dist/app.js', 'node_modules', 'node_modules/fixture/index.js', 'src.ts']));
+    expect(paths).toEqual(expect.arrayContaining(['.env', 'src.ts']));
+    expect(paths).not.toEqual(expect.arrayContaining(['.git', '.git/config', 'dist', 'dist/app.js', 'node_modules', 'node_modules/fixture/index.js']));
     expect(result.value.entries.find((entry) => entry.relativePath === 'src.ts')?.functions).toContain('answer');
     expect((await service.snapshot(workspace.id)).ok).toBe(true);
 
@@ -45,5 +46,10 @@ describe('WorkspaceIndexService', () => {
     if (!update.ok) return;
     expect(update.value.entries.find((entry) => entry.relativePath === 'src.ts')?.functions).toContain('updated');
     expect(update.value.entries.find((entry) => entry.relativePath === 'src.ts')?.functions).not.toContain('answer');
+
+    const explicit = await service.indexPath(workspace.id, 'node_modules', { discovery: 'explicit' });
+    expect(explicit.ok).toBe(true);
+    if (!explicit.ok) return;
+    expect(explicit.value.entries.map((entry) => entry.relativePath)).toEqual(expect.arrayContaining(['node_modules', 'node_modules/fixture/index.js']));
   });
 });

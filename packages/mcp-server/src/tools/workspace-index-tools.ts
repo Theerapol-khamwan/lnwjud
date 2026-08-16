@@ -5,13 +5,13 @@ export function workspaceIndexTools(context: McpToolContext): McpToolDefinition[
   return [
     defineTool({
       name: 'workspace_index',
-      description: 'Build or refresh the persistent workspace index across every visible path without ignore filters.',
+      description: 'Build or refresh the persistent workspace index using automatic context filters unless ignored paths are explicitly included.',
       permission: 'READ',
       annotations: { readOnlyHint: true, destructiveHint: false },
       inputSchema: workspaceIndexSchema,
       handler: async (input) => context.services.workspaceIndex === undefined
         ? missingService()
-        : context.services.workspaceIndex.indexWorkspace(input.workspaceId),
+        : context.services.workspaceIndex.indexWorkspace(input.workspaceId, { discovery: input.includeIgnored ? 'explicit' : 'automatic' }),
     }),
     defineTool({
       name: 'workspace_index_status',

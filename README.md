@@ -22,26 +22,30 @@ receive a public shell and does not read the local Codex configuration. For a
 ChatGPT web connection, OpenAI Secure MCP Tunnel forwards MCP requests to a
 local lnwjud process; the tunnel is outbound-only.
 
-## v2.1.0 release status
+## v2.2.2 release status
 
-Release `v2.1.0` builds on the v2.0.0 MCP gateway with a branded Windows tray
+Release `v2.2.2` builds on the v2.0.0 MCP gateway with a branded Windows tray
   mode, permission enforcement for Desktop MCP capability tools, profile-safe
   stdio/tunnel startup, and stable external tunnel state detection. It keeps
-  the 183-tool catalog, compound/parallel workflows, persistent workspace
+  the 184-tool catalog, compound/parallel workflows, persistent workspace
   indexing, paged reads, Live Logs v2, recovery/session state, capability
-  discovery, and project/visual inspection adapters. See the
+  discovery, project/visual inspection adapters, and the Context Economy Engine
+  for quota-aware discovery and duplicate-aware delivery. See the
   [phase completion checklist](docs/architecture/ROADMAP_PHASE_STATUS.md) and
   the [foundation benchmark](docs/benchmarks/PHASE-05.md).
 
-The v2 visibility contract is intentionally full-access for reads: filename
-search, text search, indexing, and watchers do not apply ignore patterns to
-`.env`, `.git`, `dist`, `node_modules`, or other hidden/heavy paths. Responses
-remain bounded or paged where appropriate, but unique paths are not filtered.
-The watcher queue only coalesces duplicate notifications and controls
-processing concurrency. Desktop MCP applies the selected Permission profile to
-mutating, executable, dangerous, and capability tool calls. Packaged stdio and
-Secure Tunnel MCP intentionally use the full profile so Codex/AI can inspect
-all workspace paths, including `.env`, without changing the Desktop profile.
+The v2.2 visibility contract separates discovery efficiency from access:
+automatic filename/text search, indexing, and watchers skip vendor/build/cache
+trees, binary files, generated bundles, and source maps to save I/O and context
+quota. `.env` remains available as relevant configuration. This is not a deny
+rule: `read_file`/`read_many_files`, full scans, and explicit search/index
+requests can still inspect `.git`, `dist`, `node_modules`, binaries, and any
+other path allowed by the existing workspace boundary. Context responses remain
+bounded or paged, and report continuation/telemetry instead of silently
+discarding results. Desktop MCP still applies the selected Permission profile
+to mutating, executable, dangerous, and capability tool calls. Packaged stdio
+and Secure Tunnel MCP use the full profile so Codex/AI can inspect permitted
+workspace paths without changing the Desktop profile.
 
 > **Security boundary:** lnwjud is still path-checked and policy-checked. It is
 > not an administrator shell. Unrestricted mode is **on by default** so every
@@ -62,7 +66,7 @@ Choose your preferred setup method:
 Follow this 4-step quick start to connect ChatGPT or any AI agent to your Windows PC using the official pre-built installer:
 
 #### Step 1: Download & Install Lnwjud Desktop
-1. Download the latest installer (`lnwjud-Setup-2.1.0.exe`) from **[GitHub Releases](https://github.com/engasnm111/lnwjud/releases/latest)**.
+1. Download the latest installer (`lnwjud-Setup-2.2.2.exe`) from **[GitHub Releases](https://github.com/engasnm111/lnwjud/releases/latest)**.
 2. Run the installer (it automatically creates start menu and desktop shortcuts).
 3. Launch **Lnwjud Agent Control Center**.
 
@@ -92,7 +96,7 @@ Choose your preferred tunnel provider:
 1. Open [ChatGPT](https://chatgpt.com) and switch to your developer workspace.
 2. Go to **Settings > Connected Apps / Developer Settings** > **Create App** (or add MCP Server).
 3. Choose **Tunnel** and select your `lnwjud` tunnel.
-4. Verify the 183-tool catalog loads (e.g. `read_file`, `read_file_page`, `search_all`, `workspace_index`, `git`, `shell`, `dom_cdp`, `window`, `vision`, `system_info`).
+4. Verify the 184-tool catalog loads (e.g. `read_file`, `read_file_page`, `search_all`, `workspace_index`, `context_economy_stats`, `git`, `shell`, `dom_cdp`, `window`, `vision`, `system_info`).
 5. Open a new chat, enable the **lnwjud** plugin/tool, and test:
    > *"Check git status of my workspace, list active processes, and summarize recent code changes."*
 6. Watch real-time tool execution logs, commands, and audit records stream live in the **Lnwjud Live Log Hub**!
@@ -175,7 +179,7 @@ Start the resilient tunnel loop (with auto-reconnect, long TTL, and live dashboa
 1. Open [ChatGPT](https://chatgpt.com) and switch to your developer workspace.
 2. Navigate to **Settings > Connected Apps / Developer Settings** > **Create App**.
 3. Select your tunnel `lnwjud` from the list.
-4. Verify that the 183-tool catalog loads (including `read_file`, `read_file_page`, `search_all`, `workspace_index`, `git_status`, `shell`, and `system_info`).
+4. Verify that the 184-tool catalog loads (including `read_file`, `read_file_page`, `search_all`, `workspace_index`, `context_economy_stats`, `git_status`, `shell`, and `system_info`).
 5. Start a new conversation, activate the **lnwjud** tool, and try:
    > *"Inspect my current project, check git status, and summarize the last 5 commits."*
    > *"Find all TypeScript files that import `@lnwjud/domain`."*
@@ -207,7 +211,7 @@ Right-click the tray icon to use:
 ### Important: the stdio launcher
 
 The tunnel command must start the stdio MCP entrypoint, not the Electron
-dashboard. The packaged v2.1.0 build ships this direct launcher:
+dashboard. The packaged v2.2.2 build ships this direct launcher:
 
 ```text
 lnwjud-mcp-stdio.cmd --workspace E:\lnwjud
@@ -320,7 +324,7 @@ corepack pnpm@10.15.0 package:windows
 The x64 NSIS installer is written to:
 
 ```text
-apps/desktop/dist/installers/lnwjud-Setup-2.1.0.exe
+apps/desktop/dist/installers/lnwjud-Setup-2.2.2.exe
 ```
 
 The installer is per-user by default. A common installed executable path is:
@@ -667,7 +671,7 @@ start a new chat.
 
 ## Complete MCP tool catalog
 
-The current v2.1.0 catalog contains 183 tools across workspace/project
+The current v2.2.2 catalog contains 184 tools across workspace/project
 primitives, paging and indexing, compound/parallel workflows, Git/test/cache
 surfaces, lifecycle and permission contracts, local Windows capabilities,
 skills/MCP bridge discovery, visual adapters, and recovery/session tools.
@@ -713,8 +717,8 @@ from the desktop dashboard and use its workspace ID.
 | --- | --- | --- |
 | read_file | READ | Reads a workspace file as UTF-8 or an image/binary payload. Absolute paths do not require workspaceId. |
 | read_files | READ | Reads up to 20 workspace files. Absolute paths do not require workspaceId. |
-| search_files | READ | Searches workspace filenames with bounded results |
-| search_text | READ | Searches text through direct ripgrep arguments; no shell string is built |
+| search_files | READ | Searches workspace filenames with bounded results; automatic mode skips vendor/build/binary/generated paths |
+| search_text | READ | Searches text through direct ripgrep arguments; automatic mode avoids binary/generated context |
 | write_file | WRITE | Writes UTF-8 text, creates missing parents, and checkpoints an existing target before overwrite |
 | apply_patch | WRITE | Validates and applies bounded file changes, creating missing parents |
 | move_file | WRITE | Moves a file or directory within one workspace, creating missing destination parents |
@@ -756,6 +760,33 @@ read-only views. Filesystem `rm` / `del` / `delete_file` still need confirmation
 process_start uses an executable plus an args array with shell false. It is not
 PowerShell, CMD, or a free-form shell parser. Project commands come from the
 detected ProjectProfile.
+
+### Context Economy Engine
+
+Automatic discovery is optimized for useful context rather than raw tree size.
+The default policy skips `node_modules`, `.git`, `dist`, `build`, `coverage`,
+`.next`, `.turbo`, `.cache`, `vendor`, `target`, `bin`, `obj`, virtualenvs,
+binary files, bundles, and source maps. Lockfiles and large JSON/log/CSV files
+start as metadata summaries; source and tests start with relevant symbol/line
+ranges; changed Git files are ranked first.
+
+This policy is not a deny list. Explicit reads remain full-access within the
+normal workspace boundary, for example:
+
+```text
+read_file({ "path": "node_modules/pkg/index.js" })
+read_many_files({ "files": [{ "path": ".env" }, { "path": ".git/config" }] })
+search_files({ "includeIgnored": true, "path": "node_modules/pkg" })
+workspace_context({ "includeIgnored": true, "query": "login" })
+```
+
+The Context Ledger keeps bounded in-memory fingerprints and small previous
+contents. Repeated delivery can be represented as `unchanged`, a line `diff`,
+or a duplicate `referencePath`; unchanged bytes are not sent again. The
+`context_economy_stats` tool and `telemetry_dashboard` expose raw discovered
+bytes, delivered bytes, duplicate/previously-seen bytes avoided, skipped paths,
+ledger hits, and estimated savings. No raw file content or credential is
+persisted by this telemetry.
 
 ### Local Codex delegation
 

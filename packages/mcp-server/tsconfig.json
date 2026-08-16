@@ -12,7 +12,8 @@
     { "path": "../capabilities" },
     { "path": "../domain" },
     { "path": "../extensions" },
-    { "path": "../permissions" }
+    { "path": "../permissions" },
+    { "path": "../search" }
   ],
   "include": ["src/**/*.ts"],
   "exclude": ["src/**/*.test.ts"]

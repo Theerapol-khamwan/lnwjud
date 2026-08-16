@@ -103,6 +103,7 @@ export const UPGRADE_TOOL_CATALOG: readonly UpgradeToolCatalogEntry[] = [
   read('live_logs_query', 26, 'Query structured activity/log metadata with correlation IDs.', ['logs', 'audit']),
   read('live_logs_status', 26, 'Return Live Logs pipeline health and source status.', ['logs', 'audit']),
   read('telemetry_dashboard', 27, 'Return runtime performance telemetry.', ['telemetry', 'dashboard']),
+  read('context_economy_stats', 41, 'Return context discovery, deduplication, ledger, and token-efficiency telemetry.', ['context', 'economy', 'quota', 'telemetry']),
   read('execution_plan', 28, 'Return the cheapest deterministic execution plan and reason.', ['planner', 'telemetry']),
   read('repo_map', 29, 'Return a traversable repository structural map.', ['repository', 'map'], { streamable: true }),
   read('context_expand', 30, 'Return optional import, caller, type, test, and change references.', ['context', 'dependency']),

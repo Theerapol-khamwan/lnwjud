@@ -1,6 +1,6 @@
 # lnwjud Upgrade Architecture Contract
 
-Status: Phase 05 implementation checkpoint for the `v2.1.0` release.
+Status: Phase 41 implementation checkpoint for the `v2.2.2` release.
 
 This document is the architectural boundary for the upgrade roadmap. It describes
 the existing runtime before Phase 01 and the invariants every later phase must
@@ -41,7 +41,7 @@ MCP clients (ChatGPT / Codex / Claude / other agents)
              MCP stdio or loopback Streamable HTTP
                          |
                          v
-                  ToolRegistry (183 tools after Phase 05–40 foundation)
+                  ToolRegistry (184 tools after Phase 05–41 foundation)
                          |
        +-----------------+------------------+
        |                 |                  |
@@ -73,7 +73,7 @@ MCP clients (ChatGPT / Codex / Claude / other agents)
 | `packages/application` | workspace, file, search, Git, process, project, Codex, doctor use cases | parallel/context/index/recipe services |
 | `packages/workspace` | workspace registration, root/path guards, secret policy | index ownership and invalidation |
 | `packages/filesystem` | bounded text/binary reads, writes, checkpoints, patching | resumable reads and read-many primitives |
-| `packages/search` | executable resolution and direct ripgrep search | indexed search and continuation |
+| `packages/search` | executable resolution, direct ripgrep search, and context-economy policy primitives | indexed search, continuation, and deterministic summaries |
 | `packages/git` | argument-array Git adapter and structured parsers | change intelligence and diff context |
 | `packages/process` | owned process trees, output buffers, cancellation | batch workers and task runtime |
 | `packages/codex` | executable/capability discovery and owned Codex tasks | delegation/session handoff |
@@ -223,8 +223,11 @@ The local context engine adds `workspace_context` and continuation plus
 an LLM, reads selected candidates in parallel, and reports the files scanned,
 matches, symbols, Git/test relevance, and remaining context. Page and response
 targets shape transport size only; they do not hide a path from direct search or
-read. Hidden, ignored, generated, dependency, and environment paths remain
-eligible candidates.
+read. Automatic discovery starts with relevant source/config ranges and filters
+vendor/build/cache, binary, and generated paths. Explicit file reads, full
+scans, and explicit search/index overrides remain available for every path
+allowed by the existing workspace boundary, including environment and vendor
+paths.
 
 ## Phase 03 streaming checkpoint
 
@@ -240,11 +243,11 @@ resume without silently skipping or overwriting context.
 `WorkspaceIndexService` persists a full structural index outside the repository
 data tree and records files, directories, symlinks, hashes, Git blob hashes,
 language, tests, package metadata, symbols, imports, exports, functions,
-classes, and interfaces. Initial indexing traverses every discoverable path;
-there is no `.git`, `node_modules`, `dist`, `.env`, generated-file, or hidden-file
-ignore list. The watcher only coalesces duplicate notifications for the same
-path and limits active workers. Distinct paths are retained and queued, and a
-watcher stop drains the queue before closing.
+classes, and interfaces. Initial indexing applies the automatic context policy
+to vendor/build/cache, binary, and generated paths while retaining metadata for
+relevant source/config files. The watcher applies the same policy before
+enqueueing and limits active workers. Explicit index options can include a
+skipped subtree; a watcher stop drains the queue before closing.
 
 ## Phase 05–14 foundation checkpoint
 
@@ -259,6 +262,19 @@ The roadmap catalog is intentionally discoverable on demand through
 `capabilities`, `tool_search`, `tool_describe`, and `tool_categories`; this
 reduces schema pressure on clients without removing any capability from the
 runtime catalog.
+
+## Phase 41 context-economy checkpoint
+
+`ContextEconomyRuntime` sits between discovery and context delivery. It applies
+deterministic path/content classification, changed-first ranking, metadata or
+symbol-range-first delivery, bounded duplicate hashing, and a short-lived
+in-memory Context Ledger. The ledger can mark a file `unchanged`, return a
+line `diff`, or reference duplicate content; it never persists raw file data or
+credentials. `context_economy_stats` and `telemetry_dashboard` expose raw
+discovered bytes, delivered bytes, skipped generated/binary paths, duplicate
+bytes avoided, ledger hits, and estimated savings. Automatic ignore is not
+authorization: `read_file`, `read_many_files`, full scans, and explicit search
+or index requests retain full permitted access.
 
 ## Upgrade sequencing
 

@@ -6,6 +6,7 @@ import { ok } from '@lnwjud/domain';
 import type { FileActor } from '@lnwjud/application';
 import type { McpApplicationServices } from './tools/tool-types.js';
 import { ContextEngine } from './context-engine.js';
+import { ContextEconomyRuntime } from './context-economy.js';
 import { UPGRADE_TOOL_CATALOG, type UpgradeToolCatalogEntry } from './upgrade-catalog.js';
 
 interface RuntimeTask {
@@ -40,6 +41,7 @@ interface PersistedRuntimeState {
 export class UpgradeRuntimeService {
   private readonly contextEngine: ContextEngine;
   private readonly actor: FileActor;
+  private readonly contextEconomy: ContextEconomyRuntime;
   private readonly tasks = new Map<string, RuntimeTask>();
   private readonly checkpoints: SessionCheckpoint[] = [];
   private readonly hooks = new Map<string, { readonly name: string; readonly event: string }>();
@@ -51,9 +53,11 @@ export class UpgradeRuntimeService {
   public constructor(
     private readonly services: McpApplicationServices,
     actor: FileActor,
+    contextEconomy: ContextEconomyRuntime = new ContextEconomyRuntime(),
   ) {
     this.actor = actor;
-    this.contextEngine = new ContextEngine(services, actor);
+    this.contextEconomy = contextEconomy;
+    this.contextEngine = new ContextEngine(services, actor, contextEconomy);
   }
 
   public async execute(name: string, input: Record<string, unknown>): Promise<Result<unknown>> {
@@ -88,7 +92,7 @@ export class UpgradeRuntimeService {
       case 'permission_profile':
         return ok({ profile: 'full', contextReads: 'unrestricted-for-allowed-workspaces', dangerousActions: 'policy-gated', hardBlocksRemain: true });
       case 'cache_stats':
-        return ok({ ...this.cache, hitRate: hitRate(this.cache), entries: 0, invalidation: 'mtime/content-hash/filesystem-event' });
+        return ok({ ...this.cache, hitRate: hitRate(this.cache), entries: 0, invalidation: 'mtime/content-hash/filesystem-event', contextEconomy: this.contextEconomy.snapshot() });
       case 'cache_clear':
       case 'cache_invalidate':
         this.cache.hits = 0;
@@ -170,7 +174,9 @@ export class UpgradeRuntimeService {
       case 'live_logs_query':
         return ok({ entries: [], source: readString(input, 'source') ?? 'all', continuation: null, queryApplied: true });
       case 'telemetry_dashboard':
-        return ok({ mcpCalls: 0, internalOperations: 0, averageLatencyMs: 0, p95LatencyMs: 0, cacheHitRate: hitRate(this.cache), contextBytes: 0, streamedBytes: 0, filesScanned: 0, filesDelivered: 0, errors: 0, retries: 0 });
+        return ok({ mcpCalls: 0, internalOperations: 0, averageLatencyMs: 0, p95LatencyMs: 0, cacheHitRate: hitRate(this.cache), contextBytes: this.contextEconomy.snapshot().contextSentBytes, streamedBytes: 0, filesScanned: this.contextEconomy.snapshot().filesDiscovered, filesDelivered: this.contextEconomy.snapshot().filesDelivered, errors: 0, retries: 0, contextEconomy: this.contextEconomy.snapshot() });
+      case 'context_economy_stats':
+        return ok({ ...this.contextEconomy.snapshot(), policy: { automaticDiscovery: 'filtered-and-progressive', explicitAccess: 'full-and-unrestricted-by-economy', ledger: 'bounded-in-memory' } });
       case 'execution_plan':
         return ok({ ...planFor(readString(input, 'prompt') ?? readString(input, 'query') ?? ''), reason: 'deterministic rule plan; telemetry can refine cost estimates' });
       case 'recovery_status':

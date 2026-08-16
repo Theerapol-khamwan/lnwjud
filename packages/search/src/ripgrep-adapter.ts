@@ -1,6 +1,11 @@
 import { spawn } from 'node:child_process';
 import { DEFAULT_SEARCH_RESULTS, err, MAX_PROCESS_LOG_BYTES, MAX_SEARCH_RESULTS, ok, type Result } from '@lnwjud/domain';
 import { PathExecutableResolver, type ExecutableResolver } from './executable-resolver.js';
+import {
+  classifyContextPath,
+  DEFAULT_CONTEXT_IGNORE_GLOBS,
+  type ContextDiscoveryMode,
+} from './context-economy.js';
 
 export interface ProcessRunResult {
   readonly exitCode: number;
@@ -32,6 +37,7 @@ export interface SearchTextRequest {
   readonly query: string;
   readonly glob?: string;
   readonly maxResults?: number;
+  readonly discovery?: ContextDiscoveryMode;
 }
 
 export interface SearchMatch {
@@ -49,6 +55,7 @@ export interface SearchFilesRequest {
   readonly rootPath: string;
   readonly glob?: string;
   readonly maxResults?: number;
+  readonly discovery?: ContextDiscoveryMode;
 }
 
 export interface SearchFilesResult {
@@ -69,7 +76,9 @@ export class RipgrepAdapter {
     }
     const executable = await this.resolver.resolve('rg');
     if (!executable.ok) return executable;
+    const discovery = request.discovery ?? 'automatic';
     const args = ['--json', '--no-heading', '--color', 'never', '--hidden', '--no-ignore'];
+    if (discovery === 'automatic') this.appendDefaultGlobs(args);
     if (request.glob !== undefined) args.push('--glob', request.glob);
     args.push('--', request.query, '.');
     const processResult = await this.runner.run(executable.value, args, request.rootPath);
@@ -80,6 +89,7 @@ export class RipgrepAdapter {
     for (const line of processResult.stdout.split(/\r?\n/)) {
       const match = this.parseMatch(line);
       if (match === null) continue;
+      if (discovery === 'automatic' && !classifyContextPath(match.path, discovery).discoverable) continue;
       matches.push(match);
       if (matches.length >= maxResults) break;
     }
@@ -93,15 +103,21 @@ export class RipgrepAdapter {
     }
     const executable = await this.resolver.resolve('rg');
     if (!executable.ok) return executable;
+    const discovery = request.discovery ?? 'automatic';
     const args = ['--files', '--hidden', '--no-ignore'];
+    if (discovery === 'automatic') this.appendDefaultGlobs(args);
     if (request.glob !== undefined) args.push('--glob', request.glob);
     args.push('--');
     const processResult = await this.runner.run(executable.value, args, request.rootPath);
     if (processResult.exitCode !== 0 && processResult.exitCode !== 1) {
       return err({ code: 'INTERNAL_ERROR', message: 'Search process failed', recoverable: true });
     }
-    const paths = processResult.stdout.split(/\r?\n/).filter((entry) => entry.length > 0).slice(0, maxResults);
-    return ok({ paths, truncated: paths.length >= maxResults && processResult.stdout.split(/\r?\n/).filter(Boolean).length > maxResults });
+    const discoveredPaths = processResult.stdout
+      .split(/\r?\n/)
+      .filter((entry) => entry.length > 0)
+      .filter((entry) => discovery === 'explicit' || classifyContextPath(entry, discovery).discoverable);
+    const paths = discoveredPaths.slice(0, maxResults);
+    return ok({ paths, truncated: discoveredPaths.length > maxResults });
   }
 
   private parseMatch(line: string): SearchMatch | null {
@@ -112,6 +128,10 @@ export class RipgrepAdapter {
     } catch {
       return null;
     }
+  }
+
+  private appendDefaultGlobs(args: string[]): void {
+    for (const glob of DEFAULT_CONTEXT_IGNORE_GLOBS) args.push('--glob', glob);
   }
 
   private isMatchRecord(value: unknown): value is MatchRecord {

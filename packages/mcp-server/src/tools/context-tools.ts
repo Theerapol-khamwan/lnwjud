@@ -15,7 +15,7 @@ export function contextTools(context: McpToolContext, engine: ContextEngine): Mc
   return [
     defineTool({
       name: 'workspace_context',
-      description: 'Aggregate ranked workspace context with snippets, symbols, Git/test relevance, and continuation.',
+      description: 'Aggregate ranked workspace context with snippets, symbols, Git/test relevance, economy metadata, and continuation; automatic discovery can be explicitly expanded.',
       permission: 'READ',
       annotations: { readOnlyHint: true, destructiveHint: false },
       inputSchema: workspaceContextSchema,
@@ -25,6 +25,7 @@ export function contextTools(context: McpToolContext, engine: ContextEngine): Mc
         ...(input.path === undefined ? {} : { path: input.path }),
         intent: input.intent,
         mode: input.mode,
+        includeIgnored: input.includeIgnored,
         ...(input.responseTargetBytes === undefined ? {} : { responseTargetBytes: input.responseTargetBytes }),
         ...(input.pageSize === undefined ? {} : { pageSize: input.pageSize }),
       }),
@@ -39,7 +40,7 @@ export function contextTools(context: McpToolContext, engine: ContextEngine): Mc
     }),
     defineTool({
       name: 'workspace_full_scan',
-      description: 'Enumerate every discoverable workspace file, including hidden and generated paths when the search backend exposes them.',
+      description: 'Enumerate workspace files with full access by default; set includeIgnored false to use the persistent automatic index.',
       permission: 'READ',
       annotations: { readOnlyHint: true, destructiveHint: false },
       inputSchema: workspaceFullScanSchema,
@@ -47,6 +48,7 @@ export function contextTools(context: McpToolContext, engine: ContextEngine): Mc
         ...(input.workspaceId === undefined ? {} : { workspaceId: input.workspaceId }),
         ...(input.path === undefined ? {} : { path: input.path }),
         ...(input.glob === undefined ? {} : { glob: input.glob }),
+        includeIgnored: input.includeIgnored,
         ...(input.pageSize === undefined ? {} : { pageSize: input.pageSize }),
       }),
     }),
@@ -68,7 +70,7 @@ export function contextTools(context: McpToolContext, engine: ContextEngine): Mc
     }),
     defineTool({
       name: 'search_all',
-      description: 'Search text and filenames across one or all registered workspaces.',
+      description: 'Search text and filenames across one or all registered workspaces with automatic economy filters or an explicit includeIgnored override.',
       permission: 'READ',
       annotations: { readOnlyHint: true, destructiveHint: false },
       inputSchema: searchAllSchema,
@@ -78,6 +80,7 @@ export function contextTools(context: McpToolContext, engine: ContextEngine): Mc
         ...(input.path === undefined ? {} : { path: input.path }),
         ...(input.glob === undefined ? {} : { glob: input.glob }),
         ...(input.maxResults === undefined ? {} : { maxResults: input.maxResults }),
+        includeIgnored: input.includeIgnored,
       }),
     }),
     defineTool({

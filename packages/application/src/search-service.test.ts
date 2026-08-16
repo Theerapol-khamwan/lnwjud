@@ -27,6 +27,27 @@ describe('SearchService', () => {
     expect(receivedRoot).toBe(workspace.realRootPath);
   });
 
+  it('passes automatic versus explicit discovery through to the search adapter', async () => {
+    const workspace: Workspace = { id: 'workspace-1', displayName: 'Fixture', rootPath: 'C:\\workspace', realRootPath: 'C:\\workspace', createdAt: new Date(0).toISOString() };
+    const discoveryModes: string[] = [];
+    const adapter: SearchAdapter = {
+      async searchText(request) { discoveryModes.push(request.discovery ?? 'automatic'); return { ok: true, value: { matches: [], truncated: false } }; },
+      async searchFiles(request) { discoveryModes.push(request.discovery ?? 'automatic'); return { ok: true, value: { paths: [], truncated: false } }; },
+    };
+    const repository: WorkspaceRepository = {
+      async list(): Promise<Workspace[]> { return [workspace]; },
+      async get(id: string): Promise<Workspace | null> { return id === workspace.id ? workspace : null; },
+      async insert(): Promise<void> {},
+      async delete(): Promise<void> {},
+    };
+    const service = new SearchService(repository, adapter);
+
+    await service.searchText({ clientId: 'test', clientName: 'test' }, workspace.id, { query: 'needle' });
+    await service.searchFiles({ clientId: 'test', clientName: 'test' }, workspace.id, { discovery: 'explicit' });
+
+    expect(discoveryModes).toEqual(['automatic', 'explicit']);
+  });
+
   it('rejects an oversized result limit at the application boundary', async () => {
     const repository: WorkspaceRepository = {
       async list(): Promise<Workspace[]> { return []; },

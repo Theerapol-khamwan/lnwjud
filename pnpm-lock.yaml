@@ -273,6 +273,9 @@ importers:
       '@lnwjud/permissions':
         specifier: workspace:*
         version: link:../permissions
+      '@lnwjud/search':
+        specifier: workspace:*
+        version: link:../search
       '@modelcontextprotocol/server':
         specifier: 2.0.0
         version: 2.0.0

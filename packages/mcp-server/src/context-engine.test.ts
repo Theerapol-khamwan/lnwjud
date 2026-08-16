@@ -56,7 +56,7 @@ function services(): McpApplicationServices {
 }
 
 describe('context engine', () => {
-  it('aggregates matches across workspaces, ranks candidates, and keeps visible hidden/build files', async () => {
+  it('aggregates matches across workspaces, ranks candidates, and filters vendor/build paths by default', async () => {
     const request: WorkspaceContextRequest = {
       query: 'login',
       mode: 'exhaustive',
@@ -68,13 +68,21 @@ describe('context engine', () => {
     if (!result.ok) return;
     const paths = result.value.files.map((file) => file.path);
     expect(paths).toContain('.env');
-    expect(paths).toContain('.git/config');
-    expect(paths).toContain('node_modules/pkg/index.js');
-    expect(paths).toContain('dist/login.js');
+    expect(paths).not.toContain('.git/config');
+    expect(paths).not.toContain('node_modules/pkg/index.js');
+    expect(paths).not.toContain('dist/login.js');
     expect(paths[0]).toBe('src/auth/login.ts');
     expect(result.value.files[0]?.reason).toContain('text match');
     expect(result.value.symbols.length).toBeGreaterThan(0);
-    expect(result.value.matchedFiles).toBeGreaterThanOrEqual(4);
+    expect(result.value.matchedFiles).toBeGreaterThanOrEqual(2);
+
+    const explicit = await new ContextEngine(services(), actor).collect({ ...request, includeIgnored: true });
+    expect(explicit.ok).toBe(true);
+    if (!explicit.ok) return;
+    const explicitPaths = explicit.value.files.map((file) => file.path);
+    expect(explicitPaths).toContain('.git/config');
+    expect(explicitPaths).toContain('node_modules/pkg/index.js');
+    expect(explicitPaths).toContain('dist/login.js');
   });
 
   it('returns a continuation token without discarding candidates outside the response page', async () => {
@@ -100,6 +108,15 @@ describe('context engine', () => {
     if (!search.ok) return;
     expect(search.value.scannedWorkspaces).toBe(2);
     expect(search.value.paths).toEqual(expect.arrayContaining([
+      { workspaceId: 'workspace-1', path: 'src/auth/login.ts' },
+    ]));
+    expect(search.value.paths).not.toContainEqual({ workspaceId: 'workspace-1', path: '.git/config' });
+    expect(search.value.paths).not.toContainEqual({ workspaceId: 'workspace-2', path: 'dist/login.js' });
+
+    const explicitSearch = await engine.searchAll({ query: 'login', includeIgnored: true });
+    expect(explicitSearch.ok).toBe(true);
+    if (!explicitSearch.ok) return;
+    expect(explicitSearch.value.paths).toEqual(expect.arrayContaining([
       { workspaceId: 'workspace-1', path: '.git/config' },
       { workspaceId: 'workspace-2', path: 'dist/login.js' },
     ]));
@@ -118,5 +135,20 @@ describe('context engine', () => {
     if (!many.ok) return;
     expect(many.value.totalFiles).toBe(2);
     expect(many.value.failedFiles).toBe(0);
+  });
+
+  it('uses the context ledger to avoid resending unchanged files', async () => {
+    const engine = new ContextEngine(services(), actor);
+    const first = await engine.collect({ query: 'login', workspaceId: 'workspace-1', pageSize: 1 });
+    const second = await engine.collect({ query: 'login', workspaceId: 'workspace-1', pageSize: 1 });
+
+    expect(first.ok).toBe(true);
+    expect(second.ok).toBe(true);
+    if (!first.ok || !second.ok) return;
+    expect(first.value.files[0]?.delivery).toBe('content');
+    expect(second.value.files[0]?.delivery).toBe('unchanged');
+    expect(second.value.files[0]?.unchangedSince).toBeDefined();
+    expect(second.value.economy?.ledgerHits).toBeGreaterThan(0);
+    expect(second.value.economy?.previouslySeenBytesAvoided).toBeGreaterThan(0);
   });
 });

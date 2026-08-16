@@ -1,4 +1,4 @@
-# v2.0.0 Roadmap Phase Status
+# v2.2.2 Roadmap Phase Status
 
 This is the implementation checklist for the upgrade roadmap. All phase
 surfaces are additive to the primitive MCP contract. Optional external
@@ -11,7 +11,7 @@ Codex installation, or browser session exists when it is not connected.
 | 01 | complete | `tool_batch`, dependency waves, timeout/cancel/partial results and child audit |
 | 02 | complete | `workspace_context`, exhaustive scan, multi-workspace search/read |
 | 03 | complete | Deterministic file paging and one-use continuation tokens |
-| 04 | complete | Persistent full-visibility index, changed-path watcher, debounce/concurrency queue |
+| 04 | complete | Persistent index with automatic vendor/build/binary/generated filters, explicit override, changed-path watcher, debounce/concurrency queue |
 | 05 | complete | Index-backed symbol/definition/reference/import/dependency tools |
 | 06 | complete | Ranking signals optimize order; continuation preserves lower-ranked context |
 | 07 | complete | Compound context tools execute search/Git context in one structured response |
@@ -48,15 +48,19 @@ Codex installation, or browser session exists when it is not connected.
 | 38 | complete | Project intelligence profile get/set contract that augments, not restricts, access |
 | 39 | complete | Structured cross-agent handoff bundle |
 | 40 | complete | Unit/integration/E2E/package/release gates and compatibility benchmarks |
+| 41 | complete | Context Economy policy, Context Ledger, duplicate/diff delivery, explicit-access override, and quota telemetry |
 
-## Phase 04 visibility rule
+## Phase 04 visibility and economy rule
 
-The index and watcher deliberately have no ignore-pattern access filter. Paths
-such as `.env`, `.git`, `dist`, and `node_modules` are eligible for indexing,
-search, and direct read under the existing workspace/path ownership boundary.
-Debounce, event coalescing, and worker concurrency only control processing
-pressure. A duplicate event may be coalesced; a distinct path may not be
-dropped. Activity/audit summaries never retain file contents or credentials.
+Automatic discovery/indexing skips vendor, build/cache, binary, and generated
+content to reduce I/O and context pressure. This is not an access denial:
+`.env`, `.git`, `dist`, and `node_modules` remain available through explicit
+file reads, explicit search/index overrides, and full scans under the existing
+workspace/path ownership boundary. Debounce, event coalescing, and worker
+concurrency control processing pressure. A duplicate event may be coalesced;
+a distinct permitted explicit request may not be dropped. Activity/audit
+summaries and the bounded Context Ledger never persist file contents or
+credentials.
 
 ## Codex connection rule
 

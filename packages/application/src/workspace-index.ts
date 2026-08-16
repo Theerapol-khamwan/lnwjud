@@ -4,6 +4,7 @@ import { mkdir, readFile, readdir, stat, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { appError, err, ok, type Result } from '@lnwjud/domain';
+import { classifyContextPath, type ContextDiscoveryMode } from '@lnwjud/search';
 import type { Workspace, WorkspaceRepository } from '@lnwjud/workspace';
 import { WorkspaceIndexQueue, type WorkspaceIndexQueueOptions, type WorkspaceIndexQueueStatus } from './workspace-index-queue.js';
 
@@ -68,6 +69,10 @@ export class JsonWorkspaceIndexStore implements WorkspaceIndexStore {
 
 export type WorkspaceIndexWatchOptions = WorkspaceIndexQueueOptions;
 
+export interface WorkspaceIndexOptions {
+  readonly discovery?: ContextDiscoveryMode;
+}
+
 export interface WorkspaceIndexStatus {
   readonly indexed: boolean;
   readonly snapshot: WorkspaceIndexSnapshot | null;
@@ -82,29 +87,31 @@ export class WorkspaceIndexService {
     private readonly store: WorkspaceIndexStore = new JsonWorkspaceIndexStore(),
   ) {}
 
-  public async indexWorkspace(workspaceId: string): Promise<Result<WorkspaceIndexSnapshot>> {
+  public async indexWorkspace(workspaceId: string, options: WorkspaceIndexOptions = {}): Promise<Result<WorkspaceIndexSnapshot>> {
     const workspace = await this.resolve(workspaceId);
     if (!workspace.ok) return workspace;
     const entries: WorkspaceIndexEntry[] = [];
-    await this.scanDirectory(workspace.value.realRootPath, workspace.value.realRootPath, entries);
+    await this.scanDirectory(workspace.value.realRootPath, workspace.value.realRootPath, entries, options.discovery ?? 'automatic');
     const snapshot = this.snapshotValue(workspace.value, entries);
     await this.store.save(snapshot);
     return ok(snapshot);
   }
 
-  public async indexPath(workspaceId: string, relativePath: string): Promise<Result<WorkspaceIndexSnapshot>> {
+  public async indexPath(workspaceId: string, relativePath: string, options: WorkspaceIndexOptions = {}): Promise<Result<WorkspaceIndexSnapshot>> {
     const workspace = await this.resolve(workspaceId);
     if (!workspace.ok) return workspace;
     const normalized = normalizeRelativePath(relativePath);
-    if (normalized === '') return this.indexWorkspace(workspaceId);
+    if (normalized === '') return this.indexWorkspace(workspaceId, options);
     const absolutePath = path.resolve(workspace.value.realRootPath, normalized);
     if (!isWithin(workspace.value.realRootPath, absolutePath)) return err(appError('PATH_OUTSIDE_WORKSPACE', 'Index path is outside workspace'));
     const current = await this.store.load(workspaceId) ?? this.snapshotValue(workspace.value, []);
+    const discovery = options.discovery ?? 'automatic';
+    if (!classifyContextPath(normalized, discovery).discoverable) return ok(current);
     const remaining = current.entries.filter((entry) => entry.relativePath !== normalized && !entry.relativePath.startsWith(`${normalized}/`));
     try {
       const metadata = await stat(absolutePath);
       const additions: WorkspaceIndexEntry[] = [];
-      if (metadata.isDirectory()) await this.scanDirectory(workspace.value.realRootPath, absolutePath, additions);
+      if (metadata.isDirectory()) await this.scanDirectory(workspace.value.realRootPath, absolutePath, additions, discovery);
       else additions.push(await this.describePath(workspace.value.realRootPath, absolutePath, metadata));
       const snapshot = this.snapshotValue(workspace.value, [...remaining, ...additions]);
       await this.store.save(snapshot);
@@ -157,6 +164,7 @@ export class WorkspaceIndexService {
       fileWatcher = watch(workspace.value.realRootPath, { recursive: true }, (_eventType, filename) => {
         if (filename === null) return;
         const relativePath = filename;
+        if (!classifyContextPath(relativePath, 'automatic').discoverable) return;
         queue.enqueue({ relativePath, kind: 'change' });
       });
     } catch {
@@ -184,14 +192,17 @@ export class WorkspaceIndexService {
     return workspace === null ? err(appError('WORKSPACE_NOT_FOUND', 'Workspace was not found')) : ok(workspace);
   }
 
-  private async scanDirectory(rootPath: string, directoryPath: string, entries: WorkspaceIndexEntry[]): Promise<void> {
+  private async scanDirectory(rootPath: string, directoryPath: string, entries: WorkspaceIndexEntry[], discovery: ContextDiscoveryMode): Promise<void> {
     const directoryRelativePath = normalizeRelativePath(path.relative(rootPath, directoryPath));
+    if (directoryRelativePath !== '' && !classifyContextPath(directoryRelativePath, discovery).discoverable) return;
     if (directoryRelativePath !== '') entries.push(await this.describePath(rootPath, directoryPath, await stat(directoryPath)));
     const children = await readdir(directoryPath, { withFileTypes: true });
     children.sort((left, right) => left.name.localeCompare(right.name));
     for (const child of children) {
       const childPath = path.join(directoryPath, child.name);
-      if (child.isDirectory()) await this.scanDirectory(rootPath, childPath, entries);
+      const childRelativePath = normalizeRelativePath(path.relative(rootPath, childPath));
+      if (!classifyContextPath(childRelativePath, discovery).discoverable) continue;
+      if (child.isDirectory()) await this.scanDirectory(rootPath, childPath, entries, discovery);
       else if (child.isSymbolicLink()) entries.push(await this.describePath(rootPath, childPath, await statOrLstat(childPath, true)));
       else entries.push(await this.describePath(rootPath, childPath, await stat(childPath)));
     }

@@ -1,5 +1,5 @@
 import { appError, err, ok, type Result } from '@lnwjud/domain';
-import { RipgrepAdapter, type SearchFilesRequest as AdapterFilesRequest, type SearchFilesResult, type SearchTextRequest as AdapterTextRequest, type SearchTextResult } from '@lnwjud/search';
+import { RipgrepAdapter, type ContextDiscoveryMode, type SearchFilesRequest as AdapterFilesRequest, type SearchFilesResult, type SearchTextRequest as AdapterTextRequest, type SearchTextResult } from '@lnwjud/search';
 import type { WorkspaceRepository } from '@lnwjud/workspace';
 import type { FileActor } from './file-service.js';
 import { resolveWorkspaceForPath } from './workspace-locator.js';
@@ -9,12 +9,14 @@ export interface SearchTextRequest {
   readonly path?: string;
   readonly glob?: string;
   readonly maxResults?: number;
+  readonly discovery?: ContextDiscoveryMode;
 }
 
 export interface SearchFilesRequest {
   readonly path?: string;
   readonly glob?: string;
   readonly maxResults?: number;
+  readonly discovery?: ContextDiscoveryMode;
 }
 
 export interface SearchAdapter {
@@ -40,6 +42,7 @@ export class SearchService {
       query: request.query,
       ...(request.glob === undefined ? {} : { glob: request.glob }),
       ...(request.maxResults === undefined ? {} : { maxResults: request.maxResults }),
+      ...(request.discovery === undefined ? {} : { discovery: request.discovery }),
     });
   }
 
@@ -53,6 +56,7 @@ export class SearchService {
       rootPath: workspace.value.realRootPath,
       ...(request.glob === undefined ? {} : { glob: request.glob }),
       ...(request.maxResults === undefined ? {} : { maxResults: request.maxResults }),
+      ...(request.discovery === undefined ? {} : { discovery: request.discovery }),
     });
   }
 

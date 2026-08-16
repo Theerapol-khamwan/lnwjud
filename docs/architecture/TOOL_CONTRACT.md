@@ -1,12 +1,12 @@
 # lnwjud Tool Contract
 
-Status: Phase 05 contract snapshot for the `v2.1.0` release.
+Status: Phase 41 contract snapshot for the `v2.2.2` release.
 
 This is the compatibility contract for the current MCP surface. The runtime
 advertises the JSON Schema for every input through `tools/list`; the TypeScript
 Zod schemas in `packages/mcp-server/src/tools/` are the implementation source
 of truth. The existing human-oriented catalog remains useful for field details,
-while this document records the complete 183-tool runtime snapshot, policy class,
+while this document records the complete 184-tool runtime snapshot, policy class,
 annotations, and schema source.
 
 ## Protocol and result rules
@@ -53,8 +53,8 @@ contract test and a catalog update.
 | 5 | `project_snapshot` | READ | yes | no | 1 | `workspace-tools.ts` |
 | 6 | `read_file` | READ | yes | no | 4 | `file-tools.ts` |
 | 7 | `read_files` | READ | yes | no | 2 | `file-tools.ts` |
-| 8 | `search_files` | READ | yes | no | 4 | `search-tools.ts` |
-| 9 | `search_text` | READ | yes | no | 5 | `search-tools.ts` |
+| 8 | `search_files` | READ | yes | no | 5 | `search-tools.ts` |
+| 9 | `search_text` | READ | yes | no | 6 | `search-tools.ts` |
 | 10 | `git_status` | READ | yes | no | 1 | `git-tools.ts` |
 | 11 | `git_diff` | READ | yes | no | 4 | `git-tools.ts` |
 | 12 | `git_log` | READ | yes | no | 3 | `git-tools.ts` |
@@ -100,16 +100,16 @@ contract test and a catalog update.
 | 52 | `mcp_describe` | DANGEROUS | no | yes | 1 | `mcp-bridge-tools.ts` |
 | 53 | `mcp_call` | DANGEROUS | no | yes | 3 | `mcp-bridge-tools.ts` |
 | 54 | `tool_batch` | DANGEROUS | no | yes | 3 | `batch-tools.ts` |
-| 55 | `workspace_context` | READ | yes | no | 7 | `context-tools.ts` |
+| 55 | `workspace_context` | READ | yes | no | 8 | `context-tools.ts` |
 | 56 | `workspace_context_continue` | READ | yes | no | 2 | `context-tools.ts` |
-| 57 | `workspace_full_scan` | READ | yes | no | 4 | `context-tools.ts` |
+| 57 | `workspace_full_scan` | READ | yes | no | 5 | `context-tools.ts` |
 | 58 | `workspace_full_scan_continue` | READ | yes | no | 2 | `context-tools.ts` |
 | 59 | `workspace_snapshot` | READ | yes | no | 1 | `context-tools.ts` |
-| 60 | `search_all` | READ | yes | no | 5 | `context-tools.ts` |
+| 60 | `search_all` | READ | yes | no | 6 | `context-tools.ts` |
 | 61 | `read_many_files` | READ | yes | no | 2 | `context-tools.ts` |
 | 62 | `read_file_page` | READ | yes | no | 5 | `file-page-tools.ts` |
 | 63 | `read_file_page_continue` | READ | yes | no | 2 | `file-page-tools.ts` |
-| 64 | `workspace_index` | READ | yes | no | 2 | `workspace-index-tools.ts` |
+| 64 | `workspace_index` | READ | yes | no | 3 | `workspace-index-tools.ts` |
 | 65 | `workspace_index_status` | READ | yes | no | 1 | `workspace-index-tools.ts` |
 | 66 | `workspace_index_watch` | READ | yes | no | 3 | `workspace-index-tools.ts` |
 | 67 | `workspace_index_stop` | READ | yes | no | 1 | `workspace-index-tools.ts` |
@@ -144,13 +144,14 @@ read_file: {
   endLine?: number;
 }
 read_files: { workspaceId?: string; files: Array<{ path: string; startLine?: number; endLine?: number }> }
-search_files: { workspaceId?: string; path?: string; glob?: string; maxResults?: number }
+search_files: { workspaceId?: string; path?: string; glob?: string; maxResults?: number; includeIgnored?: boolean }
 search_text: {
   workspaceId?: string;
   path?: string;
   query: string;
   glob?: string;
   maxResults?: number;
+  includeIgnored?: boolean;
 }
 ```
 
@@ -196,7 +197,7 @@ capability backends. Important invariants are:
 - `vision`, `health`, and `system_info` remain truthful read-only diagnostics;
 - `web_fetch` remains HTTP(S)-only and bounded by explicit byte/timeout fields;
   - `skills_*` and `mcp_*` remain full-access bridge tools and do not silently
-  flatten child-server tools into the 183-tool catalog.
+  flatten child-server tools into the 184-tool catalog.
 
 ### Context aggregation
 
@@ -207,19 +208,26 @@ workspace_context: {
   path?: string;
   intent?: 'auto' | 'debug' | 'implement' | 'review' | 'trace' | 'explore';
   mode?: 'optimized' | 'full' | 'exhaustive';
+  includeIgnored?: boolean;
   responseTargetBytes?: number;
   pageSize?: number;
 }
 workspace_context_continue: { continuationToken: string; pageSize?: number }
-workspace_full_scan: { workspaceId?: string; path?: string; glob?: string; pageSize?: number }
+workspace_full_scan: { workspaceId?: string; path?: string; glob?: string; pageSize?: number; includeIgnored?: boolean }
 workspace_full_scan_continue: { continuationToken: string; pageSize?: number }
 workspace_snapshot: { workspaceId: string }
-search_all: { query: string; workspaceId?: string; path?: string; glob?: string; maxResults?: number }
+search_all: { query: string; workspaceId?: string; path?: string; glob?: string; maxResults?: number; includeIgnored?: boolean }
 read_many_files: { workspaceId?: string; files: Array<{ path: string; startLine?: number; endLine?: number }> }
 ```
 
 Context pages are transport windows, not capability limits. The engine keeps
 continuation state and preserves the full primitive search/read tools.
+
+`includeIgnored` is an explicit discovery override. Automatic mode is a quota
+optimization, not authorization. `context_economy_stats` reports raw versus
+delivered context bytes, skipped generated/binary paths, duplicate/previously
+seen bytes avoided, ledger hits, and the bounded ledger size. The ledger is
+in-memory and does not persist file contents or credentials.
 
 ### Lossless file paging
 
@@ -241,19 +249,21 @@ path.
 ### Full-visibility indexing
 
 ```ts
-workspace_index: { workspaceId: string; rebuild?: boolean }
+workspace_index: { workspaceId: string; rebuild?: boolean; includeIgnored?: boolean }
 workspace_index_status: { workspaceId: string }
 workspace_index_watch: { workspaceId: string; debounceMs?: number; concurrency?: number }
 workspace_index_stop: { workspaceId: string }
 ```
 
-Index scheduling is an execution-performance control only. It must not be used
-to conceal a path from the AI; hidden, ignored, generated, dependency, and
-environment files remain eligible for indexing and direct read/search.
+Index scheduling uses the automatic context-economy policy for vendor/build,
+binary, and generated paths. It must not be treated as an access denial:
+explicit index/search requests and direct file reads can still inspect any path
+allowed by the existing workspace boundary, including hidden, ignored,
+generated, dependency, and environment files.
 
 ### Roadmap extension catalog
 
-The Phase 05–40 additive tools are defined in
+The Phase 05–41 additive tools are defined in
 [`../../packages/mcp-server/src/upgrade-catalog.ts`](../../packages/mcp-server/src/upgrade-catalog.ts).
 Each entry carries its phase, permission class, tags, streamability, and
 parallel-safety metadata. `tool_search` and `tool_describe` expose this metadata

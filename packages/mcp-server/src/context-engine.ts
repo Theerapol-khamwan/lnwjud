@@ -1,7 +1,9 @@
 import { randomUUID } from 'node:crypto';
 import { err, ok, type Result } from '@lnwjud/domain';
 import type { FileActor, GitService, SearchService } from '@lnwjud/application';
+import { classifyContextPath } from '@lnwjud/search';
 import type { McpApplicationServices } from './tools/tool-types.js';
+import { ContextEconomyRuntime, type ContextEconomyStats, type ContextDeliveryKind } from './context-economy.js';
 
 export type ContextIntent = 'auto' | 'debug' | 'implement' | 'review' | 'trace' | 'explore';
 export type ContextMode = 'optimized' | 'full' | 'exhaustive';
@@ -12,6 +14,7 @@ export interface WorkspaceContextRequest {
   readonly path?: string;
   readonly intent?: ContextIntent;
   readonly mode?: ContextMode;
+  readonly includeIgnored?: boolean;
   readonly responseTargetBytes?: number;
   readonly pageSize?: number;
 }
@@ -39,6 +42,18 @@ export interface ContextFile {
   readonly testRelevance: 'test' | 'source' | 'unknown';
   readonly byteLength?: number;
   readonly error?: { readonly code: string; readonly message: string };
+  readonly delivery?: ContextDeliveryKind;
+  readonly fingerprint?: string;
+  readonly summary?: {
+    readonly byteLength: number;
+    readonly lineCount: number;
+    readonly imports: readonly string[];
+    readonly exports: readonly string[];
+    readonly symbols: readonly string[];
+  };
+  readonly diff?: string;
+  readonly referencePath?: string;
+  readonly unchangedSince?: string;
 }
 
 export interface WorkspaceContextResult {
@@ -50,6 +65,7 @@ export interface WorkspaceContextResult {
   readonly totalMatches: number;
   readonly hasMore: boolean;
   readonly continuationToken?: string;
+  readonly economy?: ContextEconomyStats;
 }
 
 export interface ContextContinueRequest {
@@ -63,6 +79,7 @@ export interface SearchAllRequest {
   readonly path?: string;
   readonly glob?: string;
   readonly maxResults?: number;
+  readonly includeIgnored?: boolean;
 }
 
 export interface SearchAllResult {
@@ -78,6 +95,7 @@ export interface WorkspaceFullScanRequest {
   readonly path?: string;
   readonly glob?: string;
   readonly pageSize?: number;
+  readonly includeIgnored?: boolean;
 }
 
 export interface WorkspaceFullScanResult {
@@ -154,9 +172,11 @@ export class ContextEngine {
   public constructor(
     private readonly services: McpApplicationServices,
     private readonly actor: FileActor,
+    private readonly economy: ContextEconomyRuntime = new ContextEconomyRuntime(),
   ) {}
 
   public async collect(request: WorkspaceContextRequest): Promise<Result<WorkspaceContextResult>> {
+    this.economy.beginRequest();
     const validation = validateRequest(request);
     if (!validation.ok) return validation;
     const workspaceIds = await this.resolveWorkspaceIds(request.workspaceId);
@@ -193,6 +213,7 @@ export class ContextEngine {
   }
 
   public async searchAll(request: SearchAllRequest): Promise<Result<SearchAllResult>> {
+    this.economy.beginRequest();
     if (request.query.trim().length === 0) return err({ code: 'INVALID_INPUT', message: 'Search query is required', recoverable: false });
     const workspaceIds = await this.resolveWorkspaceIds(request.workspaceId);
     if (!workspaceIds.ok) return workspaceIds;
@@ -200,8 +221,8 @@ export class ContextEngine {
     const maxResults = Math.max(1, Math.min(500, Math.floor(request.maxResults ?? 500)));
     const settled = await Promise.allSettled(workspaceIds.value.map(async (workspaceId) => {
       const [text, files] = await Promise.all([
-        this.safeSearchText(workspaceId, { query: request.query, ...(request.path === undefined ? {} : { path: request.path }) }, maxResults),
-        this.safeSearchFiles(workspaceId, { query: request.query, ...(request.path === undefined ? {} : { path: request.path }) }, maxResults, request.glob),
+        this.safeSearchText(workspaceId, { query: request.query, ...(request.includeIgnored === undefined ? {} : { includeIgnored: request.includeIgnored }), ...(request.path === undefined ? {} : { path: request.path }) }, maxResults),
+        this.safeSearchFiles(workspaceId, { query: request.query, ...(request.includeIgnored === undefined ? {} : { includeIgnored: request.includeIgnored }), ...(request.path === undefined ? {} : { path: request.path }) }, maxResults, request.glob),
       ]);
       return { workspaceId, text, files };
     }));
@@ -213,11 +234,23 @@ export class ContextEngine {
       if (entry.status !== 'fulfilled') continue;
       successfulWorkspaces += 1;
       if (entry.value.text.ok) {
-        matches.push(...entry.value.text.value.matches.map((match) => ({ workspaceId: entry.value.workspaceId, path: match.path, line: match.line, text: match.text })));
+        matches.push(...entry.value.text.value.matches
+          .filter((match) => {
+            const allowed = request.includeIgnored === true || classifyContextPath(match.path, 'automatic').discoverable;
+            if (!allowed) this.economy.recordSkipped(match.path);
+            return allowed;
+          })
+          .map((match) => ({ workspaceId: entry.value.workspaceId, path: match.path, line: match.line, text: match.text })));
         hasMore ||= entry.value.text.value.truncated;
       }
       if (entry.value.files.ok) {
-        paths.push(...entry.value.files.value.paths.map((path) => ({ workspaceId: entry.value.workspaceId, path })));
+        paths.push(...entry.value.files.value.paths
+          .filter((path) => {
+            const allowed = request.includeIgnored === true || classifyContextPath(path, 'automatic').discoverable;
+            if (!allowed) this.economy.recordSkipped(path);
+            return allowed;
+          })
+          .map((path) => ({ workspaceId: entry.value.workspaceId, path })));
         hasMore ||= entry.value.files.value.truncated;
       }
     }
@@ -231,9 +264,10 @@ export class ContextEngine {
   }
 
   public async fullScan(request: WorkspaceFullScanRequest): Promise<Result<WorkspaceFullScanResult>> {
+    this.economy.beginRequest();
     const workspaceIds = await this.resolveWorkspaceIds(request.workspaceId);
     if (!workspaceIds.ok) return workspaceIds;
-    if (request.workspaceId !== undefined && this.services.workspaceIndex !== undefined) {
+    if (request.includeIgnored === false && request.workspaceId !== undefined && this.services.workspaceIndex !== undefined) {
       const indexed = await this.fullScanFromIndex(request.workspaceId, request.path, request.pageSize);
       if (indexed !== null) return indexed;
     }
@@ -241,7 +275,7 @@ export class ContextEngine {
     const maxResults = 500;
     const settled = await Promise.allSettled(workspaceIds.value.map(async (workspaceId) => ({
       workspaceId,
-      result: await this.safeSearchFiles(workspaceId, { query: '*', ...(request.path === undefined ? {} : { path: request.path }) }, maxResults, request.glob),
+      result: await this.safeSearchFiles(workspaceId, { query: '*', includeIgnored: request.includeIgnored !== false, ...(request.path === undefined ? {} : { path: request.path }) }, maxResults, request.glob),
     })));
     const files: Array<{ readonly workspaceId: string; readonly path: string }> = [];
     let hasMore = false;
@@ -408,7 +442,19 @@ export class ContextEngine {
       }
     }
 
-    const ranked = [...candidates.values()].map((candidate): Candidate => {
+    for (const changedPath of changed) {
+      const current = candidates.get(changedPath) ?? { path: changedPath, matches: [], score: 0, fromFilename: false };
+      current.score += 30;
+      candidates.set(changedPath, current);
+    }
+
+    const ranked = [...candidates.values()]
+      .filter((candidate) => {
+        const allowed = request.includeIgnored === true || changed.has(normalizePath(candidate.path)) || classifyContextPath(candidate.path, 'automatic').discoverable;
+        if (!allowed) this.economy.recordSkipped(candidate.path);
+        return allowed;
+      })
+      .map((candidate): Candidate => {
       const normalized = normalizePath(candidate.path);
       const gitRelevance: ContextFile['gitRelevance'] = changed.has(normalized)
         ? 'changed'
@@ -433,7 +479,7 @@ export class ContextEngine {
         gitRelevance,
         testRelevance,
       };
-    });
+      });
     ranked.sort((left, right) => right.score - left.score || normalizePath(left.path).localeCompare(normalizePath(right.path)));
     return ok({
       candidates: ranked,
@@ -448,6 +494,7 @@ export class ContextEngine {
       return await this.services.search!.searchText(this.actor, workspaceId, {
         query: request.query,
         maxResults,
+        discovery: request.includeIgnored === true ? 'explicit' : 'automatic',
         ...(request.path === undefined ? {} : { path: request.path }),
       });
     } catch {
@@ -459,6 +506,7 @@ export class ContextEngine {
     try {
       return await this.services.search!.searchFiles(this.actor, workspaceId, {
         maxResults,
+        discovery: request.includeIgnored === true ? 'explicit' : 'automatic',
         ...(glob === undefined ? {} : { glob }),
         ...(request.path === undefined ? {} : { path: request.path }),
       });
@@ -486,7 +534,8 @@ export class ContextEngine {
     const pageSize = normalizePageSize(request.pageSize ?? DEFAULT_PAGE_SIZE[mode]);
     const targetBytes = normalizeResponseTarget(request.responseTargetBytes);
     const selectedCandidates = candidates.slice(0, pageSize);
-    const selected = await Promise.all(selectedCandidates.map((candidate) => this.readCandidate(candidate, request)));
+    const contextId = randomUUID();
+    const selected = await Promise.all(selectedCandidates.map((candidate) => this.readCandidate(candidate, request, contextId)));
     let consumed = selected.length;
     let estimatedBytes = selected.reduce((total, file) => total + Buffer.byteLength(JSON.stringify(file), 'utf8'), 0);
     while (selected.length > 1 && estimatedBytes > targetBytes) {
@@ -518,10 +567,11 @@ export class ContextEngine {
       totalMatches: metadata.totalMatches,
       hasMore,
       ...(continuationToken === undefined ? {} : { continuationToken }),
+      economy: this.economy.snapshot(),
     });
   }
 
-  private async readCandidate(candidate: Candidate, request: WorkspaceContextRequest): Promise<ContextFile> {
+  private async readCandidate(candidate: Candidate, request: WorkspaceContextRequest, contextId: string): Promise<ContextFile> {
     try {
       const result = await this.services.file!.readFile(this.actor, candidate.workspaceId, { path: candidate.path });
       if (!result.ok) {
@@ -536,17 +586,36 @@ export class ContextEngine {
           error: { code: result.error.code, message: result.error.message },
         };
       }
-      const symbols = extractSymbols(result.value.content);
-      return {
+      const prepared = this.economy.prepare({
+        workspaceId: candidate.workspaceId,
+        path: candidate.path,
+        content: result.value.content,
+        contextId,
+        discovery: request.includeIgnored === true || candidate.gitRelevance === 'changed' ? 'explicit' : 'automatic',
+      });
+      const snippets = prepared.delivery === 'unchanged' || prepared.delivery === 'reference' || prepared.delivery === 'metadata'
+        ? []
+        : createSnippets(result.value.content, candidate.matches, request.mode ?? 'optimized');
+      const file: ContextFile = {
         workspaceId: candidate.workspaceId,
         path: candidate.path,
         reason: candidate.reason,
-        snippets: createSnippets(result.value.content, candidate.matches, request.mode ?? 'optimized'),
-        symbols,
+        snippets,
+        symbols: prepared.delivery === 'unchanged' || prepared.delivery === 'reference' || prepared.delivery === 'metadata'
+          ? []
+          : prepared.summary.symbols.length > 0 ? prepared.summary.symbols : extractSymbols(result.value.content),
         gitRelevance: candidate.gitRelevance,
         testRelevance: candidate.testRelevance,
         ...(result.value.byteLength === undefined ? {} : { byteLength: result.value.byteLength }),
+        delivery: prepared.delivery,
+        fingerprint: prepared.fingerprint,
+        summary: prepared.summary,
+        ...(prepared.diff === undefined ? {} : { diff: prepared.diff }),
+        ...(prepared.referencePath === undefined ? {} : { referencePath: prepared.referencePath }),
+        ...(prepared.unchangedSince === undefined ? {} : { unchangedSince: prepared.unchangedSince }),
       };
+      this.economy.recordDelivery(prepared, Buffer.byteLength(JSON.stringify(file), 'utf8'));
+      return file;
     } catch {
       return {
         workspaceId: candidate.workspaceId,

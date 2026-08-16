@@ -5,7 +5,7 @@ export function searchTools(context: McpToolContext): McpToolDefinition[] {
   return [
     defineTool({
       name: 'search_files',
-      description: 'Search workspace filenames. Absolute path does not require workspaceId.',
+      description: 'Search workspace filenames with automatic context-economy filters; set includeIgnored for an explicit full path search. Absolute path does not require workspaceId.',
       permission: 'READ',
       annotations: { readOnlyHint: true, destructiveHint: false },
       inputSchema: searchFilesSchema,
@@ -15,11 +15,12 @@ export function searchTools(context: McpToolContext): McpToolDefinition[] {
           ...(input.path === undefined ? {} : { path: input.path }),
           ...(input.glob === undefined ? {} : { glob: input.glob }),
           ...(input.maxResults === undefined ? {} : { maxResults: input.maxResults }),
+          discovery: input.includeIgnored ? 'explicit' : 'automatic',
         }),
     }),
     defineTool({
       name: 'search_text',
-      description: 'Search workspace text using direct ripgrep arguments. Absolute path does not require workspaceId.',
+      description: 'Search workspace text using direct ripgrep arguments with automatic binary/generated filters; set includeIgnored for an explicit full path search. Absolute path does not require workspaceId.',
       permission: 'READ',
       annotations: { readOnlyHint: true, destructiveHint: false },
       inputSchema: searchTextSchema,
@@ -30,6 +31,7 @@ export function searchTools(context: McpToolContext): McpToolDefinition[] {
           ...(input.path === undefined ? {} : { path: input.path }),
           ...(input.glob === undefined ? {} : { glob: input.glob }),
           ...(input.maxResults === undefined ? {} : { maxResults: input.maxResults }),
+          discovery: input.includeIgnored ? 'explicit' : 'automatic',
         }),
     }),
   ];

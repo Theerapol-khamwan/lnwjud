@@ -29,7 +29,7 @@ export const readFilePageContinueSchema = z.object({
   pageSize: z.number().int().min(1).max(5_000).optional(),
 }).strict();
 export const readFilesSchema = z.object({ workspaceId: optionalWorkspaceIdSchema, files: z.array(readFileSchema.omit({ workspaceId: true })).min(1).max(20) }).strict();
-export const searchFilesSchema = z.object({ workspaceId: optionalWorkspaceIdSchema, path: pathSchema.optional(), glob: z.string().max(1024).optional(), maxResults: z.number().int().min(1).max(MAX_SEARCH_RESULTS).optional() }).strict();
+export const searchFilesSchema = z.object({ workspaceId: optionalWorkspaceIdSchema, path: pathSchema.optional(), glob: z.string().max(1024).optional(), maxResults: z.number().int().min(1).max(MAX_SEARCH_RESULTS).optional(), includeIgnored: z.boolean().default(false) }).strict();
 export const searchTextSchema = searchFilesSchema.extend({ query: z.string().min(1).max(32_768) }).strict();
 export const gitStatusSchema = workspaceInfoSchema;
 export const gitDiffSchema = z.object({ workspaceId: workspaceIdSchema, path: pathSchema.optional(), staged: z.boolean().optional(), maxBytes: z.number().int().min(1).max(4 * 1024 * 1024).optional() }).strict();
@@ -96,6 +96,7 @@ export const workspaceContextSchema = z.object({
   path: pathSchema.optional(),
   intent: z.enum(['auto', 'debug', 'implement', 'review', 'trace', 'explore']).default('auto'),
   mode: z.enum(['optimized', 'full', 'exhaustive']).default('optimized'),
+  includeIgnored: z.boolean().default(false),
   responseTargetBytes: z.number().int().min(1024).max(8 * 1024 * 1024).optional(),
   pageSize: z.number().int().min(1).max(500).optional(),
 }).strict();
@@ -107,6 +108,7 @@ export const workspaceFullScanSchema = z.object({
   workspaceId: optionalWorkspaceIdSchema,
   path: pathSchema.optional(),
   glob: z.string().max(1024).optional(),
+  includeIgnored: z.boolean().default(true),
   pageSize: z.number().int().min(1).max(500).optional(),
 }).strict();
 export const workspaceFullScanContinueSchema = workspaceContextContinueSchema;
@@ -117,6 +119,7 @@ export const searchAllSchema = z.object({
   path: pathSchema.optional(),
   glob: z.string().max(1024).optional(),
   maxResults: z.number().int().min(1).max(500).optional(),
+  includeIgnored: z.boolean().default(false),
 }).strict();
 export const readManyFilesSchema = z.object({
   workspaceId: optionalWorkspaceIdSchema,
@@ -125,6 +128,7 @@ export const readManyFilesSchema = z.object({
 export const workspaceIndexSchema = z.object({
   workspaceId: workspaceIdSchema,
   rebuild: z.boolean().default(false),
+  includeIgnored: z.boolean().default(false),
 }).strict();
 export const workspaceIndexStatusSchema = workspaceInfoSchema;
 export const workspaceIndexWatchSchema = z.object({

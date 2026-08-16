@@ -54,4 +54,29 @@ describe('RipgrepAdapter', () => {
       },
     });
   });
+
+  it('applies context-economy filters to automatic discovery and allows explicit enumeration', async () => {
+    let receivedArgs: readonly string[] = [];
+    const runner: ProcessRunner = {
+      async run(_command: string, args: readonly string[]): Promise<ProcessRunResult> {
+        receivedArgs = args;
+        return { exitCode: 0, stderr: '', stdout: ['src/app.ts', '.env', 'node_modules/pkg/index.js', 'dist/app.js'].join('\n') };
+      },
+    };
+    const resolver: ExecutableResolver = { resolve: async (): Promise<Result<string>> => ({ ok: true, value: 'rg.exe' }) };
+    const adapter = new RipgrepAdapter(resolver, runner);
+
+    const automatic = await adapter.searchFiles({ rootPath: 'C:\\workspace' });
+    expect(automatic).toEqual({ ok: true, value: { paths: ['src/app.ts', '.env'], truncated: false } });
+    expect(receivedArgs).toContain('!**/node_modules/**');
+
+    await adapter.searchText({ rootPath: 'C:\\workspace', query: 'needle' });
+    expect(receivedArgs).not.toContain('--binary-files');
+
+    const explicit = await adapter.searchFiles({ rootPath: 'C:\\workspace', discovery: 'explicit' });
+    expect(explicit).toEqual({
+      ok: true,
+      value: { paths: ['src/app.ts', '.env', 'node_modules/pkg/index.js', 'dist/app.js'], truncated: false },
+    });
+  });
 });

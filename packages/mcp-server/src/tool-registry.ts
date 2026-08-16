@@ -3,6 +3,7 @@ import { sanitizeException, type DiagnosticLogger, type FileActor } from '@lnwju
 import { DefaultPermissionEngine, permissionProfiles, type PermissionProfile } from '@lnwjud/permissions';
 import { ActivityTracker, type ActivitySink } from './activity-tracker.js';
 import { ContextEngine } from './context-engine.js';
+import { ContextEconomyRuntime } from './context-economy.js';
 import { FilePageEngine } from './file-page-engine.js';
 import { mapError, mapResult, type McpToolResponse } from './result-mapper.js';
 import { batchTools } from './tools/batch-tools.js';
@@ -43,8 +44,9 @@ export class ToolRegistry {
     this.diagnostic = options.diagnostic;
     this.activity = options.activityTracker ?? new ActivityTracker(options.activity);
     this.profileProvider = options.profileProvider ?? ((): PermissionProfile => permissionProfiles.full);
-    const context: McpToolContext = { services, actor };
-    const contextEngine = new ContextEngine(services, actor);
+    const contextEconomy = new ContextEconomyRuntime();
+    const context: McpToolContext = { services, actor, contextEconomy };
+    const contextEngine = new ContextEngine(services, actor, contextEconomy);
     const filePageEngine = new FilePageEngine(services, actor);
     const workspace = workspaceTools(context);
     const files = fileTools(context);
