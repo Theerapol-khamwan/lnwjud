@@ -27,15 +27,19 @@ export function workspaceTools(context: McpToolContext): McpToolDefinition[] {
       permission: 'WRITE',
       annotations: { readOnlyHint: false, destructiveHint: false },
       inputSchema: workspaceRegisterSchema,
-      handler: async (input) => context.services.workspaceInfo === undefined
-        ? missingService()
-        : context.services.workspaceInfo.register === undefined
-          ? missingService()
-          : context.services.workspaceInfo.register(context.actor, {
-            parentWorkspaceId: input.parentWorkspaceId,
-            path: input.path,
-            ...(input.displayName === undefined ? {} : { displayName: input.displayName }),
-          }),
+      handler: async (input) => {
+        if (context.services.workspaceInfo === undefined || context.services.workspaceInfo.register === undefined) return missingService();
+        const registered = await context.services.workspaceInfo.register(context.actor, {
+          parentWorkspaceId: input.parentWorkspaceId,
+          path: input.path,
+          ...(input.displayName === undefined ? {} : { displayName: input.displayName }),
+        });
+        if (registered.ok && context.services.workspaceIndex !== undefined) {
+          const workspaceId = readWorkspaceId(registered.value);
+          if (workspaceId !== undefined) await context.services.workspaceIndex.indexWorkspace(workspaceId);
+        }
+        return registered;
+      },
     }),
     defineTool({
       name: 'workspace_info',
@@ -72,4 +76,10 @@ export function workspaceTools(context: McpToolContext): McpToolDefinition[] {
         : context.services.projectSnapshot.snapshot(context.actor, input.workspaceId),
     }),
   ];
+}
+
+function readWorkspaceId(value: unknown): string | undefined {
+  if (typeof value !== 'object' || value === null || !('id' in value)) return undefined;
+  const id = (value as { id?: unknown }).id;
+  return typeof id === 'string' && id.trim().length > 0 ? id : undefined;
 }

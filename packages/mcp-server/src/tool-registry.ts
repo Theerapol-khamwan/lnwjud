@@ -8,6 +8,7 @@ import { batchTools } from './tools/batch-tools.js';
 import { contextTools } from './tools/context-tools.js';
 import { filePageTools } from './tools/file-page-tools.js';
 import { workspaceIndexTools } from './tools/workspace-index-tools.js';
+import { upgradeTools } from './tools/upgrade-tools.js';
 import { codexTools } from './tools/codex-tools.js';
 import { capabilityTools } from './tools/capability-tools.js';
 import { fileTools } from './tools/file-tools.js';
@@ -54,6 +55,7 @@ export class ToolRegistry {
       ...contextTools(context, contextEngine),
       ...filePageTools(filePageEngine),
       ...workspaceIndexTools(context),
+      ...upgradeTools(context),
     ];
     this.tools = [
       ...baseTools,

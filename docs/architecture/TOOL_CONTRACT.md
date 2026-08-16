@@ -1,12 +1,12 @@
 # lnwjud Tool Contract
 
-Status: Phase 04 contract snapshot for `v1.1.4` / local upgrade commits.
+Status: Phase 05 contract snapshot for `v1.1.4` / local upgrade commits.
 
 This is the compatibility contract for the current MCP surface. The runtime
 advertises the JSON Schema for every input through `tools/list`; the TypeScript
 Zod schemas in `packages/mcp-server/src/tools/` are the implementation source
 of truth. The existing human-oriented catalog remains useful for field details,
-while this document records the complete 67-tool runtime snapshot, policy class,
+while this document records the complete 177-tool runtime snapshot, policy class,
 annotations, and schema source.
 
 ## Protocol and result rules
@@ -196,7 +196,7 @@ capability backends. Important invariants are:
 - `vision`, `health`, and `system_info` remain truthful read-only diagnostics;
 - `web_fetch` remains HTTP(S)-only and bounded by explicit byte/timeout fields;
   - `skills_*` and `mcp_*` remain full-access bridge tools and do not silently
-  flatten child-server tools into the 67-tool catalog.
+  flatten child-server tools into the 177-tool catalog.
 
 ### Context aggregation
 
@@ -250,6 +250,14 @@ workspace_index_stop: { workspaceId: string }
 Index scheduling is an execution-performance control only. It must not be used
 to conceal a path from the AI; hidden, ignored, generated, dependency, and
 environment files remain eligible for indexing and direct read/search.
+
+### Roadmap extension catalog
+
+The Phase 05–40 additive tools are defined in
+[`../../packages/mcp-server/src/upgrade-catalog.ts`](../../packages/mcp-server/src/upgrade-catalog.ts).
+Each entry carries its phase, permission class, tags, streamability, and
+parallel-safety metadata. `tool_search` and `tool_describe` expose this metadata
+without replacing the full `tools/list` contract.
 
 ### Compound execution
 

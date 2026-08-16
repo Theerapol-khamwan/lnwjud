@@ -1,6 +1,6 @@
 # lnwjud Upgrade Architecture Contract
 
-Status: Phase 04 implementation checkpoint, based on `v1.1.4` / local upgrade commits.
+Status: Phase 05 implementation checkpoint, based on `v1.1.4` / local upgrade commits.
 
 This document is the architectural boundary for the upgrade roadmap. It describes
 the existing runtime before Phase 01 and the invariants every later phase must
@@ -38,7 +38,7 @@ MCP clients (ChatGPT / Codex / Claude / other agents)
              MCP stdio or loopback Streamable HTTP
                          |
                          v
-                  ToolRegistry (67 tools after Phase 04)
+                  ToolRegistry (177 tools after Phase 05 foundation)
                          |
        +-----------------+------------------+
        |                 |                  |
@@ -242,6 +242,20 @@ there is no `.git`, `node_modules`, `dist`, `.env`, generated-file, or hidden-fi
 ignore list. The watcher only coalesces duplicate notifications for the same
 path and limits active workers. Distinct paths are retained and queued, and a
 watcher stop drains the queue before closing.
+
+## Phase 05–14 foundation checkpoint
+
+The deterministic upgrade catalog now exposes code-intelligence queries,
+compound context routes, intent routing, inspectable recipes, dry-run plans,
+Git/test context contracts, cache operations, lifecycle-hook descriptors, and
+the Permission v2 policy classes. These tools are additive: the raw tools and
+the full-visibility index remain callable, and the context facade reports its
+internal plan plus continuation/fallback paths.
+
+The roadmap catalog is intentionally discoverable on demand through
+`capabilities`, `tool_search`, `tool_describe`, and `tool_categories`; this
+reduces schema pressure on clients without removing any capability from the
+runtime catalog.
 
 ## Upgrade sequencing
 
