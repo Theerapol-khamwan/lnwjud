@@ -49,6 +49,12 @@ export function createMainWindow(): BrowserWindow {
     height: 800,
     show: true,
     autoHideMenuBar: true,
+    titleBarStyle: 'hidden',
+    titleBarOverlay: {
+      color: '#07090e',
+      symbolColor: '#f5c542',
+      height: 38,
+    },
     ...(iconPath !== undefined ? { icon: iconPath } : {}),
     webPreferences: {
       preload: getPreloadPath(),
@@ -88,6 +94,12 @@ export function createLogViewerWindow(): BrowserWindow {
     show: true,
     autoHideMenuBar: true,
     title: 'lnwjud — Live Logs',
+    titleBarStyle: 'hidden',
+    titleBarOverlay: {
+      color: '#07090e',
+      symbolColor: '#f5c542',
+      height: 38,
+    },
     ...(iconPath !== undefined ? { icon: iconPath } : {}),
     webPreferences: {
       preload: getPreloadPath(),

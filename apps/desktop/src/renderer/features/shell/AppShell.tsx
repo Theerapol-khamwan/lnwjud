@@ -28,33 +28,25 @@ const navItems: ReadonlyArray<{ readonly screen: Screen; readonly key: MessageKe
 export function AppShell(props: AppShellProps): ReactElement {
   const t = createTranslator(props.locale);
   return (
-    <div className="app-shell">
-      <aside className="sidebar" aria-label="Navigation">
-        <div className="sidebar-brand">
-          <strong>{t('brand')}</strong>
-          <span>v{props.appVersion}</span>
+    <div className="window-container">
+      {/* Modern Luxury Dark Gold Titlebar */}
+      <header className="custom-titlebar">
+        <div className="titlebar-drag-region">
+          <div className="titlebar-brand">
+            <img src="./favicon.ico" alt="lnwjud logo" className="titlebar-logo" />
+            <span className="titlebar-title">{t('brand')}</span>
+            <span className="titlebar-version">v{props.appVersion}</span>
+          </div>
+
+          <div className="titlebar-center">
+            <div className="titlebar-status-indicator">
+              <span className={`titlebar-dot ${props.mcpRunning ? 'active' : ''}`}></span>
+              <span>{props.mcpRunning ? (props.locale === 'th' ? 'MCP Gateway ออนไลน์' : 'MCP Gateway Active') : (props.locale === 'th' ? 'MCP พร้อมทำงาน' : 'MCP Ready')}</span>
+            </div>
+          </div>
         </div>
-        <nav className="sidebar-nav">
-          {navItems.map((item) => (
-            <button
-              key={item.screen}
-              type="button"
-              className={props.screen === item.screen ? 'nav-item active' : 'nav-item'}
-              onClick={() => props.onNavigate(item.screen)}
-            >
-              {t(item.key)}
-            </button>
-          ))}
-        </nav>
-        <div className="sidebar-footer">
-          <span>Windows Desktop</span>
-          <strong className={props.mcpRunning ? 'status-online' : 'status-offline'}>
-            {props.mcpRunning ? t('footer.connected') : t('footer.disconnected')}
-          </strong>
-        </div>
-      </aside>
-      <div className="main-pane">
-        <header className="main-topbar">
+
+        <div className="titlebar-actions">
           <div className="locale-switch" role="group" aria-label={t('settings.locale')}>
             <button
               type="button"
@@ -71,8 +63,39 @@ export function AppShell(props: AppShellProps): ReactElement {
               {t('language.en')}
             </button>
           </div>
-        </header>
-        <main className="main-content">{props.children}</main>
+        </div>
+      </header>
+
+      {/* Main App Body */}
+      <div className="app-shell">
+        <aside className="sidebar" aria-label="Navigation">
+          <div className="sidebar-brand">
+            <strong>{t('brand')}</strong>
+            <span>v{props.appVersion}</span>
+          </div>
+          <nav className="sidebar-nav">
+            {navItems.map((item) => (
+              <button
+                key={item.screen}
+                type="button"
+                className={props.screen === item.screen ? 'nav-item active' : 'nav-item'}
+                onClick={() => props.onNavigate(item.screen)}
+              >
+                {t(item.key)}
+              </button>
+            ))}
+          </nav>
+          <div className="sidebar-footer">
+            <span>Windows Desktop</span>
+            <strong className={props.mcpRunning ? 'status-online' : 'status-offline'}>
+              {props.mcpRunning ? t('footer.connected') : t('footer.disconnected')}
+            </strong>
+          </div>
+        </aside>
+
+        <div className="main-pane">
+          <main className="main-content">{props.children}</main>
+        </div>
       </div>
     </div>
   );

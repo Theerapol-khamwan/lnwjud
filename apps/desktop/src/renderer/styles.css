@@ -75,6 +75,7 @@ body {
   background-attachment: fixed;
   color: var(--text);
   font-family: var(--font);
+  overflow-x: hidden;
 }
 
 /* Custom Scrollbars */
@@ -155,11 +156,114 @@ input:focus, select:focus {
   box-shadow: 0 0 10px var(--gold-glow);
 }
 
+/* Window Shell Container */
+.window-container {
+  display: flex;
+  flex-direction: column;
+  min-height: 100vh;
+}
+
+/* ==========================================================================
+   MODERN CUSTOM TITLEBAR
+   ========================================================================== */
+.custom-titlebar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  height: 38px;
+  background: #07090e;
+  border-bottom: 1px solid var(--border);
+  padding: 0 12px;
+  /* Space reserved for Windows native titleBarOverlay buttons (Minimize, Maximize, Close) */
+  padding-right: 146px;
+  user-select: none;
+  position: sticky;
+  top: 0;
+  z-index: 1000;
+}
+
+.titlebar-drag-region {
+  display: flex;
+  align-items: center;
+  gap: 20px;
+  flex: 1;
+  height: 100%;
+  -webkit-app-region: drag;
+}
+
+.titlebar-brand {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.titlebar-logo {
+  width: 18px;
+  height: 18px;
+  border-radius: 4px;
+}
+
+.titlebar-title {
+  font-weight: 700;
+  font-size: 13px;
+  letter-spacing: 0.05em;
+  background: var(--gold-gradient);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+
+.titlebar-version {
+  font-size: 10.5px;
+  font-family: var(--font-mono);
+  color: var(--gold-primary);
+  background: rgba(245, 197, 66, 0.1);
+  border: 1px solid rgba(245, 197, 66, 0.25);
+  padding: 1px 6px;
+  border-radius: 4px;
+  font-weight: 600;
+}
+
+.titlebar-center {
+  display: flex;
+  align-items: center;
+}
+
+.titlebar-status-indicator {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  color: var(--muted);
+  background: rgba(17, 23, 33, 0.7);
+  padding: 2px 10px;
+  border-radius: 9999px;
+  border: 1px solid var(--border-subtle);
+}
+
+.titlebar-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #64748b;
+}
+
+.titlebar-dot.active {
+  background: var(--gold-primary);
+  box-shadow: 0 0 8px var(--gold-glow);
+}
+
+.titlebar-actions {
+  display: flex;
+  align-items: center;
+  -webkit-app-region: no-drag;
+}
+
 /* App Shell Layout */
 .app-shell {
   display: grid;
-  grid-template-columns: 250px 1fr;
-  min-height: 100vh;
+  grid-template-columns: 240px 1fr;
+  flex: 1;
+  min-height: calc(100vh - 38px);
 }
 
 /* Sidebar */
@@ -167,7 +271,7 @@ input:focus, select:focus {
   display: flex;
   flex-direction: column;
   gap: 20px;
-  padding: 24px 16px;
+  padding: 20px 14px;
   background: #07090e;
   border-right: 1px solid var(--border);
   position: relative;
@@ -185,27 +289,7 @@ input:focus, select:focus {
 }
 
 .sidebar-brand {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  padding: 0 8px 12px;
-  border-bottom: 1px solid var(--border-subtle);
-}
-
-.sidebar-brand strong {
-  font-size: 22px;
-  font-weight: 700;
-  letter-spacing: 0.06em;
-  background: var(--gold-gradient);
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
-  display: inline-block;
-}
-
-.sidebar-brand span {
-  color: var(--muted);
-  font-size: 11.5px;
-  font-family: var(--font-mono);
+  display: none; /* Already presented in custom Titlebar */
 }
 
 .sidebar-nav {
@@ -218,9 +302,9 @@ input:focus, select:focus {
   background: transparent;
   border-color: transparent;
   color: var(--muted);
-  padding: 11px 14px;
+  padding: 10px 14px;
   border-radius: 10px;
-  font-size: 14px;
+  font-size: 13.5px;
   font-weight: 500;
 }
 
@@ -266,17 +350,11 @@ input:focus, select:focus {
   background: transparent;
 }
 
-.main-topbar {
-  display: flex;
-  justify-content: flex-end;
-  padding: 16px 32px 0;
-}
-
 .locale-switch {
   display: flex;
-  gap: 4px;
+  gap: 3px;
   background: rgba(14, 19, 28, 0.8);
-  padding: 3px;
+  padding: 2px;
   border-radius: 9999px;
   border: 1px solid var(--border-subtle);
 }
@@ -284,9 +362,9 @@ input:focus, select:focus {
 .locale-switch button {
   border: none;
   background: transparent;
-  padding: 5px 12px;
+  padding: 4px 10px;
   border-radius: 9999px;
-  font-size: 12px;
+  font-size: 11.5px;
   color: var(--muted);
 }
 
@@ -297,7 +375,7 @@ input:focus, select:focus {
 }
 
 .main-content {
-  padding: 12px 32px 32px;
+  padding: 24px 32px 32px;
 }
 
 .page-content {
@@ -600,26 +678,12 @@ input:focus, select:focus {
 
 /* Log Viewer Popout Shell */
 .log-viewer-shell {
-  min-height: 100vh;
   padding: 16px 20px;
-}
-
-.log-viewer-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: 12px;
-  gap: 12px;
-}
-
-.log-viewer-header .hint {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  flex: 1;
 }
 
 .log-viewer-shell .log-stream {
-  max-height: calc(100vh - 170px);
+  max-height: calc(100vh - 140px);
 }
 
 /* Projects List */

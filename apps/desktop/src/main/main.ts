@@ -1,4 +1,5 @@
 import { app, BrowserWindow, dialog, ipcMain, type IpcMainInvokeEvent } from 'electron';
+import { autoUpdater } from 'electron-updater';
 import { writeFile } from 'node:fs/promises';
 import {
   ipcChannels,
@@ -480,6 +481,62 @@ function bootstrapMcpStdio(): void {
   });
 }
 
+function initAutoUpdater(): void {
+  if (!app.isPackaged) return;
+  try {
+    autoUpdater.autoDownload = true;
+    autoUpdater.autoInstallOnAppQuit = true;
+
+    autoUpdater.on('checking-for-update', () => {
+      console.log('[AutoUpdater] Checking for updates on GitHub...');
+    });
+
+    autoUpdater.on('update-available', (info) => {
+      console.log(`[AutoUpdater] Update available: v${info.version}`);
+      broadcastToAllWindows(pushChannels.logEvent, {
+        id: Date.now(),
+        timestamp: new Date().toISOString(),
+        level: 'info',
+        source: 'process',
+        text: `[AutoUpdater] Version v${info.version} is available and downloading in background...`,
+      });
+    });
+
+    autoUpdater.on('update-downloaded', (info) => {
+      console.log(`[AutoUpdater] Downloaded update: v${info.version}`);
+      broadcastToAllWindows(pushChannels.logEvent, {
+        id: Date.now(),
+        timestamp: new Date().toISOString(),
+        level: 'info',
+        source: 'process',
+        text: `[AutoUpdater] Update v${info.version} downloaded! Ready to install.`,
+      });
+      void dialog.showMessageBox({
+        type: 'info',
+        title: 'Update Ready - lnwjud',
+        message: `Version v${info.version} has been downloaded. Restart lnwjud now to install?`,
+        buttons: ['Restart Now', 'Later'],
+        defaultId: 0,
+        cancelId: 1,
+      }).then((result) => {
+        if (result.response === 0) {
+          autoUpdater.quitAndInstall();
+        }
+      });
+    });
+
+    autoUpdater.on('error', (err) => {
+      console.error('[AutoUpdater] error:', err.message);
+    });
+
+    setTimeout(() => {
+      void autoUpdater.checkForUpdates().catch(() => {});
+    }, 5000);
+  } catch (err: unknown) {
+    console.error('Failed to initialize auto updater:', err);
+  }
+}
+
 function bootstrapDesktop(): void {
   const dataPath = configureDataPath();
   void app.whenReady().then(async () => {
@@ -494,6 +551,7 @@ function bootstrapDesktop(): void {
       console.error(`MCP auto-start failed: ${error instanceof Error ? error.message : 'unknown error'}`);
     }
     createDesktopWindow();
+    initAutoUpdater();
     app.on('activate', () => {
       if (BrowserWindow.getAllWindows().length === 0) createDesktopWindow();
     });
