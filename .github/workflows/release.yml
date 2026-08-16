@@ -41,11 +41,17 @@ jobs:
 
       - name: Package Windows Installer
         run: pnpm run package:windows
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Create GitHub Release & Upload Installer
         uses: softprops/action-gh-release@v2
         with:
-          files: apps/desktop/dist/installers/*.exe
+          files: |
+            apps/desktop/dist/installers/*.exe
+            apps/desktop/dist/installers/*.blockmap
+            apps/desktop/dist/installers/latest.yml
           draft: false
           prerelease: false
           generate_release_notes: true
