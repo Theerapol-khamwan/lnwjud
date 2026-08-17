@@ -4,7 +4,7 @@ import { createServer } from 'node:net';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { chromium, expect, test } from '@playwright/test';
+import { chromium, expect, test, type Page } from '@playwright/test';
 
 const desktopRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const mainEntry = path.join(desktopRoot, 'dist', 'main', 'main.js');
@@ -51,8 +51,22 @@ test('control center auto-starts MCP and supports project + doctor journey', asy
     await expect(page.getByTestId('mcp-endpoint')).toContainText('http://127.0.0.1:', { timeout: 30_000 });
     await expect(page.getByTestId('work-log')).toBeVisible({ timeout: 30_000 });
 
+     await page.setViewportSize({ width: 800, height: 600 });
+     await expectNoHorizontalOverflow(page);
+     for (const width of [640, 320]) {
+       await page.setViewportSize({ width, height: 600 });
+       await expectNoHorizontalOverflow(page);
+     }
+     await page.setViewportSize({ width: 800, height: 600 });
+
     await page.getByRole('button', { name: 'คัดลอก' }).first().click();
     await expect(page.getByTestId('mcp-copy-status')).toHaveText(/คัดลอกแล้ว|Copied/);
+
+    await page.getByRole('button', { name: 'บันทึกการทำงาน', exact: true }).click();
+    await expect(page.getByTestId('work-log')).toBeVisible();
+    await expectNoHorizontalOverflow(page);
+
+    await page.getByRole('button', { name: 'หน้าหลัก', exact: true }).click();
 
     await page.getByRole('button', { name: 'โปรเจกต์', exact: true }).click();
     await page.getByLabel('Workspace root').fill(path.join(fixtureRoot, 'missing-workspace'));
@@ -66,6 +80,7 @@ test('control center auto-starts MCP and supports project + doctor journey', asy
     await expect(page.getByTestId('git-summary')).toContainText('Not a Git repository');
 
     await page.getByRole('button', { name: 'ตั้งค่า', exact: true }).click();
+    await expectNoHorizontalOverflow(page);
     await page.getByLabel('Permission profile').selectOption('balanced');
     await expect(page.getByTestId('permission-profile')).toHaveText('FULL');
 
@@ -130,4 +145,10 @@ async function terminateProcessTree(child: ChildProcess): Promise<void> {
 
 async function removeTemporaryRoot(root: string): Promise<void> {
   await rm(root, { recursive: true, force: true });
+}
+
+async function expectNoHorizontalOverflow(page: Page): Promise<void> {
+  await expect.poll(async () => page.evaluate(() => (
+    document.documentElement.scrollWidth <= document.documentElement.clientWidth
+  ))).toBe(true);
 }

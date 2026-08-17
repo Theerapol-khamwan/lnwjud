@@ -1,6 +1,6 @@
 # lnwjud Upgrade Architecture Contract
 
-Status: Phase 41 implementation checkpoint for the `v2.2.2` release.
+Status: Phase 41 implementation checkpoint for the `v3.0.0` release.
 
 This document is the architectural boundary for the upgrade roadmap. It describes
 the existing runtime before Phase 01 and the invariants every later phase must

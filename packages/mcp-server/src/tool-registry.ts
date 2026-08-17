@@ -4,6 +4,7 @@ import { DefaultPermissionEngine, permissionProfiles, type PermissionProfile } f
 import { ActivityTracker, type ActivitySink } from './activity-tracker.js';
 import { ContextEngine } from './context-engine.js';
 import { ContextEconomyRuntime } from './context-economy.js';
+import { hasExplicitUserConfirmation, inspectDestructiveOperation } from './destructive-policy.js';
 import { FilePageEngine } from './file-page-engine.js';
 import { mapError, mapResult, type McpToolResponse } from './result-mapper.js';
 import { batchTools } from './tools/batch-tools.js';
@@ -107,6 +108,13 @@ export class ToolRegistry {
       if (!parsed.ok) {
         const response = mapError(parsed.error);
         await this.activity.end(callId, parsed.error.code, Date.now() - started, parsed.error.message);
+        return response;
+      }
+      const destructiveDecision = inspectDestructiveOperation(tool.name, parsed.value);
+      if (destructiveDecision.destructive && !hasExplicitUserConfirmation(parsed.value)) {
+        const message = `Destructive operation requires explicit user confirmation${destructiveDecision.reason === undefined ? '' : `: ${destructiveDecision.reason}`}. Ask the user in chat first, then retry with userConfirmed: true`;
+        const response = mapError(appError('PERMISSION_REQUIRED', message, true));
+        await this.activity.end(callId, 'PERMISSION_REQUIRED', Date.now() - started, message);
         return response;
       }
       const permissionDecision = this.permissionEngine.decide(this.profileProvider(), {

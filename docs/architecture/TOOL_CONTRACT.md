@@ -1,6 +1,6 @@
 # lnwjud Tool Contract
 
-Status: Phase 41 contract snapshot for the `v2.2.2` release.
+Status: Phase 41 contract snapshot for the `v3.0.0` release.
 
 This is the compatibility contract for the current MCP surface. The runtime
 advertises the JSON Schema for every input through `tools/list`; the TypeScript

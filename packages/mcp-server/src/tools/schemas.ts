@@ -39,9 +39,10 @@ export const gitRunSchema = z.object({
   cwd: pathSchema.optional(),
   args: z.array(z.string().min(1).max(32_768)).min(1).max(128),
   timeoutSeconds: z.number().min(0.1).max(300).optional(),
+  userConfirmed: z.boolean().optional(),
 }).strict();
-export const writeFileSchema = z.object({ workspaceId: optionalWorkspaceIdSchema, path: pathSchema, content: z.string().refine((value) => Buffer.byteLength(value, 'utf8') <= MAX_MULTI_FILE_BYTES, 'File is too large') }).strict();
-export const applyPatchSchema = z.object({ workspaceId: optionalWorkspaceIdSchema, files: z.array(z.object({ path: pathSchema, content: z.string().refine((value) => Buffer.byteLength(value, 'utf8') <= MAX_MULTI_FILE_BYTES, 'File is too large') }).strict()).min(1).max(20) }).strict();
+export const writeFileSchema = z.object({ workspaceId: optionalWorkspaceIdSchema, path: pathSchema, content: z.string().refine((value) => Buffer.byteLength(value, 'utf8') <= MAX_MULTI_FILE_BYTES, 'File is too large'), userConfirmed: z.boolean().optional() }).strict();
+export const applyPatchSchema = z.object({ workspaceId: optionalWorkspaceIdSchema, files: z.array(z.object({ path: pathSchema, content: z.string().refine((value) => Buffer.byteLength(value, 'utf8') <= MAX_MULTI_FILE_BYTES, 'File is too large') }).strict()).min(1).max(20), userConfirmed: z.boolean().optional() }).strict();
 export const moveFileSchema = z.object({ workspaceId: optionalWorkspaceIdSchema, sourcePath: pathSchema, destinationPath: pathSchema }).strict();
 export const copyFileSchema = moveFileSchema;
 export const deleteFileSchema = z.object({
@@ -57,11 +58,11 @@ export const workspaceRegisterSchema = z.object({
   path: pathSchema,
   displayName: z.string().trim().min(1).max(256).optional(),
 }).strict();
-export const processStartSchema = z.object({ workspaceId: workspaceIdSchema, executable: z.string().trim().min(1).max(1024), args: z.array(z.string().max(32_768)).max(128), cwd: pathSchema.optional(), timeoutMs: z.number().int().min(1).max(4 * 60 * 60 * 1000).optional() }).strict();
+export const processStartSchema = z.object({ workspaceId: workspaceIdSchema, executable: z.string().trim().min(1).max(1024), args: z.array(z.string().max(32_768)).max(128), cwd: pathSchema.optional(), timeoutMs: z.number().int().min(1).max(4 * 60 * 60 * 1000).optional(), userConfirmed: z.boolean().optional() }).strict();
 export const processHandleSchema = z.object({ workspaceId: workspaceIdSchema, processId: z.string().trim().min(1).max(128) }).strict();
 export const processLogsSchema = processHandleSchema.extend({ tailLines: z.number().int().min(1).max(10_000).optional(), sinceSequence: z.number().int().min(0).optional() }).strict();
 export const codexStatusSchema = z.object({}).strict();
-export const codexRunSchema = z.object({ workspaceId: workspaceIdSchema, instruction: z.string().min(1).refine((value) => Buffer.byteLength(value, 'utf8') <= MAX_INSTRUCTION_BYTES, 'Instruction is too large') }).strict();
+export const codexRunSchema = z.object({ workspaceId: workspaceIdSchema, instruction: z.string().min(1).refine((value) => Buffer.byteLength(value, 'utf8') <= MAX_INSTRUCTION_BYTES, 'Instruction is too large'), userConfirmed: z.boolean().optional() }).strict();
 export const codexTaskHandleSchema = z.object({ workspaceId: workspaceIdSchema, codexTaskId: z.string().trim().min(1).max(128) }).strict();
 export const codexTaskLogsSchema = codexTaskHandleSchema.extend({ tailLines: z.number().int().min(1).max(10_000).optional(), sinceSequence: z.number().int().min(0).optional() }).strict();
 
@@ -145,6 +146,7 @@ const capabilityRequestSchema = {
   request_id: z.string().trim().min(1).max(128).optional(),
   metadata: capabilityMetadataSchema.optional(),
   dry_run: z.boolean().default(false),
+  userConfirmed: z.boolean().optional(),
 };
 
 export const shellCapabilitySchema = z.object({
@@ -301,7 +303,6 @@ export const schedulerCapabilitySchema = z.object({
   arguments: z.array(z.string().max(2_048)).max(64).optional(),
   schedule: z.string().regex(/^[A-Z]{1,16}$/i).optional(),
   start_time: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/).optional(),
-  userConfirmed: z.boolean().optional(),
   ...capabilityRequestSchema,
 }).strict();
 
@@ -325,4 +326,5 @@ export const mcpCallSchema = z.object({
   server: z.string().trim().min(1).max(256),
   tool: z.string().trim().min(1).max(256),
   arguments: z.record(z.string(), z.unknown()).optional(),
+  userConfirmed: z.boolean().optional(),
 }).strict();

@@ -82,7 +82,7 @@ describe('Codex review flow', () => {
     const registry = new ToolRegistry(services, actor);
 
     try {
-      const run = await registry.invoke('codex_run', { workspaceId, instruction: 'Review the fixture and update the permitted review file.' });
+      const run = await registry.invoke('codex_run', { workspaceId, instruction: 'Review the fixture and update the permitted review file.', userConfirmed: true });
       expect(run).toMatchObject({ structuredContent: { codexTaskId: 'codex-review-task', processId: expect.any(String) } });
       const codexTaskId = stringField(run, 'codexTaskId');
       const terminal = await waitForCodexTerminal(registry, workspaceId, codexTaskId);
@@ -101,7 +101,7 @@ describe('Codex review flow', () => {
       const projectLogs = await registry.invoke('process_logs', { workspaceId, processId: projectProcessId, tailLines: 20 });
       expect(projectLogs).toMatchObject({ structuredContent: { entries: [{ text: expect.stringContaining('project-test-pass') }] } });
 
-      const stopRun = await registry.invoke('codex_run', { workspaceId, instruction: 'hold this task open for stop verification' });
+      const stopRun = await registry.invoke('codex_run', { workspaceId, instruction: 'hold this task open for stop verification', userConfirmed: true });
       expect(stopRun).toMatchObject({ structuredContent: { codexTaskId: 'codex-stop-task', processId: expect.any(String) } });
       const stopTaskId = stringField(stopRun, 'codexTaskId');
       expect(await registry.invoke('codex_task_status', { workspaceId, codexTaskId: stopTaskId })).toMatchObject({ structuredContent: { state: 'running' } });

@@ -751,11 +751,11 @@ var SecretPolicy = class {
   assertReadable(relativePath) {
     const normalizedPath = relativePath.replaceAll("/", "\\").replace(/^\.\\/, "");
     const segments = normalizedPath.split("\\").filter((segment) => segment.length > 0);
-    const basename = segments.at(-1)?.toLowerCase() ?? "";
+    const basename2 = segments.at(-1)?.toLowerCase() ?? "";
     const lowerPath = segments.map((segment) => segment.toLowerCase());
-    const isEnvironmentSecret = basename === ".env" || basename.startsWith(".env.") && basename !== ".env.example";
-    const isPrivateKey = PRIVATE_KEY_PREFIXES.some((prefix) => basename.startsWith(prefix));
-    const isDenied = isEnvironmentSecret || basename.endsWith(".pem") || basename.endsWith(".key") || isPrivateKey || lowerPath.includes(".ssh") || lowerPath.includes(".aws") || basename === "credentials.json";
+    const isEnvironmentSecret = basename2 === ".env" || basename2.startsWith(".env.") && basename2 !== ".env.example";
+    const isPrivateKey = PRIVATE_KEY_PREFIXES.some((prefix) => basename2.startsWith(prefix));
+    const isDenied = isEnvironmentSecret || basename2.endsWith(".pem") || basename2.endsWith(".key") || isPrivateKey || lowerPath.includes(".ssh") || lowerPath.includes(".aws") || basename2 === "credentials.json";
     if (isDenied) {
       return err({ code: "SECRET_ACCESS_DENIED", message: "Secret file access is denied", recoverable: false });
     }
@@ -1117,17 +1117,17 @@ var CommandPolicy = class {
   }
   decide(profile, executable, source, args = []) {
     void args;
-    const basename = import_node_path9.default.win32.basename(executable).toLowerCase();
-    if (this.options.unrestricted !== true && SHELL_HOSTS.has(basename))
+    const basename2 = import_node_path9.default.win32.basename(executable).toLowerCase();
+    if (this.options.unrestricted !== true && SHELL_HOSTS.has(basename2))
       return "DENY";
-    if (DELETE_EXECUTABLES.has(basename))
+    if (DELETE_EXECUTABLES.has(basename2))
       return "ASK";
     if (source === "project") {
-      if (!profile.allowedProjectExecutables.includes(basename))
+      if (!profile.allowedProjectExecutables.includes(basename2))
         return "DENY";
       return profile.defaults.EXECUTE;
     }
-    if (!profile.allowedProjectExecutables.includes(basename) && profile.name !== "full")
+    if (!profile.allowedProjectExecutables.includes(basename2) && profile.name !== "full")
       return "ASK";
     return profile.defaults.EXECUTE;
   }
@@ -1549,8 +1549,8 @@ var FileService = class {
       destinationRelative: destination.value.relativePath
     });
   }
-  decide(workspaceId, action, level, target, destructive) {
-    const operation = { action, level, workspaceId, destructive, ...target === void 0 ? {} : { target } };
+  decide(workspaceId, action, level, target, destructive2) {
+    const operation = { action, level, workspaceId, destructive: destructive2, ...target === void 0 ? {} : { target } };
     const decision = this.permissionEngine.decide(this.profileProvider(), operation);
     if (decision === "DENY")
       return err(appError("PERMISSION_DENIED", `${action} is denied`));
@@ -3185,12 +3185,12 @@ function classifyContextPath(filePath, mode = "automatic") {
   const normalizedPath = normalizeContextPath(filePath);
   const lowerPath = normalizedPath.toLowerCase();
   const segments = lowerPath.split("/").filter(Boolean);
-  const basename = segments.at(-1) ?? lowerPath;
-  const extension = basename.includes(".") ? `.${basename.split(".").at(-1)}` : "";
+  const basename2 = segments.at(-1) ?? lowerPath;
+  const extension = basename2.includes(".") ? `.${basename2.split(".").at(-1)}` : "";
   const ignoredDirectory = segments.find((segment) => DEFAULT_IGNORED_DIRECTORIES.has(segment));
   const isBinary = BINARY_EXTENSIONS.has(extension);
-  const isGenerated = GENERATED_FILE_PATTERNS.some((pattern) => pattern.test(basename)) || lowerPath.includes("/generated/");
-  const isMetadata = METADATA_FILES.has(basename);
+  const isGenerated = GENERATED_FILE_PATTERNS.some((pattern) => pattern.test(basename2)) || lowerPath.includes("/generated/");
+  const isMetadata = METADATA_FILES.has(basename2);
   const kind = ignoredDirectory !== void 0 ? "ignored" : isBinary ? "binary" : isGenerated ? "generated" : isMetadata ? "metadata" : "source";
   if (mode === "explicit") {
     return {
@@ -32277,6 +32277,182 @@ function createSnippets(content, matches, mode) {
   }));
 }
 
+// ../../packages/mcp-server/dist/destructive-policy.js
+var GIT_DESTRUCTIVE_SUBCOMMANDS = /* @__PURE__ */ new Set([
+  "clean",
+  "rm",
+  "reset",
+  "restore",
+  "rebase",
+  "prune"
+]);
+function inspectDestructiveOperation(toolName, input) {
+  const value = asRecord(input);
+  if (value === null)
+    return { destructive: false };
+  if (value.dry_run === true || value.dryRun === true)
+    return { destructive: false };
+  switch (toolName) {
+    case "delete_file":
+      return destructive("filesystem deletion");
+    case "git":
+      return inspectGit(value);
+    case "shell":
+      return inspectShell(value);
+    case "process_start":
+      return inspectShell({ operation: "run", executable: value.executable, arguments: value.args });
+    case "codex_run":
+      return destructive("delegated coding agent can mutate or delete workspace data");
+    case "dom_cdp":
+      return inspectDomCdp(value);
+    case "web_fetch":
+      return String(value.method ?? "GET").toUpperCase() === "DELETE" ? destructive("HTTP DELETE can remove remote data") : { destructive: false };
+    case "mcp_call":
+      return destructive("child MCP side effects cannot be proven non-destructive at the gateway boundary");
+    case "scheduler":
+      return value.action === "delete" ? destructive("scheduled task deletion") : { destructive: false };
+    case "office":
+      return value.action === "write" || value.action === "replace" || value.action === "save_as" ? destructive("Office mutation can overwrite document data") : { destructive: false };
+    case "window":
+      return value.operation === "close" ? destructive("closing a window can discard unsaved data") : { destructive: false };
+    case "accessibility":
+      if (["click", "menu_select", "select_item", "close_window"].includes(String(value.action ?? ""))) {
+        return destructive("opaque native UI action can trigger deletion or discard unsaved data");
+      }
+      return { destructive: false };
+    case "input_event":
+      return inspectInputEvent(value);
+    case "write_file":
+      return value.content === "" ? destructive("empty write can truncate file data") : { destructive: false };
+    case "apply_patch": {
+      const files = Array.isArray(value.files) ? value.files : [];
+      return files.some((entry) => asRecord(entry)?.content === "") ? destructive("empty patch content can truncate file data") : { destructive: false };
+    }
+    case "plugin_remove":
+      return destructive("plugin removal deletes installed plugin state");
+    case "hook_remove":
+      return destructive("hook removal deletes a registered hook");
+    default:
+      return { destructive: false };
+  }
+}
+function hasExplicitUserConfirmation(input) {
+  return asRecord(input)?.userConfirmed === true;
+}
+function inspectGit(value) {
+  const args = stringArray(value.args);
+  if (args.length === 0)
+    return { destructive: false };
+  const subcommandIndex = args.findIndex((arg) => !arg.startsWith("-"));
+  if (subcommandIndex < 0)
+    return { destructive: false };
+  const subcommand = args[subcommandIndex].toLowerCase();
+  const restRaw = args.slice(subcommandIndex + 1);
+  const rest = restRaw.map((arg) => arg.toLowerCase());
+  if (GIT_DESTRUCTIVE_SUBCOMMANDS.has(subcommand))
+    return destructive(`git ${subcommand} can discard or delete data`);
+  if (subcommand === "checkout" && (rest.includes("-f") || rest.includes("--force") || rest.includes("--") || restRaw.includes("-B"))) {
+    return destructive("git checkout can discard working-tree changes or reset a branch");
+  }
+  if (subcommand === "switch" && (rest.includes("-f") || rest.includes("--force") || rest.includes("--discard-changes") || rest.includes("--force-create") || restRaw.includes("-C"))) {
+    return destructive("git switch can discard working-tree changes or reset a branch");
+  }
+  if (subcommand === "branch" && (rest.some((arg) => ["-d", "--delete", "-f", "--force"].includes(arg)) || restRaw.includes("-D"))) {
+    return destructive("git branch can delete or force-move a branch");
+  }
+  if (subcommand === "tag" && rest.some((arg) => ["-d", "--delete", "-f", "--force"].includes(arg)))
+    return destructive("git tag can delete or replace a tag");
+  if (subcommand === "stash" && rest.some((arg) => ["pop", "drop", "clear"].includes(arg)))
+    return destructive("git stash operation can remove stash data");
+  if (subcommand === "reflog" && rest.some((arg) => ["expire", "delete"].includes(arg)))
+    return destructive("git reflog operation can remove recovery history");
+  if (subcommand === "worktree" && rest.some((arg) => ["remove", "prune"].includes(arg)))
+    return destructive("git worktree removal");
+  if (subcommand === "push" && rest.some((arg) => arg === "--force" || arg.startsWith("--force-with-lease") || arg === "--delete" || arg === "-f")) {
+    return destructive("git push can rewrite or delete remote history");
+  }
+  if (subcommand === "commit" && rest.includes("--amend"))
+    return destructive("git commit --amend rewrites history");
+  return { destructive: false };
+}
+function inspectShell(value) {
+  if (value.operation !== void 0 && value.operation !== "run")
+    return { destructive: false };
+  const executable = basename(String(value.executable ?? "")).toLowerCase();
+  const args = stringArray(value.arguments);
+  const joined = args.join(" ").toLowerCase();
+  if (executable === "git" || executable === "git.exe")
+    return inspectGit({ args });
+  if (["del", "del.exe", "erase", "erase.exe", "rm", "rm.exe", "rmdir", "rmdir.exe", "rd", "rd.exe", "unlink", "unlink.exe"].includes(executable)) {
+    return destructive(`${executable} deletes filesystem data`);
+  }
+  if (["powershell", "powershell.exe", "pwsh", "pwsh.exe"].includes(executable)) {
+    const withoutGitRm = joined.replace(/\bgit(?:\.exe)?\s+rm\b/g, " ");
+    if (/\b(remove-item|clear-content|rm|del)\b/i.test(withoutGitRm))
+      return destructive("PowerShell command can delete or truncate data");
+    if (/\bset-content\b/i.test(joined) && !/\b-addcontent\b/i.test(joined))
+      return destructive("PowerShell Set-Content can overwrite data");
+  }
+  if (["cmd", "cmd.exe"].includes(executable) && /(^|[\s&|])(del|erase|rd|rmdir)\b/i.test(joined)) {
+    return destructive("cmd command deletes filesystem data");
+  }
+  if (["bash", "bash.exe", "sh", "sh.exe"].includes(executable) && /(^|[;&|\s])(rm|unlink|rmdir|truncate)\b/i.test(joined)) {
+    return destructive("shell command can delete or truncate filesystem data");
+  }
+  if (["node", "node.exe"].includes(executable) && /\b(unlinksync|unlink|rmsync|rm|rmdirsync|rmdir|truncatesync|truncate)\s*\(/.test(joined)) {
+    return destructive("Node script can delete or truncate filesystem data");
+  }
+  if (["python", "python.exe", "py", "py.exe"].includes(executable) && /\b(os\.remove|os\.unlink|os\.rmdir|shutil\.rmtree|truncate)\b/.test(joined)) {
+    return destructive("Python script can delete or truncate filesystem data");
+  }
+  if (executable.startsWith("robocopy") && args.some((arg) => ["/mir", "/purge"].includes(arg.toLowerCase()))) {
+    return destructive("robocopy mirror/purge can delete destination data");
+  }
+  return { destructive: false };
+}
+function inspectDomCdp(value) {
+  const actions = /* @__PURE__ */ new Set(["click", "evaluate"]);
+  if (actions.has(String(value.action ?? "")))
+    return destructive("opaque browser action can trigger destructive remote or local side effects");
+  const steps = Array.isArray(value.steps) ? value.steps : [];
+  for (const step of steps) {
+    const record2 = asRecord(step);
+    if (record2 !== null && actions.has(String(record2.action ?? ""))) {
+      return destructive("batched browser action can trigger destructive remote or local side effects");
+    }
+  }
+  return { destructive: false };
+}
+function inspectInputEvent(value) {
+  const operation = String(value.operation ?? "");
+  const opaqueSideEffectOperations = /* @__PURE__ */ new Set([
+    "type_text",
+    "paste_text",
+    "press_key",
+    "hotkey",
+    "click",
+    "double_click",
+    "right_click",
+    "drag",
+    "button_down",
+    "button_up",
+    "sequence"
+  ]);
+  return opaqueSideEffectOperations.has(operation) ? destructive("low-level input can trigger deletion, commands, or irreversible UI actions") : { destructive: false };
+}
+function destructive(reason) {
+  return { destructive: true, reason };
+}
+function asRecord(value) {
+  return typeof value === "object" && value !== null && !Array.isArray(value) ? value : null;
+}
+function stringArray(value) {
+  return Array.isArray(value) ? value.filter((entry) => typeof entry === "string") : [];
+}
+function basename(value) {
+  return value.replaceAll("\\", "/").split("/").at(-1) ?? value;
+}
+
 // ../../packages/mcp-server/dist/file-page-engine.js
 var import_node_crypto10 = require("node:crypto");
 var DEFAULT_PAGE_SIZE2 = 200;
@@ -32738,10 +32914,11 @@ var gitRunSchema = external_exports.object({
   workspaceId: optionalWorkspaceIdSchema,
   cwd: pathSchema.optional(),
   args: external_exports.array(external_exports.string().min(1).max(32768)).min(1).max(128),
-  timeoutSeconds: external_exports.number().min(0.1).max(300).optional()
+  timeoutSeconds: external_exports.number().min(0.1).max(300).optional(),
+  userConfirmed: external_exports.boolean().optional()
 }).strict();
-var writeFileSchema = external_exports.object({ workspaceId: optionalWorkspaceIdSchema, path: pathSchema, content: external_exports.string().refine((value) => Buffer.byteLength(value, "utf8") <= MAX_MULTI_FILE_BYTES, "File is too large") }).strict();
-var applyPatchSchema = external_exports.object({ workspaceId: optionalWorkspaceIdSchema, files: external_exports.array(external_exports.object({ path: pathSchema, content: external_exports.string().refine((value) => Buffer.byteLength(value, "utf8") <= MAX_MULTI_FILE_BYTES, "File is too large") }).strict()).min(1).max(20) }).strict();
+var writeFileSchema = external_exports.object({ workspaceId: optionalWorkspaceIdSchema, path: pathSchema, content: external_exports.string().refine((value) => Buffer.byteLength(value, "utf8") <= MAX_MULTI_FILE_BYTES, "File is too large"), userConfirmed: external_exports.boolean().optional() }).strict();
+var applyPatchSchema = external_exports.object({ workspaceId: optionalWorkspaceIdSchema, files: external_exports.array(external_exports.object({ path: pathSchema, content: external_exports.string().refine((value) => Buffer.byteLength(value, "utf8") <= MAX_MULTI_FILE_BYTES, "File is too large") }).strict()).min(1).max(20), userConfirmed: external_exports.boolean().optional() }).strict();
 var moveFileSchema = external_exports.object({ workspaceId: optionalWorkspaceIdSchema, sourcePath: pathSchema, destinationPath: pathSchema }).strict();
 var copyFileSchema = moveFileSchema;
 var deleteFileSchema = external_exports.object({
@@ -32756,11 +32933,11 @@ var workspaceRegisterSchema = external_exports.object({
   path: pathSchema,
   displayName: external_exports.string().trim().min(1).max(256).optional()
 }).strict();
-var processStartSchema = external_exports.object({ workspaceId: workspaceIdSchema, executable: external_exports.string().trim().min(1).max(1024), args: external_exports.array(external_exports.string().max(32768)).max(128), cwd: pathSchema.optional(), timeoutMs: external_exports.number().int().min(1).max(4 * 60 * 60 * 1e3).optional() }).strict();
+var processStartSchema = external_exports.object({ workspaceId: workspaceIdSchema, executable: external_exports.string().trim().min(1).max(1024), args: external_exports.array(external_exports.string().max(32768)).max(128), cwd: pathSchema.optional(), timeoutMs: external_exports.number().int().min(1).max(4 * 60 * 60 * 1e3).optional(), userConfirmed: external_exports.boolean().optional() }).strict();
 var processHandleSchema = external_exports.object({ workspaceId: workspaceIdSchema, processId: external_exports.string().trim().min(1).max(128) }).strict();
 var processLogsSchema = processHandleSchema.extend({ tailLines: external_exports.number().int().min(1).max(1e4).optional(), sinceSequence: external_exports.number().int().min(0).optional() }).strict();
 var codexStatusSchema = external_exports.object({}).strict();
-var codexRunSchema = external_exports.object({ workspaceId: workspaceIdSchema, instruction: external_exports.string().min(1).refine((value) => Buffer.byteLength(value, "utf8") <= MAX_INSTRUCTION_BYTES, "Instruction is too large") }).strict();
+var codexRunSchema = external_exports.object({ workspaceId: workspaceIdSchema, instruction: external_exports.string().min(1).refine((value) => Buffer.byteLength(value, "utf8") <= MAX_INSTRUCTION_BYTES, "Instruction is too large"), userConfirmed: external_exports.boolean().optional() }).strict();
 var codexTaskHandleSchema = external_exports.object({ workspaceId: workspaceIdSchema, codexTaskId: external_exports.string().trim().min(1).max(128) }).strict();
 var codexTaskLogsSchema = codexTaskHandleSchema.extend({ tailLines: external_exports.number().int().min(1).max(1e4).optional(), sinceSequence: external_exports.number().int().min(0).optional() }).strict();
 var batchCallSchema = external_exports.object({
@@ -32836,7 +33013,8 @@ var capabilityApprovalSchema = external_exports.enum(["use_policy", "always_ask"
 var capabilityRequestSchema = {
   request_id: external_exports.string().trim().min(1).max(128).optional(),
   metadata: capabilityMetadataSchema.optional(),
-  dry_run: external_exports.boolean().default(false)
+  dry_run: external_exports.boolean().default(false),
+  userConfirmed: external_exports.boolean().optional()
 };
 var shellCapabilitySchema = external_exports.object({
   operation: external_exports.enum(["run", "status", "wait", "logs", "result", "cancel", "resume", "approve", "deny"]).default("run"),
@@ -32976,7 +33154,6 @@ var schedulerCapabilitySchema = external_exports.object({
   arguments: external_exports.array(external_exports.string().max(2048)).max(64).optional(),
   schedule: external_exports.string().regex(/^[A-Z]{1,16}$/i).optional(),
   start_time: external_exports.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/).optional(),
-  userConfirmed: external_exports.boolean().optional(),
   ...capabilityRequestSchema
 }).strict();
 var skillsListSchema = external_exports.object({
@@ -32994,7 +33171,8 @@ var mcpDescribeSchema = external_exports.object({
 var mcpCallSchema = external_exports.object({
   server: external_exports.string().trim().min(1).max(256),
   tool: external_exports.string().trim().min(1).max(256),
-  arguments: external_exports.record(external_exports.string(), external_exports.unknown()).optional()
+  arguments: external_exports.record(external_exports.string(), external_exports.unknown()).optional(),
+  userConfirmed: external_exports.boolean().optional()
 }).strict();
 
 // ../../packages/mcp-server/dist/tools/batch-tools.js
@@ -33908,7 +34086,7 @@ function capabilityTools(context) {
   return [
     defineTool({
       name: "shell",
-      description: "Default tool for system operations and CLI tasks. Use it first for apps, URLs, files, HTTP, processes, and developer commands. Foreground is best for short work; background returns a task_id for status, logs, wait, result, or cancel.",
+      description: "Default tool for system operations and CLI tasks. Destructive shell commands require explicit chat confirmation and userConfirmed: true. Foreground is best for short work; background returns a task_id for status, logs, wait, result, or cancel.",
       permission: "EXECUTE",
       annotations: { readOnlyHint: false, destructiveHint: true },
       inputSchema: shellCapabilitySchema,
@@ -33996,7 +34174,7 @@ function capabilityTools(context) {
     }),
     defineTool({
       name: "web_fetch",
-      description: "Fetch an http/https URL (GET/POST/PUT/DELETE/HEAD) with bounded size and timeout. Returns status, headers, and text or base64 body. Use for docs, APIs, and downloads.",
+      description: "Fetch an http/https URL (GET/POST/PUT/DELETE/HEAD) with bounded size and timeout. HTTP DELETE requires explicit chat confirmation and userConfirmed: true. Returns status, headers, and text or base64 body.",
       permission: "DANGEROUS",
       annotations: { readOnlyHint: true, destructiveHint: false },
       inputSchema: webFetchCapabilitySchema,
@@ -34020,7 +34198,7 @@ function capabilityTools(context) {
     }),
     defineTool({
       name: "office",
-      description: "Automate Excel or Word through COM. excel: read/write cell ranges and save_as. word: read_text, find/replace, and save_as. Requires Microsoft Office installed.",
+      description: "Automate Excel or Word through COM. Mutating actions (write, replace, save_as) require explicit chat confirmation and userConfirmed: true. Requires Microsoft Office installed.",
       permission: "DANGEROUS",
       annotations: { readOnlyHint: false, destructiveHint: false },
       inputSchema: officeCapabilitySchema,
@@ -34148,7 +34326,7 @@ function gitTools(context) {
     }),
     defineTool({
       name: "git",
-      description: "Run any git subcommand immediately with a separate args array (init, clone, add, commit, remote, fetch, pull, push, rm, mv, restore, checkout, switch, branch, tag, stash, merge, rebase, cherry-pick, reset, clean, revert). cwd may be an absolute path; workspaceId is then optional. Returns exitCode, stdout, and stderr. Git deletions do not need extra confirmation. Do not wrap git in powershell/cmd.",
+      description: "Run any git subcommand immediately with a separate args array (init, clone, add, commit, remote, fetch, pull, push, rm, mv, restore, checkout, switch, branch, tag, stash, merge, rebase, cherry-pick, reset, clean, revert). cwd may be an absolute path; workspaceId is then optional. Returns exitCode, stdout, and stderr. Destructive Git operations require explicit chat confirmation and userConfirmed: true. Do not wrap git in powershell/cmd.",
       permission: "EXECUTE",
       annotations: { readOnlyHint: false, destructiveHint: true },
       inputSchema: gitRunSchema,
@@ -34185,7 +34363,7 @@ function mcpBridgeTools(context) {
     }),
     defineTool({
       name: "mcp_call",
-      description: "Call a tool on a discovered local MCP server. Pass server, tool, and arguments. Child tools may write, execute, or control the desktop according to that server.",
+      description: "Call a tool on a discovered local MCP server. Because child side effects cannot be proven non-destructive at this boundary, every mcp_call requires explicit chat confirmation and userConfirmed: true.",
       ...fullAccess,
       inputSchema: mcpCallSchema,
       handler: async (input) => context.services.extensions === void 0 ? missingService() : context.services.extensions.callMcpTool({
@@ -34467,6 +34645,13 @@ var ToolRegistry = class {
         await this.activity.end(callId, parsed.error.code, Date.now() - started, parsed.error.message);
         return response2;
       }
+      const destructiveDecision = inspectDestructiveOperation(tool.name, parsed.value);
+      if (destructiveDecision.destructive && !hasExplicitUserConfirmation(parsed.value)) {
+        const message = `Destructive operation requires explicit user confirmation${destructiveDecision.reason === void 0 ? "" : `: ${destructiveDecision.reason}`}. Ask the user in chat first, then retry with userConfirmed: true`;
+        const response2 = mapError(appError("PERMISSION_REQUIRED", message, true));
+        await this.activity.end(callId, "PERMISSION_REQUIRED", Date.now() - started, message);
+        return response2;
+      }
       const permissionDecision2 = this.permissionEngine.decide(this.profileProvider(), {
         action: "mcp:" + tool.name,
         level: tool.permission,
@@ -34525,7 +34710,7 @@ function createMcpServer(options) {
     ...options.activityTracker === void 0 ? {} : { activityTracker: options.activityTracker },
     ...options.profileProvider === void 0 ? {} : { profileProvider: options.profileProvider }
   });
-  const server = new McpServer({ name: "lnwjud", version: "2.2.2" }, { capabilities: { tools: {} } });
+  const server = new McpServer({ name: "lnwjud", version: "3.0.0" }, { capabilities: { tools: {} } });
   for (const tool of registry2.list()) {
     server.registerTool(tool.name, {
       description: tool.description,
@@ -35523,8 +35708,8 @@ var ShellCapabilityBackend = class {
       return err(appError("INVALID_INPUT", "Executable is required"));
     if (request.privilege === "admin")
       return err(appError("PERMISSION_DENIED", "Administrator access is not available to the local runner"));
-    if (isDeleteLikeShellCommand(request.executable, request.arguments)) {
-      return err(appError("PERMISSION_REQUIRED", "Delete/remove commands are blocked. Ask the user to confirm, then use delete_file with userConfirmed: true"));
+    if (isDeleteLikeShellCommand(request.executable, request.arguments) && !request.userConfirmed) {
+      return err(appError("PERMISSION_REQUIRED", "Delete/remove commands require explicit user confirmation. Ask the user in chat first, then retry with userConfirmed: true"));
     }
     const cwd = await this.resolveCwd(request.cwd);
     if (!cwd.ok)
@@ -35759,9 +35944,10 @@ function parseShellRequest(value, defaultTimeoutSeconds, maxOutputBytes) {
   const includeStdout = value.include_stdout === void 0 ? true : value.include_stdout;
   const includeStderr = value.include_stderr === void 0 ? true : value.include_stderr;
   const dryRun = value.dry_run === void 0 ? false : value.dry_run;
+  const userConfirmed = value.userConfirmed === true;
   if (typeof includeStdout !== "boolean" || typeof includeStderr !== "boolean" || typeof dryRun !== "boolean")
     return err(appError("INVALID_INPUT", "Shell flags are invalid"));
-  return ok({ operation, ...executable === void 0 ? {} : { executable: executable.trim() }, arguments: rawArguments, privilege, ...cwd === void 0 ? {} : { cwd }, execution, ...taskId === void 0 ? {} : { taskId }, timeoutSeconds, maxOutputBytes: requestedMaxBytes, ...tailLines === void 0 ? {} : { tailLines }, includeStdout, includeStderr, dryRun });
+  return ok({ operation, ...executable === void 0 ? {} : { executable: executable.trim() }, arguments: rawArguments, privilege, ...cwd === void 0 ? {} : { cwd }, execution, ...taskId === void 0 ? {} : { taskId }, timeoutSeconds, maxOutputBytes: requestedMaxBytes, ...tailLines === void 0 ? {} : { tailLines }, includeStdout, includeStderr, dryRun, userConfirmed });
 }
 function isShellOperation(value) {
   return typeof value === "string" && SHELL_OPERATIONS.some((operation) => operation === value);
@@ -35789,20 +35975,20 @@ function clampNumber(value, minimum, maximum) {
   return Math.min(maximum, Math.max(minimum, value));
 }
 function isDeleteLikeShellCommand(executable, args) {
-  const basename = import_node_path24.default.win32.basename(executable).toLowerCase();
-  if (basename === "git" || basename === "git.exe")
+  const basename2 = import_node_path24.default.win32.basename(executable).toLowerCase();
+  if (basename2 === "git" || basename2 === "git.exe")
     return false;
   const deleteNames = /* @__PURE__ */ new Set(["del", "del.exe", "erase", "erase.exe", "rm", "rm.exe", "rmdir", "rmdir.exe", "rd", "rd.exe", "unlink", "unlink.exe"]);
-  if (deleteNames.has(basename))
+  if (deleteNames.has(basename2))
     return true;
   const joined = args.map((entry) => entry.toLowerCase()).join(" ");
-  if (basename === "powershell.exe" || basename === "powershell" || basename === "pwsh.exe" || basename === "pwsh") {
+  if (basename2 === "powershell.exe" || basename2 === "powershell" || basename2 === "pwsh.exe" || basename2 === "pwsh") {
     if (/\bremove-item\b/.test(joined))
       return true;
     const withoutGitRm = joined.replace(/\bgit(?:\.exe)?\s+rm\b/g, " ");
     return /\brm\b/.test(withoutGitRm) || /\bdel\b/.test(withoutGitRm);
   }
-  if (basename === "cmd.exe" || basename === "cmd") {
+  if (basename2 === "cmd.exe" || basename2 === "cmd") {
     return /(^|[\s&|])(del|erase|rd|rmdir)\b/.test(joined);
   }
   return false;
@@ -36262,6 +36448,9 @@ var WebFetchCapabilityBackend = class {
       }
       body = request.body;
     }
+    if (request.dryRun) {
+      return ok({ dry_run: true, url: url2.toString(), method: request.method });
+    }
     const signal = AbortSignal.timeout(request.timeoutSeconds * 1e3);
     let response;
     try {
@@ -36347,13 +36536,17 @@ function parseRequest(value) {
   if (typeof timeoutSeconds !== "number" || !Number.isFinite(timeoutSeconds) || timeoutSeconds < 1 || timeoutSeconds > MAX_TIMEOUT_SECONDS3) {
     return err(appError("INVALID_INPUT", "timeout_seconds is invalid"));
   }
+  const dryRun = value.dry_run === void 0 ? false : value.dry_run;
+  if (typeof dryRun !== "boolean")
+    return err(appError("INVALID_INPUT", "dry_run is invalid"));
   return ok({
     url: url2.trim(),
     method: methodValue,
     headers,
     ...body === void 0 ? {} : { body },
     maxBytes,
-    timeoutSeconds
+    timeoutSeconds,
+    dryRun
   });
 }
 function isRecord8(value) {
@@ -36752,10 +36945,10 @@ function parseExtensionsSettings(raw) {
     const mode = record2.mode === "allowlist" ? "allowlist" : "enable_all";
     return {
       mode,
-      disabledServers: stringArray(record2.disabledServers),
-      enabledServers: stringArray(record2.enabledServers),
-      disabledSkillRoots: stringArray(record2.disabledSkillRoots),
-      extraSkillRoots: stringArray(record2.extraSkillRoots),
+      disabledServers: stringArray2(record2.disabledServers),
+      enabledServers: stringArray2(record2.enabledServers),
+      disabledSkillRoots: stringArray2(record2.disabledSkillRoots),
+      extraSkillRoots: stringArray2(record2.extraSkillRoots),
       extraMcpServers: mcpServerMap(record2.extraMcpServers)
     };
   } catch {
@@ -36775,7 +36968,7 @@ function isSkillRootEnabled(rootPath, settings) {
   const normalized = normalizePathKey(rootPath);
   return !settings.disabledSkillRoots.some((entry) => normalizePathKey(entry) === normalized);
 }
-function stringArray(value) {
+function stringArray2(value) {
   if (!Array.isArray(value))
     return [];
   return value.filter((entry) => typeof entry === "string" && entry.trim().length > 0);

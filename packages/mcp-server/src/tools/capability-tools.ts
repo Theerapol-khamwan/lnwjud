@@ -29,7 +29,7 @@ export function capabilityTools(context: McpToolContext): McpToolDefinition[] {
   return [
     defineTool({
       name: 'shell',
-      description: 'Default tool for system operations and CLI tasks. Use it first for apps, URLs, files, HTTP, processes, and developer commands. Foreground is best for short work; background returns a task_id for status, logs, wait, result, or cancel.',
+      description: 'Default tool for system operations and CLI tasks. Destructive shell commands require explicit chat confirmation and userConfirmed: true. Foreground is best for short work; background returns a task_id for status, logs, wait, result, or cancel.',
       permission: 'EXECUTE',
       annotations: { readOnlyHint: false, destructiveHint: true },
       inputSchema: shellCapabilitySchema,
@@ -117,7 +117,7 @@ export function capabilityTools(context: McpToolContext): McpToolDefinition[] {
     }),
     defineTool({
       name: 'web_fetch',
-      description: 'Fetch an http/https URL (GET/POST/PUT/DELETE/HEAD) with bounded size and timeout. Returns status, headers, and text or base64 body. Use for docs, APIs, and downloads.',
+      description: 'Fetch an http/https URL (GET/POST/PUT/DELETE/HEAD) with bounded size and timeout. HTTP DELETE requires explicit chat confirmation and userConfirmed: true. Returns status, headers, and text or base64 body.',
       permission: 'DANGEROUS',
       annotations: { readOnlyHint: true, destructiveHint: false },
       inputSchema: webFetchCapabilitySchema,
@@ -141,7 +141,7 @@ export function capabilityTools(context: McpToolContext): McpToolDefinition[] {
     }),
     defineTool({
       name: 'office',
-      description: 'Automate Excel or Word through COM. excel: read/write cell ranges and save_as. word: read_text, find/replace, and save_as. Requires Microsoft Office installed.',
+      description: 'Automate Excel or Word through COM. Mutating actions (write, replace, save_as) require explicit chat confirmation and userConfirmed: true. Requires Microsoft Office installed.',
       permission: 'DANGEROUS',
       annotations: { readOnlyHint: false, destructiveHint: false },
       inputSchema: officeCapabilitySchema,

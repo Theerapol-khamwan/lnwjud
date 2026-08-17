@@ -25,6 +25,7 @@ interface ShellRequest {
   readonly includeStdout: boolean;
   readonly includeStderr: boolean;
   readonly dryRun: boolean;
+  readonly userConfirmed: boolean;
 }
 
 export interface ShellCapabilityOptions {
@@ -38,7 +39,7 @@ export interface ShellCapabilityOptions {
   /**
    * Full-access mode: cwd may be any existing directory, the full environment is
    * passed through, and .cmd/.bat argument metacharacters are not rejected.
-   * Delete-like commands stay blocked in every mode. git rm/clean/reset are allowed.
+   * Delete-like commands require explicit human confirmation in every mode.
    */
   readonly unrestricted?: boolean;
 }
@@ -112,10 +113,10 @@ export class ShellCapabilityBackend implements CapabilityBackend {
   private async run(request: ShellRequest): Promise<Result<unknown>> {
     if (request.executable === undefined) return err(appError('INVALID_INPUT', 'Executable is required'));
     if (request.privilege === 'admin') return err(appError('PERMISSION_DENIED', 'Administrator access is not available to the local runner'));
-    if (isDeleteLikeShellCommand(request.executable, request.arguments)) {
+    if (isDeleteLikeShellCommand(request.executable, request.arguments) && !request.userConfirmed) {
       return err(appError(
         'PERMISSION_REQUIRED',
-        'Delete/remove commands are blocked. Ask the user to confirm, then use delete_file with userConfirmed: true',
+        'Delete/remove commands require explicit user confirmation. Ask the user in chat first, then retry with userConfirmed: true',
       ));
     }
 
@@ -331,8 +332,9 @@ function parseShellRequest(value: unknown, defaultTimeoutSeconds: number, maxOut
   const includeStdout = value.include_stdout === undefined ? true : value.include_stdout;
   const includeStderr = value.include_stderr === undefined ? true : value.include_stderr;
   const dryRun = value.dry_run === undefined ? false : value.dry_run;
+  const userConfirmed = value.userConfirmed === true;
   if (typeof includeStdout !== 'boolean' || typeof includeStderr !== 'boolean' || typeof dryRun !== 'boolean') return err(appError('INVALID_INPUT', 'Shell flags are invalid'));
-  return ok({ operation, ...(executable === undefined ? {} : { executable: executable.trim() }), arguments: rawArguments, privilege, ...(cwd === undefined ? {} : { cwd }), execution, ...(taskId === undefined ? {} : { taskId }), timeoutSeconds, maxOutputBytes: requestedMaxBytes, ...(tailLines === undefined ? {} : { tailLines }), includeStdout, includeStderr, dryRun });
+  return ok({ operation, ...(executable === undefined ? {} : { executable: executable.trim() }), arguments: rawArguments, privilege, ...(cwd === undefined ? {} : { cwd }), execution, ...(taskId === undefined ? {} : { taskId }), timeoutSeconds, maxOutputBytes: requestedMaxBytes, ...(tailLines === undefined ? {} : { tailLines }), includeStdout, includeStderr, dryRun, userConfirmed });
 }
 
 function isShellOperation(value: unknown): value is ShellOperation {

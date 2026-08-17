@@ -22,9 +22,9 @@ receive a public shell and does not read the local Codex configuration. For a
 ChatGPT web connection, OpenAI Secure MCP Tunnel forwards MCP requests to a
 local lnwjud process; the tunnel is outbound-only.
 
-## v2.2.2 release status
+## v3.0.0 release status
 
-Release `v2.2.2` builds on the v2.0.0 MCP gateway with a branded Windows tray
+Release `v3.0.0` builds on the v2.0.0 MCP gateway with a branded Windows tray
   mode, permission enforcement for Desktop MCP capability tools, profile-safe
   stdio/tunnel startup, and stable external tunnel state detection. It keeps
   the 184-tool catalog, compound/parallel workflows, persistent workspace
@@ -49,9 +49,8 @@ workspace paths without changing the Desktop profile.
 
 > **Security boundary:** lnwjud is still path-checked and policy-checked. It is
 > not an administrator shell. Unrestricted mode is **on by default** so every
-> local drive can be used. Filesystem deletion still requires a human
-> confirmation. Disk format / shutdown stay hard-blocked. Every Git subcommand
-> including `git rm`, `git clean`, and `git reset` is allowed.
+> local drive can be used. Destructive operations are centrally gated before backend execution and require explicit human
+> confirmation (`userConfirmed: true`). This includes filesystem deletion, destructive Git, opaque child MCP/agent calls, HTTP DELETE, destructive shell/process commands, mutating Office actions, and opaque UI actions that can trigger deletion. Disk format / shutdown stay hard-blocked.
 
 ## ⚡ Quick Setup: Zero to ChatGPT in 3 Minutes
 
@@ -66,7 +65,7 @@ Choose your preferred setup method:
 Follow this 4-step quick start to connect ChatGPT or any AI agent to your Windows PC using the official pre-built installer:
 
 #### Step 1: Download & Install Lnwjud Desktop
-1. Download the latest installer (`lnwjud-Setup-2.2.2.exe`) from **[GitHub Releases](https://github.com/engasnm111/lnwjud/releases/latest)**.
+1. Download the latest installer (`lnwjud-Setup-3.0.0.exe`) from **[GitHub Releases](https://github.com/engasnm111/lnwjud/releases/latest)**.
 2. Run the installer (it automatically creates start menu and desktop shortcuts).
 3. Launch **Lnwjud Agent Control Center**.
 
@@ -211,7 +210,7 @@ Right-click the tray icon to use:
 ### Important: the stdio launcher
 
 The tunnel command must start the stdio MCP entrypoint, not the Electron
-dashboard. The packaged v2.2.2 build ships this direct launcher:
+dashboard. The packaged v3.0.0 build ships this direct launcher:
 
 ```text
 lnwjud-mcp-stdio.cmd --workspace E:\lnwjud
@@ -324,7 +323,7 @@ corepack pnpm@10.15.0 package:windows
 The x64 NSIS installer is written to:
 
 ```text
-apps/desktop/dist/installers/lnwjud-Setup-2.2.2.exe
+apps/desktop/dist/installers/lnwjud-Setup-3.0.0.exe
 ```
 
 The installer is per-user by default. A common installed executable path is:
@@ -364,7 +363,8 @@ capabilities. The packaged stdio/tunnel runtime intentionally uses the
 `.env`, and does not overwrite the Desktop profile stored in SQLite.
 Unrestricted mode is on by default (every fixed drive is a machine root).
 Filesystem deletion-style commands require confirmation. Disk format, shutdown,
-and reboot stay hard-blocked. Git including `rm` / `clean` / `reset` is allowed.
+and reboot stay hard-blocked. Destructive Git forms including `rm` / `clean` /
+`reset` require explicit chat confirmation followed by `userConfirmed: true`.
 
 ### Optional local capability roots
 
@@ -671,7 +671,7 @@ start a new chat.
 
 ## Complete MCP tool catalog
 
-The current v2.2.2 catalog contains 184 tools across workspace/project
+The current v3.0.0 catalog contains 184 tools across workspace/project
 primitives, paging and indexing, compound/parallel workflows, Git/test/cache
 surfaces, lifecycle and permission contracts, local Windows capabilities,
 skills/MCP bridge discovery, visual adapters, and recovery/session tools.
@@ -734,20 +734,20 @@ restricted-drive secret policy.
 
 | Tool | Permission | What it does |
 | --- | --- | --- |
-| git | EXECUTE | Runs any git subcommand immediately (`args` array; `cwd` may be absolute) |
+| git | EXECUTE | Runs git subcommands; destructive forms require explicit chat confirmation plus `userConfirmed: true` |
 | git_status | READ | Parsed read-only working-tree status |
 | git_diff | READ | Bounded read-only diff with truncation metadata |
 | git_log | READ | Bounded structured commit history |
 
 Use `git` for init, add, commit, remote, push, pull, rm, clean, reset, and
 branch deletes. `git_status` / `git_diff` / `git_log` remain structured
-read-only views. Filesystem `rm` / `del` / `delete_file` still need confirmation.
+read-only views. Destructive Git forms such as `rm`, `clean`, `reset`, forced branch/tag moves, stash removal, force-push, and working-tree discard require explicit confirmation before execution.
 
 ### Processes and project commands
 
 | Tool | Permission | What it does |
 | --- | --- | --- |
-| process_start | EXECUTE | Starts one policy-checked executable with separate arguments and returns a process handle |
+| process_start | EXECUTE | Starts one policy-checked executable; destructive command forms require explicit confirmation |
 | process_status | READ | Reads state for an owned process handle |
 | process_logs | READ | Reads bounded stdout/stderr records with sequence numbers |
 | process_stop | EXECUTE | Stops an owned managed process tree |
@@ -915,9 +915,8 @@ When enabled:
 - Shell working directories may be anywhere and the full environment is passed
   through to child processes.
 
-Still blocked in every mode: filesystem `del`/`erase`/`rm`/`rmdir`/`rd`/
-`unlink`/`remove-item`, and `delete_file` without `userConfirmed: true`.
-Git subcommands including `git rm`, `git clean`, and `git reset` are allowed.
+Still confirmation-gated in every mode: filesystem `del`/`erase`/`rm`/`rmdir`/`rd`/
+`unlink`/`remove-item`, `delete_file`, destructive Git (`rm`, `clean`, `reset`, force/discard forms), HTTP DELETE, mutating Office actions, child MCP/agent mutation boundaries, and opaque UI actions that may cause data loss. These operations require explicit chat confirmation followed by `userConfirmed: true`.
 
 ## Real-time Live Logs
 

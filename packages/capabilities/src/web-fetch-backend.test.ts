@@ -18,6 +18,23 @@ describe('WebFetchCapabilityBackend', () => {
     expect(result).toMatchObject({ ok: true, value: { status: 200, text: 'hello world', byte_length: 11, truncated: false } });
   });
 
+  it('returns a dry-run preview without issuing the request', async () => {
+    const fetchImpl = vi.fn(async (): Promise<Response> => textResponse('should not be fetched'));
+    const backend = new WebFetchCapabilityBackend({ fetchImpl: fetchImpl as unknown as typeof fetch });
+
+    const result = await backend.execute({
+      url: 'https://example.com/item/1',
+      method: 'DELETE',
+      dry_run: true,
+    });
+
+    expect(result).toMatchObject({
+      ok: true,
+      value: { dry_run: true, url: 'https://example.com/item/1', method: 'DELETE' },
+    });
+    expect(fetchImpl).not.toHaveBeenCalled();
+  });
+
   it('rejects non-http protocols', async () => {
     const backend = new WebFetchCapabilityBackend({});
 

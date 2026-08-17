@@ -231,4 +231,89 @@ describe('MCP tool registry', () => {
       ],
     });
   });
+  it('requires explicit confirmation before destructive git commands reach the backend', async () => {
+    let executed = 0;
+    const registry = new ToolRegistry({
+      git: {
+        async run(): Promise<ReturnType<typeof ok>> {
+          executed += 1;
+          return ok({ exitCode: 0, stdout: '', stderr: '' });
+        },
+      },
+    }, actor);
+
+    const blocked = await registry.invoke('git', { workspaceId: 'workspace-1', args: ['reset', '--hard'] });
+    expect(blocked).toMatchObject({ isError: true, structuredContent: { error: { code: 'PERMISSION_REQUIRED' } } });
+    expect(executed).toBe(0);
+
+    const allowed = await registry.invoke('git', { workspaceId: 'workspace-1', args: ['reset', '--hard'], userConfirmed: true });
+    expect(allowed.isError).not.toBe(true);
+    expect(executed).toBe(1);
+  });
+
+  it('allows non-destructive git commands without confirmation', async () => {
+    let executed = 0;
+    const registry = new ToolRegistry({
+      git: {
+        async run(): Promise<ReturnType<typeof ok>> {
+          executed += 1;
+          return ok({ exitCode: 0, stdout: '', stderr: '' });
+        },
+      },
+    }, actor);
+
+    const response = await registry.invoke('git', { workspaceId: 'workspace-1', args: ['status', '--short'] });
+    expect(response.isError).not.toBe(true);
+    expect(executed).toBe(1);
+  });
+
+  it('requires explicit confirmation for remote DELETE, child MCP calls, and destructive shell commands', async () => {
+    const calls: string[] = [];
+    const registry = new ToolRegistry({
+      capabilities: {
+        async execute(tool): Promise<ReturnType<typeof ok>> {
+          calls.push(tool);
+          return ok({ ok: true });
+        },
+      },
+      extensions: {
+        async callMcpTool(): Promise<ReturnType<typeof ok>> { calls.push('mcp_call'); return ok({ ok: true }); },
+      } as McpApplicationServices['extensions'],
+    }, actor);
+
+    await expect(registry.invoke('web_fetch', { url: 'https://example.com/item/1', method: 'DELETE' })).resolves.toMatchObject({ isError: true, structuredContent: { error: { code: 'PERMISSION_REQUIRED' } } });
+    await expect(registry.invoke('shell', { operation: 'run', executable: 'git', arguments: ['clean', '-fd'] })).resolves.toMatchObject({ isError: true, structuredContent: { error: { code: 'PERMISSION_REQUIRED' } } });
+    await expect(registry.invoke('mcp_call', { server: 'child', tool: 'delete_file', arguments: { path: 'x' } })).resolves.toMatchObject({ isError: true, structuredContent: { error: { code: 'PERMISSION_REQUIRED' } } });
+    expect(calls).toEqual([]);
+
+    expect((await registry.invoke('web_fetch', { url: 'https://example.com/item/1', method: 'DELETE', userConfirmed: true })).isError).not.toBe(true);
+    expect((await registry.invoke('shell', { operation: 'run', executable: 'git', arguments: ['clean', '-fd'], userConfirmed: true })).isError).not.toBe(true);
+    expect((await registry.invoke('mcp_call', { server: 'child', tool: 'delete_file', arguments: { path: 'x' }, userConfirmed: true })).isError).not.toBe(true);
+    expect(calls).toEqual(['web_fetch', 'shell', 'mcp_call']);
+  });
+
+  it('guards opaque execution and UI side-effect boundaries', async () => {
+    const calls: string[] = [];
+    const registry = new ToolRegistry({
+      capabilities: {
+        async execute(tool): Promise<ReturnType<typeof ok>> { calls.push(tool); return ok({ ok: true }); },
+      },
+      process: {
+        async start(): Promise<ReturnType<typeof ok>> { calls.push('process_start'); return ok({ processId: 'p1' }); },
+      } as McpApplicationServices['process'],
+      codex: {
+        async run(): Promise<ReturnType<typeof ok>> { calls.push('codex_run'); return ok({ codexTaskId: 'c1' }); },
+      } as McpApplicationServices['codex'],
+    }, actor);
+
+    await expect(registry.invoke('process_start', { workspaceId: 'workspace-1', executable: 'powershell', args: ['-Command', 'Remove-Item x.txt'] })).resolves.toMatchObject({ isError: true, structuredContent: { error: { code: 'PERMISSION_REQUIRED' } } });
+    for (const command of ['rm', 'del']) {
+      await expect(registry.invoke('process_start', { workspaceId: 'workspace-1', executable: 'powershell', args: ['-Command', `${command} x.txt`] })).resolves.toMatchObject({ isError: true, structuredContent: { error: { code: 'PERMISSION_REQUIRED' } } });
+    }
+    await expect(registry.invoke('codex_run', { workspaceId: 'workspace-1', instruction: 'edit the project' })).resolves.toMatchObject({ isError: true, structuredContent: { error: { code: 'PERMISSION_REQUIRED' } } });
+    await expect(registry.invoke('dom_cdp', { action: 'evaluate', parameters: { expression: 'fetch("/api/item/1", {method:"DELETE"})' } })).resolves.toMatchObject({ isError: true, structuredContent: { error: { code: 'PERMISSION_REQUIRED' } } });
+    await expect(registry.invoke('accessibility', { action: 'click', parameters: { name: 'button' } })).resolves.toMatchObject({ isError: true, structuredContent: { error: { code: 'PERMISSION_REQUIRED' } } });
+    expect(calls).toEqual([]);
+  });
+
 });

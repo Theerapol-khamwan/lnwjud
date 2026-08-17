@@ -28,7 +28,7 @@ export function mcpBridgeTools(context: McpToolContext): McpToolDefinition[] {
     }),
     defineTool({
       name: 'mcp_call',
-      description: 'Call a tool on a discovered local MCP server. Pass server, tool, and arguments. Child tools may write, execute, or control the desktop according to that server.',
+      description: 'Call a tool on a discovered local MCP server. Because child side effects cannot be proven non-destructive at this boundary, every mcp_call requires explicit chat confirmation and userConfirmed: true.',
       ...fullAccess,
       inputSchema: mcpCallSchema,
       handler: async (input) => context.services.extensions === undefined

@@ -49,6 +49,10 @@ export class WebFetchCapabilityBackend implements CapabilityBackend {
       body = request.body;
     }
 
+    if (request.dryRun) {
+      return ok({ dry_run: true, url: url.toString(), method: request.method });
+    }
+
     const signal = AbortSignal.timeout(request.timeoutSeconds * 1000);
     let response: Response;
     try {
@@ -120,6 +124,7 @@ interface WebFetchRequest {
   readonly body?: string;
   readonly maxBytes: number;
   readonly timeoutSeconds: number;
+  readonly dryRun: boolean;
 }
 
 function parseRequest(value: unknown): Result<WebFetchRequest> {
@@ -142,6 +147,8 @@ function parseRequest(value: unknown): Result<WebFetchRequest> {
   if (typeof timeoutSeconds !== 'number' || !Number.isFinite(timeoutSeconds) || timeoutSeconds < 1 || timeoutSeconds > MAX_TIMEOUT_SECONDS) {
     return err(appError('INVALID_INPUT', 'timeout_seconds is invalid'));
   }
+  const dryRun = value.dry_run === undefined ? false : value.dry_run;
+  if (typeof dryRun !== 'boolean') return err(appError('INVALID_INPUT', 'dry_run is invalid'));
   return ok({
     url: url.trim(),
     method: methodValue,
@@ -149,6 +156,7 @@ function parseRequest(value: unknown): Result<WebFetchRequest> {
     ...(body === undefined ? {} : { body }),
     maxBytes,
     timeoutSeconds,
+    dryRun,
   });
 }
 
