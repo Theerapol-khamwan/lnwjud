@@ -6,11 +6,11 @@ const desktopRoot = path.resolve(import.meta.dirname, '..', '..', 'apps', 'deskt
 const repositoryRoot = path.resolve(desktopRoot, '..', '..');
 
 describe('Windows desktop packaging', () => {
-  it('pins the product release to v3.0.2', async () => {
+  it('pins the product release to v3.0.3', async () => {
     const rootPackage = JSON.parse(await readFile(path.join(repositoryRoot, 'package.json'), 'utf8')) as { version?: unknown };
     const desktopPackage = JSON.parse(await readFile(path.join(desktopRoot, 'package.json'), 'utf8')) as { version?: unknown };
-    expect(rootPackage.version).toBe('3.0.2');
-    expect(desktopPackage.version).toBe('3.0.2');
+    expect(rootPackage.version).toBe('3.0.3');
+    expect(desktopPackage.version).toBe('3.0.3');
   });
 
   it('declares lnwjud x64 NSIS packaging and built runtime bundles', async () => {

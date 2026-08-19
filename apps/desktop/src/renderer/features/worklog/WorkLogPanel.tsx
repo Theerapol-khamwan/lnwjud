@@ -52,7 +52,8 @@ export function WorkLogPanel(props: WorkLogPanelProps): ReactElement {
             <time>{formatTime(item.startedAt)}</time>
             <span className="tag">[TASK]</span>
             <strong>{item.toolName}</strong>
-            <span>{item.targetSummary ?? ''}</span>
+            <span className="worklog-summary">{item.targetSummary ?? ''}</span>
+            <span className="worklog-duration" />
           </div>
         ))}
         {visible.length === 0 && props.inFlight.length === 0 ? <p>{props.emptyLabel}</p> : null}
@@ -61,14 +62,33 @@ export function WorkLogPanel(props: WorkLogPanelProps): ReactElement {
             <time>{formatTime(entry.timestamp)}</time>
             <span className="tag">{tagFor(entry.kind)}</span>
             <strong>{entry.toolName}</strong>
-            <span>{entry.targetSummary ?? entry.resultCode}</span>
-            {entry.kind === 'error' && entry.errorMessage !== null ? <span>{entry.errorMessage}</span> : null}
-            {entry.kind !== 'task' ? <em>{entry.durationMs}ms</em> : null}
+            <span className="worklog-summary">
+              {renderEntryDetail(entry)}
+            </span>
+            {entry.kind !== 'task' ? <em>{entry.durationMs}ms</em> : <span className="worklog-duration" />}
           </div>
         ))}
       </div>
     </section>
   );
+}
+
+function renderEntryDetail(entry: WorkLogEntry): ReactElement | string {
+  if (entry.kind === 'error') {
+    if (entry.targetSummary && entry.errorMessage) {
+      return (
+        <>
+          <span>{entry.targetSummary}</span>
+          <span className="worklog-error-detail"> — {entry.errorMessage}</span>
+        </>
+      );
+    }
+    if (entry.errorMessage) {
+      return <span className="worklog-error-detail">{entry.errorMessage}</span>;
+    }
+    return entry.targetSummary ?? entry.resultCode;
+  }
+  return entry.targetSummary ?? entry.resultCode;
 }
 
 function tagFor(kind: WorkLogEntry['kind']): string {

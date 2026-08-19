@@ -22,9 +22,9 @@ receive a public shell and does not read the local Codex configuration. For a
 ChatGPT web connection, OpenAI Secure MCP Tunnel forwards MCP requests to a
 local lnwjud process; the tunnel is outbound-only.
 
-## v3.0.2 release status
+## v3.0.3 release status
 
-Release `v3.0.2` builds on the v3.0.0/v3.0.1 series with important UI layout fixes, eliminating card border overflows (กรอบทะลุ) across Git, Doctor, Project, and Work Log views, and improving responsiveness and text wrapping for long paths and commands. It maintains:
+Release `v3.0.3` fixes the Work Log vertical character wrap glitch on error entries, ensures robust 5-column grid alignment with clean multi-line detail wrapping, and builds on the v3.0.2 stability improvements across all views. It maintains:
 - Branded Windows tray mode with background service persistence.
 - Permission enforcement for Desktop MCP capability tools with full-access stdio/tunnel profiles.
 - 184-tool catalog across workspace, shell, process, Git, Office, and vision capabilities.
@@ -64,7 +64,7 @@ Choose your preferred setup method:
 Follow this 4-step quick start to connect ChatGPT or any AI agent to your Windows PC using the official pre-built installer:
 
 #### Step 1: Download & Install Lnwjud Desktop
-1. Download the latest installer (`lnwjud-Setup-3.0.2.exe`) from **[GitHub Releases](https://github.com/engasnm111/lnwjud/releases/latest)**.
+1. Download the latest installer (`lnwjud-Setup-3.0.3.exe`) from **[GitHub Releases](https://github.com/engasnm111/lnwjud/releases/latest)**.
 2. Run the installer (it automatically creates start menu and desktop shortcuts).
 3. Launch **Lnwjud Agent Control Center**.
 
@@ -322,7 +322,7 @@ corepack pnpm@10.15.0 package:windows
 The x64 NSIS installer is written to:
 
 ```text
-apps/desktop/dist/installers/lnwjud-Setup-3.0.2.exe
+apps/desktop/dist/installers/lnwjud-Setup-3.0.3.exe
 ```
 
 The installer is per-user by default. A common installed executable path is:

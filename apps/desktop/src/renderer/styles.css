@@ -651,7 +651,7 @@ input:focus, select:focus {
   gap: 12px;
   padding: 7px 4px;
   border-bottom: 1px solid rgba(255, 255, 255, 0.04);
-  align-items: center;
+  align-items: baseline;
   min-width: 0;
 }
 
@@ -675,18 +675,32 @@ input:focus, select:focus {
 
 .worklog-line strong {
   min-width: 0;
-  overflow-wrap: anywhere;
+  overflow-wrap: break-word;
+  word-break: break-word;
 }
 
+.worklog-line .worklog-summary,
 .worklog-line span {
   min-width: 0;
-  overflow-wrap: anywhere;
+  overflow-wrap: break-word;
+  word-break: break-word;
+}
+
+.worklog-error-detail {
+  color: var(--danger);
+  opacity: 0.92;
 }
 
 .worklog-line em {
   color: var(--muted);
   font-style: normal;
   font-size: 11.5px;
+  flex-shrink: 0;
+  text-align: right;
+  white-space: nowrap;
+}
+
+.worklog-line .worklog-duration {
   flex-shrink: 0;
 }
 
