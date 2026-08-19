@@ -46,4 +46,19 @@ describe('ActivityTracker', () => {
     expect(summarizeToolTarget('search_text', { query: 'hello' })).toBe('hello');
     expect(summarizeToolTarget('shell', { executable: 'node', arguments: ['-e', '1'] })).toBe('node -e 1');
   });
+
+  it('propagates bounded trace context into audit events and in-flight state', async () => {
+    const events: ActivitySinkEvent[] = [];
+    const tracker = new ActivityTracker({ async record(event): Promise<void> { events.push(event); } });
+
+    const callId = await tracker.begin('wsl_exec', {
+      metadata: { trace_id: 'trace-123', traceparent: '00-trace-123-span-456-01' },
+      workspaceId: 'ws-1',
+    });
+    expect(tracker.listInFlight()[0]).toMatchObject({ traceId: 'trace-123', traceParent: '00-trace-123-span-456-01' });
+    await tracker.end(callId, 'SUCCESS', 3);
+    expect(events).toEqual(expect.arrayContaining([
+      expect.objectContaining({ traceId: 'trace-123', traceParent: '00-trace-123-span-456-01' }),
+    ]));
+  });
 });

@@ -1,12 +1,13 @@
 # lnwjud Tool Contract
 
-Status: Phase 41 contract snapshot for the `v3.0.0` release.
+Status: God-Tier Wave 0–8 additive contract snapshot for `v4.0.0`.
 
 This is the compatibility contract for the current MCP surface. The runtime
 advertises the JSON Schema for every input through `tools/list`; the TypeScript
 Zod schemas in `packages/mcp-server/src/tools/` are the implementation source
 of truth. The existing human-oriented catalog remains useful for field details,
-while this document records the complete 184-tool runtime snapshot, policy class,
+while this document records the complete 208-tool runtime snapshot, preserves the
+184-tool compatibility baseline, and records policy class,
 annotations, and schema source.
 
 ## Protocol and result rules
@@ -196,8 +197,71 @@ capability backends. Important invariants are:
   scheduler operations retain their existing interactive/destructive policy;
 - `vision`, `health`, and `system_info` remain truthful read-only diagnostics;
 - `web_fetch` remains HTTP(S)-only and bounded by explicit byte/timeout fields;
-  - `skills_*` and `mcp_*` remain full-access bridge tools and do not silently
-  flatten child-server tools into the 184-tool catalog.
+- `skills_*` and `mcp_*` remain full-access bridge tools and do not silently
+  flatten child-server tools into the 208-tool catalog.
+
+The additive Windows gateway contract is:
+
+```ts
+wsl_exec: {
+  workspaceId: string;
+  distro?: string;
+  executable?: string;
+  arguments?: string[];
+  cwd?: string;                 // registered absolute Windows path
+  environment?: Record<string, string>;
+  operation?: 'run' | 'status' | 'wait' | 'logs' | 'result' | 'cancel';
+  execution?: 'foreground' | 'background' | 'auto';
+  task_id?: string;
+}
+wsl_fs: {
+  workspaceId?: string;
+  operation?: 'status' | 'translate' | 'metadata';
+  direction?: 'windows_to_wsl' | 'wsl_to_windows';
+  distro?: string;
+  path?: string;
+}
+vision_annotated_capture: {
+  workspaceId: string;
+  capture?: 'display' | 'region' | 'window';
+  max_depth?: number;
+  max_marks?: number;
+  ttl_seconds?: number;
+}
+ui_target_action: {
+  workspaceId: string;
+  observationId: string;
+  markId: string;
+  observationHash?: string;
+  action?: 'click' | 'focus' | 'read_value' | 'set_value' | 'select_item' | 'menu_select';
+  value?: string;
+  userConfirmed?: boolean;
+}
+```
+
+`wsl_exec` is argv-only and delegates task lifecycle to the existing bounded
+shell runner. It records workspace ownership, rejects shell-string flags, and
+does not expose arbitrary host paths. `wsl_fs` only translates paths or reads
+metadata; it never opens raw `\\wsl$`/`\\wsl.localhost` files. A WSL status
+failure is returned as `available: false`, not as a successful empty task.
+
+SoM observations return `observationId`, `observationHash`, annotated PNG data,
+`marks[]`, and `expiresAt`. `ui_target_action` checks owner, TTL, optional hash,
+mark identity, and a fresh Accessibility lookup before forwarding an action.
+Coordinates are screen-pixel metadata; action execution uses semantic element
+identifiers so DPI and multi-monitor offsets do not become authorization.
+
+`vision` keeps its existing public OCR action. WinRT OCR is routed to the
+separate packaged-helper boundary and returns a truthful unavailable result when
+package identity, a supported profile language, or the helper is absent. The
+NSIS application remains the primary installer; sparse-package registration is
+an optional release step.
+
+The router adds `tool_dynamic_filter` and extends `tool_search`/`route_intent`
+with ranked candidates, deterministic scores, reason codes, selected model,
+permission metadata, and `authorizationUnchanged: true`. Local rerank is
+opt-in; when no local model is configured it falls back to deterministic scoring
+without sending prompt or file data off-machine.
 
 ### Context aggregation
 

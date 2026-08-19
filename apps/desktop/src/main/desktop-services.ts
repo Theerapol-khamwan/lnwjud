@@ -192,6 +192,8 @@ export function createDesktopRuntime(dataPath: string, options: DesktopRuntimeOp
           ...(event.targetSummary === undefined ? {} : { targetSummary: event.targetSummary }),
           resultCode: event.resultCode,
           ...(event.resultMessage === undefined ? {} : { resultMessage: event.resultMessage }),
+          ...(event.traceId === undefined ? {} : { traceId: event.traceId }),
+          ...(event.traceParent === undefined ? {} : { traceParent: event.traceParent }),
           durationMs: event.durationMs,
           timestamp: event.timestamp,
         });

@@ -1,22 +1,29 @@
 import { appError, err, ok, type Result } from '@lnwjud/domain';
 import { capabilityToolNames, type CapabilityToolName } from './index.js';
+import { capabilityDescriptors } from './capability-descriptors.js';
 import type { CapabilityBackend } from './local-capability-service.js';
 
 interface HealthCapabilityOptions {
   readonly platform?: NodeJS.Platform;
   readonly domCdp?: CapabilityBackend;
   readonly accessibility?: CapabilityBackend;
+  readonly wslExec?: CapabilityBackend;
+  readonly wslFs?: CapabilityBackend;
 }
 
 export class HealthCapabilityBackend implements CapabilityBackend {
   private readonly platform: NodeJS.Platform;
   private readonly domCdp: CapabilityBackend | undefined;
   private readonly accessibility: CapabilityBackend | undefined;
+  private readonly wslExec: CapabilityBackend | undefined;
+  private readonly wslFs: CapabilityBackend | undefined;
 
   public constructor(options: HealthCapabilityOptions = {}) {
     this.platform = options.platform ?? process.platform;
     this.domCdp = options.domCdp;
     this.accessibility = options.accessibility;
+    this.wslExec = options.wslExec;
+    this.wslFs = options.wslFs;
   }
 
   public async execute(input: unknown): Promise<Result<unknown>> {
@@ -34,14 +41,31 @@ export class HealthCapabilityBackend implements CapabilityBackend {
   }
 
   private async check(tool: CapabilityToolName): Promise<Record<string, unknown>> {
-    if (tool === 'shell' || tool === 'health' || tool === 'web_fetch' || tool === 'scheduler') return { available: true, ready: true, local: true };
+    if (tool === 'shell' || tool === 'health' || tool === 'web_fetch' || tool === 'scheduler') return this.describe(tool, { available: true, ready: true, local: true });
     if (tool === 'system_info' || tool === 'notification' || tool === 'file_dialog' || tool === 'clipboard'
       || tool === 'audio' || tool === 'screen_record' || tool === 'office') {
-      return { available: this.platform === 'win32', ready: this.platform === 'win32', local: true };
+      return this.describe(tool, { available: this.platform === 'win32', ready: this.platform === 'win32', local: true });
     }
-    if (tool === 'input_event' || tool === 'vision' || tool === 'window') return { available: this.platform === 'win32', ready: this.platform === 'win32', local: true };
-    if (tool === 'dom_cdp') return this.checkDelegated(this.domCdp, { action: 'status' });
-    return this.checkDelegated(this.accessibility, { action: 'status' });
+    if (tool === 'input_event' || tool === 'vision' || tool === 'window') return this.describe(tool, { available: this.platform === 'win32', ready: this.platform === 'win32', local: true });
+    if (tool === 'dom_cdp') return this.describe(tool, await this.checkDelegated(this.domCdp, { action: 'status' }));
+    if (tool === 'wsl_exec') return this.describe(tool, await this.checkDelegated(this.wslExec, { operation: 'status' }));
+    if (tool === 'wsl_fs') return this.describe(tool, await this.checkDelegated(this.wslFs, { operation: 'status' }));
+    return this.describe(tool, await this.checkDelegated(this.accessibility, { action: 'status' }));
+  }
+
+  private describe(tool: CapabilityToolName, value: Record<string, unknown>): Record<string, unknown> {
+    const descriptor = capabilityDescriptors.find((candidate) => candidate.name === tool);
+    return descriptor === undefined
+      ? value
+      : {
+        availability: descriptor.availability,
+        requirements: descriptor.requirements,
+        permission: descriptor.permission,
+        supportsCancel: descriptor.supportsCancel,
+        supportsDryRun: descriptor.supportsDryRun,
+        auditTarget: descriptor.auditTarget,
+        ...value,
+      };
   }
 
   private async checkDelegated(backend: CapabilityBackend | undefined, input: unknown): Promise<Record<string, unknown>> {

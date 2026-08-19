@@ -59,6 +59,8 @@ export class AuditService {
         callId: input.callId,
         phase: input.phase,
         ...(input.resultMessage === undefined ? {} : { errorMessage: input.resultMessage }),
+        ...(input.traceId === undefined ? {} : { traceId: input.traceId }),
+        ...(input.traceParent === undefined ? {} : { traceParent: input.traceParent }),
       },
     });
   }

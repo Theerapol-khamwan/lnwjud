@@ -35,7 +35,7 @@ var require_windows = __commonJS({
     module2.exports = isexe;
     isexe.sync = sync;
     var fs2 = require("fs");
-    function checkPathExt(path32, options) {
+    function checkPathExt(path34, options) {
       var pathext = options.pathExt !== void 0 ? options.pathExt : process.env.PATHEXT;
       if (!pathext) {
         return true;
@@ -46,25 +46,25 @@ var require_windows = __commonJS({
       }
       for (var i = 0; i < pathext.length; i++) {
         var p = pathext[i].toLowerCase();
-        if (p && path32.substr(-p.length).toLowerCase() === p) {
+        if (p && path34.substr(-p.length).toLowerCase() === p) {
           return true;
         }
       }
       return false;
     }
-    function checkStat(stat13, path32, options) {
-      if (!stat13.isSymbolicLink() && !stat13.isFile()) {
+    function checkStat(stat14, path34, options) {
+      if (!stat14.isSymbolicLink() && !stat14.isFile()) {
         return false;
       }
-      return checkPathExt(path32, options);
+      return checkPathExt(path34, options);
     }
-    function isexe(path32, options, cb) {
-      fs2.stat(path32, function(er, stat13) {
-        cb(er, er ? false : checkStat(stat13, path32, options));
+    function isexe(path34, options, cb) {
+      fs2.stat(path34, function(er, stat14) {
+        cb(er, er ? false : checkStat(stat14, path34, options));
       });
     }
-    function sync(path32, options) {
-      return checkStat(fs2.statSync(path32), path32, options);
+    function sync(path34, options) {
+      return checkStat(fs2.statSync(path34), path34, options);
     }
   }
 });
@@ -75,21 +75,21 @@ var require_mode = __commonJS({
     module2.exports = isexe;
     isexe.sync = sync;
     var fs2 = require("fs");
-    function isexe(path32, options, cb) {
-      fs2.stat(path32, function(er, stat13) {
-        cb(er, er ? false : checkStat(stat13, options));
+    function isexe(path34, options, cb) {
+      fs2.stat(path34, function(er, stat14) {
+        cb(er, er ? false : checkStat(stat14, options));
       });
     }
-    function sync(path32, options) {
-      return checkStat(fs2.statSync(path32), options);
+    function sync(path34, options) {
+      return checkStat(fs2.statSync(path34), options);
     }
-    function checkStat(stat13, options) {
-      return stat13.isFile() && checkMode(stat13, options);
+    function checkStat(stat14, options) {
+      return stat14.isFile() && checkMode(stat14, options);
     }
-    function checkMode(stat13, options) {
-      var mod = stat13.mode;
-      var uid = stat13.uid;
-      var gid = stat13.gid;
+    function checkMode(stat14, options) {
+      var mod = stat14.mode;
+      var uid = stat14.uid;
+      var gid = stat14.gid;
       var myUid = options.uid !== void 0 ? options.uid : process.getuid && process.getuid();
       var myGid = options.gid !== void 0 ? options.gid : process.getgid && process.getgid();
       var u = parseInt("100", 8);
@@ -114,7 +114,7 @@ var require_isexe = __commonJS({
     }
     module2.exports = isexe;
     isexe.sync = sync;
-    function isexe(path32, options, cb) {
+    function isexe(path34, options, cb) {
       if (typeof options === "function") {
         cb = options;
         options = {};
@@ -124,7 +124,7 @@ var require_isexe = __commonJS({
           throw new TypeError("callback not provided");
         }
         return new Promise(function(resolve, reject) {
-          isexe(path32, options || {}, function(er, is) {
+          isexe(path34, options || {}, function(er, is) {
             if (er) {
               reject(er);
             } else {
@@ -133,7 +133,7 @@ var require_isexe = __commonJS({
           });
         });
       }
-      core(path32, options || {}, function(er, is) {
+      core(path34, options || {}, function(er, is) {
         if (er) {
           if (er.code === "EACCES" || options && options.ignoreErrors) {
             er = null;
@@ -143,9 +143,9 @@ var require_isexe = __commonJS({
         cb(er, is);
       });
     }
-    function sync(path32, options) {
+    function sync(path34, options) {
       try {
-        return core.sync(path32, options || {});
+        return core.sync(path34, options || {});
       } catch (er) {
         if (options && options.ignoreErrors || er.code === "EACCES") {
           return false;
@@ -161,7 +161,7 @@ var require_isexe = __commonJS({
 var require_which = __commonJS({
   "../../node_modules/.pnpm/which@2.0.2/node_modules/which/which.js"(exports2, module2) {
     var isWindows = process.platform === "win32" || process.env.OSTYPE === "cygwin" || process.env.OSTYPE === "msys";
-    var path32 = require("path");
+    var path34 = require("path");
     var COLON = isWindows ? ";" : ":";
     var isexe = require_isexe();
     var getNotFoundError = (cmd) => Object.assign(new Error(`not found: ${cmd}`), { code: "ENOENT" });
@@ -199,7 +199,7 @@ var require_which = __commonJS({
           return opt.all && found.length ? resolve(found) : reject(getNotFoundError(cmd));
         const ppRaw = pathEnv[i];
         const pathPart = /^".*"$/.test(ppRaw) ? ppRaw.slice(1, -1) : ppRaw;
-        const pCmd = path32.join(pathPart, cmd);
+        const pCmd = path34.join(pathPart, cmd);
         const p = !pathPart && /^\.[\\\/]/.test(cmd) ? cmd.slice(0, 2) + pCmd : pCmd;
         resolve(subStep(p, i, 0));
       });
@@ -226,7 +226,7 @@ var require_which = __commonJS({
       for (let i = 0; i < pathEnv.length; i++) {
         const ppRaw = pathEnv[i];
         const pathPart = /^".*"$/.test(ppRaw) ? ppRaw.slice(1, -1) : ppRaw;
-        const pCmd = path32.join(pathPart, cmd);
+        const pCmd = path34.join(pathPart, cmd);
         const p = !pathPart && /^\.[\\\/]/.test(cmd) ? cmd.slice(0, 2) + pCmd : pCmd;
         for (let j = 0; j < pathExt.length; j++) {
           const cur = p + pathExt[j];
@@ -274,7 +274,7 @@ var require_path_key = __commonJS({
 var require_resolveCommand = __commonJS({
   "../../node_modules/.pnpm/cross-spawn@7.0.6/node_modules/cross-spawn/lib/util/resolveCommand.js"(exports2, module2) {
     "use strict";
-    var path32 = require("path");
+    var path34 = require("path");
     var which = require_which();
     var getPathKey = require_path_key();
     function resolveCommandAttempt(parsed, withoutPathExt) {
@@ -292,7 +292,7 @@ var require_resolveCommand = __commonJS({
       try {
         resolved = which.sync(parsed.command, {
           path: env[getPathKey({ env })],
-          pathExt: withoutPathExt ? path32.delimiter : void 0
+          pathExt: withoutPathExt ? path34.delimiter : void 0
         });
       } catch (e) {
       } finally {
@@ -301,7 +301,7 @@ var require_resolveCommand = __commonJS({
         }
       }
       if (resolved) {
-        resolved = path32.resolve(hasCustomCwd ? parsed.options.cwd : "", resolved);
+        resolved = path34.resolve(hasCustomCwd ? parsed.options.cwd : "", resolved);
       }
       return resolved;
     }
@@ -355,8 +355,8 @@ var require_shebang_command = __commonJS({
       if (!match) {
         return null;
       }
-      const [path32, argument] = match[0].replace(/#! ?/, "").split(" ");
-      const binary = path32.split("/").pop();
+      const [path34, argument] = match[0].replace(/#! ?/, "").split(" ");
+      const binary = path34.split("/").pop();
       if (binary === "env") {
         return argument;
       }
@@ -391,7 +391,7 @@ var require_readShebang = __commonJS({
 var require_parse = __commonJS({
   "../../node_modules/.pnpm/cross-spawn@7.0.6/node_modules/cross-spawn/lib/parse.js"(exports2, module2) {
     "use strict";
-    var path32 = require("path");
+    var path34 = require("path");
     var resolveCommand = require_resolveCommand();
     var escape2 = require_escape();
     var readShebang = require_readShebang();
@@ -416,7 +416,7 @@ var require_parse = __commonJS({
       const needsShell = !isExecutableRegExp.test(commandFile);
       if (parsed.options.forceShell || needsShell) {
         const needsDoubleEscapeMetaChars = isCmdShimRegExp.test(commandFile);
-        parsed.command = path32.normalize(parsed.command);
+        parsed.command = path34.normalize(parsed.command);
         parsed.command = escape2.command(parsed.command);
         parsed.args = parsed.args.map((arg) => escape2.argument(arg, needsDoubleEscapeMetaChars));
         const shellCommand = [parsed.command].concat(parsed.args).join(" ");
@@ -506,7 +506,7 @@ var require_cross_spawn = __commonJS({
     var cp2 = require("child_process");
     var parse3 = require_parse();
     var enoent = require_enoent();
-    function spawn10(command, args, options) {
+    function spawn11(command, args, options) {
       const parsed = parse3(command, args, options);
       const spawned = cp2.spawn(parsed.command, parsed.args, parsed.options);
       enoent.hookChildProcess(spawned, parsed);
@@ -518,8 +518,8 @@ var require_cross_spawn = __commonJS({
       result.error = result.error || enoent.verifyENOENTSync(result.status, parsed);
       return result;
     }
-    module2.exports = spawn10;
-    module2.exports.spawn = spawn10;
+    module2.exports = spawn11;
+    module2.exports.spawn = spawn11;
     module2.exports.sync = spawnSync;
     module2.exports._parse = parse3;
     module2.exports._enoent = enoent;
@@ -529,7 +529,7 @@ var require_cross_spawn = __commonJS({
 // ../cli/src/bin/mcp-stdio.ts
 var import_node_fs7 = __toESM(require("node:fs"), 1);
 var import_node_os6 = __toESM(require("node:os"), 1);
-var import_node_path31 = __toESM(require("node:path"), 1);
+var import_node_path33 = __toESM(require("node:path"), 1);
 
 // ../../packages/application/dist/file-service.js
 var import_node_fs2 = require("node:fs");
@@ -3916,7 +3916,9 @@ function formatActivityLogLine(event) {
     timestamp: event.timestamp,
     ...event.workspaceId === void 0 ? {} : { workspaceId: event.workspaceId },
     ...event.targetSummary === void 0 ? {} : { targetSummary: event.targetSummary },
-    ...event.resultMessage === void 0 ? {} : { resultMessage: event.resultMessage }
+    ...event.resultMessage === void 0 ? {} : { resultMessage: event.resultMessage },
+    ...event.traceId === void 0 ? {} : { traceId: event.traceId },
+    ...event.traceParent === void 0 ? {} : { traceParent: event.traceParent }
   })}
 `;
 }
@@ -3958,17 +3960,20 @@ var ActivityTracker = class {
   listInFlight() {
     return [...this.inflight.values()];
   }
-  async begin(toolName, input) {
+  async begin(toolName, input, traceContext) {
     const callId = (0, import_node_crypto8.randomUUID)();
     const timestamp = (/* @__PURE__ */ new Date()).toISOString();
     const workspaceId = readWorkspaceId(input);
     const targetSummary = summarizeToolTarget(toolName, input);
+    const trace = traceContext ?? readTraceContext(input);
     const entry = {
       callId,
       toolName,
       startedAt: timestamp,
       ...workspaceId === void 0 ? {} : { workspaceId },
-      ...targetSummary === void 0 ? {} : { targetSummary }
+      ...targetSummary === void 0 ? {} : { targetSummary },
+      ...trace.traceId === void 0 ? {} : { traceId: trace.traceId },
+      ...trace.traceParent === void 0 ? {} : { traceParent: trace.traceParent }
     };
     this.inflight.set(callId, entry);
     await this.safeRecord({
@@ -3979,7 +3984,9 @@ var ActivityTracker = class {
       durationMs: 0,
       timestamp,
       ...workspaceId === void 0 ? {} : { workspaceId },
-      ...targetSummary === void 0 ? {} : { targetSummary }
+      ...targetSummary === void 0 ? {} : { targetSummary },
+      ...trace.traceId === void 0 ? {} : { traceId: trace.traceId },
+      ...trace.traceParent === void 0 ? {} : { traceParent: trace.traceParent }
     });
     return callId;
   }
@@ -3996,6 +4003,8 @@ var ActivityTracker = class {
       timestamp,
       ...existing?.workspaceId === void 0 ? {} : { workspaceId: existing.workspaceId },
       ...existing?.targetSummary === void 0 ? {} : { targetSummary: existing.targetSummary },
+      ...existing?.traceId === void 0 ? {} : { traceId: existing.traceId },
+      ...existing?.traceParent === void 0 ? {} : { traceParent: existing.traceParent },
       ...resultMessage === void 0 || resultMessage.length === 0 ? {} : { resultMessage }
     });
   }
@@ -4034,6 +4043,17 @@ function summarizeToolTarget(toolName, input) {
     return truncate(skillId, 120);
   return void 0;
 }
+function readTraceContext(input) {
+  if (!isRecord(input))
+    return {};
+  const metadata = isRecord(input.metadata) ? input.metadata : void 0;
+  const traceId = boundedTraceValue(input.trace_id ?? input.traceId ?? metadata?.trace_id ?? metadata?.traceId);
+  const traceParent = boundedTraceValue(input.traceparent ?? input.traceParent ?? metadata?.traceparent ?? metadata?.traceParent);
+  return {
+    ...traceId === void 0 ? {} : { traceId },
+    ...traceParent === void 0 ? {} : { traceParent }
+  };
+}
 function readWorkspaceId(input) {
   if (!isRecord(input) || typeof input.workspaceId !== "string" || input.workspaceId.trim().length === 0) {
     return void 0;
@@ -4050,6 +4070,11 @@ function firstString(input, keys) {
 }
 function truncate(value, max) {
   return value.length <= max ? value : `${value.slice(0, max - 1)}\u2026`;
+}
+function boundedTraceValue(value) {
+  if (typeof value !== "string" || value.trim().length === 0)
+    return void 0;
+  return truncate(value.trim(), 256);
 }
 function isRecord(value) {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -4875,10 +4900,10 @@ function mergeDefs(...defs) {
 function cloneDef(schema) {
   return mergeDefs(schema._zod.def);
 }
-function getElementAtPath(obj, path32) {
-  if (!path32)
+function getElementAtPath(obj, path34) {
+  if (!path34)
     return obj;
-  return path32.reduce((acc, key) => acc?.[key], obj);
+  return path34.reduce((acc, key) => acc?.[key], obj);
 }
 function promiseAllObject(promisesObj) {
   const keys = Object.keys(promisesObj);
@@ -5052,9 +5077,9 @@ function createTransparentProxy(getter) {
       target ?? (target = getter());
       return Reflect.getOwnPropertyDescriptor(target, prop);
     },
-    defineProperty(_, prop, descriptor) {
+    defineProperty(_, prop, descriptor2) {
       target ?? (target = getter());
-      return Reflect.defineProperty(target, prop, descriptor);
+      return Reflect.defineProperty(target, prop, descriptor2);
     }
   });
 }
@@ -5244,11 +5269,11 @@ function aborted(x, startIndex = 0) {
   }
   return false;
 }
-function prefixIssues(path32, issues) {
+function prefixIssues(path34, issues) {
   return issues.map((iss) => {
     var _a2;
     (_a2 = iss).path ?? (_a2.path = []);
-    iss.path.unshift(path32);
+    iss.path.unshift(path34);
     return iss;
   });
 }
@@ -5410,7 +5435,7 @@ function formatError(error46, mapper = (issue2) => issue2.message) {
 }
 function treeifyError(error46, mapper = (issue2) => issue2.message) {
   const result = { errors: [] };
-  const processError = (error47, path32 = []) => {
+  const processError = (error47, path34 = []) => {
     var _a2, _b;
     for (const issue2 of error47.issues) {
       if (issue2.code === "invalid_union" && issue2.errors.length) {
@@ -5420,7 +5445,7 @@ function treeifyError(error46, mapper = (issue2) => issue2.message) {
       } else if (issue2.code === "invalid_element") {
         processError({ issues: issue2.issues }, issue2.path);
       } else {
-        const fullpath = [...path32, ...issue2.path];
+        const fullpath = [...path34, ...issue2.path];
         if (fullpath.length === 0) {
           result.errors.push(mapper(issue2));
           continue;
@@ -5452,8 +5477,8 @@ function treeifyError(error46, mapper = (issue2) => issue2.message) {
 }
 function toDotPath(_path) {
   const segs = [];
-  const path32 = _path.map((seg) => typeof seg === "object" ? seg.key : seg);
-  for (const seg of path32) {
+  const path34 = _path.map((seg) => typeof seg === "object" ? seg.key : seg);
+  for (const seg of path34) {
     if (typeof seg === "number")
       segs.push(`[${seg}]`);
     else if (typeof seg === "symbol")
@@ -17047,13 +17072,13 @@ function resolveRef(ref, ctx) {
   if (!ref.startsWith("#")) {
     throw new Error("External $ref is not supported, only local refs (#/...) are allowed");
   }
-  const path32 = ref.slice(1).split("/").filter(Boolean);
-  if (path32.length === 0) {
+  const path34 = ref.slice(1).split("/").filter(Boolean);
+  if (path34.length === 0) {
     return ctx.rootSchema;
   }
   const defsKey = ctx.version === "draft-2020-12" ? "$defs" : "definitions";
-  if (path32[0] === defsKey) {
-    const key = path32[1];
+  if (path34[0] === defsKey) {
+    const key = path34[1];
     if (!key || !ctx.defs[key]) {
       throw new Error(`Reference not found: ${ref}`);
     }
@@ -20993,9 +21018,9 @@ var rev2026Codec = {
     });
     const parsed = buildSchemas2026().RequestMetaEnvelopeSchema.safeParse(meta3);
     if (!parsed.success) for (const issue2 of parsed.error.issues) {
-      const path32 = issue2.path.map(String);
-      const key = path32.length > 0 ? path32.join(".") : "_meta";
-      if (path32.length === 1 && issues.some((existing) => existing.key === key && existing.problem === "missing")) continue;
+      const path34 = issue2.path.map(String);
+      const key = path34.length > 0 ? path34.join(".") : "_meta";
+      if (path34.length === 1 && issues.some((existing) => existing.key === key && existing.problem === "missing")) continue;
       issues.push({
         key,
         problem: issue2.message
@@ -21316,29 +21341,29 @@ var PERMITTED_X_MCP_HEADER_TYPES = /* @__PURE__ */ new Set([
 function scanXMcpHeaderDeclarations(inputSchema) {
   const declarations = [];
   const seenLower = /* @__PURE__ */ new Map();
-  const visit = (node, path32, reachable) => {
+  const visit = (node, path34, reachable) => {
     if (node === null || typeof node !== "object") return void 0;
     const schema = node;
     if (X_MCP_HEADER_KEY in schema) {
-      if (!reachable || path32.length === 0) return `${pathName(path32)}: x-mcp-header is only permitted on properties statically reachable via a chain of 'properties' keys (not under items, additionalProperties, oneOf/anyOf/allOf/not, if/then/else, or $ref)`;
+      if (!reachable || path34.length === 0) return `${pathName(path34)}: x-mcp-header is only permitted on properties statically reachable via a chain of 'properties' keys (not under items, additionalProperties, oneOf/anyOf/allOf/not, if/then/else, or $ref)`;
       const raw = schema[X_MCP_HEADER_KEY];
-      if (typeof raw !== "string" || raw.length === 0) return `${pathName(path32)}: x-mcp-header MUST be a non-empty string`;
-      if (!RFC9110_TOKEN.test(raw)) return `${pathName(path32)}: x-mcp-header '${raw}' is not a valid RFC 9110 token (no spaces, control characters or HTTP delimiters)`;
+      if (typeof raw !== "string" || raw.length === 0) return `${pathName(path34)}: x-mcp-header MUST be a non-empty string`;
+      if (!RFC9110_TOKEN.test(raw)) return `${pathName(path34)}: x-mcp-header '${raw}' is not a valid RFC 9110 token (no spaces, control characters or HTTP delimiters)`;
       const type = typeof schema.type === "string" ? schema.type : void 0;
-      if (type === void 0 || !PERMITTED_X_MCP_HEADER_TYPES.has(type)) return `${pathName(path32)}: x-mcp-header is only permitted on primitive-typed properties (string, integer, boolean); got ${type ?? "<none>"}`;
+      if (type === void 0 || !PERMITTED_X_MCP_HEADER_TYPES.has(type)) return `${pathName(path34)}: x-mcp-header is only permitted on primitive-typed properties (string, integer, boolean); got ${type ?? "<none>"}`;
       const lower = raw.toLowerCase();
       const prior = seenLower.get(lower);
       if (prior !== void 0) return `x-mcp-header '${raw}' is not case-insensitively unique (also declared as '${prior}')`;
       seenLower.set(lower, raw);
       declarations.push({
-        path: path32,
+        path: path34,
         headerName: raw,
         type
       });
     }
     const properties = schema.properties;
     if (properties !== null && typeof properties === "object") for (const [key, child] of Object.entries(properties)) {
-      const fault$1 = visit(child, [...path32, key], reachable);
+      const fault$1 = visit(child, [...path34, key], reachable);
       if (fault$1 !== void 0) return fault$1;
     }
     for (const k of NON_REACHABLE_SUBSCHEMA_KEYWORDS) {
@@ -21346,7 +21371,7 @@ function scanXMcpHeaderDeclarations(inputSchema) {
       if (sub === void 0) continue;
       const branches = Array.isArray(sub) ? sub : sub !== null && typeof sub === "object" && OBJECT_VALUED_SUBSCHEMA_KEYWORDS.has(k) ? Object.values(sub) : [sub];
       for (const branch of branches) {
-        const fault$1 = visit(branch, [...path32, `<${k}>`], false);
+        const fault$1 = visit(branch, [...path34, `<${k}>`], false);
         if (fault$1 !== void 0) return fault$1;
       }
     }
@@ -21386,8 +21411,8 @@ var OBJECT_VALUED_SUBSCHEMA_KEYWORDS = /* @__PURE__ */ new Set([
   "$defs",
   "definitions"
 ]);
-function pathName(path32) {
-  return path32.length === 0 ? "<root>" : path32.join(".");
+function pathName(path34) {
+  return path34.length === 0 ? "<root>" : path34.join(".");
 }
 var HEADER_MISMATCH_ERROR_CODE = -32020;
 var INBOUND_VALIDATION_LADDER = [
@@ -21676,7 +21701,7 @@ var PROPERTY_KEYS_BY_TYPE = {
   array: shapeKeys([UntitledMultiSelectEnumSchemaSchema, TitledMultiSelectEnumSchemaSchema])
 };
 var SUPPORTED_STRING_FORMATS = new Set(StringSchemaSchema.shape.format.unwrap().options);
-function walkProperty(node, path32, vendor, unsupported) {
+function walkProperty(node, path34, vendor, unsupported) {
   if (!isJsonObject(node)) return node;
   const allowedKeys = typeof node.type === "string" && Object.hasOwn(PROPERTY_KEYS_BY_TYPE, node.type) ? PROPERTY_KEYS_BY_TYPE[node.type] : void 0;
   if (allowedKeys === void 0) return node;
@@ -21684,8 +21709,8 @@ function walkProperty(node, path32, vendor, unsupported) {
   for (const [key, value] of Object.entries(node)) if (allowedKeys.has(key) || isAnnotationOnlyJsonSchemaKeyword(key)) pruned[key] = value;
   else if (key === "pattern" && node.type === "string" && typeof node.format === "string") {
     if (!SUPPORTED_STRING_FORMATS.has(node.format)) pruned[key] = value;
-    else if (typeof value !== "string" || !isLibraryFormatPattern(node.format, value, vendor)) unsupported.push(`${path32}.${key}`);
-  } else unsupported.push(`${path32}.${key}`);
+    else if (typeof value !== "string" || !isLibraryFormatPattern(node.format, value, vendor)) unsupported.push(`${path34}.${key}`);
+  } else unsupported.push(`${path34}.${key}`);
   return pruned;
 }
 function walkRequestedSchema(converted, vendor) {
@@ -21702,11 +21727,11 @@ function describeUnsupportedProperties(pruned, fallback) {
   const offenders = Object.entries(pruned.properties).filter(([, node]) => !parseSchema(PrimitiveSchemaDefinitionSchema, node).success).map(([name]) => `properties.${name}`);
   return offenders.length > 0 ? offenders.join(", ") : fallback;
 }
-function findDroppedConstraintPaths(original, parsed, path32 = "") {
-  if (Array.isArray(original) && Array.isArray(parsed)) return original.flatMap((item, index) => findDroppedConstraintPaths(item, parsed[index], `${path32}[${index}]`));
+function findDroppedConstraintPaths(original, parsed, path34 = "") {
+  if (Array.isArray(original) && Array.isArray(parsed)) return original.flatMap((item, index) => findDroppedConstraintPaths(item, parsed[index], `${path34}[${index}]`));
   if (!isJsonObject(original) || !isJsonObject(parsed)) return [];
   return Object.entries(original).flatMap(([key, value]) => {
-    const childPath = path32 ? `${path32}.${key}` : key;
+    const childPath = path34 ? `${path34}.${key}` : key;
     if (!Object.prototype.hasOwnProperty.call(parsed, key)) return isAnnotationOnlyJsonSchemaKeyword(key) ? [] : [childPath];
     return findDroppedConstraintPaths(value, parsed[key], childPath);
   });
@@ -25784,8 +25809,8 @@ var require_utils = /* @__PURE__ */ __commonJSMin(((exports2, module2) => {
     for (let i = 0; i < str.length; i++) if (str[i] === token) ind++;
     return ind;
   }
-  function removeDotSegments(path32) {
-    let input = path32;
+  function removeDotSegments(path34) {
+    let input = path34;
     const output = [];
     let nextSlash = -1;
     let len = 0;
@@ -25938,8 +25963,8 @@ var require_schemes = /* @__PURE__ */ __commonJSMin(((exports2, module2) => {
       wsComponent.secure = void 0;
     }
     if (wsComponent.resourceName) {
-      const [path32, query] = wsComponent.resourceName.split("?");
-      wsComponent.path = path32 && path32 !== "/" ? path32 : void 0;
+      const [path34, query] = wsComponent.resourceName.split("?");
+      wsComponent.path = path34 && path34 !== "/" ? path34 : void 0;
       wsComponent.query = query;
       wsComponent.resourceName = void 0;
     }
@@ -31560,7 +31585,7 @@ function isUnrestricted(env, settingValue) {
 
 // ../../packages/shared/dist/index.js
 var APP_NAME = "lnwjud";
-var APP_VERSION = "3.0.4";
+var APP_VERSION = "4.0.0";
 
 // ../../packages/mcp-server/dist/progress-heartbeat.js
 var HEARTBEAT_FIRST_MS = 15e3;
@@ -31715,8 +31740,8 @@ var ContextEconomyRuntime = class {
     });
     return prepared;
   }
-  recordSkipped(path32, byteLength = 0) {
-    this.recordSkippedClassification(classifyContextPath(path32, "automatic"), byteLength);
+  recordSkipped(path34, byteLength = 0) {
+    this.recordSkippedClassification(classifyContextPath(path34, "automatic"), byteLength);
   }
   recordDelivery(prepared, deliveredBytes) {
     if (this.delivered.has(prepared))
@@ -31870,12 +31895,12 @@ var ContextEngine = class {
         hasMore ||= entry.value.text.value.truncated;
       }
       if (entry.value.files.ok) {
-        paths.push(...entry.value.files.value.paths.filter((path32) => {
-          const allowed = request.includeIgnored === true || classifyContextPath(path32, "automatic").discoverable;
+        paths.push(...entry.value.files.value.paths.filter((path34) => {
+          const allowed = request.includeIgnored === true || classifyContextPath(path34, "automatic").discoverable;
           if (!allowed)
-            this.economy.recordSkipped(path32);
+            this.economy.recordSkipped(path34);
           return allowed;
-        }).map((path32) => ({ workspaceId: entry.value.workspaceId, path: path32 })));
+        }).map((path34) => ({ workspaceId: entry.value.workspaceId, path: path34 })));
         hasMore ||= entry.value.files.value.truncated;
       }
     }
@@ -31913,7 +31938,7 @@ var ContextEngine = class {
       scannedWorkspaces += 1;
       if (!entry.value.result.ok)
         continue;
-      files.push(...entry.value.result.value.paths.map((path32) => ({ workspaceId: entry.value.workspaceId, path: path32 })));
+      files.push(...entry.value.result.value.paths.map((path34) => ({ workspaceId: entry.value.workspaceId, path: path34 })));
       hasMore ||= entry.value.result.value.truncated;
     }
     const deduped = dedupePaths(files);
@@ -31994,7 +32019,7 @@ var ContextEngine = class {
     if (!status.ok || status.value.snapshot === null)
       return null;
     const prefix = requestedPath === void 0 ? "" : normalizePath(requestedPath).replace(/^\.\//, "").replace(/\/$/, "");
-    const allFiles = status.value.snapshot.entries.filter((entry) => entry.kind === "file" || entry.kind === "symlink").map((entry) => entry.relativePath).filter((entry) => prefix.length === 0 || entry === prefix || entry.startsWith(`${prefix}/`)).sort((left, right) => normalizePath(left).localeCompare(normalizePath(right))).map((path32) => ({ workspaceId, path: path32 }));
+    const allFiles = status.value.snapshot.entries.filter((entry) => entry.kind === "file" || entry.kind === "symlink").map((entry) => entry.relativePath).filter((entry) => prefix.length === 0 || entry === prefix || entry.startsWith(`${prefix}/`)).sort((left, right) => normalizePath(left).localeCompare(normalizePath(right))).map((path34) => ({ workspaceId, path: path34 }));
     const size = normalizePageSize(pageSize ?? 200);
     const files = allFiles.slice(0, size);
     const remaining = allFiles.slice(files.length);
@@ -32347,8 +32372,12 @@ function inspectDestructiveOperation(toolName, input) {
       return destructive("filesystem deletion");
     case "git":
       return inspectGit(value);
+    case "git_worktree_spawn":
+      return destructive("creating an isolated Git worktree writes workspace state");
     case "shell":
       return inspectShell(value);
+    case "wsl_exec":
+      return inspectShell({ operation: value.operation, executable: value.executable, arguments: value.arguments });
     case "process_start":
       return inspectShell({ operation: "run", executable: value.executable, arguments: value.args });
     case "codex_run":
@@ -32372,6 +32401,8 @@ function inspectDestructiveOperation(toolName, input) {
       return { destructive: false };
     case "input_event":
       return inspectInputEvent(value);
+    case "ui_target_action":
+      return ["click", "set_value", "select_item", "menu_select"].includes(String(value.action ?? "click")) ? destructive("marked native UI action can trigger opaque application side effects") : { destructive: false };
     case "write_file":
       return value.content === "" ? destructive("empty write can truncate file data") : { destructive: false };
     case "apply_patch": {
@@ -33082,6 +33113,32 @@ var shellCapabilitySchema = external_exports.object({
   approval: capabilityApprovalSchema,
   ...capabilityRequestSchema
 }).strict();
+var wslEnvironmentSchema = external_exports.record(external_exports.string().regex(/^[A-Za-z_][A-Za-z0-9_]*$/), external_exports.string().max(4096)).refine((value) => Object.keys(value).length <= 64, "WSL environment has too many entries");
+var wslCapabilitySchema = external_exports.object({
+  operation: external_exports.enum(["run", "status", "wait", "logs", "result", "cancel"]).default("run"),
+  workspaceId: workspaceIdSchema.optional(),
+  distro: external_exports.string().trim().min(1).max(64).regex(/^[A-Za-z0-9._-]+$/).optional(),
+  executable: external_exports.string().trim().min(1).max(1024).optional(),
+  arguments: external_exports.array(external_exports.string().max(32768)).max(128).optional(),
+  cwd: pathSchema.optional(),
+  environment: wslEnvironmentSchema.optional(),
+  execution: external_exports.enum(["foreground", "background", "auto"]).default("auto"),
+  task_id: external_exports.string().trim().min(1).max(128).optional(),
+  timeout_seconds: external_exports.number().min(0.1).max(14400).optional(),
+  max_output_bytes: external_exports.number().int().min(1).max(8 * 1024 * 1024).optional(),
+  tail_lines: external_exports.number().int().min(0).max(1e4).optional(),
+  include_stdout: external_exports.boolean().default(true),
+  include_stderr: external_exports.boolean().default(true),
+  ...capabilityRequestSchema
+}).strict();
+var wslFilesystemCapabilitySchema = external_exports.object({
+  operation: external_exports.enum(["status", "translate", "metadata"]).default("translate"),
+  workspaceId: workspaceIdSchema.optional(),
+  direction: external_exports.enum(["windows_to_wsl", "wsl_to_windows"]).optional(),
+  distro: external_exports.string().trim().min(1).max(64).regex(/^[A-Za-z0-9._-]+$/).optional(),
+  path: pathSchema.optional(),
+  ...capabilityRequestSchema
+}).strict();
 var domStepSchema = external_exports.object({
   action: external_exports.string().trim().min(1).max(128),
   parameters: capabilityParametersSchema.optional()
@@ -33113,14 +33170,43 @@ var inputEventCapabilitySchema = external_exports.object({
   ...capabilityRequestSchema
 }).strict();
 var visionCapabilitySchema = external_exports.object({
-  action: external_exports.enum(["capture_display", "capture_region", "capture_window", "ocr"]),
+  action: external_exports.enum(["capture_display", "capture_region", "capture_window", "annotate", "ocr"]),
   region: capabilityParametersSchema.optional(),
   app: capabilityParametersSchema.optional(),
   window_index: external_exports.number().int().min(0).optional(),
+  image_base64: external_exports.string().min(1).max(16 * 1024 * 1024).optional(),
+  marks: external_exports.array(external_exports.object({
+    mark_id: external_exports.string().trim().min(1).max(32),
+    label: external_exports.string().max(256).optional(),
+    bounds: external_exports.object({ x: external_exports.number(), y: external_exports.number(), width: external_exports.number().positive(), height: external_exports.number().positive() }).strict()
+  }).strict()).max(500).optional(),
   text: external_exports.string().max(32768).optional(),
   exact: external_exports.boolean().default(false),
   min_confidence: external_exports.number().min(0).max(1).optional(),
   display_id: external_exports.string().trim().min(1).max(128).optional(),
+  timeout_seconds: external_exports.number().min(0.1).max(14400).optional(),
+  ...capabilityRequestSchema
+}).strict();
+var visionAnnotatedCaptureSchema = external_exports.object({
+  workspaceId: workspaceIdSchema,
+  capture: external_exports.enum(["display", "region", "window"]).default("display"),
+  region: capabilityParametersSchema.optional(),
+  app: capabilityParametersSchema.optional(),
+  window_index: external_exports.number().int().min(0).optional(),
+  display_id: external_exports.string().trim().min(1).max(128).optional(),
+  max_depth: external_exports.number().int().min(0).max(12).optional(),
+  max_marks: external_exports.number().int().min(1).max(500).optional(),
+  ttl_seconds: external_exports.number().min(1).max(300).optional(),
+  timeout_seconds: external_exports.number().min(0.1).max(14400).optional(),
+  ...capabilityRequestSchema
+}).strict();
+var uiTargetActionSchema = external_exports.object({
+  workspaceId: workspaceIdSchema,
+  observationId: external_exports.string().trim().min(1).max(128),
+  markId: external_exports.string().trim().min(1).max(32),
+  observationHash: external_exports.string().trim().regex(/^[a-f0-9]{64}$/).optional(),
+  action: external_exports.enum(["click", "focus", "read_value", "set_value", "select_item", "menu_select"]).default("click"),
+  value: external_exports.string().max(1e6).optional(),
   timeout_seconds: external_exports.number().min(0.1).max(14400).optional(),
   ...capabilityRequestSchema
 }).strict();
@@ -33132,7 +33218,7 @@ var windowCapabilitySchema = external_exports.object({
 }).strict();
 var healthCapabilitySchema = external_exports.object({
   operation: external_exports.enum(["check_all", "check_tool"]).default("check_all"),
-  tool: external_exports.enum(["shell", "dom_cdp", "accessibility", "input_event", "vision", "window", "health", "system_info", "notification", "file_dialog", "clipboard", "web_fetch"]).optional(),
+  tool: external_exports.enum(["shell", "dom_cdp", "accessibility", "input_event", "vision", "window", "health", "system_info", "notification", "file_dialog", "clipboard", "web_fetch", "audio", "screen_record", "office", "scheduler", "wsl_exec", "wsl_fs"]).optional(),
   request_id: external_exports.string().trim().min(1).max(128).optional()
 }).strict();
 var systemInfoCapabilitySchema = external_exports.object({
@@ -33570,10 +33656,12 @@ var UPGRADE_TOOL_CATALOG = [
   write("tool_schema_register", 32, "Register a backward-compatible tool schema descriptor.", ["schema", "registry"]),
   read("capabilities", 33, "Discover capability categories without requiring every full schema.", ["capability", "discovery"]),
   read("tool_search", 33, "Search tools, tags, phases, and descriptions deterministically.", ["tool", "search", "discovery"]),
+  read("tool_dynamic_filter", 33, "Return a bounded ranked tool set using deterministic scoring with optional local rerank fallback.", ["tool", "search", "router", "filter"]),
   read("tool_describe", 33, "Describe one tool contract on demand.", ["tool", "discovery"]),
   read("tool_categories", 33, "List tool categories and counts.", ["tool", "discovery"]),
   read("tool_function_find", 34, "Find the best local tool/function candidates for a prompt.", ["tool", "search"]),
   read("tool_aliases", 33, "List stable shorthand aliases and their primitive tool targets.", ["tool", "alias", "discovery"]),
+  read("mcp_hub", 41, "Describe the additive MCP hub boundary without flattening child tools or retaining credentials.", ["mcp", "gateway", "hub"], { availability: "optional", requirements: ["configured child MCP server", "credential provider outside repository"], supportsCancel: true, supportsDryRun: true, auditTarget: "mcp-server" }),
   read("dev_context", 35, "Run the unified deterministic development-context facade.", ["development", "context"], { streamable: true }),
   read("recipe_catalog", 36, "Return inspectable developer automation recipes.", ["recipe", "automation"]),
   read("capture_screenshot", 37, "Capture screenshot metadata for visual validation.", ["visual", "browser"]),
@@ -33590,13 +33678,1948 @@ var UPGRADE_TOOL_CATALOG = [
   write("project_profile_set", 38, "Update project intelligence conventions.", ["project", "profile"]),
   read("handoff_context", 39, "Build a structured cross-agent handoff bundle.", ["handoff", "session"]),
   execute("benchmark_run", 40, "Run or preview a benchmark scenario.", ["benchmark", "regression"]),
-  read("regression_report", 40, "Return benchmark and regression results.", ["benchmark", "regression"])
+  read("regression_report", 40, "Return benchmark and regression results.", ["benchmark", "regression"]),
+  execute("sandbox_exec", 42, "Run an artifact-based Windows Sandbox job with networking disabled and read-only mapped input.", ["windows", "sandbox", "detonation"], { availability: "optional", requirements: ["Windows Sandbox feature", "interactive user session", "artifact output directory"], supportsCancel: false, supportsDryRun: true, auditTarget: "sandbox-artifact" }),
+  execute("event_watch", 42, "Watch an allowlisted user-mode ETW or Windows Event Log diagnostic stream.", ["windows", "etw", "events", "diagnostics"], { availability: "optional", requirements: ["allowlisted provider", "admin diagnostics only when required"], supportsCancel: true, supportsDryRun: true, auditTarget: "event-provider" }),
+  read("crash_trace", 42, "Return bounded crash and service-diagnostic context from allowlisted user-mode sources.", ["windows", "crash", "diagnostics"], { availability: "optional", requirements: ["allowlisted provider", "Windows Event Log"], supportsCancel: true, supportsDryRun: true, auditTarget: "crash-diagnostic" }),
+  read("lsp_diagnostics", 43, "Read diagnostics from an owned language-server child process.", ["code", "lsp", "diagnostics"], { availability: "optional", requirements: ["language server executable", "registered workspace"], supportsCancel: true, supportsDryRun: true, auditTarget: "language-server" }),
+  write("lsp_rename", 43, "Create a cross-file LSP rename edit plan before any workspace write.", ["code", "lsp", "refactor"], { availability: "optional", requirements: ["language server executable", "edit-plan approval"], supportsCancel: true, supportsDryRun: true, auditTarget: "workspace-edit-plan" }),
+  execute("debug_attach", 43, "Attach a DAP client only to an owned workspace debug adapter.", ["code", "dap", "debug"], { availability: "optional", requirements: ["debug adapter executable", "registered workspace"], supportsCancel: true, supportsDryRun: true, auditTarget: "debug-session" }),
+  execute("debug_step", 43, "Perform a bounded DAP stepping/read operation in an owned debug session.", ["code", "dap", "debug"], { availability: "optional", requirements: ["owned debug session"], supportsCancel: true, supportsDryRun: true, auditTarget: "debug-session" }),
+  dangerous("git_worktree_spawn", 44, "Create an owned Git worktree for isolated agent work with collision metadata.", ["git", "worktree", "agent"], { availability: "optional", requirements: ["registered Git workspace"], supportsCancel: true, supportsDryRun: true, auditTarget: "git-worktree" }),
+  read("db_inspect", 44, "Inspect a local database schema through a configured, read-only connection.", ["database", "schema", "local"], { availability: "optional", requirements: ["local database driver", "registered database target"], supportsCancel: true, supportsDryRun: true, auditTarget: "database-schema" }),
+  dangerous("db_query", 44, "Run a bounded local database query under explicit connection and mutation policy.", ["database", "query", "local"], { availability: "optional", requirements: ["local database driver", "approved database target"], supportsCancel: true, supportsDryRun: true, auditTarget: "database-query" }),
+  dangerous("office_ppt", 45, "Automate PowerPoint through the existing Office policy boundary.", ["office", "powerpoint", "com"], { availability: "optional", requirements: ["Microsoft PowerPoint", "Office COM policy"], supportsCancel: false, supportsDryRun: true, auditTarget: "office-presentation" }),
+  dangerous("office_outlook", 45, "Read or draft Outlook operations through the existing Office policy boundary.", ["office", "outlook", "com"], { availability: "optional", requirements: ["Microsoft Outlook", "Office COM policy", "redaction policy"], supportsCancel: false, supportsDryRun: true, auditTarget: "office-mail" }),
+  read("pdf_extract_tables", 45, "Extract bounded PDF text and tables through a local document provider.", ["document", "pdf", "extract"], { availability: "optional", requirements: ["local PDF provider", "bounded document size"], supportsCancel: true, supportsDryRun: true, auditTarget: "document" }),
+  write("docx_merge", 45, "Create a deterministic DOCX merge plan and write only after approval.", ["document", "docx", "merge"], { availability: "optional", requirements: ["local DOCX provider", "edit approval"], supportsCancel: true, supportsDryRun: true, auditTarget: "document" }),
+  read("self_heal_plan", 46, "Propose safe, deterministic, reversible recovery steps without applying mutations.", ["recovery", "self-healing", "safety"], { availability: "ready", requirements: ["diagnostic evidence"], supportsCancel: false, supportsDryRun: true, auditTarget: "recovery-plan" }),
+  dangerous("self_heal_apply", 46, "Apply an approved reversible recovery plan without automatic destructive retries.", ["recovery", "self-healing", "safety"], { availability: "planned", requirements: ["approved recovery plan", "dry-run preview", "audit trail"], supportsCancel: true, supportsDryRun: true, auditTarget: "recovery-mutation" }),
+  write("skills_import", 46, "Import a compatible skill descriptor after validation and permission review.", ["skills", "compatibility", "import"], { availability: "optional", requirements: ["validated local skill source"], supportsCancel: false, supportsDryRun: true, auditTarget: "skill-catalog" }),
+  execute("agent_swarm_run", 46, "Plan bounded parallel subagents with ownership, collision, approval, and cancellation metadata.", ["agent", "swarm", "parallel"], { availability: "planned", requirements: ["subagent provider", "ownership ledger", "mutation policy"], supportsCancel: true, supportsDryRun: true, auditTarget: "agent-swarm" })
 ];
 
 // ../../packages/mcp-server/dist/upgrade-runtime.js
-var import_node_crypto11 = require("node:crypto");
+var import_node_crypto12 = require("node:crypto");
+var import_promises21 = require("node:fs/promises");
+var import_node_path29 = __toESM(require("node:path"), 1);
+
+// ../../packages/capabilities/dist/local-capability-service.js
+var LocalCapabilityService = class {
+  backends;
+  constructor(backends) {
+    this.backends = backends;
+  }
+  execute(tool, input) {
+    const backend = this.backendFor(tool);
+    return backend === void 0 ? Promise.resolve(err(appError("INVALID_INPUT", "Capability tool is not supported"))) : backend.execute(input);
+  }
+  backendFor(tool) {
+    switch (tool) {
+      case "shell":
+        return this.backends.shell;
+      case "dom_cdp":
+        return this.backends.domCdp;
+      case "accessibility":
+        return this.backends.accessibility;
+      case "input_event":
+        return this.backends.inputEvent;
+      case "vision":
+        return this.backends.vision;
+      case "window":
+        return this.backends.window;
+      case "health":
+        return this.backends.health;
+      case "system_info":
+        return this.backends.systemInfo;
+      case "notification":
+        return this.backends.notification;
+      case "file_dialog":
+        return this.backends.fileDialog;
+      case "clipboard":
+        return this.backends.clipboard;
+      case "web_fetch":
+        return this.backends.webFetch;
+      case "audio":
+        return this.backends.audio;
+      case "screen_record":
+        return this.backends.screenRecord;
+      case "office":
+        return this.backends.office;
+      case "scheduler":
+        return this.backends.scheduler;
+      case "wsl_exec":
+        return this.backends.wslExec;
+      case "wsl_fs":
+        return this.backends.wslFs;
+    }
+  }
+};
+
+// ../../packages/capabilities/dist/shell-backend.js
+var import_node_child_process6 = require("node:child_process");
 var import_promises18 = require("node:fs/promises");
 var import_node_path23 = __toESM(require("node:path"), 1);
+var import_node_crypto11 = require("node:crypto");
+var SHELL_OPERATIONS = ["run", "status", "wait", "logs", "result", "cancel", "resume", "approve", "deny"];
+var DEFAULT_TIMEOUT_SECONDS = 3600;
+var DEFAULT_AUTO_WAIT_SECONDS = 1;
+var DEFAULT_MAX_OUTPUT_BYTES = 2 * 1024 * 1024;
+var MAX_TIMEOUT_SECONDS = 14400;
+var MAX_OUTPUT_BYTES = 8 * 1024 * 1024;
+var ShellCapabilityBackend = class {
+  tasks = /* @__PURE__ */ new Map();
+  executableResolver;
+  terminator;
+  allowedRoots;
+  allowedRootsProvider;
+  defaultTimeoutSeconds;
+  autoWaitSeconds;
+  maxOutputBytes;
+  unrestricted;
+  constructor(options) {
+    if (options.allowedRoots.length === 0)
+      throw new Error("At least one local capability root is required");
+    this.allowedRoots = options.allowedRoots.map((root) => import_node_path23.default.resolve(root));
+    this.allowedRootsProvider = options.allowedRootsProvider;
+    this.executableResolver = options.executableResolver ?? new PathExecutableResolver();
+    this.terminator = options.terminator ?? new WindowsProcessTree();
+    this.defaultTimeoutSeconds = clampNumber(options.defaultTimeoutSeconds ?? DEFAULT_TIMEOUT_SECONDS, 0.1, MAX_TIMEOUT_SECONDS);
+    this.autoWaitSeconds = clampNumber(options.autoWaitSeconds ?? DEFAULT_AUTO_WAIT_SECONDS, 0, DEFAULT_TIMEOUT_SECONDS);
+    this.maxOutputBytes = Math.floor(clampNumber(options.maxOutputBytes ?? DEFAULT_MAX_OUTPUT_BYTES, 1, MAX_OUTPUT_BYTES));
+    this.unrestricted = options.unrestricted === true;
+  }
+  async execute(input) {
+    const parsed = parseShellRequest(input, this.defaultTimeoutSeconds, this.maxOutputBytes);
+    if (!parsed.ok)
+      return parsed;
+    switch (parsed.value.operation) {
+      case "run":
+        return this.run(parsed.value);
+      case "status":
+        return this.taskSnapshot(parsed.value.taskId);
+      case "wait":
+        return this.wait(parsed.value);
+      case "logs":
+        return this.taskSnapshot(parsed.value.taskId, parsed.value.tailLines);
+      case "result":
+        return this.taskSnapshot(parsed.value.taskId);
+      case "cancel":
+        return this.cancel(parsed.value.taskId);
+      case "resume":
+      case "approve":
+      case "deny":
+        return err(appError("INVALID_INPUT", `${parsed.value.operation} is not required by the local task runner`));
+    }
+  }
+  async run(request) {
+    if (request.executable === void 0)
+      return err(appError("INVALID_INPUT", "Executable is required"));
+    if (request.privilege === "admin")
+      return err(appError("PERMISSION_DENIED", "Administrator access is not available to the local runner"));
+    if (isDeleteLikeShellCommand(request.executable, request.arguments) && !request.userConfirmed) {
+      return err(appError("PERMISSION_REQUIRED", "Delete/remove commands require explicit user confirmation. Ask the user in chat first, then retry with userConfirmed: true"));
+    }
+    const cwd = await this.resolveCwd(request.cwd);
+    if (!cwd.ok)
+      return cwd;
+    const executable = await this.executableResolver.resolve(request.executable);
+    if (!executable.ok)
+      return executable;
+    const invocation = toWindowsSpawnInvocation(executable.value, request.arguments, { allowMetacharacters: this.unrestricted });
+    if (!invocation.ok)
+      return invocation;
+    if (request.dryRun) {
+      return ok({ dry_run: true, executable: invocation.value.executable, arguments: [...invocation.value.args], cwd: cwd.value });
+    }
+    let child;
+    try {
+      child = (0, import_node_child_process6.spawn)(invocation.value.executable, [...invocation.value.args], {
+        cwd: cwd.value,
+        env: createSafeEnvironment2(process.env, this.unrestricted),
+        shell: false,
+        windowsHide: false,
+        ...invocation.value.windowsVerbatimArguments === void 0 ? {} : { windowsVerbatimArguments: invocation.value.windowsVerbatimArguments }
+      });
+    } catch {
+      return err(appError("INTERNAL_ERROR", "Local task could not start", true));
+    }
+    let resolveCompletion;
+    const completion = new Promise((resolve) => {
+      resolveCompletion = resolve;
+    });
+    const record2 = {
+      taskId: (0, import_node_crypto11.randomUUID)(),
+      child,
+      includeStdout: request.includeStdout,
+      includeStderr: request.includeStderr,
+      maxOutputBytes: request.maxOutputBytes,
+      stdout: new OutputCapture(request.maxOutputBytes),
+      stderr: new OutputCapture(request.maxOutputBytes),
+      startedAt: (/* @__PURE__ */ new Date()).toISOString(),
+      completion,
+      resolveCompletion,
+      state: "running"
+    };
+    this.tasks.set(record2.taskId, record2);
+    child.stdout?.on("data", (chunk) => record2.stdout.append(chunk));
+    child.stderr?.on("data", (chunk) => record2.stderr.append(chunk));
+    child.once("error", () => {
+      if (record2.state === "running")
+        this.finish(record2, "failed", -1, "Local task failed to start");
+    });
+    child.once("close", (exitCode) => {
+      if (record2.state !== "running")
+        return;
+      this.finish(record2, exitCode === 0 ? "completed" : "failed", exitCode ?? -1);
+    });
+    record2.timer = setTimeout(() => {
+      void this.timeout(record2);
+    }, request.timeoutSeconds * 1e3);
+    if (request.execution === "background")
+      return ok(this.snapshot(record2));
+    await this.waitFor(record2, request.execution === "auto" ? this.autoWaitSeconds : request.timeoutSeconds);
+    return ok(this.snapshot(record2));
+  }
+  async wait(request) {
+    const record2 = this.getTask(request.taskId);
+    if (!record2.ok)
+      return record2;
+    await this.waitFor(record2.value, request.timeoutSeconds);
+    return ok(this.snapshot(record2.value, request.tailLines));
+  }
+  async waitFor(record2, seconds) {
+    if (record2.state !== "running" || seconds <= 0)
+      return;
+    await Promise.race([record2.completion, delay(seconds * 1e3)]);
+  }
+  async timeout(record2) {
+    if (record2.state !== "running")
+      return;
+    this.finish(record2, "timed_out", -1, "Local task timed out");
+    const pid = record2.child.pid;
+    if (pid !== void 0)
+      await this.terminator.stop(record2.child, pid);
+  }
+  async cancel(taskId) {
+    const record2 = this.getTask(taskId);
+    if (!record2.ok)
+      return record2;
+    if (record2.value.state === "running") {
+      this.finish(record2.value, "cancelled", -1);
+      const pid = record2.value.child.pid;
+      if (pid !== void 0)
+        await this.terminator.stop(record2.value.child, pid);
+    }
+    return ok(this.snapshot(record2.value));
+  }
+  taskSnapshot(taskId, tailLines) {
+    const record2 = this.getTask(taskId);
+    return record2.ok ? ok(this.snapshot(record2.value, tailLines)) : record2;
+  }
+  getTask(taskId) {
+    if (taskId === void 0)
+      return err(appError("INVALID_INPUT", "Task ID is required"));
+    const task = this.tasks.get(taskId);
+    return task === void 0 ? err(appError("PROCESS_NOT_FOUND", "Task was not found")) : ok(task);
+  }
+  async resolveCwd(requestedCwd) {
+    if (this.unrestricted && requestedCwd !== void 0 && import_node_path23.default.isAbsolute(requestedCwd)) {
+      try {
+        const canonical = await (0, import_promises18.realpath)(requestedCwd);
+        if (!(await (0, import_promises18.stat)(canonical)).isDirectory())
+          return err(appError("INVALID_INPUT", "Working directory must be a directory"));
+        return ok(canonical);
+      } catch {
+        return err(appError("FILE_NOT_FOUND", "Working directory was not found"));
+      }
+    }
+    const configuredRoots = this.allowedRootsProvider === void 0 ? this.allowedRoots : await this.allowedRootsProvider();
+    const canonicalRoots = [];
+    for (const root of configuredRoots) {
+      try {
+        if ((await (0, import_promises18.stat)(root)).isDirectory())
+          canonicalRoots.push(await (0, import_promises18.realpath)(root));
+      } catch {
+        continue;
+      }
+    }
+    if (canonicalRoots.length === 0)
+      return err(appError("FILE_NOT_FOUND", "No local capability root is available"));
+    const candidate = import_node_path23.default.resolve(requestedCwd ?? canonicalRoots[0]);
+    let canonicalCandidate;
+    try {
+      canonicalCandidate = await (0, import_promises18.realpath)(candidate);
+      if (!(await (0, import_promises18.stat)(canonicalCandidate)).isDirectory())
+        return err(appError("INVALID_INPUT", "Working directory must be a directory"));
+    } catch {
+      return err(appError("FILE_NOT_FOUND", "Working directory was not found"));
+    }
+    if (!canonicalRoots.some((root) => isWithin3(root, canonicalCandidate))) {
+      return err(appError("PATH_OUTSIDE_WORKSPACE", "Working directory is outside configured local roots"));
+    }
+    return ok(canonicalCandidate);
+  }
+  finish(record2, state, exitCode, errorMessage2) {
+    if (record2.state !== "running")
+      return;
+    record2.state = state;
+    if (exitCode !== void 0)
+      record2.exitCode = exitCode;
+    if (errorMessage2 !== void 0)
+      record2.errorMessage = errorMessage2;
+    record2.finishedAt = (/* @__PURE__ */ new Date()).toISOString();
+    if (record2.timer !== void 0)
+      clearTimeout(record2.timer);
+    record2.resolveCompletion();
+  }
+  snapshot(record2, tailLines) {
+    const stdout = record2.includeStdout ? record2.stdout.text(tailLines) : void 0;
+    const stderr = record2.includeStderr ? record2.stderr.text(tailLines) : void 0;
+    return {
+      task_id: record2.taskId,
+      state: record2.state,
+      ...record2.exitCode === void 0 ? {} : { exit_code: record2.exitCode },
+      ...stdout === void 0 ? {} : { stdout },
+      ...stderr === void 0 ? {} : { stderr },
+      ...record2.errorMessage === void 0 ? {} : { error: record2.errorMessage },
+      started_at: record2.startedAt,
+      ...record2.finishedAt === void 0 ? {} : { finished_at: record2.finishedAt },
+      truncated: record2.stdout.truncated || record2.stderr.truncated
+    };
+  }
+};
+var OutputCapture = class {
+  maxBytes;
+  chunks = [];
+  bytes = 0;
+  truncated = false;
+  constructor(maxBytes) {
+    this.maxBytes = maxBytes;
+  }
+  append(value) {
+    const chunk = Buffer.isBuffer(value) ? value : Buffer.from(value, "utf8");
+    const remaining = this.maxBytes - this.bytes;
+    if (remaining <= 0) {
+      this.truncated = true;
+      return;
+    }
+    this.chunks.push(chunk.subarray(0, remaining));
+    this.bytes += Math.min(chunk.byteLength, remaining);
+    if (chunk.byteLength > remaining)
+      this.truncated = true;
+  }
+  text(tailLines) {
+    const value = redactText(Buffer.concat(this.chunks).toString("utf8"));
+    if (tailLines === void 0 || tailLines < 1)
+      return tailLines === 0 ? "" : value;
+    const lines = value.split(/\r?\n/);
+    return lines.slice(-tailLines).join("\n");
+  }
+};
+function parseShellRequest(value, defaultTimeoutSeconds, maxOutputBytes) {
+  if (!isRecord2(value))
+    return err(appError("INVALID_INPUT", "Shell input must be an object"));
+  const operation = value.operation === void 0 ? "run" : value.operation;
+  if (!isShellOperation(operation))
+    return err(appError("INVALID_INPUT", "Shell operation is invalid"));
+  const executable = value.executable === void 0 ? void 0 : value.executable;
+  if (executable !== void 0 && (typeof executable !== "string" || executable.trim().length === 0))
+    return err(appError("INVALID_INPUT", "Executable is invalid"));
+  const rawArguments = value.arguments === void 0 ? [] : value.arguments;
+  if (!Array.isArray(rawArguments) || !rawArguments.every((item) => typeof item === "string"))
+    return err(appError("INVALID_INPUT", "Arguments must be strings"));
+  const privilege = value.privilege === void 0 ? "user" : value.privilege;
+  if (privilege !== "user" && privilege !== "admin")
+    return err(appError("INVALID_INPUT", "Privilege is invalid"));
+  const execution = value.execution === void 0 ? "auto" : value.execution;
+  if (execution !== "foreground" && execution !== "background" && execution !== "auto")
+    return err(appError("INVALID_INPUT", "Execution mode is invalid"));
+  const cwd = value.cwd === void 0 ? void 0 : value.cwd;
+  if (cwd !== void 0 && (typeof cwd !== "string" || cwd.includes("\0")))
+    return err(appError("INVALID_INPUT", "Working directory is invalid"));
+  const taskId = value.task_id === void 0 ? void 0 : value.task_id;
+  if (taskId !== void 0 && (typeof taskId !== "string" || taskId.trim().length === 0))
+    return err(appError("INVALID_INPUT", "Task ID is invalid"));
+  const timeoutSeconds = value.timeout_seconds === void 0 ? defaultTimeoutSeconds : value.timeout_seconds;
+  if (typeof timeoutSeconds !== "number" || !Number.isFinite(timeoutSeconds) || timeoutSeconds < 0.1 || timeoutSeconds > MAX_TIMEOUT_SECONDS)
+    return err(appError("INVALID_INPUT", "Timeout is invalid"));
+  const requestedMaxBytes = value.max_output_bytes === void 0 ? maxOutputBytes : value.max_output_bytes;
+  if (typeof requestedMaxBytes !== "number" || !Number.isInteger(requestedMaxBytes) || requestedMaxBytes < 1 || requestedMaxBytes > MAX_OUTPUT_BYTES)
+    return err(appError("INVALID_INPUT", "Output limit is invalid"));
+  const tailLines = value.tail_lines === void 0 ? void 0 : value.tail_lines;
+  if (tailLines !== void 0 && (typeof tailLines !== "number" || !Number.isInteger(tailLines) || tailLines < 0 || tailLines > 1e4))
+    return err(appError("INVALID_INPUT", "Tail limit is invalid"));
+  const includeStdout = value.include_stdout === void 0 ? true : value.include_stdout;
+  const includeStderr = value.include_stderr === void 0 ? true : value.include_stderr;
+  const dryRun = value.dry_run === void 0 ? false : value.dry_run;
+  const userConfirmed = value.userConfirmed === true;
+  if (typeof includeStdout !== "boolean" || typeof includeStderr !== "boolean" || typeof dryRun !== "boolean")
+    return err(appError("INVALID_INPUT", "Shell flags are invalid"));
+  return ok({ operation, ...executable === void 0 ? {} : { executable: executable.trim() }, arguments: rawArguments, privilege, ...cwd === void 0 ? {} : { cwd }, execution, ...taskId === void 0 ? {} : { taskId }, timeoutSeconds, maxOutputBytes: requestedMaxBytes, ...tailLines === void 0 ? {} : { tailLines }, includeStdout, includeStderr, dryRun, userConfirmed });
+}
+function isShellOperation(value) {
+  return typeof value === "string" && SHELL_OPERATIONS.some((operation) => operation === value);
+}
+function isRecord2(value) {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+function isWithin3(root, candidate) {
+  const relative = import_node_path23.default.relative(root, candidate);
+  return relative === "" || relative !== ".." && !relative.startsWith(`..${import_node_path23.default.sep}`) && !import_node_path23.default.isAbsolute(relative);
+}
+function createSafeEnvironment2(source, unrestricted) {
+  if (unrestricted)
+    return { ...source };
+  const allowed = new Set(["PATH", "PATHEXT", "SystemRoot", "WINDIR", "TEMP", "TMP", "USERPROFILE", "HOMEDRIVE", "HOMEPATH", "HOME", "LANG", "LC_ALL", "APPDATA", "LOCALAPPDATA", "ProgramData", "ProgramFiles", "ProgramFiles(x86)", "ComSpec"].map((key) => process.platform === "win32" ? key.toLowerCase() : key));
+  return Object.fromEntries(Object.entries(source).filter(([key, entry]) => {
+    const normalizedKey = process.platform === "win32" ? key.toLowerCase() : key;
+    return entry !== void 0 && allowed.has(normalizedKey);
+  }));
+}
+function redactText(value) {
+  return value.replace(/(\bauthorization\s*:\s*bearer\s+)[^\s]+/gi, "$1[redacted]").replace(/\b(token|secret|password|api[_-]?key|private[_-]?key)\s*[:=]\s*[^\s]+/gi, "$1=[redacted]");
+}
+function clampNumber(value, minimum, maximum) {
+  return Math.min(maximum, Math.max(minimum, value));
+}
+function isDeleteLikeShellCommand(executable, args) {
+  const basename2 = import_node_path23.default.win32.basename(executable).toLowerCase();
+  if (basename2 === "git" || basename2 === "git.exe")
+    return false;
+  const deleteNames = /* @__PURE__ */ new Set(["del", "del.exe", "erase", "erase.exe", "rm", "rm.exe", "rmdir", "rmdir.exe", "rd", "rd.exe", "unlink", "unlink.exe"]);
+  if (deleteNames.has(basename2))
+    return true;
+  const joined = args.map((entry) => entry.toLowerCase()).join(" ");
+  if (basename2 === "powershell.exe" || basename2 === "powershell" || basename2 === "pwsh.exe" || basename2 === "pwsh") {
+    if (/\bremove-item\b/.test(joined))
+      return true;
+    const withoutGitRm = joined.replace(/\bgit(?:\.exe)?\s+rm\b/g, " ");
+    return /\brm\b/.test(withoutGitRm) || /\bdel\b/.test(withoutGitRm);
+  }
+  if (basename2 === "cmd.exe" || basename2 === "cmd") {
+    return /(^|[\s&|])(del|erase|rd|rmdir)\b/.test(joined);
+  }
+  return false;
+}
+function delay(milliseconds) {
+  return new Promise((resolve) => setTimeout(resolve, milliseconds));
+}
+
+// ../../packages/capabilities/dist/browser-cdp-protocol.js
+var import_promises19 = require("node:fs/promises");
+var import_node_fs5 = require("node:fs");
+var import_node_os3 = __toESM(require("node:os"), 1);
+var import_node_path24 = __toESM(require("node:path"), 1);
+var import_node_child_process7 = require("node:child_process");
+var NodeBrowserCdpProtocol = class {
+  port;
+  profileDir;
+  chromeExecutable;
+  constructor(options = {}) {
+    this.port = options.port ?? readPort(process.env.LNWJUD_BROWSER_CDP_PORT);
+    this.profileDir = options.profileDir ?? process.env.LNWJUD_BROWSER_PROFILE ?? import_node_path24.default.join(import_node_os3.default.tmpdir(), "lnwjud-browser-profile");
+    this.chromeExecutable = options.chromeExecutable ?? process.env.LNWJUD_BROWSER_EXECUTABLE;
+  }
+  async status() {
+    try {
+      const response = await fetch(this.endpoint("/json/version"));
+      return { ready: response.ok, port: this.port };
+    } catch {
+      return { ready: false, port: this.port };
+    }
+  }
+  async listTabs() {
+    const value = await this.requestJson("/json/list");
+    if (!Array.isArray(value))
+      throw new Error("Chrome tabs response was invalid");
+    return value.flatMap((item) => {
+      const tab = toTab(item);
+      return tab === void 0 ? [] : [tab];
+    });
+  }
+  async newTab(url2) {
+    const response = await fetch(this.endpoint(`/json/new?${encodeURIComponent(url2)}`), { method: "PUT" });
+    if (!response.ok)
+      throw new Error(`Chrome new-tab request failed: ${response.status}`);
+    const value = await response.json();
+    const tab = toTab(value);
+    if (tab === void 0)
+      throw new Error("Chrome new-tab response was invalid");
+    return tab;
+  }
+  async closeTab(tabId) {
+    const response = await fetch(this.endpoint(`/json/close/${encodeURIComponent(tabId)}`));
+    return { closed: response.ok, tab_id: tabId };
+  }
+  async request(tabId, method, params) {
+    const tabs = await this.listTabs();
+    const tab = tabs.find((candidate) => candidate.id === tabId);
+    if (tab === void 0)
+      throw new Error("Chrome tab was not found");
+    const socketUrl = validateWebSocketUrl(tab.webSocketDebuggerUrl, this.port);
+    return sendWebSocketRequest(socketUrl, method, params);
+  }
+  async launch(url2) {
+    const existing = await this.status();
+    if (existing.ready)
+      return ok({ ready: true, port: this.port, launched: false });
+    const executable = this.findChromeExecutable();
+    if (executable === void 0)
+      return err(appError("EXECUTABLE_NOT_FOUND", "Google Chrome was not found"));
+    try {
+      await (0, import_promises19.mkdir)(this.profileDir, { recursive: true });
+      const args = [
+        `--remote-debugging-port=${this.port}`,
+        `--user-data-dir=${this.profileDir}`,
+        "--no-first-run",
+        "--no-default-browser-check",
+        ...url2 === void 0 ? [] : [url2]
+      ];
+      (0, import_node_child_process7.spawn)(executable, args, { shell: false, windowsHide: false, detached: false, stdio: "ignore" });
+    } catch {
+      return err(appError("INTERNAL_ERROR", "Chrome could not be started", true));
+    }
+    const deadline = Date.now() + 3e4;
+    while (Date.now() <= deadline) {
+      const state = await this.status();
+      if (state.ready)
+        return ok({ ready: true, port: this.port, launched: true });
+      await delay2(100);
+    }
+    return err(appError("PROCESS_TIMEOUT", "Chrome CDP did not become ready", true));
+  }
+  endpoint(resource) {
+    return `http://127.0.0.1:${this.port}${resource}`;
+  }
+  async requestJson(resource) {
+    const response = await fetch(this.endpoint(resource));
+    if (!response.ok)
+      throw new Error(`Chrome CDP HTTP request failed: ${response.status}`);
+    const value = await response.json();
+    return value;
+  }
+  findChromeExecutable() {
+    if (this.chromeExecutable !== void 0 && this.chromeExecutable.trim().length > 0)
+      return this.chromeExecutable;
+    if (process.platform !== "win32")
+      return void 0;
+    const localAppData = process.env.LOCALAPPDATA;
+    const programFiles = process.env.ProgramFiles;
+    const programFilesX86 = process.env["ProgramFiles(x86)"];
+    const candidates = [
+      localAppData === void 0 ? void 0 : import_node_path24.default.join(localAppData, "Google", "Chrome", "Application", "chrome.exe"),
+      programFiles === void 0 ? void 0 : import_node_path24.default.join(programFiles, "Google", "Chrome", "Application", "chrome.exe"),
+      programFilesX86 === void 0 ? void 0 : import_node_path24.default.join(programFilesX86, "Google", "Chrome", "Application", "chrome.exe"),
+      localAppData === void 0 ? void 0 : import_node_path24.default.join(localAppData, "Microsoft", "Edge", "Application", "msedge.exe"),
+      programFiles === void 0 ? void 0 : import_node_path24.default.join(programFiles, "Microsoft", "Edge", "Application", "msedge.exe"),
+      programFilesX86 === void 0 ? void 0 : import_node_path24.default.join(programFilesX86, "Microsoft", "Edge", "Application", "msedge.exe")
+    ];
+    return candidates.find((candidate) => candidate !== void 0 && (0, import_node_fs5.existsSync)(candidate));
+  }
+};
+function toTab(value) {
+  if (!isRecord3(value))
+    return void 0;
+  if (typeof value.id !== "string" || typeof value.title !== "string" || typeof value.url !== "string" || typeof value.webSocketDebuggerUrl !== "string")
+    return void 0;
+  return { id: value.id, title: value.title, url: value.url, webSocketDebuggerUrl: value.webSocketDebuggerUrl };
+}
+function validateWebSocketUrl(value, port) {
+  const url2 = new URL(value);
+  if (url2.protocol !== "ws:" || url2.hostname !== "127.0.0.1" && url2.hostname !== "localhost" || url2.port !== "" && Number(url2.port) !== port)
+    throw new Error("Chrome CDP socket is not local");
+  return url2.toString();
+}
+function sendWebSocketRequest(url2, method, params) {
+  return new Promise((resolve, reject) => {
+    if (typeof WebSocket === "undefined") {
+      reject(new Error("WebSocket is not available"));
+      return;
+    }
+    const socket = new WebSocket(url2);
+    const id = 1;
+    const timer = setTimeout(() => {
+      socket.close();
+      reject(new Error("Chrome CDP request timed out"));
+    }, 3e4);
+    const finish = (callback) => {
+      clearTimeout(timer);
+      socket.close();
+      callback();
+    };
+    socket.addEventListener("open", () => socket.send(JSON.stringify({ id, method, params })));
+    socket.addEventListener("message", (event) => {
+      const value = typeof event.data === "string" ? parseJson(event.data) : void 0;
+      if (!isRecord3(value) || value.id !== id)
+        return;
+      finish(() => resolve(value));
+    });
+    socket.addEventListener("error", () => finish(() => reject(new Error("Chrome CDP socket failed"))));
+  });
+}
+function parseJson(value) {
+  try {
+    return JSON.parse(value);
+  } catch {
+    return void 0;
+  }
+}
+function isRecord3(value) {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+function readPort(value) {
+  const port = value === void 0 ? 9222 : Number(value);
+  return Number.isInteger(port) && port >= 9222 && port <= 9322 ? port : 9222;
+}
+function delay2(milliseconds) {
+  return new Promise((resolve) => setTimeout(resolve, milliseconds));
+}
+
+// ../../packages/capabilities/dist/browser-cdp-backend.js
+var BROWSER_ACTIONS = ["launch", "status", "list_tabs", "new_tab", "close_tab", "navigate", "evaluate", "query", "click", "type", "wait", "screenshot"];
+var DEFAULT_TIMEOUT_SECONDS2 = 30;
+var MAX_TIMEOUT_SECONDS2 = 3600;
+var BrowserCdpBackend = class {
+  protocol;
+  launcher;
+  constructor(options = {}) {
+    this.protocol = options.protocol ?? new NodeBrowserCdpProtocol();
+    this.launcher = options.launcher;
+  }
+  async execute(input) {
+    const parsed = parseBrowserRequest(input);
+    if (!parsed.ok)
+      return parsed;
+    if (parsed.value.steps !== void 0)
+      return this.executeSteps(parsed.value);
+    if (parsed.value.action === void 0)
+      return err(appError("INVALID_INPUT", "DOM action is required"));
+    return this.executeAction(parsed.value, parsed.value.action, parsed.value.parameters);
+  }
+  async executeSteps(request) {
+    const values = [];
+    for (const step of request.steps ?? []) {
+      const result = await this.executeAction(request, step.action, step.parameters);
+      if (!result.ok)
+        return result;
+      values.push(result.value);
+    }
+    return ok({ steps: values });
+  }
+  async executeAction(request, action, parameters) {
+    if (request.dryRun)
+      return ok({ dry_run: true, action, parameters });
+    switch (action) {
+      case "status":
+        return ok(await this.protocol.status());
+      case "launch":
+        if (this.launcher === void 0)
+          return err(appError("INTERNAL_ERROR", "Browser launcher is not configured", true));
+        return this.launcher(readString(parameters, "url"));
+      case "list_tabs":
+        return ok({ tabs: await this.protocol.listTabs() });
+      case "new_tab":
+        return ok(await this.protocol.newTab(readString(parameters, "url") ?? "about:blank"));
+      case "close_tab": {
+        const tabId = request.tabId ?? readString(parameters, "tab_id");
+        return tabId === void 0 ? err(appError("INVALID_INPUT", "Tab ID is required")) : ok(await this.protocol.closeTab(tabId));
+      }
+      case "navigate":
+        return this.withTab(request, parameters, async (tab) => this.evaluateProtocol(tab.id, "Page.navigate", { url: readString(parameters, "url") ?? "" }));
+      case "evaluate": {
+        const expression = readString(parameters, "expression");
+        return expression === void 0 ? err(appError("INVALID_INPUT", "JavaScript expression is required")) : this.withTab(request, parameters, async (tab) => this.evaluateProtocol(tab.id, "Runtime.evaluate", { expression, returnByValue: true, awaitPromise: true }));
+      }
+      case "query":
+        return this.withTab(request, parameters, async (tab) => this.evaluateProtocol(tab.id, "Runtime.evaluate", { expression: queryScript(readString(parameters, "selector") ?? ""), returnByValue: true, awaitPromise: true }));
+      case "click":
+        return this.withTab(request, parameters, async (tab) => this.evaluateProtocol(tab.id, "Runtime.evaluate", { expression: clickScript(readString(parameters, "selector") ?? ""), returnByValue: true, awaitPromise: true }));
+      case "type":
+        return this.withTab(request, parameters, async (tab) => this.evaluateProtocol(tab.id, "Runtime.evaluate", { expression: typeScript(readString(parameters, "selector") ?? "", readString(parameters, "text") ?? ""), returnByValue: true, awaitPromise: true }));
+      case "wait":
+        return this.waitFor(request, parameters);
+      case "screenshot":
+        return this.withTab(request, parameters, async (tab) => {
+          const result = await this.protocol.request(tab.id, "Page.captureScreenshot", { format: "png" });
+          const data = readScreenshotData(result);
+          return data === void 0 ? err(appError("INTERNAL_ERROR", "Browser screenshot response was invalid", true)) : ok({ format: "png", data_base64: data });
+        });
+    }
+  }
+  async waitFor(request, parameters) {
+    const selector = readString(parameters, "selector");
+    const expression = readString(parameters, "expression");
+    if (selector === void 0 && expression === void 0)
+      return err(appError("INVALID_INPUT", "Wait requires a selector or expression"));
+    const deadline = Date.now() + Math.min(request.timeoutSeconds, MAX_TIMEOUT_SECONDS2) * 1e3;
+    while (Date.now() <= deadline) {
+      const result = await this.withTab(request, parameters, async (tab) => this.evaluateProtocol(tab.id, "Runtime.evaluate", {
+        expression: selector === void 0 ? expression : `Boolean(document.querySelector(${JSON.stringify(selector)}))`,
+        returnByValue: true,
+        awaitPromise: true
+      }));
+      if (!result.ok)
+        return result;
+      if (result.value === true)
+        return ok({ ready: true });
+      await delay3(Math.min(readNumber(parameters, "poll_interval_seconds") ?? 0.1, 1) * 1e3);
+    }
+    return ok({ ready: false, timed_out: true });
+  }
+  async withTab(request, parameters, callback) {
+    const tabId = request.tabId ?? readString(parameters, "tab_id");
+    const tabs = await this.protocol.listTabs();
+    const tab = tabId === void 0 ? tabs[0] : tabs.find((candidate) => candidate.id === tabId);
+    return tab === void 0 ? err(appError("INVALID_INPUT", "A managed Chrome tab is required")) : callback(tab);
+  }
+  async evaluateProtocol(tabId, method, params) {
+    try {
+      return ok(readCdpValue(await this.protocol.request(tabId, method, params)));
+    } catch {
+      return err(appError("INTERNAL_ERROR", "Browser CDP request failed", true));
+    }
+  }
+};
+function parseBrowserRequest(value) {
+  if (!isRecord4(value))
+    return err(appError("INVALID_INPUT", "DOM input must be an object"));
+  const actionValue = value.action;
+  const action = actionValue === void 0 ? void 0 : isBrowserAction(actionValue) ? actionValue : null;
+  if (action === null)
+    return err(appError("INVALID_INPUT", "DOM action is invalid"));
+  const parametersValue = value.parameters;
+  const parameters = parametersValue === void 0 ? {} : parametersValue;
+  if (!isRecord4(parameters))
+    return err(appError("INVALID_INPUT", "DOM parameters must be an object"));
+  const tabId = value.tab_id;
+  if (tabId !== void 0 && typeof tabId !== "string")
+    return err(appError("INVALID_INPUT", "Tab ID is invalid"));
+  const timeoutSeconds = value.timeout_seconds === void 0 ? DEFAULT_TIMEOUT_SECONDS2 : value.timeout_seconds;
+  if (typeof timeoutSeconds !== "number" || !Number.isFinite(timeoutSeconds) || timeoutSeconds < 0.1 || timeoutSeconds > MAX_TIMEOUT_SECONDS2)
+    return err(appError("INVALID_INPUT", "DOM timeout is invalid"));
+  const dryRun = value.dry_run === void 0 ? false : value.dry_run;
+  if (typeof dryRun !== "boolean")
+    return err(appError("INVALID_INPUT", "Dry-run flag is invalid"));
+  const stepsValue = value.steps;
+  if (stepsValue !== void 0 && (!Array.isArray(stepsValue) || stepsValue.length < 1 || stepsValue.length > 100))
+    return err(appError("INVALID_INPUT", "DOM steps must contain 1 to 100 items"));
+  const normalizedSteps = [];
+  if (stepsValue !== void 0) {
+    for (const step of stepsValue) {
+      if (!isRecord4(step) || !isBrowserAction(step.action))
+        return err(appError("INVALID_INPUT", "DOM step is invalid"));
+      const stepParameters = step.parameters === void 0 ? {} : step.parameters;
+      if (!isRecord4(stepParameters))
+        return err(appError("INVALID_INPUT", "DOM step parameters are invalid"));
+      normalizedSteps.push({ action: step.action, parameters: stepParameters });
+    }
+  }
+  return ok({ ...action === void 0 ? {} : { action }, parameters, ...stepsValue === void 0 ? {} : { steps: normalizedSteps }, ...tabId === void 0 ? {} : { tabId }, timeoutSeconds, dryRun });
+}
+function isBrowserAction(value) {
+  return typeof value === "string" && BROWSER_ACTIONS.some((action) => action === value);
+}
+function isRecord4(value) {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+function readString(value, key) {
+  const result = value[key];
+  return typeof result === "string" ? result : void 0;
+}
+function readNumber(value, key) {
+  const result = value[key];
+  return typeof result === "number" && Number.isFinite(result) ? result : void 0;
+}
+function readCdpValue(response) {
+  if (!isRecord4(response))
+    return void 0;
+  const outerResult = response.result;
+  if (!isRecord4(outerResult))
+    return void 0;
+  const remoteResult = outerResult.result;
+  if (!isRecord4(remoteResult))
+    return void 0;
+  if ("exceptionDetails" in remoteResult)
+    return void 0;
+  return "value" in remoteResult ? remoteResult.value : void 0;
+}
+function readScreenshotData(response) {
+  if (!isRecord4(response) || !isRecord4(response.result))
+    return void 0;
+  return typeof response.result.data === "string" ? response.result.data : void 0;
+}
+function queryScript(selector) {
+  return `(() => { const el=document.querySelector(${JSON.stringify(selector)}); if(!el) return {ok:false}; const r=el.getBoundingClientRect(); return {ok:true,text:el.innerText||el.value||'',tag:el.tagName,disabled:!!el.disabled,frame:{x:r.x,y:r.y,width:r.width,height:r.height}}; })()`;
+}
+function clickScript(selector) {
+  return `(() => { const el=document.querySelector(${JSON.stringify(selector)}); if(!el) return {ok:false}; el.scrollIntoView({block:'center',inline:'center'}); el.click(); return {ok:true}; })()`;
+}
+function typeScript(selector, text) {
+  return `(() => { const el=document.querySelector(${JSON.stringify(selector)}); if(!el) return {ok:false}; el.focus(); const setter=Object.getOwnPropertyDescriptor(Object.getPrototypeOf(el),'value')?.set; if(setter) setter.call(el,${JSON.stringify(text)}); else el.value=${JSON.stringify(text)}; el.dispatchEvent(new Event('input',{bubbles:true})); el.dispatchEvent(new Event('change',{bubbles:true})); return {ok:true,value:el.value}; })()`;
+}
+function delay3(milliseconds) {
+  return new Promise((resolve) => setTimeout(resolve, milliseconds));
+}
+
+// ../../packages/capabilities/dist/capability-descriptors.js
+var descriptor = (name, availability, permission, auditTarget, requirements = [], supportsCancel = false, supportsDryRun = false) => ({
+  name,
+  availability,
+  requirements,
+  permission,
+  supportsCancel,
+  supportsDryRun,
+  auditTarget
+});
+var capabilityDescriptors = Object.freeze([
+  descriptor("shell", "always", "EXECUTE", "process", ["workspace registration"], true, true),
+  descriptor("dom_cdp", "optional", "READ", "browser", ["CDP-compatible browser"]),
+  descriptor("accessibility", "windows", "READ", "window", ["UI Automation"]),
+  descriptor("input_event", "windows", "DANGEROUS", "window", ["input permission"], false, true),
+  descriptor("vision", "windows", "READ", "display", ["Windows package identity for WinRT OCR"], false, true),
+  descriptor("window", "windows", "WRITE", "window", ["Win32 window access"], false, true),
+  descriptor("health", "always", "READ", "diagnostics"),
+  descriptor("system_info", "always", "READ", "system"),
+  descriptor("notification", "windows", "WRITE", "notification"),
+  descriptor("file_dialog", "windows", "WRITE", "window"),
+  descriptor("clipboard", "windows", "WRITE", "clipboard"),
+  descriptor("web_fetch", "optional", "READ", "network", ["network policy"]),
+  descriptor("audio", "windows", "WRITE", "audio"),
+  descriptor("screen_record", "windows", "READ", "display"),
+  descriptor("office", "windows", "WRITE", "office", ["Office desktop installation"]),
+  descriptor("scheduler", "always", "EXECUTE", "scheduler", ["local task scheduler"], true, true),
+  descriptor("wsl_exec", "windows", "EXECUTE", "workspace", ["wsl.exe", "registered workspace"], true, true),
+  descriptor("wsl_fs", "windows", "READ", "workspace", ["wsl.exe", "registered workspace"], false, false)
+]);
+
+// ../../packages/capabilities/dist/health-backend.js
+var HealthCapabilityBackend = class {
+  platform;
+  domCdp;
+  accessibility;
+  wslExec;
+  wslFs;
+  constructor(options = {}) {
+    this.platform = options.platform ?? process.platform;
+    this.domCdp = options.domCdp;
+    this.accessibility = options.accessibility;
+    this.wslExec = options.wslExec;
+    this.wslFs = options.wslFs;
+  }
+  async execute(input) {
+    if (!isRecord5(input))
+      return err(appError("INVALID_INPUT", "Health input must be an object"));
+    const operation = input.operation === void 0 ? "check_all" : input.operation;
+    if (operation !== "check_all" && operation !== "check_tool")
+      return err(appError("INVALID_INPUT", "Health operation is invalid"));
+    const tool = input.tool;
+    const validatedTool = isCapabilityToolName(tool) ? tool : void 0;
+    if (operation === "check_tool" && validatedTool === void 0)
+      return err(appError("INVALID_INPUT", "Health tool is required"));
+    if (operation === "check_tool" && validatedTool !== void 0)
+      return ok({ tool: validatedTool, ...await this.check(validatedTool) });
+    const capabilities = {};
+    for (const name of capabilityToolNames)
+      capabilities[name] = await this.check(name);
+    return ok({ capabilities });
+  }
+  async check(tool) {
+    if (tool === "shell" || tool === "health" || tool === "web_fetch" || tool === "scheduler")
+      return this.describe(tool, { available: true, ready: true, local: true });
+    if (tool === "system_info" || tool === "notification" || tool === "file_dialog" || tool === "clipboard" || tool === "audio" || tool === "screen_record" || tool === "office") {
+      return this.describe(tool, { available: this.platform === "win32", ready: this.platform === "win32", local: true });
+    }
+    if (tool === "input_event" || tool === "vision" || tool === "window")
+      return this.describe(tool, { available: this.platform === "win32", ready: this.platform === "win32", local: true });
+    if (tool === "dom_cdp")
+      return this.describe(tool, await this.checkDelegated(this.domCdp, { action: "status" }));
+    if (tool === "wsl_exec")
+      return this.describe(tool, await this.checkDelegated(this.wslExec, { operation: "status" }));
+    if (tool === "wsl_fs")
+      return this.describe(tool, await this.checkDelegated(this.wslFs, { operation: "status" }));
+    return this.describe(tool, await this.checkDelegated(this.accessibility, { action: "status" }));
+  }
+  describe(tool, value) {
+    const descriptor2 = capabilityDescriptors.find((candidate) => candidate.name === tool);
+    return descriptor2 === void 0 ? value : {
+      availability: descriptor2.availability,
+      requirements: descriptor2.requirements,
+      permission: descriptor2.permission,
+      supportsCancel: descriptor2.supportsCancel,
+      supportsDryRun: descriptor2.supportsDryRun,
+      auditTarget: descriptor2.auditTarget,
+      ...value
+    };
+  }
+  async checkDelegated(backend, input) {
+    if (backend === void 0)
+      return { available: false, ready: false, local: true, reason: "Backend is not configured" };
+    const result = await backend.execute(input);
+    if (!result.ok)
+      return { available: false, ready: false, local: true, reason: result.error.message };
+    const value = isRecord5(result.value) ? result.value : {};
+    return { available: value.available !== false, ready: value.ready !== false, local: true, ...value };
+  }
+};
+function isCapabilityToolName(value) {
+  return typeof value === "string" && capabilityToolNames.some((name) => name === value);
+}
+function isRecord5(value) {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+// ../../packages/capabilities/dist/web-fetch-backend.js
+var DEFAULT_MAX_BYTES2 = 5 * 1024 * 1024;
+var MAX_MAX_BYTES = 10 * 1024 * 1024;
+var DEFAULT_TIMEOUT_SECONDS3 = 60;
+var MAX_TIMEOUT_SECONDS3 = 600;
+var TEXT_SAFE_CTYPES = /* @__PURE__ */ new Set(["application/json", "application/javascript", "application/xml", "application/x-www-form-urlencoded"]);
+var WebFetchCapabilityBackend = class {
+  fetchImpl;
+  constructor(options = {}) {
+    this.fetchImpl = options.fetchImpl ?? fetch;
+  }
+  async execute(input) {
+    const parsed = parseRequest(input);
+    if (!parsed.ok)
+      return parsed;
+    const request = parsed.value;
+    let url2;
+    try {
+      url2 = new URL(request.url);
+    } catch {
+      return err(appError("INVALID_INPUT", "URL is invalid"));
+    }
+    if (url2.protocol !== "http:" && url2.protocol !== "https:") {
+      return err(appError("INVALID_INPUT", "Only http and https URLs are supported"));
+    }
+    const headers = {};
+    for (const entry of request.headers ?? []) {
+      if (typeof entry.name !== "string" || typeof entry.value !== "string") {
+        return err(appError("INVALID_INPUT", "Header entries must be name/value strings"));
+      }
+      headers[entry.name] = entry.value;
+    }
+    let body;
+    if (request.body !== void 0) {
+      if (request.method === "GET" || request.method === "HEAD") {
+        return err(appError("INVALID_INPUT", "GET and HEAD requests cannot have a body"));
+      }
+      body = request.body;
+    }
+    if (request.dryRun) {
+      return ok({ dry_run: true, url: url2.toString(), method: request.method });
+    }
+    const signal = AbortSignal.timeout(request.timeoutSeconds * 1e3);
+    let response;
+    try {
+      response = await this.fetchImpl(url2.toString(), {
+        method: request.method,
+        headers,
+        ...body === void 0 ? {} : { body },
+        redirect: "follow",
+        signal
+      });
+    } catch (error46) {
+      const reason = error46 instanceof Error && error46.name === "TimeoutError" ? "Request timed out" : "Request failed";
+      return err(appError("INTERNAL_ERROR", reason, true));
+    }
+    let bytes;
+    let truncated = false;
+    try {
+      if (response.body === null) {
+        bytes = Buffer.alloc(0);
+      } else {
+        const reader = response.body.getReader();
+        const chunks = [];
+        let total = 0;
+        while (true) {
+          const chunk = await reader.read();
+          if (chunk.done)
+            break;
+          const remaining = request.maxBytes - total;
+          if (remaining <= 0) {
+            truncated = true;
+            await reader.cancel().catch(() => void 0);
+            break;
+          }
+          const slice = chunk.value.subarray(0, remaining);
+          chunks.push(slice);
+          total += slice.byteLength;
+          if (slice.byteLength < chunk.value.byteLength) {
+            truncated = true;
+            await reader.cancel().catch(() => void 0);
+            break;
+          }
+        }
+        bytes = Buffer.concat(chunks);
+      }
+    } catch {
+      return err(appError("INTERNAL_ERROR", "Response body could not be read", true));
+    }
+    const contentType = response.headers.get("content-type") ?? "";
+    const isText = contentType.startsWith("text/") || TEXT_SAFE_CTYPES.has(contentType.split(";")[0]?.trim().toLowerCase() ?? "");
+    const value = {
+      status: response.status,
+      status_text: response.statusText,
+      url: response.url,
+      content_type: contentType,
+      byte_length: bytes.byteLength,
+      truncated,
+      ...isText ? { text: bytes.toString("utf8") } : { data_base64: bytes.toString("base64") }
+    };
+    return ok(value);
+  }
+};
+function parseRequest(value) {
+  if (!isRecord6(value))
+    return err(appError("INVALID_INPUT", "web_fetch input must be an object"));
+  const url2 = value.url;
+  if (typeof url2 !== "string" || url2.trim().length === 0)
+    return err(appError("INVALID_INPUT", "URL is required"));
+  const methodValue = value.method === void 0 ? "GET" : value.method;
+  if (methodValue !== "GET" && methodValue !== "POST" && methodValue !== "PUT" && methodValue !== "DELETE" && methodValue !== "HEAD") {
+    return err(appError("INVALID_INPUT", "Method is invalid"));
+  }
+  const headers = value.headers === void 0 ? [] : value.headers;
+  if (!Array.isArray(headers) || headers.length > 64)
+    return err(appError("INVALID_INPUT", "Headers are invalid"));
+  const body = value.body === void 0 ? void 0 : value.body;
+  if (body !== void 0 && typeof body !== "string")
+    return err(appError("INVALID_INPUT", "Body must be a string"));
+  const maxBytes = value.max_bytes === void 0 ? DEFAULT_MAX_BYTES2 : value.max_bytes;
+  if (typeof maxBytes !== "number" || !Number.isInteger(maxBytes) || maxBytes < 1 || maxBytes > MAX_MAX_BYTES) {
+    return err(appError("INVALID_INPUT", "max_bytes is invalid"));
+  }
+  const timeoutSeconds = value.timeout_seconds === void 0 ? DEFAULT_TIMEOUT_SECONDS3 : value.timeout_seconds;
+  if (typeof timeoutSeconds !== "number" || !Number.isFinite(timeoutSeconds) || timeoutSeconds < 1 || timeoutSeconds > MAX_TIMEOUT_SECONDS3) {
+    return err(appError("INVALID_INPUT", "timeout_seconds is invalid"));
+  }
+  const dryRun = value.dry_run === void 0 ? false : value.dry_run;
+  if (typeof dryRun !== "boolean")
+    return err(appError("INVALID_INPUT", "dry_run is invalid"));
+  return ok({
+    url: url2.trim(),
+    method: methodValue,
+    headers,
+    ...body === void 0 ? {} : { body },
+    maxBytes,
+    timeoutSeconds,
+    dryRun
+  });
+}
+function isRecord6(value) {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+// ../../packages/capabilities/dist/scheduler-backend.js
+var import_node_child_process8 = require("node:child_process");
+var import_node_util = require("node:util");
+var execFileAsync = (0, import_node_util.promisify)(import_node_child_process8.execFile);
+var TASK_NAME_PATTERN = /^[\w .-]{1,200}$/;
+var SchedulerCapabilityBackend = class {
+  platform;
+  executable;
+  runImpl;
+  constructor(options = {}) {
+    this.platform = options.platform ?? process.platform;
+    this.executable = options.executable ?? "schtasks.exe";
+    this.runImpl = options.runImpl ?? (async (executable, args) => {
+      const result = await execFileAsync(executable, [...args], { windowsHide: true, encoding: "utf8", maxBuffer: 4 * 1024 * 1024 });
+      return { stdout: typeof result.stdout === "string" ? result.stdout : "", stderr: typeof result.stderr === "string" ? result.stderr : "" };
+    });
+  }
+  async execute(input) {
+    if (this.platform !== "win32")
+      return err(appError("INTERNAL_ERROR", "Scheduled tasks are unavailable on this platform", true));
+    const parsed = parseRequest2(input);
+    if (!parsed.ok)
+      return parsed;
+    const request = parsed.value;
+    try {
+      switch (request.action) {
+        case "list":
+          return ok({ tasks: await this.list() });
+        case "create":
+          return ok(await this.create(request.taskName, request.command, request.arguments ?? [], request.schedule ?? "DAILY", request.startTime ?? "09:00"));
+        case "delete":
+          if (request.userConfirmed !== true) {
+            return err(appError("PERMISSION_REQUIRED", "Deleting a scheduled task requires the user to confirm in chat first, then retry scheduler with userConfirmed: true"));
+          }
+          return ok(await this.delete(request.taskName));
+        case "run":
+          return ok(await this.run(request.taskName));
+      }
+    } catch (error46) {
+      const detail = extractDetail(error46);
+      return err(appError("INTERNAL_ERROR", detail.length > 0 ? detail : "Scheduled task operation failed", true));
+    }
+  }
+  async list() {
+    const result = await this.runImpl(this.executable, ["/Query", "/FO", "LIST"]);
+    const lines = result.stdout.split(/\r?\n/);
+    const tasks = [];
+    let current = null;
+    for (const raw of lines) {
+      const separator = raw.indexOf(":");
+      if (separator < 0) {
+        if (current !== null) {
+          tasks.push(current);
+          current = null;
+        }
+        continue;
+      }
+      const key = raw.slice(0, separator).trim();
+      const value = raw.slice(separator + 1).trim();
+      if (key.length === 0 || value.length === 0)
+        continue;
+      if (key === "TaskName") {
+        if (current !== null)
+          tasks.push(current);
+        current = { name: value };
+      } else if (current !== null) {
+        current[key.toLowerCase().replace(/[^a-z0-9]/g, "_")] = value;
+      }
+    }
+    if (current !== null)
+      tasks.push(current);
+    return tasks;
+  }
+  async create(taskName, command, args, schedule, startTime) {
+    const taskRun = buildTaskRun(command, args);
+    await this.runImpl(this.executable, [
+      "/Create",
+      "/TN",
+      taskName,
+      "/TR",
+      taskRun,
+      "/SC",
+      schedule.toUpperCase(),
+      "/ST",
+      startTime,
+      "/F"
+    ]);
+    return { created: true, task_name: taskName, schedule, start_time: startTime };
+  }
+  async delete(taskName) {
+    await this.runImpl(this.executable, ["/Delete", "/TN", taskName, "/F"]);
+    return { deleted: true, task_name: taskName };
+  }
+  async run(taskName) {
+    await this.runImpl(this.executable, ["/Run", "/TN", taskName]);
+    return { started: true, task_name: taskName };
+  }
+};
+function parseRequest2(value) {
+  if (!isRecord7(value))
+    return err(appError("INVALID_INPUT", "scheduler input must be an object"));
+  const action = value.action === void 0 ? "list" : value.action;
+  if (action !== "list" && action !== "create" && action !== "delete" && action !== "run") {
+    return err(appError("INVALID_INPUT", "scheduler action is invalid"));
+  }
+  const taskName = value.task_name === void 0 ? "" : value.task_name;
+  if (action !== "list" && (typeof taskName !== "string" || !TASK_NAME_PATTERN.test(taskName.trim()))) {
+    return err(appError("INVALID_INPUT", "task_name must be 1-200 letters, digits, spaces, dots, dashes, or underscores"));
+  }
+  const command = value.command === void 0 ? "" : value.command;
+  if (action === "create" && (typeof command !== "string" || command.trim().length === 0 || command.length > 2048)) {
+    return err(appError("INVALID_INPUT", "command is required (at most 2048 characters)"));
+  }
+  const argumentsValue = value.arguments === void 0 ? [] : value.arguments;
+  if (action === "create" && (!Array.isArray(argumentsValue) || argumentsValue.length > 64 || !argumentsValue.every((entry) => typeof entry === "string" && entry.length <= 2048))) {
+    return err(appError("INVALID_INPUT", "arguments must be at most 64 strings"));
+  }
+  const schedule = value.schedule === void 0 ? "DAILY" : value.schedule;
+  if (action === "create" && (typeof schedule !== "string" || !/^[A-Z]{1,16}$/.test(schedule.toUpperCase()))) {
+    return err(appError("INVALID_INPUT", "schedule must be a short uppercase schedule name (e.g. DAILY)"));
+  }
+  const startTime = value.start_time === void 0 ? "09:00" : value.start_time;
+  if (action === "create" && (typeof startTime !== "string" || !/^([01]\d|2[0-3]):[0-5]\d$/.test(startTime))) {
+    return err(appError("INVALID_INPUT", "start_time must be HH:MM"));
+  }
+  const userConfirmed = value.userConfirmed === true;
+  return ok({
+    action,
+    taskName: typeof taskName === "string" ? taskName.trim() : "",
+    command: typeof command === "string" ? command.trim() : "",
+    arguments: action === "create" && Array.isArray(argumentsValue) ? argumentsValue.filter((entry) => typeof entry === "string") : [],
+    schedule: typeof schedule === "string" ? schedule.toUpperCase() : "DAILY",
+    startTime: typeof startTime === "string" ? startTime : "09:00",
+    userConfirmed
+  });
+}
+function buildTaskRun(command, args) {
+  const quoted = [command, ...args].map((entry) => /[\s"]/.test(entry) ? `"${entry.replaceAll('"', '\\"')}"` : entry).join(" ");
+  return quoted.length > 250 ? quoted.slice(0, 250) : quoted;
+}
+function extractDetail(error46) {
+  if (typeof error46 !== "object" || error46 === null)
+    return "";
+  const record2 = error46;
+  const stderr = typeof record2.stderr === "string" ? record2.stderr.trim() : "";
+  if (stderr.length > 0)
+    return stderr.slice(0, 500);
+  return typeof record2.message === "string" ? record2.message.slice(0, 500) : "";
+}
+function isRecord7(value) {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+// ../../packages/capabilities/dist/wsl-backend.js
+var import_promises20 = require("node:fs/promises");
+var import_node_path25 = __toESM(require("node:path"), 1);
+var DEFAULT_TIMEOUT_SECONDS4 = 3600;
+var DEFAULT_MAX_OUTPUT_BYTES2 = 2 * 1024 * 1024;
+var MAX_TIMEOUT_SECONDS4 = 14400;
+var MAX_OUTPUT_BYTES2 = 8 * 1024 * 1024;
+var MAX_ENVIRONMENT_ENTRIES = 64;
+var MAX_ENVIRONMENT_VALUE_LENGTH = 4096;
+var WSL_OPERATIONS = ["run", "status", "wait", "logs", "result", "cancel"];
+var WSL_EXECUTION_MODES = ["foreground", "background", "auto"];
+var SHELL_STRING_FLAGS = /* @__PURE__ */ new Set(["-c", "-lc", "-cl", "--command", "-command", "-encodedcommand", "-e", "--eval"]);
+var SHELL_INTERPRETERS = /* @__PURE__ */ new Set(["sh", "dash", "bash", "zsh", "fish", "pwsh", "powershell", "cmd", "node", "python", "python3", "perl", "ruby"]);
+var DELETE_COMMANDS = /* @__PURE__ */ new Set(["rm", "rmdir", "unlink", "shred", "del", "erase"]);
+var WslCapabilityBackend = class {
+  platform;
+  runner;
+  allowedRoots;
+  allowedRootsProvider;
+  availabilityProbe;
+  defaultDistro;
+  defaultTimeoutSeconds;
+  maxOutputBytes;
+  taskOwners = /* @__PURE__ */ new Map();
+  constructor(options) {
+    if (options.allowedRoots.length === 0)
+      throw new Error("At least one WSL workspace root is required");
+    this.platform = options.platform ?? process.platform;
+    this.runner = options.runner;
+    this.allowedRoots = options.allowedRoots.map((root) => import_node_path25.default.win32.resolve(root));
+    this.allowedRootsProvider = options.allowedRootsProvider;
+    this.availabilityProbe = options.availabilityProbe;
+    this.defaultDistro = normalizeDistro(options.defaultDistro ?? "default") ?? "default";
+    this.defaultTimeoutSeconds = clampNumber2(options.defaultTimeoutSeconds ?? DEFAULT_TIMEOUT_SECONDS4, 0.1, MAX_TIMEOUT_SECONDS4);
+    this.maxOutputBytes = Math.floor(clampNumber2(options.maxOutputBytes ?? DEFAULT_MAX_OUTPUT_BYTES2, 1, MAX_OUTPUT_BYTES2));
+  }
+  async execute(input) {
+    const parsed = parseWslRequest(input, this.defaultDistro, this.defaultTimeoutSeconds, this.maxOutputBytes);
+    if (!parsed.ok)
+      return parsed;
+    if (parsed.value.operation === "status" && parsed.value.taskId === void 0)
+      return this.status();
+    if (parsed.value.workspaceId === void 0)
+      return err(appError("INVALID_INPUT", "workspaceId is required for WSL task operations"));
+    if (parsed.value.operation === "run")
+      return this.run(parsed.value);
+    const taskOwner = this.taskOwners.get(parsed.value.taskId ?? "");
+    if (taskOwner === void 0)
+      return err(appError("PROCESS_NOT_FOUND", "WSL task was not found"));
+    if (taskOwner.workspaceId !== parsed.value.workspaceId)
+      return err(appError("PERMISSION_DENIED", "WSL task belongs to another workspace"));
+    if (taskOwner.distro !== parsed.value.distro)
+      return err(appError("PERMISSION_DENIED", "WSL task belongs to another distribution"));
+    const forwarded = this.forwardTaskRequest(parsed.value);
+    const result = await this.runner.execute(forwarded);
+    return annotateResult(result, this.metadata(parsed.value.workspaceId, parsed.value.distro));
+  }
+  async run(request) {
+    if (this.platform !== "win32")
+      return ok({ available: false, ready: false, local: true, backend: "wsl", reason: "WSL is only available on Windows" });
+    if (request.executable === void 0)
+      return err(appError("INVALID_INPUT", "WSL executable is required"));
+    if (containsShellString(request.executable, request.arguments))
+      return err(appError("INVALID_INPUT", "WSL execution accepts argv only; shell command strings are not allowed"));
+    if (isDeleteLikeCommand(request.executable, request.arguments) && !request.userConfirmed) {
+      return err(appError("PERMISSION_REQUIRED", "Delete-like WSL commands require explicit user confirmation"));
+    }
+    const cwd = await this.resolveWorkspaceCwd(request.cwd);
+    if (!cwd.ok)
+      return cwd;
+    const linuxCwd = windowsToWslPath(cwd.value);
+    if (!linuxCwd.ok)
+      return linuxCwd;
+    const forwarded = {
+      operation: "run",
+      executable: "wsl.exe",
+      arguments: buildWslArguments(request, linuxCwd.value),
+      cwd: cwd.value,
+      execution: request.execution,
+      privilege: "user",
+      workspace_id: request.workspaceId,
+      timeout_seconds: request.timeoutSeconds,
+      max_output_bytes: request.maxOutputBytes,
+      ...request.tailLines === void 0 ? {} : { tail_lines: request.tailLines },
+      include_stdout: request.includeStdout,
+      include_stderr: request.includeStderr,
+      dry_run: request.dryRun,
+      userConfirmed: request.userConfirmed
+    };
+    const result = await this.runner.execute(forwarded);
+    const annotated = annotateResult(result, {
+      ...this.metadata(request.workspaceId, request.distro),
+      linux_cwd: linuxCwd.value
+    });
+    if (annotated.ok && isRecord8(annotated.value) && typeof annotated.value.task_id === "string") {
+      this.taskOwners.set(annotated.value.task_id, { workspaceId: request.workspaceId, distro: request.distro });
+    }
+    return annotated;
+  }
+  async status() {
+    if (this.platform !== "win32")
+      return ok({ available: false, ready: false, local: true, backend: "wsl", reason: "WSL is only available on Windows" });
+    if (this.availabilityProbe !== void 0) {
+      const result = await this.availabilityProbe();
+      return annotateResult(result, { backend: "wsl", local: true });
+    }
+    return ok({ available: true, ready: true, local: true, backend: "wsl", reason: "wsl.exe is available; distribution state is checked on execution" });
+  }
+  forwardTaskRequest(request) {
+    return {
+      operation: request.operation,
+      task_id: request.taskId,
+      timeout_seconds: request.timeoutSeconds,
+      max_output_bytes: request.maxOutputBytes,
+      ...request.tailLines === void 0 ? {} : { tail_lines: request.tailLines },
+      include_stdout: request.includeStdout,
+      include_stderr: request.includeStderr,
+      dry_run: request.dryRun,
+      userConfirmed: request.userConfirmed
+    };
+  }
+  metadata(workspaceId, distro) {
+    return { backend: "wsl", distro, ...workspaceId === void 0 ? {} : { workspace_id: workspaceId } };
+  }
+  async resolveWorkspaceCwd(requestedCwd) {
+    if (requestedCwd !== void 0 && !import_node_path25.default.win32.isAbsolute(requestedCwd)) {
+      return err(appError("INVALID_INPUT", "WSL cwd must be an absolute Windows path"));
+    }
+    const configuredRoots = this.allowedRootsProvider === void 0 ? this.allowedRoots : (await this.allowedRootsProvider()).map((root) => import_node_path25.default.win32.resolve(root));
+    if (configuredRoots.length === 0)
+      return err(appError("FILE_NOT_FOUND", "No registered workspace root is available"));
+    const candidate = import_node_path25.default.win32.resolve(requestedCwd ?? configuredRoots[0]);
+    if (!configuredRoots.some((root) => isWithinWindowsRoot(root, candidate))) {
+      return err(appError("PATH_OUTSIDE_WORKSPACE", "WSL cwd is outside registered workspace roots"));
+    }
+    return ok(candidate);
+  }
+};
+var WslFilesystemCapabilityBackend = class {
+  platform;
+  allowedRoots;
+  allowedRootsProvider;
+  availabilityProbe;
+  defaultDistro;
+  constructor(options) {
+    if (options.allowedRoots.length === 0)
+      throw new Error("At least one WSL filesystem root is required");
+    this.platform = options.platform ?? process.platform;
+    this.allowedRoots = options.allowedRoots.map((root) => import_node_path25.default.win32.resolve(root));
+    this.allowedRootsProvider = options.allowedRootsProvider;
+    this.availabilityProbe = options.availabilityProbe;
+    this.defaultDistro = normalizeDistro(options.defaultDistro ?? "default") ?? "default";
+  }
+  async execute(input) {
+    if (!isRecord8(input))
+      return err(appError("INVALID_INPUT", "WSL filesystem input must be an object"));
+    if (input.operation === "status") {
+      if (this.platform === "win32" && this.availabilityProbe !== void 0) {
+        const probe = await this.availabilityProbe();
+        return annotateResult(probe, { backend: "wsl_fs", raw_access: false });
+      }
+      return ok(this.platform === "win32" ? { available: true, ready: true, local: true, backend: "wsl_fs", raw_access: false } : { available: false, ready: false, local: true, backend: "wsl_fs", raw_access: false, reason: "WSL is only available on Windows" });
+    }
+    const workspaceId = readNonEmptyString(input.workspaceId);
+    if (workspaceId === void 0)
+      return err(appError("INVALID_INPUT", "workspaceId is required for WSL filesystem operations"));
+    const operation = input.operation === void 0 ? "translate" : input.operation;
+    if (operation !== "translate" && operation !== "metadata")
+      return err(appError("INVALID_INPUT", "WSL filesystem operation is invalid"));
+    const direction = input.direction;
+    if (direction !== "windows_to_wsl" && direction !== "wsl_to_windows")
+      return err(appError("INVALID_INPUT", "WSL filesystem direction is invalid"));
+    const rawPath = typeof input.path === "string" ? input.path : void 0;
+    if (rawPath === void 0 || rawPath.trim().length === 0 || rawPath.includes("\0"))
+      return err(appError("INVALID_INPUT", "WSL filesystem path is invalid"));
+    const distro = normalizeDistro(typeof input.distro === "string" ? input.distro : this.defaultDistro);
+    if (distro === void 0)
+      return err(appError("INVALID_INPUT", "WSL distribution is invalid"));
+    if (direction === "windows_to_wsl") {
+      const candidate = import_node_path25.default.win32.resolve(rawPath);
+      const roots = this.allowedRootsProvider === void 0 ? this.allowedRoots : (await this.allowedRootsProvider()).map((root) => import_node_path25.default.win32.resolve(root));
+      if (!roots.some((root) => isWithinWindowsRoot(root, candidate)))
+        return err(appError("PATH_OUTSIDE_WORKSPACE", "WSL filesystem path is outside registered workspace roots"));
+      const translated2 = windowsToWslPath(candidate);
+      if (!translated2.ok)
+        return translated2;
+      if (operation === "metadata")
+        return this.windowsMetadata(workspaceId, candidate, translated2.value, distro);
+      return ok({ workspace_id: workspaceId, distro, direction, path: translated2.value, windows_path: candidate, raw_access: false });
+    }
+    const translated = wslToWindowsPath(rawPath, distro);
+    if (!translated.ok)
+      return translated;
+    if (operation === "metadata") {
+      return ok({ workspace_id: workspaceId, distro, direction, path: translated.value, wsl_path: rawPath, raw_access: false, exists: "unknown" });
+    }
+    return ok({ workspace_id: workspaceId, distro, direction, path: translated.value, wsl_path: rawPath, raw_access: false });
+  }
+  async windowsMetadata(workspaceId, windowsPath, wslPath, distro) {
+    try {
+      const details = await (0, import_promises20.stat)(windowsPath);
+      return ok({
+        workspace_id: workspaceId,
+        distro,
+        direction: "windows_to_wsl",
+        path: wslPath,
+        windows_path: windowsPath,
+        raw_access: false,
+        exists: true,
+        kind: details.isDirectory() ? "directory" : "file",
+        size: details.size,
+        modified_at: details.mtime.toISOString()
+      });
+    } catch {
+      return ok({ workspace_id: workspaceId, distro, direction: "windows_to_wsl", path: wslPath, windows_path: windowsPath, raw_access: false, exists: false });
+    }
+  }
+};
+function parseWslRequest(value, defaultDistro, defaultTimeoutSeconds, maxOutputBytes) {
+  if (!isRecord8(value))
+    return err(appError("INVALID_INPUT", "WSL input must be an object"));
+  const operation = value.operation === void 0 ? "run" : value.operation;
+  if (!isWslOperation(operation))
+    return err(appError("INVALID_INPUT", "WSL operation is invalid"));
+  const workspaceId = value.workspaceId === void 0 ? void 0 : readNonEmptyString(value.workspaceId);
+  if (value.workspaceId !== void 0 && workspaceId === void 0)
+    return err(appError("INVALID_INPUT", "workspaceId is invalid"));
+  const distro = normalizeDistro(typeof value.distro === "string" ? value.distro : defaultDistro);
+  if (distro === void 0)
+    return err(appError("INVALID_INPUT", "WSL distribution is invalid"));
+  const executable = value.executable === void 0 ? void 0 : value.executable;
+  if (executable !== void 0 && (typeof executable !== "string" || executable.trim().length === 0 || executable.includes("\0")))
+    return err(appError("INVALID_INPUT", "WSL executable is invalid"));
+  const rawArguments = value.arguments === void 0 ? [] : value.arguments;
+  if (!Array.isArray(rawArguments) || rawArguments.length > 128 || !rawArguments.every((item) => typeof item === "string" && !item.includes("\0") && item.length <= 32768))
+    return err(appError("INVALID_INPUT", "WSL arguments are invalid"));
+  const cwd = value.cwd === void 0 ? void 0 : value.cwd;
+  if (cwd !== void 0 && (typeof cwd !== "string" || cwd.includes("\0")))
+    return err(appError("INVALID_INPUT", "WSL cwd is invalid"));
+  const taskId = value.task_id === void 0 ? void 0 : readNonEmptyString(value.task_id);
+  if (value.task_id !== void 0 && taskId === void 0)
+    return err(appError("INVALID_INPUT", "WSL task ID is invalid"));
+  const execution = value.execution === void 0 ? "auto" : value.execution;
+  if (!isWslExecution(execution))
+    return err(appError("INVALID_INPUT", "WSL execution mode is invalid"));
+  const timeoutSeconds = value.timeout_seconds === void 0 ? defaultTimeoutSeconds : value.timeout_seconds;
+  if (typeof timeoutSeconds !== "number" || !Number.isFinite(timeoutSeconds) || timeoutSeconds < 0.1 || timeoutSeconds > MAX_TIMEOUT_SECONDS4)
+    return err(appError("INVALID_INPUT", "WSL timeout is invalid"));
+  const requestedMaxBytes = value.max_output_bytes === void 0 ? maxOutputBytes : value.max_output_bytes;
+  if (typeof requestedMaxBytes !== "number" || !Number.isInteger(requestedMaxBytes) || requestedMaxBytes < 1 || requestedMaxBytes > MAX_OUTPUT_BYTES2)
+    return err(appError("INVALID_INPUT", "WSL output limit is invalid"));
+  const tailLines = value.tail_lines === void 0 ? void 0 : value.tail_lines;
+  if (tailLines !== void 0 && (typeof tailLines !== "number" || !Number.isInteger(tailLines) || tailLines < 0 || tailLines > 1e4))
+    return err(appError("INVALID_INPUT", "WSL tail limit is invalid"));
+  const includeStdout = value.include_stdout === void 0 ? true : value.include_stdout;
+  const includeStderr = value.include_stderr === void 0 ? true : value.include_stderr;
+  const dryRun = value.dry_run === void 0 ? false : value.dry_run;
+  if (typeof includeStdout !== "boolean" || typeof includeStderr !== "boolean" || typeof dryRun !== "boolean")
+    return err(appError("INVALID_INPUT", "WSL flags are invalid"));
+  const userConfirmed = value.userConfirmed === true;
+  const environment = parseEnvironment(value.environment);
+  if (!environment.ok)
+    return environment;
+  return ok({ operation, ...workspaceId === void 0 ? {} : { workspaceId }, distro, ...executable === void 0 ? {} : { executable: executable.trim() }, arguments: rawArguments, ...cwd === void 0 ? {} : { cwd }, environment: environment.value, execution, ...taskId === void 0 ? {} : { taskId }, timeoutSeconds, maxOutputBytes: requestedMaxBytes, ...tailLines === void 0 ? {} : { tailLines }, includeStdout, includeStderr, dryRun, userConfirmed });
+}
+function parseEnvironment(value) {
+  if (value === void 0)
+    return ok({});
+  if (!isRecord8(value))
+    return err(appError("INVALID_INPUT", "WSL environment must be a key/value object"));
+  const entries = Object.entries(value);
+  if (entries.length > MAX_ENVIRONMENT_ENTRIES)
+    return err(appError("INVALID_INPUT", "WSL environment has too many entries"));
+  const parsed = {};
+  for (const [key, item] of entries) {
+    if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(key) || typeof item !== "string" || item.length > MAX_ENVIRONMENT_VALUE_LENGTH || item.includes("\0")) {
+      return err(appError("INVALID_INPUT", "WSL environment contains an invalid entry"));
+    }
+    parsed[key] = item;
+  }
+  return ok(parsed);
+}
+function buildWslArguments(request, linuxCwd) {
+  const args = [...request.distro === "default" ? [] : ["--distribution", request.distro], "--cd", linuxCwd, "--exec"];
+  const environmentEntries = Object.entries(request.environment).sort(([left], [right]) => left.localeCompare(right));
+  if (environmentEntries.length > 0) {
+    args.push("env", ...environmentEntries.map(([key, value]) => `${key}=${value}`));
+  }
+  args.push(request.executable, ...request.arguments);
+  return args;
+}
+function containsShellString(executable, args) {
+  const basename2 = import_node_path25.default.posix.basename(executable.replaceAll("\\", "/")).toLowerCase();
+  if (!SHELL_INTERPRETERS.has(basename2))
+    return false;
+  return args.some((argument) => SHELL_STRING_FLAGS.has(argument.toLowerCase()));
+}
+function isDeleteLikeCommand(executable, args) {
+  const basename2 = import_node_path25.default.posix.basename(executable.replaceAll("\\", "/")).toLowerCase();
+  if (basename2 === "git")
+    return false;
+  if (DELETE_COMMANDS.has(basename2))
+    return true;
+  if (basename2 === "find" && args.some((argument) => argument === "-delete" || argument === "-exec"))
+    return true;
+  return false;
+}
+function windowsToWslPath(value) {
+  const normalized = import_node_path25.default.win32.normalize(value);
+  const match = /^([A-Za-z]):\\(.*)$/.exec(normalized);
+  if (match === null)
+    return err(appError("INVALID_INPUT", "Only drive-letter Windows paths can be mapped to WSL"));
+  const drive = match[1].toLowerCase();
+  const rest = match[2].replaceAll("\\", "/");
+  return ok(`/mnt/${drive}${rest.length === 0 ? "" : `/${rest}`}`);
+}
+function wslToWindowsPath(value, distro) {
+  if (!value.startsWith("/") || value.includes("\0"))
+    return err(appError("INVALID_INPUT", "WSL path must be an absolute POSIX path"));
+  const segments = value.split("/").filter((segment) => segment.length > 0);
+  if (segments.some((segment) => segment === ".."))
+    return err(appError("INVALID_INPUT", "WSL parent traversal is not allowed"));
+  const normalized = `/${segments.join("/")}`;
+  const mount = /^\/mnt\/([a-zA-Z])(?:\/(.*))?$/.exec(normalized);
+  if (mount !== null) {
+    const suffix = mount[2] === void 0 ? "" : `\\${mount[2].replaceAll("/", "\\")}`;
+    return ok(`${mount[1].toUpperCase()}:${suffix}`);
+  }
+  return ok(`\\\\wsl.localhost\\${distro}${normalized.replaceAll("/", "\\")}`);
+}
+function isWithinWindowsRoot(root, candidate) {
+  const normalizedRoot = import_node_path25.default.win32.resolve(root).toLowerCase();
+  const normalizedCandidate = import_node_path25.default.win32.resolve(candidate).toLowerCase();
+  const relative = import_node_path25.default.win32.relative(normalizedRoot, normalizedCandidate);
+  return relative === "" || relative !== ".." && !relative.startsWith(`..${import_node_path25.default.win32.sep}`) && !import_node_path25.default.win32.isAbsolute(relative);
+}
+function normalizeDistro(value) {
+  const trimmed = value.trim();
+  return /^[A-Za-z0-9._-]{1,64}$/.test(trimmed) ? trimmed : void 0;
+}
+function annotateResult(result, metadata) {
+  if (!result.ok || !isRecord8(result.value))
+    return result;
+  return ok({ ...result.value, ...metadata });
+}
+function isWslOperation(value) {
+  return typeof value === "string" && WSL_OPERATIONS.some((operation) => operation === value);
+}
+function isWslExecution(value) {
+  return typeof value === "string" && WSL_EXECUTION_MODES.some((mode) => mode === value);
+}
+function readNonEmptyString(value) {
+  return typeof value === "string" && value.trim().length > 0 ? value.trim() : void 0;
+}
+function isRecord8(value) {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+function clampNumber2(value, minimum, maximum) {
+  return Math.min(maximum, Math.max(minimum, value));
+}
+
+// ../../packages/capabilities/dist/windows-ocr-backend.js
+var import_node_child_process9 = require("node:child_process");
+var import_node_path26 = __toESM(require("node:path"), 1);
+var DEFAULT_MAX_OUTPUT_BYTES3 = 8 * 1024 * 1024;
+var DEFAULT_TIMEOUT_SECONDS5 = 60;
+var MAX_TIMEOUT_SECONDS5 = 600;
+var APP_ERROR_CODES = [
+  "INVALID_INPUT",
+  "WORKSPACE_NOT_FOUND",
+  "PATH_OUTSIDE_WORKSPACE",
+  "SECRET_ACCESS_DENIED",
+  "PERMISSION_DENIED",
+  "PERMISSION_REQUIRED",
+  "FILE_NOT_FOUND",
+  "FILE_TOO_LARGE",
+  "BINARY_FILE",
+  "PROCESS_NOT_FOUND",
+  "PROCESS_TIMEOUT",
+  "EXECUTABLE_NOT_FOUND",
+  "GIT_NOT_REPOSITORY",
+  "CODEX_NOT_AVAILABLE",
+  "INTERNAL_ERROR"
+];
+var WindowsOcrCapabilityBackend = class {
+  platform;
+  packageIdentity;
+  helper;
+  constructor(options = {}) {
+    this.platform = options.platform ?? process.platform;
+    this.packageIdentity = options.packageIdentity;
+    this.helper = options.helper;
+  }
+  async execute(input) {
+    if (this.platform !== "win32")
+      return ok(this.unavailable("platform_unavailable", "Windows.Media.Ocr is only available on Windows"));
+    if (!isRecord9(input) || input.action !== "ocr")
+      return err(appError("INVALID_INPUT", "Windows OCR requires action: ocr"));
+    if (this.packageIdentity === void 0)
+      return ok(this.unavailable("package_identity_required", "Windows.Media.Ocr requires a package identity; the NSIS app is not identity-enabled"));
+    const identity = await this.packageIdentity();
+    if (!identity.ok)
+      return ok(this.unavailable("package_identity_check_failed", "Windows package identity could not be verified"));
+    if (identity.value !== true)
+      return ok(this.unavailable("package_identity_required", "Windows.Media.Ocr requires a package identity"));
+    if (this.helper === void 0)
+      return ok(this.unavailable("native_helper_not_configured", "The packaged Windows OCR helper is not configured"));
+    const result = await this.helper.execute(input);
+    if (!result.ok)
+      return result;
+    if (isRecord9(result.value))
+      return ok({ ...result.value, backend: "Windows.Media.Ocr", available: result.value.available !== false });
+    return ok({ backend: "Windows.Media.Ocr", available: true, value: result.value });
+  }
+  unavailable(reason, message) {
+    return { available: false, ready: false, local: true, backend: "Windows.Media.Ocr", reason, message };
+  }
+};
+var VisionCapabilityBackend = class {
+  nativeVision;
+  ocr;
+  constructor(nativeVision, ocr) {
+    this.nativeVision = nativeVision;
+    this.ocr = ocr;
+  }
+  execute(input) {
+    return isRecord9(input) && input.action === "ocr" ? this.ocr.execute(input) : this.nativeVision.execute(input);
+  }
+};
+var WindowsOcrProcessBridge = class {
+  helperPath;
+  platform;
+  maxOutputBytes;
+  timeoutSeconds;
+  constructor(options) {
+    this.helperPath = import_node_path26.default.resolve(options.helperPath);
+    this.platform = options.platform ?? process.platform;
+    this.maxOutputBytes = Math.max(1, Math.min(options.maxOutputBytes ?? DEFAULT_MAX_OUTPUT_BYTES3, DEFAULT_MAX_OUTPUT_BYTES3));
+    this.timeoutSeconds = Math.min(MAX_TIMEOUT_SECONDS5, Math.max(0.1, options.timeoutSeconds ?? DEFAULT_TIMEOUT_SECONDS5));
+  }
+  execute(input) {
+    if (this.platform !== "win32")
+      return Promise.resolve(err(appError("INTERNAL_ERROR", "Windows OCR helper is unavailable on this platform", true)));
+    if (!import_node_path26.default.isAbsolute(this.helperPath))
+      return Promise.resolve(err(appError("INVALID_INPUT", "Windows OCR helper path must be absolute")));
+    let serialized;
+    try {
+      serialized = JSON.stringify(input);
+    } catch {
+      return Promise.resolve(err(appError("INVALID_INPUT", "Windows OCR input could not be serialized")));
+    }
+    return new Promise((resolve) => {
+      let stdout = "";
+      let settled = false;
+      let timedOut = false;
+      const child = (0, import_node_child_process9.spawn)(this.helperPath, [], { shell: false, windowsHide: true, stdio: ["pipe", "pipe", "pipe"] });
+      const timer = setTimeout(() => {
+        timedOut = true;
+        child.kill();
+      }, this.timeoutSeconds * 1e3);
+      const append = (value) => {
+        const chunk = Buffer.isBuffer(value) ? value.toString("utf8") : value;
+        const remaining = this.maxOutputBytes - Buffer.byteLength(stdout, "utf8");
+        if (remaining > 0)
+          stdout += chunk.slice(0, remaining);
+      };
+      child.stdout?.on("data", append);
+      child.stderr?.resume();
+      child.once("error", () => {
+        if (settled)
+          return;
+        settled = true;
+        clearTimeout(timer);
+        resolve(err(appError("INTERNAL_ERROR", "Windows OCR helper could not start", true)));
+      });
+      child.once("close", () => {
+        if (settled)
+          return;
+        settled = true;
+        clearTimeout(timer);
+        if (timedOut) {
+          resolve(err(appError("PROCESS_TIMEOUT", "Windows OCR helper timed out", true)));
+          return;
+        }
+        const result = parseHelperResult(stdout);
+        resolve(result ?? err(appError("INTERNAL_ERROR", "Windows OCR helper returned an invalid response", true)));
+      });
+      child.stdin?.end(serialized, "utf8");
+    });
+  }
+};
+function parseHelperResult(value) {
+  let parsed;
+  try {
+    parsed = JSON.parse(value.trim());
+  } catch {
+    return void 0;
+  }
+  if (!isRecord9(parsed) || typeof parsed.ok !== "boolean")
+    return void 0;
+  if (parsed.ok)
+    return ok(parsed.value);
+  const error46 = parsed.error;
+  if (!isRecord9(error46) || typeof error46.code !== "string" || typeof error46.message !== "string" || typeof error46.recoverable !== "boolean")
+    return void 0;
+  const code = APP_ERROR_CODES.find((candidate) => candidate === error46.code) ?? "INTERNAL_ERROR";
+  return err(appError(code, error46.message, error46.recoverable));
+}
+function isRecord9(value) {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+// ../../packages/capabilities/dist/windows-native-backend.js
+var import_node_path27 = __toESM(require("node:path"), 1);
+var PATH_FIELDS = {
+  accessibility: [],
+  input_event: [],
+  vision: [],
+  window: [],
+  system_info: [],
+  notification: [],
+  file_dialog: [],
+  clipboard: [],
+  audio: ["file_path", "output_path"],
+  screen_record: ["output_path"],
+  office: ["file_path", "target_path"]
+};
+var WindowsNativeCapabilityBackend = class {
+  capability;
+  bridge;
+  platform;
+  options;
+  constructor(capability, bridge, platform = process.platform, options = {}) {
+    this.capability = capability;
+    this.bridge = bridge;
+    this.platform = platform;
+    this.options = options;
+  }
+  async execute(input) {
+    if (this.platform !== "win32")
+      return err(appError("INTERNAL_ERROR", "Windows capability is unavailable on this platform", true));
+    if (!isRecord10(input))
+      return err(appError("INVALID_INPUT", "Native capability input must be an object"));
+    if (input.dry_run === true)
+      return ok({ dry_run: true, capability: this.capability });
+    const pathCheck = await this.assertPathsAllowed(input);
+    if (!pathCheck.ok)
+      return pathCheck;
+    return this.bridge.execute({ capability: this.capability, input });
+  }
+  async assertPathsAllowed(input) {
+    if (this.options.unrestricted === true)
+      return ok(void 0);
+    const fields = PATH_FIELDS[this.capability];
+    const targets = [];
+    for (const field of fields) {
+      const value = input[field];
+      if (typeof value === "string" && value.trim().length > 0)
+        targets.push(import_node_path27.default.resolve(value.trim()));
+    }
+    if (targets.length === 0)
+      return ok(void 0);
+    const roots = this.options.allowedRootsProvider === void 0 ? [] : (await this.options.allowedRootsProvider()).map((root) => import_node_path27.default.resolve(root));
+    for (const target of targets) {
+      const within = roots.some((root) => isWithin4(root, target));
+      if (!within)
+        return err(appError("PATH_OUTSIDE_WORKSPACE", `${this.capability} target path is outside configured local roots`));
+    }
+    return ok(void 0);
+  }
+};
+function isWithin4(root, candidate) {
+  const relative = import_node_path27.default.relative(root, candidate);
+  return relative === "" || relative !== ".." && !relative.startsWith(`..${import_node_path27.default.sep}`) && !import_node_path27.default.isAbsolute(relative);
+}
+function isRecord10(value) {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+// ../../packages/capabilities/dist/windows-bridge.js
+var import_node_child_process10 = require("node:child_process");
+var import_node_path28 = __toESM(require("node:path"), 1);
+var DEFAULT_TIMEOUT_SECONDS6 = 600;
+var MAX_TIMEOUT_SECONDS6 = 14400;
+var DEFAULT_MAX_OUTPUT_BYTES4 = 8 * 1024 * 1024;
+var APP_ERROR_CODES2 = [
+  "INVALID_INPUT",
+  "WORKSPACE_NOT_FOUND",
+  "PATH_OUTSIDE_WORKSPACE",
+  "SECRET_ACCESS_DENIED",
+  "PERMISSION_DENIED",
+  "PERMISSION_REQUIRED",
+  "FILE_NOT_FOUND",
+  "FILE_TOO_LARGE",
+  "BINARY_FILE",
+  "PROCESS_NOT_FOUND",
+  "PROCESS_TIMEOUT",
+  "EXECUTABLE_NOT_FOUND",
+  "GIT_NOT_REPOSITORY",
+  "CODEX_NOT_AVAILABLE",
+  "INTERNAL_ERROR"
+];
+var PowerShellWindowsCapabilityBridge = class {
+  scriptPath;
+  powershellPath;
+  platform;
+  maxOutputBytes;
+  terminator;
+  constructor(options) {
+    this.scriptPath = import_node_path28.default.resolve(options.scriptPath);
+    this.powershellPath = options.powershellPath ?? powershellExecutable();
+    this.platform = options.platform ?? process.platform;
+    this.maxOutputBytes = Math.max(1, Math.min(options.maxOutputBytes ?? DEFAULT_MAX_OUTPUT_BYTES4, DEFAULT_MAX_OUTPUT_BYTES4));
+    this.terminator = options.terminator ?? new WindowsProcessTree();
+  }
+  execute(request) {
+    if (this.platform !== "win32")
+      return Promise.resolve(err(appError("INTERNAL_ERROR", "Windows bridge is unavailable on this platform", true)));
+    if (!import_node_path28.default.isAbsolute(this.scriptPath))
+      return Promise.resolve(err(appError("INVALID_INPUT", "Windows bridge script path must be absolute")));
+    let serialized;
+    try {
+      serialized = JSON.stringify(request);
+    } catch {
+      return Promise.resolve(err(appError("INVALID_INPUT", "Windows bridge input could not be serialized")));
+    }
+    return new Promise((resolve) => {
+      let stdout = "";
+      let timedOut = false;
+      let settled = false;
+      const child = (0, import_node_child_process10.spawn)(this.powershellPath, ["-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File", this.scriptPath], {
+        shell: false,
+        windowsHide: false,
+        stdio: ["pipe", "pipe", "pipe"]
+      });
+      const timeoutSeconds = readTimeout(request.input);
+      const timer = setTimeout(() => {
+        timedOut = true;
+        const pid = child.pid;
+        if (pid === void 0)
+          child.kill();
+        else
+          void this.terminator.stop(child, pid);
+      }, timeoutSeconds * 1e3);
+      const append = (current, value) => {
+        const chunk = Buffer.isBuffer(value) ? value.toString("utf8") : value;
+        const remaining = this.maxOutputBytes - Buffer.byteLength(current, "utf8");
+        return remaining <= 0 ? current : current + chunk.slice(0, remaining);
+      };
+      child.stdout?.on("data", (chunk) => {
+        stdout = append(stdout, chunk);
+      });
+      child.stderr?.resume();
+      child.once("error", () => {
+        if (settled)
+          return;
+        settled = true;
+        clearTimeout(timer);
+        resolve(err(appError("INTERNAL_ERROR", "Windows bridge process could not start", true)));
+      });
+      child.once("close", () => {
+        if (settled)
+          return;
+        settled = true;
+        clearTimeout(timer);
+        if (timedOut) {
+          resolve(err(appError("PROCESS_TIMEOUT", "Windows bridge timed out", true)));
+          return;
+        }
+        const result = parseBridgeResult(stdout);
+        if (result !== void 0) {
+          resolve(result);
+          return;
+        }
+        resolve(err(appError("INTERNAL_ERROR", "Windows bridge returned an invalid response", true)));
+      });
+      child.stdin?.end(serialized, "utf8");
+    });
+  }
+};
+function parseBridgeResult(value) {
+  let parsed;
+  try {
+    parsed = JSON.parse(value.trim());
+  } catch {
+    return void 0;
+  }
+  if (!isRecord11(parsed) || typeof parsed.ok !== "boolean")
+    return void 0;
+  if (parsed.ok)
+    return ok(parsed.value);
+  const error46 = parsed.error;
+  if (!isRecord11(error46) || typeof error46.code !== "string" || typeof error46.message !== "string" || typeof error46.recoverable !== "boolean")
+    return void 0;
+  const code = APP_ERROR_CODES2.find((candidate) => candidate === error46.code) ?? "INTERNAL_ERROR";
+  return err(appError(code, error46.message, error46.recoverable));
+}
+function readTimeout(value) {
+  if (!isRecord11(value) || typeof value.timeout_seconds !== "number" || !Number.isFinite(value.timeout_seconds))
+    return DEFAULT_TIMEOUT_SECONDS6;
+  return Math.min(MAX_TIMEOUT_SECONDS6, Math.max(0.1, value.timeout_seconds));
+}
+function powershellExecutable() {
+  return process.platform === "win32" && process.env.SystemRoot !== void 0 ? import_node_path28.default.join(process.env.SystemRoot, "System32", "WindowsPowerShell", "v1.0", "powershell.exe") : "powershell.exe";
+}
+function isRecord11(value) {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+// ../../packages/capabilities/dist/index.js
+var capabilityToolNames = Object.freeze([
+  "shell",
+  "dom_cdp",
+  "accessibility",
+  "input_event",
+  "vision",
+  "window",
+  "health",
+  "system_info",
+  "notification",
+  "file_dialog",
+  "clipboard",
+  "web_fetch",
+  "audio",
+  "screen_record",
+  "office",
+  "scheduler",
+  "wsl_exec",
+  "wsl_fs"
+]);
+
+// ../../packages/mcp-server/dist/upgrade-runtime.js
+var PRIMITIVE_SEARCH_ENTRIES = [
+  primitiveEntry("workspace_list", "List registered workspaces.", "READ", ["workspace", "read"]),
+  primitiveEntry("workspace_tree", "Read a bounded registered workspace tree.", "READ", ["workspace", "tree", "read"]),
+  primitiveEntry("read_file", "Read one guarded workspace file.", "READ", ["workspace", "file", "read"]),
+  primitiveEntry("read_files", "Read multiple guarded workspace files.", "READ", ["workspace", "file", "read"]),
+  primitiveEntry("search_files", "Search guarded workspace file paths.", "READ", ["workspace", "search", "read"]),
+  primitiveEntry("search_text", "Search guarded workspace text.", "READ", ["workspace", "search", "read"]),
+  primitiveEntry("git", "Run a guarded Git operation.", "DANGEROUS", ["git", "execute"]),
+  primitiveEntry("write_file", "Write a guarded workspace file.", "WRITE", ["workspace", "file", "write"]),
+  primitiveEntry("apply_patch", "Apply a guarded workspace patch.", "WRITE", ["workspace", "file", "write"]),
+  primitiveEntry("shell", "Run a local task through the bounded shell runner.", "EXECUTE", ["shell", "process", "execute"]),
+  primitiveEntry("vision", "Capture local screen content or use the OCR boundary.", "READ", ["vision", "display", "read"]),
+  primitiveEntry("vision_annotated_capture", "Capture an expiring Set-of-Marks observation.", "READ", ["vision", "ui", "read"]),
+  primitiveEntry("ui_target_action", "Act on a revalidated visual mark.", "DANGEROUS", ["vision", "ui", "execute"]),
+  primitiveEntry("tool_batch", "Invoke registered tools with bounded dependency groups.", "DANGEROUS", ["workflow", "execute"])
+];
+var CAPABILITY_SEARCH_ENTRIES = capabilityDescriptors.map((descriptor2) => capabilitySearchEntry(descriptor2));
+var SEARCH_CATALOG = dedupeSearchEntries([
+  ...PRIMITIVE_SEARCH_ENTRIES,
+  ...CAPABILITY_SEARCH_ENTRIES,
+  ...UPGRADE_TOOL_CATALOG
+]);
 var UpgradeRuntimeService = class {
   services;
   contextEngine;
@@ -33620,9 +35643,10 @@ var UpgradeRuntimeService = class {
     switch (name) {
       case "tool_search":
       case "tool_function_find":
-        return ok(this.searchTools(readString(input, "query") ?? readString(input, "prompt") ?? ""));
+      case "tool_dynamic_filter":
+        return ok(this.searchTools(readString2(input, "query") ?? readString2(input, "prompt") ?? "", input));
       case "tool_describe":
-        return ok(this.describeTool(readString(input, "name") ?? readString(input, "tool")));
+        return ok(this.describeTool(readString2(input, "name") ?? readString2(input, "tool")));
       case "tool_categories":
         return ok(this.categories());
       case "tool_aliases":
@@ -33630,20 +35654,20 @@ var UpgradeRuntimeService = class {
       case "capabilities":
         return ok({ categories: this.categories().categories, totalUpgradeTools: UPGRADE_TOOL_CATALOG.length, primitiveToolsRemainAvailable: true });
       case "route_intent":
-        return ok(routeIntent(readString(input, "prompt") ?? readString(input, "query") ?? ""));
+        return ok(routeIntent(readString2(input, "prompt") ?? readString2(input, "query") ?? ""));
       case "recipe_list":
       case "recipe_catalog":
         return ok({ recipes: recipeCatalog() });
       case "recipe_describe":
-        return ok(recipeCatalog().find((recipe) => recipe.name === (readString(input, "name") ?? "bugfix")) ?? recipeCatalog()[0]);
+        return ok(recipeCatalog().find((recipe) => recipe.name === (readString2(input, "name") ?? "bugfix")) ?? recipeCatalog()[0]);
       case "recipe_run":
-        return ok({ ...planFor(readString(input, "prompt") ?? readString(input, "name") ?? "bugfix"), dryRun: input.dryRun !== false, sideEffectsStarted: false });
+        return ok({ ...planFor(readString2(input, "prompt") ?? readString2(input, "name") ?? "bugfix"), dryRun: input.dryRun !== false, sideEffectsStarted: false });
       case "dry_run":
-        return ok({ ...planFor(readString(input, "prompt") ?? readString(input, "query") ?? ""), sideEffects: { writes: [], shell: [], gitMutations: [], network: [] }, sideEffectsStarted: false });
+        return ok({ ...planFor(readString2(input, "prompt") ?? readString2(input, "query") ?? ""), sideEffects: { writes: [], shell: [], gitMutations: [], network: [] }, sideEffectsStarted: false });
       case "response_mode":
-        return ok({ mode: normalizeMode(readString(input, "mode")), omittedDetailsRemainFetchable: true, continuationSupported: true });
+        return ok({ mode: normalizeMode(readString2(input, "mode")), omittedDetailsRemainFetchable: true, continuationSupported: true });
       case "permission_check":
-        return ok(permissionDecision(readString(input, "action") ?? readString(input, "permission") ?? "filesystem.read"));
+        return ok(permissionDecision(readString2(input, "action") ?? readString2(input, "permission") ?? "filesystem.read"));
       case "permission_profile":
         return ok({ profile: "full", contextReads: "unrestricted-for-allowed-workspaces", dangerousActions: "policy-gated", hardBlocksRemain: true });
       case "cache_stats":
@@ -33653,34 +35677,34 @@ var UpgradeRuntimeService = class {
         this.cache.hits = 0;
         this.cache.misses = 0;
         this.cache.bytesSaved = 0;
-        return ok({ cleared: true, scope: name === "cache_clear" ? "all" : readString(input, "path") ?? "workspace" });
+        return ok({ cleared: true, scope: name === "cache_clear" ? "all" : readString2(input, "path") ?? "workspace" });
       case "hook_list":
         return ok({ hooks: [...this.hooks.values()], lifecycleEvents: lifecycleEvents() });
       case "hook_register": {
-        const hook = { name: readString(input, "name") ?? `hook-${this.hooks.size + 1}`, event: readString(input, "event") ?? "beforeTool" };
+        const hook = { name: readString2(input, "name") ?? `hook-${this.hooks.size + 1}`, event: readString2(input, "event") ?? "beforeTool" };
         this.hooks.set(hook.name, hook);
         return ok({ registered: true, hook });
       }
       case "hook_remove": {
-        const hookName = readString(input, "name");
+        const hookName = readString2(input, "name");
         return ok({ removed: hookName === void 0 ? false : this.hooks.delete(hookName), name: hookName ?? null });
       }
       case "skill_match":
-        return ok({ query: readString(input, "query") ?? readString(input, "prompt") ?? "", skills: [], loaded: false, deterministic: true });
+        return ok({ query: readString2(input, "query") ?? readString2(input, "prompt") ?? "", skills: [], loaded: false, deterministic: true });
       case "skill_load":
-        return ok({ skillId: readString(input, "skillId") ?? null, loaded: false, source: "local-workspace-or-configured-skill-provider" });
+        return ok({ skillId: readString2(input, "skillId") ?? null, loaded: false, source: "local-workspace-or-configured-skill-provider" });
       case "plugin_list":
         return ok({ plugins: [...this.plugins.values()] });
       case "plugin_install":
       case "plugin_enable":
       case "plugin_disable":
       case "plugin_remove":
-        return ok(await this.changePlugin(name, readString(input, "name") ?? readString(input, "plugin")));
+        return ok(await this.changePlugin(name, readString2(input, "name") ?? readString2(input, "plugin")));
       case "session_context":
       case "session_resume":
         return ok({ session: Object.fromEntries(this.session), checkpoints: this.checkpoints });
       case "session_checkpoint": {
-        const checkpoint = { id: (0, import_node_crypto11.randomUUID)(), createdAt: (/* @__PURE__ */ new Date()).toISOString(), summary: summarize(readString(input, "summary") ?? readString(input, "prompt") ?? ""), inputDigest: digest(input) };
+        const checkpoint = { id: (0, import_node_crypto12.randomUUID)(), createdAt: (/* @__PURE__ */ new Date()).toISOString(), summary: summarize(readString2(input, "summary") ?? readString2(input, "prompt") ?? ""), inputDigest: digest(input) };
         this.checkpoints.push(checkpoint);
         this.session.set("lastCheckpointId", checkpoint.id);
         await this.persistState();
@@ -33697,19 +35721,19 @@ var UpgradeRuntimeService = class {
       case "task_result":
       case "delegate_status":
       case "delegate_result":
-        return ok(this.taskView(readString(input, "taskId") ?? readString(input, "delegateId") ?? readString(input, "id")));
+        return ok(this.taskView(readString2(input, "taskId") ?? readString2(input, "delegateId") ?? readString2(input, "id")));
       case "task_list":
         return ok({ tasks: [...this.tasks.values()].map(publicTask) });
       case "task_cancel":
       case "delegate_cancel":
-        return ok(await this.cancelTask(readString(input, "taskId") ?? readString(input, "delegateId") ?? readString(input, "id")));
+        return ok(await this.cancelTask(readString2(input, "taskId") ?? readString2(input, "delegateId") ?? readString2(input, "id")));
       case "parallel_delegate":
         return ok(parallelDelegatePlan(input));
       case "repo_map":
-        return this.repositoryMap(readString(input, "workspaceId"));
+        return this.repositoryMap(readString2(input, "workspaceId"));
       case "context_expand":
       case "dependency_context":
-        return this.contextExpansion(readString(input, "workspaceId"), readString(input, "path") ?? readString(input, "symbol"));
+        return this.contextExpansion(readString2(input, "workspaceId"), readString2(input, "path") ?? readString2(input, "symbol"));
       case "symbol_search":
       case "find_definition":
       case "find_references":
@@ -33721,33 +35745,39 @@ var UpgradeRuntimeService = class {
       case "type_search":
       case "trace_symbol":
       case "changed_symbols":
-        return this.indexQuery(name, readString(input, "workspaceId"), readString(input, "query") ?? readString(input, "symbol") ?? readString(input, "path") ?? "");
+        return this.indexQuery(name, readString2(input, "workspaceId"), readString2(input, "query") ?? readString2(input, "symbol") ?? readString2(input, "path") ?? "");
       case "workspace_index":
         return ok({});
       case "live_logs_status":
         return ok({ healthy: true, sources: ["mcp", "tunnel", "process"], correlationIds: true, redaction: "secrets-not-retained" });
       case "live_logs_query":
-        return ok({ entries: [], source: readString(input, "source") ?? "all", continuation: null, queryApplied: true });
+        return ok({ entries: [], source: readString2(input, "source") ?? "all", continuation: null, queryApplied: true });
       case "telemetry_dashboard":
         return ok({ mcpCalls: 0, internalOperations: 0, averageLatencyMs: 0, p95LatencyMs: 0, cacheHitRate: hitRate(this.cache), contextBytes: this.contextEconomy.snapshot().contextSentBytes, streamedBytes: 0, filesScanned: this.contextEconomy.snapshot().filesDiscovered, filesDelivered: this.contextEconomy.snapshot().filesDelivered, errors: 0, retries: 0, contextEconomy: this.contextEconomy.snapshot() });
       case "context_economy_stats":
         return ok({ ...this.contextEconomy.snapshot(), policy: { automaticDiscovery: "filtered-and-progressive", explicitAccess: "full-and-unrestricted-by-economy", ledger: "bounded-in-memory" } });
       case "execution_plan":
-        return ok({ ...planFor(readString(input, "prompt") ?? readString(input, "query") ?? ""), reason: "deterministic rule plan; telemetry can refine cost estimates" });
+        return ok({ ...planFor(readString2(input, "prompt") ?? readString2(input, "query") ?? ""), reason: "deterministic rule plan; telemetry can refine cost estimates" });
       case "recovery_status":
         return ok({ reconnect: "enabled-at-transport-boundary", safeReadRetry: true, destructiveRetry: false, staleContinuation: "detected", indexRecovery: "rebuildable", workerIsolation: true });
       case "tool_schema_list":
         return ok({ schemas: UPGRADE_TOOL_CATALOG.map((entry) => ({ id: entry.name, version: "1.0.0", permissions: [entry.permission], streamable: entry.streamable === true, parallelSafe: entry.parallelSafe === true })) });
       case "tool_schema_register":
-        return ok({ registered: true, backwardCompatible: true, id: readString(input, "name") ?? null });
+        return ok({ registered: true, backwardCompatible: true, id: readString2(input, "name") ?? null });
       case "mcp_discover":
       case "mcp_health":
       case "mcp_resources":
         return ok({ servers: this.services.extensions === void 0 ? [] : "available", nativeToolsRemainVisible: true, connectionPooling: true, timeoutIsolation: true });
+      case "mcp_hub":
+        return ok({ tool: name, status: "optional", available: this.services.extensions !== void 0, flattenChildTools: false, credentialsStoredInRepository: false, statelessTransport: true, tasksExtension: true, cacheMetadata: true, tracePropagation: true, authorizationUnchanged: true });
+      case "self_heal_plan":
+        return ok({ tool: name, status: "ready", available: true, applied: false, mutationRequired: false, safeReversibleFixes: [], automaticDestructiveRetry: false, auditTarget: "recovery-plan" });
+      case "git_worktree_spawn":
+        return this.gitWorktreeSpawn(input);
       case "handoff_context":
-        return ok({ goal: summarize(readString(input, "prompt") ?? readString(input, "goal") ?? ""), workspaceId: readString(input, "workspaceId") ?? null, branch: null, filesChanged: [], filesInspected: [], tests: [], failures: [], decisions: [], openQuestions: [], recommendedNextActions: ["inspect current status", "continue with primitive tools"] });
+        return ok({ goal: summarize(readString2(input, "prompt") ?? readString2(input, "goal") ?? ""), workspaceId: readString2(input, "workspaceId") ?? null, branch: null, filesChanged: [], filesInspected: [], tests: [], failures: [], decisions: [], openQuestions: [], recommendedNextActions: ["inspect current status", "continue with primitive tools"] });
       case "benchmark_run":
-        return ok({ started: false, preview: true, command: "corepack pnpm@10.15.0 run benchmark:baseline -- --runs 3", scenario: readString(input, "scenario") ?? "all" });
+        return ok({ started: false, preview: true, command: "corepack pnpm@10.15.0 run benchmark:baseline -- --runs 3", scenario: readString2(input, "scenario") ?? "all" });
       case "regression_report":
         return ok({ status: "available", scenarios: ["small repository", "large generated source tree", "concurrent tool calls", "tunnel connection", "local stdio connection"], regressions: [] });
       case "project_profile_get":
@@ -33803,19 +35833,49 @@ var UpgradeRuntimeService = class {
       case "context_ranking":
         return ok({ signals: { exactSymbol: 100, exactFilename: 80, recentChange: 60, sameModule: 50, dependency: 40, test: 30, text: 20, proximity: 10 }, lowerRankedResultsRemainAvailable: true });
       case "dev_context":
-        return ok({ prompt: summarize(readString(input, "prompt") ?? ""), route: routeIntent(readString(input, "prompt") ?? "").route, executed: ["route_intent", "workspace_context", "git_context", "test_context"], continuationPaths: true, primitiveToolsRemainAvailable: true });
+        return ok({ prompt: summarize(readString2(input, "prompt") ?? ""), route: routeIntent(readString2(input, "prompt") ?? "").route, executed: ["route_intent", "workspace_context", "git_context", "test_context"], continuationPaths: true, primitiveToolsRemainAvailable: true });
       default:
-        return ok({ tool: name, status: "ready", phase: UPGRADE_TOOL_CATALOG.find((entry) => entry.name === name)?.phase ?? null, inputKeys: Object.keys(input).sort() });
+        return ok(contractStatus(name, input));
     }
   }
-  searchTools(query) {
+  searchTools(query, input = {}) {
     const normalized = query.toLowerCase().trim();
-    const matches = UPGRADE_TOOL_CATALOG.filter((entry) => normalized.length === 0 || `${entry.name} ${entry.description} ${entry.tags.join(" ")}`.toLowerCase().includes(normalized));
-    return { query, matches };
+    const limit = boundedInteger(input.limit ?? input.topK, 20, 1, 100);
+    const requestedReranker = readString2(input, "reranker") ?? readString2(input, "model") ?? "deterministic";
+    const category = readString2(input, "category")?.toLowerCase();
+    const route = routeIntent(query);
+    const scored = SEARCH_CATALOG.filter((entry) => category === void 0 || entry.tags.some((tag) => tag.toLowerCase() === category)).map((entry) => scoreToolEntry(entry, normalized, route)).filter((entry) => normalized.length === 0 || entry.score > 0).sort((left, right) => right.score - left.score || Number(right.entry.primitive === true) - Number(left.entry.primitive === true) || left.entry.name.localeCompare(right.entry.name));
+    const rankedCandidates = scored.slice(0, limit).map((candidate) => ({
+      name: candidate.entry.name,
+      score: Number(candidate.score.toFixed(4)),
+      reasonCodes: candidate.reasonCodes,
+      permission: candidate.entry.permission,
+      permissionMetadata: {
+        permission: candidate.entry.permission,
+        authorization: "not_granted_by_ranking",
+        destructiveHint: candidate.entry.permission === "DANGEROUS"
+      },
+      source: candidate.entry.primitive === true ? "primitive" : "upgrade",
+      tags: candidate.entry.tags,
+      phase: candidate.entry.phase
+    }));
+    const selectedModel = requestedReranker === "local" ? "deterministic" : "deterministic";
+    return {
+      query,
+      matches: scored.slice(0, limit).map((candidate) => candidate.entry),
+      totalMatches: scored.length,
+      limit,
+      rankedCandidates,
+      selectedModel,
+      ...requestedReranker === "local" ? { fallbackReason: "local_model_not_configured" } : {},
+      primitiveToolsRemainAvailable: true,
+      authorizationUnchanged: true,
+      route: route.route
+    };
   }
   describeTool(name) {
-    const entry = UPGRADE_TOOL_CATALOG.find((candidate) => candidate.name === name);
-    return entry === void 0 ? { found: false, name: name ?? null } : { found: true, ...entry, schema: { type: "object", additionalProperties: true } };
+    const entry = SEARCH_CATALOG.find((candidate) => candidate.name === name);
+    return entry === void 0 ? { found: false, name: name ?? null } : { found: true, ...entry, schema: { type: "object", additionalProperties: true }, authorizationUnchanged: true };
   }
   categories() {
     const counts = /* @__PURE__ */ new Map();
@@ -33838,7 +35898,7 @@ var UpgradeRuntimeService = class {
     return { changed: true, ...plugin };
   }
   async createTask(kind, input) {
-    const task = { id: (0, import_node_crypto11.randomUUID)(), kind, createdAt: (/* @__PURE__ */ new Date()).toISOString(), inputDigest: digest(input), state: "queued" };
+    const task = { id: (0, import_node_crypto12.randomUUID)(), kind, createdAt: (/* @__PURE__ */ new Date()).toISOString(), inputDigest: digest(input), state: "queued" };
     this.tasks.set(task.id, task);
     await this.persistState();
     return task;
@@ -33854,6 +35914,44 @@ var UpgradeRuntimeService = class {
     task.state = "cancelled";
     await this.persistState();
     return { cancelled: true, id };
+  }
+  async gitWorktreeSpawn(input) {
+    const workspaceId = readString2(input, "workspaceId");
+    if (workspaceId === void 0)
+      return err(appError("INVALID_INPUT", "workspaceId is required for a Git worktree"));
+    const worktreePath = readString2(input, "worktreePath") ?? `.worktrees/agent-${(0, import_node_crypto12.randomUUID)().slice(0, 8)}`;
+    const normalizedPath = worktreePath.replaceAll("\\", "/");
+    if (normalizedPath.startsWith("/") || /^[A-Za-z]:/.test(normalizedPath) || normalizedPath.split("/").some((part) => part === "..") || !(normalizedPath.startsWith(".worktrees/") || normalizedPath.startsWith(".lnwjud/worktrees/"))) {
+      return err(appError("PATH_OUTSIDE_WORKSPACE", "Git worktree path must remain under .worktrees or .lnwjud/worktrees"));
+    }
+    const ref = readString2(input, "ref") ?? "HEAD";
+    if (ref.includes("\0") || ref.length > 256)
+      return err(appError("INVALID_INPUT", "Git worktree ref is invalid"));
+    const plan = {
+      tool: "git_worktree_spawn",
+      workspaceId,
+      worktreePath: normalizedPath,
+      ref,
+      owner: this.actor.clientId,
+      collisionPolicy: "one-owner-per-worktree-path",
+      mutationPolicy: "explicit-confirmation-and-dry-run",
+      sideEffectsStarted: false
+    };
+    const dryRun = input.dryRun !== false && input.dry_run !== false;
+    if (dryRun)
+      return ok({ ...plan, dryRun: true });
+    if (input.userConfirmed !== true)
+      return err(appError("PERMISSION_REQUIRED", "Creating a Git worktree requires explicit user confirmation"));
+    if (this.services.git === void 0)
+      return ok({ ...plan, dryRun: false, status: "optional", available: false, reason: "Git service is not configured" });
+    const result = await this.services.git.run(this.actor, {
+      workspaceId,
+      args: ["worktree", "add", "--detach", normalizedPath, ref],
+      ...typeof input.timeoutMs === "number" ? { timeoutMs: input.timeoutMs } : {}
+    });
+    if (!result.ok)
+      return result;
+    return ok({ ...plan, dryRun: false, sideEffectsStarted: true, status: "completed", result: result.value });
   }
   async repositoryMap(workspaceId) {
     if (workspaceId === void 0 || this.services.workspaceIndex === void 0)
@@ -33886,8 +35984,8 @@ var UpgradeRuntimeService = class {
     return ok({ tool: name, query, indexed: status.value.indexed, matches, lowerRankedResultsRemainAvailable: true });
   }
   async compoundContext(name, input) {
-    const workspaceId = readString(input, "workspaceId");
-    const query = readString(input, "query") ?? readString(input, "prompt") ?? name;
+    const workspaceId = readString2(input, "workspaceId");
+    const query = readString2(input, "query") ?? readString2(input, "prompt") ?? name;
     const context = await this.contextEngine.collect({
       query,
       ...workspaceId === void 0 ? {} : { workspaceId },
@@ -33915,7 +36013,7 @@ var UpgradeRuntimeService = class {
     if (statePath === void 0)
       return;
     try {
-      const parsed = JSON.parse(await (0, import_promises18.readFile)(statePath, "utf8"));
+      const parsed = JSON.parse(await (0, import_promises21.readFile)(statePath, "utf8"));
       if (typeof parsed !== "object" || parsed === null)
         return;
       const state = parsed;
@@ -33939,8 +36037,8 @@ var UpgradeRuntimeService = class {
     if (statePath === void 0)
       return;
     try {
-      await (0, import_promises18.mkdir)(import_node_path23.default.dirname(statePath), { recursive: true });
-      await (0, import_promises18.writeFile)(statePath, `${JSON.stringify({
+      await (0, import_promises21.mkdir)(import_node_path29.default.dirname(statePath), { recursive: true });
+      await (0, import_promises21.writeFile)(statePath, `${JSON.stringify({
         tasks: [...this.tasks.values()],
         checkpoints: this.checkpoints,
         plugins: [...this.plugins.values()],
@@ -33951,12 +36049,12 @@ var UpgradeRuntimeService = class {
     }
   }
 };
-function readString(input, key) {
+function readString2(input, key) {
   const value = input[key];
   return typeof value === "string" ? value : void 0;
 }
 function digest(input) {
-  return (0, import_node_crypto11.createHash)("sha256").update(JSON.stringify(input)).digest("hex");
+  return (0, import_node_crypto12.createHash)("sha256").update(JSON.stringify(input)).digest("hex");
 }
 function summarize(value) {
   return value.replace(/[\r\n\t]+/g, " ").trim().slice(0, 240);
@@ -33980,19 +36078,118 @@ function normalizeMode(value) {
 function lifecycleEvents() {
   return ["beforeTool", "afterTool", "beforeRead", "afterRead", "beforeWrite", "afterWrite", "beforeShell", "afterShell", "beforeGit", "afterGit", "beforeBrowser", "afterBrowser"];
 }
+function primitiveEntry(name, description, permission, tags) {
+  return { name, phase: 0, description, permission, tags, parallelSafe: permission === "READ", primitive: true };
+}
+function capabilitySearchEntry(descriptor2) {
+  return {
+    name: descriptor2.name,
+    phase: 0,
+    description: `${descriptor2.name} local capability (${descriptor2.auditTarget})`,
+    permission: descriptor2.permission,
+    tags: [descriptor2.name, descriptor2.auditTarget, "capability"],
+    parallelSafe: descriptor2.permission === "READ",
+    primitive: true,
+    auditTarget: descriptor2.auditTarget
+  };
+}
+function dedupeSearchEntries(entries) {
+  const seen = /* @__PURE__ */ new Set();
+  return entries.filter((entry) => {
+    if (seen.has(entry.name))
+      return false;
+    seen.add(entry.name);
+    return true;
+  });
+}
+function scoreToolEntry(entry, query, route) {
+  if (query.length === 0)
+    return { entry, score: 0, reasonCodes: ["empty-query"] };
+  const queryTokens = tokenize(query);
+  const nameTokens = tokenize(entry.name);
+  const tagTokens = entry.tags.flatMap((tag) => tokenize(tag));
+  const description = entry.description.toLowerCase();
+  let score = 0;
+  const reasons = /* @__PURE__ */ new Set();
+  if (entry.name.toLowerCase() === query) {
+    score += 2;
+    reasons.add("exact-name");
+  }
+  if (entry.name.toLowerCase().includes(query)) {
+    score += 1;
+    reasons.add("name-phrase");
+  }
+  for (const token of queryTokens) {
+    if (nameTokens.includes(token)) {
+      score += 1;
+      reasons.add(`name-token:${token}`);
+    } else if (tagTokens.includes(token)) {
+      score += 0.8;
+      reasons.add(`tag-token:${token}`);
+    } else if (description.includes(token)) {
+      score += 0.25;
+      reasons.add(`description-token:${token}`);
+    }
+  }
+  if (route.route !== "workspace" && entry.tags.some((tag) => route.route === tag || route.domain.split("/").some((part) => tag === part))) {
+    score += 0.5;
+    reasons.add(`route:${route.route}`);
+  }
+  if (entry.primitive === true)
+    reasons.add("primitive-visible");
+  return { entry, score, reasonCodes: [...reasons] };
+}
+function tokenize(value) {
+  return value.replace(/([a-z0-9])([A-Z])/g, "$1 $2").toLowerCase().split(/[^a-z0-9ก-๙]+/u).filter((token) => token.length > 0);
+}
+function boundedInteger(value, fallback, minimum, maximum) {
+  return typeof value === "number" && Number.isInteger(value) ? Math.min(maximum, Math.max(minimum, value)) : fallback;
+}
+function contractStatus(name, input) {
+  const entry = UPGRADE_TOOL_CATALOG.find((candidate) => candidate.name === name);
+  const status = entry?.availability ?? "ready";
+  return {
+    tool: name,
+    status,
+    available: status === "ready",
+    ready: status === "ready",
+    phase: entry?.phase ?? null,
+    ...entry?.requirements === void 0 ? {} : { requirements: entry.requirements },
+    supportsCancel: entry?.supportsCancel === true,
+    supportsDryRun: entry?.supportsDryRun === true,
+    ...entry?.auditTarget === void 0 ? {} : { auditTarget: entry.auditTarget },
+    executed: false,
+    primitiveFallbacks: ["read_file", "search_text", "workspace_tree"],
+    inputKeys: Object.keys(input).sort(),
+    authorizationUnchanged: true
+  };
+}
 function routeIntent(prompt) {
   const normalized = prompt.toLowerCase();
-  if (/(live log|mcp activity|tunnel|stdio|connect)/.test(normalized))
-    return { route: "debug", domain: "desktop/mcp/logging", confidence: "high" };
-  if (/(test|vitest|jest|playwright|pytest)/.test(normalized))
-    return { route: "test", domain: "project/tests", confidence: "high" };
-  if (/(review|diff|pull request|changed)/.test(normalized))
-    return { route: "review", domain: "git/code", confidence: "high" };
-  if (/(browser|ui|button|dom|screenshot)/.test(normalized))
-    return { route: "frontend", domain: "browser/ui", confidence: "medium" };
-  if (/(release|tag|publish|deploy)/.test(normalized))
-    return { route: "release", domain: "git/release", confidence: "medium" };
-  return { route: "workspace", domain: "workspace/code", confidence: "medium" };
+  const rules = [
+    { route: "debug", domain: "desktop/mcp/logging", confidence: "high", terms: [["live log", "live-logs"], ["mcp activity", "mcp"], ["tunnel", "tunnel"], ["stdio", "stdio"], ["connect", "connect"], ["debug", "debug"], ["wsl", "wsl"], ["timeout", "timeout"], ["crash", "crash"]] },
+    { route: "test", domain: "project/tests", confidence: "high", terms: [["test", "test"], ["vitest", "vitest"], ["jest", "jest"], ["playwright", "playwright"], ["pytest", "pytest"]] },
+    { route: "review", domain: "git/code", confidence: "high", terms: [["review", "review"], ["diff", "diff"], ["pull request", "pull-request"], ["changed", "changed"]] },
+    { route: "frontend", domain: "browser/ui", confidence: "medium", terms: [["browser", "browser"], ["ui", "ui"], ["button", "button"], ["dom", "dom"], ["screenshot", "screenshot"]] },
+    { route: "release", domain: "git/release", confidence: "medium", terms: [["release", "release"], ["tag", "tag"], ["publish", "publish"], ["deploy", "deploy"]] }
+  ];
+  const scored = rules.map((rule, index) => ({
+    ...rule,
+    matches: rule.terms.filter(([term]) => normalized.includes(term)),
+    index
+  })).filter((rule) => rule.matches.length > 0);
+  const selected = scored.sort((left, right) => right.matches.length - left.matches.length || left.index - right.index)[0];
+  if (selected === void 0) {
+    return { route: "workspace", domain: "workspace/code", confidence: "medium", selectedModel: "deterministic", reasonCodes: ["fallback:workspace"], authorizationUnchanged: true };
+  }
+  return {
+    route: selected.route,
+    domain: selected.domain,
+    confidence: selected.confidence,
+    selectedModel: "deterministic",
+    reasonCodes: selected.matches.map(([, reason]) => `keyword:${reason}`),
+    authorizationUnchanged: true
+  };
 }
 function recipeCatalog() {
   return [
@@ -34130,9 +36327,272 @@ function codexTools(context) {
   ];
 }
 
+// ../../packages/mcp-server/dist/set-of-marks-service.js
+var import_node_crypto13 = require("node:crypto");
+var SetOfMarksService = class {
+  capabilities;
+  now;
+  defaultTtlSeconds;
+  maxTtlSeconds;
+  observations = /* @__PURE__ */ new Map();
+  constructor(capabilities, options = {}) {
+    this.capabilities = capabilities;
+    this.now = options.now ?? Date.now;
+    this.defaultTtlSeconds = clamp(options.defaultTtlSeconds ?? 30, 1, 300);
+    this.maxTtlSeconds = clamp(options.maxTtlSeconds ?? 300, this.defaultTtlSeconds, 300);
+  }
+  async capture(input) {
+    const parsed = parseCaptureInput(input, this.defaultTtlSeconds, this.maxTtlSeconds);
+    if (!parsed.ok)
+      return parsed;
+    this.pruneExpired();
+    const observed = await this.executeCapability("accessibility", {
+      action: "observe",
+      parameters: {
+        ...parsed.value.uiParameters,
+        max_depth: parsed.value.maxDepth,
+        max_items: Math.min(parsed.value.maxMarks * 4, 2e3)
+      }
+    });
+    if (!observed.ok)
+      return observed;
+    const observedMarks = extractMarks(observed.value, parsed.value.maxMarks);
+    const captured = await this.executeCapability("vision", parsed.value.visionInput);
+    if (!captured.ok)
+      return captured;
+    const sourceImage = normalizeImage(captured.value, false);
+    if (!sourceImage.ok)
+      return sourceImage;
+    const marks = applyImageOrigin(observedMarks, sourceImage.value.origin_x, sourceImage.value.origin_y);
+    const annotationInput = {
+      action: "annotate",
+      image_base64: sourceImage.value.data_base64,
+      marks: marks.map((mark) => ({ mark_id: mark.markId, label: mark.label, bounds: mark.annotationBounds }))
+    };
+    const annotated = await this.executeCapability("vision", annotationInput);
+    const annotatedImage = annotated.ok ? normalizeImage(annotated.value, true) : void 0;
+    const image = annotatedImage?.ok === true ? { ...annotatedImage.value, origin_x: sourceImage.value.origin_x, origin_y: sourceImage.value.origin_y } : sourceImage.value;
+    const now = this.now();
+    const expiresAtMs = now + parsed.value.ttlSeconds * 1e3;
+    const expiresAt = new Date(expiresAtMs).toISOString();
+    const observationId = (0, import_node_crypto13.randomUUID)();
+    const observationHash = createObservationHash(image, marks);
+    const observation = {
+      observationId,
+      observationHash,
+      workspaceId: parsed.value.workspaceId,
+      expiresAtMs,
+      expiresAt,
+      image,
+      marks,
+      uiParameters: parsed.value.uiParameters
+    };
+    this.observations.set(observationId, observation);
+    return ok(toPublicObservation(observation));
+  }
+  async act(input) {
+    const parsed = parseActionInput(input);
+    if (!parsed.ok)
+      return parsed;
+    const observation = this.observations.get(parsed.value.observationId);
+    if (observation === void 0)
+      return err(appError("INVALID_INPUT", "The visual observation is unknown or stale"));
+    if (this.now() >= observation.expiresAtMs) {
+      this.observations.delete(observation.observationId);
+      return err(appError("INVALID_INPUT", "The visual observation has expired"));
+    }
+    if (observation.workspaceId !== parsed.value.workspaceId)
+      return err(appError("PERMISSION_DENIED", "The visual observation belongs to another workspace"));
+    if (parsed.value.observationHash !== void 0 && parsed.value.observationHash !== observation.observationHash)
+      return err(appError("INVALID_INPUT", "The visual observation hash is stale"));
+    const mark = observation.marks.find((candidate) => candidate.markId === parsed.value.markId);
+    if (mark === void 0)
+      return err(appError("INVALID_INPUT", "The visual mark is unknown or stale"));
+    if (isMutatingAction(parsed.value.action) && parsed.value.userConfirmed !== true && parsed.value.dryRun !== true) {
+      return err(appError("PERMISSION_REQUIRED", "A marked UI action requires explicit user confirmation"));
+    }
+    if (parsed.value.dryRun === true)
+      return ok({ dry_run: true, observationId: observation.observationId, markId: mark.markId, action: parsed.value.action });
+    const targetParameters = { ...observation.uiParameters, ...mark.target };
+    const current = await this.executeCapability("accessibility", { action: "find_element", parameters: targetParameters });
+    if (!current.ok)
+      return current;
+    const actionParameters = parsed.value.value === void 0 ? targetParameters : { ...targetParameters, value: parsed.value.value };
+    return this.executeCapability("accessibility", { action: parsed.value.action, parameters: actionParameters });
+  }
+  async executeCapability(tool, input) {
+    if (this.capabilities === void 0)
+      return err(appError("INTERNAL_ERROR", "Capability service is unavailable", true));
+    return this.capabilities.execute(tool, input);
+  }
+  pruneExpired() {
+    const now = this.now();
+    for (const [id, observation] of this.observations)
+      if (now >= observation.expiresAtMs)
+        this.observations.delete(id);
+  }
+};
+function parseCaptureInput(value, defaultTtlSeconds, maxTtlSeconds) {
+  if (!isRecord12(value))
+    return err(appError("INVALID_INPUT", "Set-of-Marks capture input must be an object"));
+  const workspaceId = readNonEmptyString2(value.workspaceId);
+  if (workspaceId === void 0)
+    return err(appError("INVALID_INPUT", "workspaceId is required for visual observations"));
+  const capture = value.capture === void 0 ? "display" : value.capture;
+  if (capture !== "display" && capture !== "region" && capture !== "window")
+    return err(appError("INVALID_INPUT", "Capture target is invalid"));
+  const ttlSeconds = value.ttl_seconds === void 0 ? defaultTtlSeconds : value.ttl_seconds;
+  if (typeof ttlSeconds !== "number" || !Number.isFinite(ttlSeconds) || ttlSeconds < 1 || ttlSeconds > maxTtlSeconds)
+    return err(appError("INVALID_INPUT", "Observation TTL is invalid"));
+  const maxMarks = value.max_marks === void 0 ? 100 : value.max_marks;
+  if (typeof maxMarks !== "number" || !Number.isInteger(maxMarks) || maxMarks < 1 || maxMarks > 500)
+    return err(appError("INVALID_INPUT", "Mark limit is invalid"));
+  const maxDepth = value.max_depth === void 0 ? 4 : value.max_depth;
+  if (typeof maxDepth !== "number" || !Number.isInteger(maxDepth) || maxDepth < 0 || maxDepth > 12)
+    return err(appError("INVALID_INPUT", "UI tree depth is invalid"));
+  const uiParameters = {};
+  if (isRecord12(value.app))
+    Object.assign(uiParameters, value.app);
+  if (typeof value.window_index === "number")
+    uiParameters.window_index = value.window_index;
+  const visionInput = { action: `capture_${capture}` };
+  if (isRecord12(value.region))
+    visionInput.region = value.region;
+  if (isRecord12(value.app))
+    visionInput.app = value.app;
+  if (typeof value.window_index === "number")
+    visionInput.window_index = value.window_index;
+  if (typeof value.display_id === "string")
+    visionInput.display_id = value.display_id;
+  return ok({ workspaceId, ttlSeconds, maxMarks, maxDepth, uiParameters, visionInput });
+}
+function parseActionInput(value) {
+  if (!isRecord12(value))
+    return err(appError("INVALID_INPUT", "Marked UI action input must be an object"));
+  const workspaceId = readNonEmptyString2(value.workspaceId);
+  const observationId = readNonEmptyString2(value.observationId);
+  const markId = readNonEmptyString2(value.markId);
+  if (workspaceId === void 0 || observationId === void 0 || markId === void 0)
+    return err(appError("INVALID_INPUT", "workspaceId, observationId, and markId are required"));
+  const action = value.action === void 0 ? "click" : value.action;
+  const actions = ["click", "focus", "read_value", "set_value", "select_item", "menu_select"];
+  if (!actions.includes(action))
+    return err(appError("INVALID_INPUT", "Marked UI action is invalid"));
+  const observationHash = value.observationHash === void 0 ? void 0 : readNonEmptyString2(value.observationHash);
+  if (value.observationHash !== void 0 && observationHash === void 0)
+    return err(appError("INVALID_INPUT", "Observation hash is invalid"));
+  const selectedValue = value.value;
+  if (selectedValue !== void 0 && (typeof selectedValue !== "string" || selectedValue.length > 1e6))
+    return err(appError("INVALID_INPUT", "Marked UI value is invalid"));
+  return ok({ workspaceId, observationId, markId, ...observationHash === void 0 ? {} : { observationHash }, action, ...selectedValue === void 0 ? {} : { value: selectedValue }, userConfirmed: value.userConfirmed === true, dryRun: value.dry_run === true });
+}
+function extractMarks(value, maxMarks) {
+  if (!isRecord12(value) || !Array.isArray(value.elements))
+    return [];
+  const marks = [];
+  for (const entry of value.elements) {
+    if (marks.length >= maxMarks || !isRecord12(entry))
+      continue;
+    const element = isRecord12(entry.element) ? entry.element : entry;
+    const bounds = readBounds(element.bounds);
+    if (bounds === void 0 || element.enabled === false || element.offscreen === true)
+      continue;
+    const name = readNonEmptyString2(element.name);
+    const automationId = readNonEmptyString2(element.automation_id);
+    const controlType = readNonEmptyString2(element.control_type);
+    const label = name ?? automationId ?? controlType ?? `element-${marks.length + 1}`;
+    const target = {};
+    if (name !== void 0)
+      target.name = name;
+    if (automationId !== void 0)
+      target.automation_id = automationId;
+    marks.push({
+      markId: `m${marks.length + 1}`,
+      label,
+      bounds,
+      annotationBounds: bounds,
+      target
+    });
+  }
+  return marks;
+}
+function applyImageOrigin(marks, originX, originY) {
+  if (originX === 0 && originY === 0)
+    return marks;
+  return marks.map((mark) => ({
+    ...mark,
+    annotationBounds: {
+      ...mark.annotationBounds,
+      x: mark.annotationBounds.x - Math.round(originX),
+      y: mark.annotationBounds.y - Math.round(originY)
+    }
+  }));
+}
+function normalizeImage(value, annotated) {
+  const image = isRecord12(value) && isRecord12(value.image) ? value.image : value;
+  if (!isRecord12(image) || image.format !== "png" || image.mime_type !== "image/png" || typeof image.data_base64 !== "string" || image.data_base64.length === 0) {
+    return err(appError("INTERNAL_ERROR", "Vision did not return a PNG image", true));
+  }
+  const width = image.width;
+  const height = image.height;
+  if (typeof width !== "number" || !Number.isInteger(width) || width < 1 || typeof height !== "number" || !Number.isInteger(height) || height < 1) {
+    return err(appError("INTERNAL_ERROR", "Vision returned invalid image dimensions", true));
+  }
+  return ok({
+    format: "png",
+    mime_type: "image/png",
+    data_base64: image.data_base64,
+    width,
+    height,
+    origin_x: typeof image.origin_x === "number" ? image.origin_x : 0,
+    origin_y: typeof image.origin_y === "number" ? image.origin_y : 0,
+    annotated
+  });
+}
+function createObservationHash(image, marks) {
+  const imageHash = (0, import_node_crypto13.createHash)("sha256").update(image.data_base64).digest("hex");
+  return (0, import_node_crypto13.createHash)("sha256").update(JSON.stringify({ imageHash, marks: marks.map((mark) => ({ markId: mark.markId, bounds: mark.bounds, target: mark.target })) })).digest("hex");
+}
+function toPublicObservation(observation) {
+  return {
+    observationId: observation.observationId,
+    observationHash: observation.observationHash,
+    expiresAt: observation.expiresAt,
+    image: observation.image,
+    marks: observation.marks.map((mark) => ({ markId: mark.markId, label: mark.label, bounds: mark.bounds, target: mark.target }))
+  };
+}
+function readBounds(value) {
+  if (!isRecord12(value))
+    return void 0;
+  const x = toFiniteNumber(value.x);
+  const y = toFiniteNumber(value.y);
+  const width = toFiniteNumber(value.width);
+  const height = toFiniteNumber(value.height);
+  if (x === void 0 || y === void 0 || width === void 0 || height === void 0 || width <= 0 || height <= 0)
+    return void 0;
+  return { x: Math.round(x), y: Math.round(y), width: Math.round(width), height: Math.round(height) };
+}
+function isMutatingAction(action) {
+  return action === "click" || action === "set_value" || action === "select_item" || action === "menu_select";
+}
+function readNonEmptyString2(value) {
+  return typeof value === "string" && value.trim().length > 0 ? value.trim() : void 0;
+}
+function toFiniteNumber(value) {
+  return typeof value === "number" && Number.isFinite(value) ? value : void 0;
+}
+function clamp(value, minimum, maximum) {
+  return Math.min(maximum, Math.max(minimum, value));
+}
+function isRecord12(value) {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
 // ../../packages/mcp-server/dist/tools/capability-tools.js
 function capabilityTools(context) {
   const execute2 = (tool, input) => context.services.capabilities === void 0 ? Promise.resolve(missingService()) : context.services.capabilities.execute(tool, input);
+  const setOfMarks = new SetOfMarksService(context.services.capabilities);
   return [
     defineTool({
       name: "shell",
@@ -34173,6 +36633,22 @@ function capabilityTools(context) {
       annotations: { readOnlyHint: true, destructiveHint: false },
       inputSchema: visionCapabilitySchema,
       handler: async (input) => execute2("vision", input)
+    }),
+    defineTool({
+      name: "vision_annotated_capture",
+      description: "Capture a local Windows screen/region/window and return a short-lived Set-of-Marks observation with numbered bounds, a content hash, and an annotated PNG. This tool only observes; use ui_target_action for a separately gated action.",
+      permission: "READ",
+      annotations: { readOnlyHint: true, destructiveHint: false },
+      inputSchema: visionAnnotatedCaptureSchema,
+      handler: async (input) => setOfMarks.capture(input)
+    }),
+    defineTool({
+      name: "ui_target_action",
+      description: "Act on one mark from a current vision_annotated_capture observation. The observation ID, optional hash, TTL, workspace owner, and current Accessibility element are checked before the action is sent.",
+      permission: "DANGEROUS",
+      annotations: { readOnlyHint: false, destructiveHint: true },
+      inputSchema: uiTargetActionSchema,
+      handler: async (input) => setOfMarks.act(input)
     }),
     defineTool({
       name: "window",
@@ -34261,6 +36737,22 @@ function capabilityTools(context) {
       annotations: { readOnlyHint: false, destructiveHint: true },
       inputSchema: schedulerCapabilitySchema,
       handler: async (input) => execute2("scheduler", input)
+    }),
+    defineTool({
+      name: "wsl_exec",
+      description: "Scoped WSL2 developer runner. Executes one Linux executable with argv, an explicit distribution, and a registered Windows workspace cwd. It never accepts shell command strings; background calls return the existing task_id contract.",
+      permission: "EXECUTE",
+      annotations: { readOnlyHint: false, destructiveHint: true },
+      inputSchema: wslCapabilitySchema,
+      handler: async (input) => execute2("wsl_exec", input)
+    }),
+    defineTool({
+      name: "wsl_fs",
+      description: "Translate paths and inspect metadata between a registered Windows workspace and WSL without exposing raw \\\\wsl$ read/write access.",
+      permission: "READ",
+      annotations: { readOnlyHint: true, destructiveHint: false },
+      inputSchema: wslFilesystemCapabilitySchema,
+      handler: async (input) => execute2("wsl_fs", input)
     })
   ];
 }
@@ -34679,8 +37171,8 @@ var ToolRegistry = class {
   describeSchema(name) {
     return this.schemaRegistry.describe(name);
   }
-  async invoke(name, input) {
-    const callId = await this.activity.begin(name, input);
+  async invoke(name, input, traceContext) {
+    const callId = await this.activity.begin(name, input, traceContext);
     const started = Date.now();
     try {
       const tool = this.tools.find((candidate) => candidate.name === name);
@@ -34767,7 +37259,7 @@ function createMcpServer(options) {
       inputSchema: tool.inputSchema,
       annotations: tool.annotations
     }, async (input, context) => {
-      return withProgressHeartbeat(context, tool.name, async () => registry2.invoke(tool.name, input));
+      return withProgressHeartbeat(context, tool.name, async () => registry2.invoke(tool.name, input, readTraceContext(context)));
     });
   }
   return server;
@@ -35310,7 +37802,7 @@ var SqliteAuditRepository = class {
     } catch {
       return null;
     }
-    if (!isRecord2(metadata))
+    if (!isRecord13(metadata))
       return null;
     return {
       id: value.id,
@@ -35334,7 +37826,7 @@ var SqliteAuditRepository = class {
     return typeof value.id === "string" && typeof value.timestamp === "string" && typeof value.actor_id === "string" && typeof value.actor_name === "string" && (typeof value.workspace_id === "string" || value.workspace_id === null) && typeof value.action === "string" && (typeof value.target_summary === "string" || value.target_summary === null) && (typeof value.permission_decision === "string" || value.permission_decision === null) && typeof value.result_code === "string" && (typeof value.duration_ms === "number" || value.duration_ms === null) && typeof value.metadata_json === "string";
   }
 };
-function isRecord2(value) {
+function isRecord13(value) {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
@@ -35524,14 +38016,14 @@ var SqliteWorkspaceRepository = class {
 
 // ../cli/src/runtime/stdio-mcp-runtime.ts
 var import_node_fs6 = require("node:fs");
-var import_node_path30 = __toESM(require("node:path"), 1);
+var import_node_path32 = __toESM(require("node:path"), 1);
 var import_node_url = require("node:url");
 
 // ../../packages/audit/dist/audit-service.js
-var import_node_crypto13 = require("node:crypto");
+var import_node_crypto15 = require("node:crypto");
 
 // ../../packages/audit/dist/redactor.js
-var import_node_crypto12 = require("node:crypto");
+var import_node_crypto14 = require("node:crypto");
 var SENSITIVE_KEY = /authorization|token|secret|password|api[_-]?key|private[_-]?key|credential/i;
 var BEARER_VALUE2 = /\bBearer\s+[^\s,;]+/gi;
 var AUTHORIZATION_HEADER2 = /(Authorization\s*:\s*Bearer\s+)[^\s,;]+/gi;
@@ -35552,20 +38044,20 @@ var Redactor = class {
   }
   redactRecord(value) {
     const redacted = this.redact(value);
-    return isRecord3(redacted) ? redacted : {};
+    return isRecord14(redacted) ? redacted : {};
   }
 };
 function codexInstructionSummary(codexTaskId, instruction) {
   return {
     codexTaskId,
     instructionLength: Buffer.byteLength(instruction, "utf8"),
-    instructionSha256: (0, import_node_crypto12.createHash)("sha256").update(instruction, "utf8").digest("hex")
+    instructionSha256: (0, import_node_crypto14.createHash)("sha256").update(instruction, "utf8").digest("hex")
   };
 }
 function redactString(value) {
   return value.replace(AUTHORIZATION_HEADER2, "$1[REDACTED]").replace(BEARER_VALUE2, "Bearer [REDACTED]").replace(ENV_SECRET_ASSIGNMENT, "$1=[REDACTED]").replace(API_KEY_PREFIX, "[REDACTED]");
 }
-function isRecord3(value) {
+function isRecord14(value) {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
@@ -35579,7 +38071,7 @@ var AuditService = class {
   }
   async record(input) {
     const event = {
-      id: (0, import_node_crypto13.randomUUID)(),
+      id: (0, import_node_crypto15.randomUUID)(),
       timestamp: input.timestamp ?? (/* @__PURE__ */ new Date()).toISOString(),
       actorId: input.actorId,
       actorName: input.actorName,
@@ -35619,1335 +38111,13 @@ var AuditService = class {
         toolName: input.toolName,
         callId: input.callId,
         phase: input.phase,
-        ...input.resultMessage === void 0 ? {} : { errorMessage: input.resultMessage }
+        ...input.resultMessage === void 0 ? {} : { errorMessage: input.resultMessage },
+        ...input.traceId === void 0 ? {} : { traceId: input.traceId },
+        ...input.traceParent === void 0 ? {} : { traceParent: input.traceParent }
       }
     });
   }
 };
-
-// ../../packages/capabilities/dist/local-capability-service.js
-var LocalCapabilityService = class {
-  backends;
-  constructor(backends) {
-    this.backends = backends;
-  }
-  execute(tool, input) {
-    const backend = this.backendFor(tool);
-    return backend === void 0 ? Promise.resolve(err(appError("INVALID_INPUT", "Capability tool is not supported"))) : backend.execute(input);
-  }
-  backendFor(tool) {
-    switch (tool) {
-      case "shell":
-        return this.backends.shell;
-      case "dom_cdp":
-        return this.backends.domCdp;
-      case "accessibility":
-        return this.backends.accessibility;
-      case "input_event":
-        return this.backends.inputEvent;
-      case "vision":
-        return this.backends.vision;
-      case "window":
-        return this.backends.window;
-      case "health":
-        return this.backends.health;
-      case "system_info":
-        return this.backends.systemInfo;
-      case "notification":
-        return this.backends.notification;
-      case "file_dialog":
-        return this.backends.fileDialog;
-      case "clipboard":
-        return this.backends.clipboard;
-      case "web_fetch":
-        return this.backends.webFetch;
-      case "audio":
-        return this.backends.audio;
-      case "screen_record":
-        return this.backends.screenRecord;
-      case "office":
-        return this.backends.office;
-      case "scheduler":
-        return this.backends.scheduler;
-    }
-  }
-};
-
-// ../../packages/capabilities/dist/shell-backend.js
-var import_node_child_process6 = require("node:child_process");
-var import_promises19 = require("node:fs/promises");
-var import_node_path24 = __toESM(require("node:path"), 1);
-var import_node_crypto14 = require("node:crypto");
-var SHELL_OPERATIONS = ["run", "status", "wait", "logs", "result", "cancel", "resume", "approve", "deny"];
-var DEFAULT_TIMEOUT_SECONDS = 3600;
-var DEFAULT_AUTO_WAIT_SECONDS = 1;
-var DEFAULT_MAX_OUTPUT_BYTES = 2 * 1024 * 1024;
-var MAX_TIMEOUT_SECONDS = 14400;
-var MAX_OUTPUT_BYTES = 8 * 1024 * 1024;
-var ShellCapabilityBackend = class {
-  tasks = /* @__PURE__ */ new Map();
-  executableResolver;
-  terminator;
-  allowedRoots;
-  allowedRootsProvider;
-  defaultTimeoutSeconds;
-  autoWaitSeconds;
-  maxOutputBytes;
-  unrestricted;
-  constructor(options) {
-    if (options.allowedRoots.length === 0)
-      throw new Error("At least one local capability root is required");
-    this.allowedRoots = options.allowedRoots.map((root) => import_node_path24.default.resolve(root));
-    this.allowedRootsProvider = options.allowedRootsProvider;
-    this.executableResolver = options.executableResolver ?? new PathExecutableResolver();
-    this.terminator = options.terminator ?? new WindowsProcessTree();
-    this.defaultTimeoutSeconds = clampNumber(options.defaultTimeoutSeconds ?? DEFAULT_TIMEOUT_SECONDS, 0.1, MAX_TIMEOUT_SECONDS);
-    this.autoWaitSeconds = clampNumber(options.autoWaitSeconds ?? DEFAULT_AUTO_WAIT_SECONDS, 0, DEFAULT_TIMEOUT_SECONDS);
-    this.maxOutputBytes = Math.floor(clampNumber(options.maxOutputBytes ?? DEFAULT_MAX_OUTPUT_BYTES, 1, MAX_OUTPUT_BYTES));
-    this.unrestricted = options.unrestricted === true;
-  }
-  async execute(input) {
-    const parsed = parseShellRequest(input, this.defaultTimeoutSeconds, this.maxOutputBytes);
-    if (!parsed.ok)
-      return parsed;
-    switch (parsed.value.operation) {
-      case "run":
-        return this.run(parsed.value);
-      case "status":
-        return this.taskSnapshot(parsed.value.taskId);
-      case "wait":
-        return this.wait(parsed.value);
-      case "logs":
-        return this.taskSnapshot(parsed.value.taskId, parsed.value.tailLines);
-      case "result":
-        return this.taskSnapshot(parsed.value.taskId);
-      case "cancel":
-        return this.cancel(parsed.value.taskId);
-      case "resume":
-      case "approve":
-      case "deny":
-        return err(appError("INVALID_INPUT", `${parsed.value.operation} is not required by the local task runner`));
-    }
-  }
-  async run(request) {
-    if (request.executable === void 0)
-      return err(appError("INVALID_INPUT", "Executable is required"));
-    if (request.privilege === "admin")
-      return err(appError("PERMISSION_DENIED", "Administrator access is not available to the local runner"));
-    if (isDeleteLikeShellCommand(request.executable, request.arguments) && !request.userConfirmed) {
-      return err(appError("PERMISSION_REQUIRED", "Delete/remove commands require explicit user confirmation. Ask the user in chat first, then retry with userConfirmed: true"));
-    }
-    const cwd = await this.resolveCwd(request.cwd);
-    if (!cwd.ok)
-      return cwd;
-    const executable = await this.executableResolver.resolve(request.executable);
-    if (!executable.ok)
-      return executable;
-    const invocation = toWindowsSpawnInvocation(executable.value, request.arguments, { allowMetacharacters: this.unrestricted });
-    if (!invocation.ok)
-      return invocation;
-    if (request.dryRun) {
-      return ok({ dry_run: true, executable: invocation.value.executable, arguments: [...invocation.value.args], cwd: cwd.value });
-    }
-    let child;
-    try {
-      child = (0, import_node_child_process6.spawn)(invocation.value.executable, [...invocation.value.args], {
-        cwd: cwd.value,
-        env: createSafeEnvironment2(process.env, this.unrestricted),
-        shell: false,
-        windowsHide: false,
-        ...invocation.value.windowsVerbatimArguments === void 0 ? {} : { windowsVerbatimArguments: invocation.value.windowsVerbatimArguments }
-      });
-    } catch {
-      return err(appError("INTERNAL_ERROR", "Local task could not start", true));
-    }
-    let resolveCompletion;
-    const completion = new Promise((resolve) => {
-      resolveCompletion = resolve;
-    });
-    const record2 = {
-      taskId: (0, import_node_crypto14.randomUUID)(),
-      child,
-      includeStdout: request.includeStdout,
-      includeStderr: request.includeStderr,
-      maxOutputBytes: request.maxOutputBytes,
-      stdout: new OutputCapture(request.maxOutputBytes),
-      stderr: new OutputCapture(request.maxOutputBytes),
-      startedAt: (/* @__PURE__ */ new Date()).toISOString(),
-      completion,
-      resolveCompletion,
-      state: "running"
-    };
-    this.tasks.set(record2.taskId, record2);
-    child.stdout?.on("data", (chunk) => record2.stdout.append(chunk));
-    child.stderr?.on("data", (chunk) => record2.stderr.append(chunk));
-    child.once("error", () => {
-      if (record2.state === "running")
-        this.finish(record2, "failed", -1, "Local task failed to start");
-    });
-    child.once("close", (exitCode) => {
-      if (record2.state !== "running")
-        return;
-      this.finish(record2, exitCode === 0 ? "completed" : "failed", exitCode ?? -1);
-    });
-    record2.timer = setTimeout(() => {
-      void this.timeout(record2);
-    }, request.timeoutSeconds * 1e3);
-    if (request.execution === "background")
-      return ok(this.snapshot(record2));
-    await this.waitFor(record2, request.execution === "auto" ? this.autoWaitSeconds : request.timeoutSeconds);
-    return ok(this.snapshot(record2));
-  }
-  async wait(request) {
-    const record2 = this.getTask(request.taskId);
-    if (!record2.ok)
-      return record2;
-    await this.waitFor(record2.value, request.timeoutSeconds);
-    return ok(this.snapshot(record2.value, request.tailLines));
-  }
-  async waitFor(record2, seconds) {
-    if (record2.state !== "running" || seconds <= 0)
-      return;
-    await Promise.race([record2.completion, delay(seconds * 1e3)]);
-  }
-  async timeout(record2) {
-    if (record2.state !== "running")
-      return;
-    this.finish(record2, "timed_out", -1, "Local task timed out");
-    const pid = record2.child.pid;
-    if (pid !== void 0)
-      await this.terminator.stop(record2.child, pid);
-  }
-  async cancel(taskId) {
-    const record2 = this.getTask(taskId);
-    if (!record2.ok)
-      return record2;
-    if (record2.value.state === "running") {
-      this.finish(record2.value, "cancelled", -1);
-      const pid = record2.value.child.pid;
-      if (pid !== void 0)
-        await this.terminator.stop(record2.value.child, pid);
-    }
-    return ok(this.snapshot(record2.value));
-  }
-  taskSnapshot(taskId, tailLines) {
-    const record2 = this.getTask(taskId);
-    return record2.ok ? ok(this.snapshot(record2.value, tailLines)) : record2;
-  }
-  getTask(taskId) {
-    if (taskId === void 0)
-      return err(appError("INVALID_INPUT", "Task ID is required"));
-    const task = this.tasks.get(taskId);
-    return task === void 0 ? err(appError("PROCESS_NOT_FOUND", "Task was not found")) : ok(task);
-  }
-  async resolveCwd(requestedCwd) {
-    if (this.unrestricted && requestedCwd !== void 0 && import_node_path24.default.isAbsolute(requestedCwd)) {
-      try {
-        const canonical = await (0, import_promises19.realpath)(requestedCwd);
-        if (!(await (0, import_promises19.stat)(canonical)).isDirectory())
-          return err(appError("INVALID_INPUT", "Working directory must be a directory"));
-        return ok(canonical);
-      } catch {
-        return err(appError("FILE_NOT_FOUND", "Working directory was not found"));
-      }
-    }
-    const configuredRoots = this.allowedRootsProvider === void 0 ? this.allowedRoots : await this.allowedRootsProvider();
-    const canonicalRoots = [];
-    for (const root of configuredRoots) {
-      try {
-        if ((await (0, import_promises19.stat)(root)).isDirectory())
-          canonicalRoots.push(await (0, import_promises19.realpath)(root));
-      } catch {
-        continue;
-      }
-    }
-    if (canonicalRoots.length === 0)
-      return err(appError("FILE_NOT_FOUND", "No local capability root is available"));
-    const candidate = import_node_path24.default.resolve(requestedCwd ?? canonicalRoots[0]);
-    let canonicalCandidate;
-    try {
-      canonicalCandidate = await (0, import_promises19.realpath)(candidate);
-      if (!(await (0, import_promises19.stat)(canonicalCandidate)).isDirectory())
-        return err(appError("INVALID_INPUT", "Working directory must be a directory"));
-    } catch {
-      return err(appError("FILE_NOT_FOUND", "Working directory was not found"));
-    }
-    if (!canonicalRoots.some((root) => isWithin3(root, canonicalCandidate))) {
-      return err(appError("PATH_OUTSIDE_WORKSPACE", "Working directory is outside configured local roots"));
-    }
-    return ok(canonicalCandidate);
-  }
-  finish(record2, state, exitCode, errorMessage2) {
-    if (record2.state !== "running")
-      return;
-    record2.state = state;
-    if (exitCode !== void 0)
-      record2.exitCode = exitCode;
-    if (errorMessage2 !== void 0)
-      record2.errorMessage = errorMessage2;
-    record2.finishedAt = (/* @__PURE__ */ new Date()).toISOString();
-    if (record2.timer !== void 0)
-      clearTimeout(record2.timer);
-    record2.resolveCompletion();
-  }
-  snapshot(record2, tailLines) {
-    const stdout = record2.includeStdout ? record2.stdout.text(tailLines) : void 0;
-    const stderr = record2.includeStderr ? record2.stderr.text(tailLines) : void 0;
-    return {
-      task_id: record2.taskId,
-      state: record2.state,
-      ...record2.exitCode === void 0 ? {} : { exit_code: record2.exitCode },
-      ...stdout === void 0 ? {} : { stdout },
-      ...stderr === void 0 ? {} : { stderr },
-      ...record2.errorMessage === void 0 ? {} : { error: record2.errorMessage },
-      started_at: record2.startedAt,
-      ...record2.finishedAt === void 0 ? {} : { finished_at: record2.finishedAt },
-      truncated: record2.stdout.truncated || record2.stderr.truncated
-    };
-  }
-};
-var OutputCapture = class {
-  maxBytes;
-  chunks = [];
-  bytes = 0;
-  truncated = false;
-  constructor(maxBytes) {
-    this.maxBytes = maxBytes;
-  }
-  append(value) {
-    const chunk = Buffer.isBuffer(value) ? value : Buffer.from(value, "utf8");
-    const remaining = this.maxBytes - this.bytes;
-    if (remaining <= 0) {
-      this.truncated = true;
-      return;
-    }
-    this.chunks.push(chunk.subarray(0, remaining));
-    this.bytes += Math.min(chunk.byteLength, remaining);
-    if (chunk.byteLength > remaining)
-      this.truncated = true;
-  }
-  text(tailLines) {
-    const value = redactText(Buffer.concat(this.chunks).toString("utf8"));
-    if (tailLines === void 0 || tailLines < 1)
-      return tailLines === 0 ? "" : value;
-    const lines = value.split(/\r?\n/);
-    return lines.slice(-tailLines).join("\n");
-  }
-};
-function parseShellRequest(value, defaultTimeoutSeconds, maxOutputBytes) {
-  if (!isRecord4(value))
-    return err(appError("INVALID_INPUT", "Shell input must be an object"));
-  const operation = value.operation === void 0 ? "run" : value.operation;
-  if (!isShellOperation(operation))
-    return err(appError("INVALID_INPUT", "Shell operation is invalid"));
-  const executable = value.executable === void 0 ? void 0 : value.executable;
-  if (executable !== void 0 && (typeof executable !== "string" || executable.trim().length === 0))
-    return err(appError("INVALID_INPUT", "Executable is invalid"));
-  const rawArguments = value.arguments === void 0 ? [] : value.arguments;
-  if (!Array.isArray(rawArguments) || !rawArguments.every((item) => typeof item === "string"))
-    return err(appError("INVALID_INPUT", "Arguments must be strings"));
-  const privilege = value.privilege === void 0 ? "user" : value.privilege;
-  if (privilege !== "user" && privilege !== "admin")
-    return err(appError("INVALID_INPUT", "Privilege is invalid"));
-  const execution = value.execution === void 0 ? "auto" : value.execution;
-  if (execution !== "foreground" && execution !== "background" && execution !== "auto")
-    return err(appError("INVALID_INPUT", "Execution mode is invalid"));
-  const cwd = value.cwd === void 0 ? void 0 : value.cwd;
-  if (cwd !== void 0 && (typeof cwd !== "string" || cwd.includes("\0")))
-    return err(appError("INVALID_INPUT", "Working directory is invalid"));
-  const taskId = value.task_id === void 0 ? void 0 : value.task_id;
-  if (taskId !== void 0 && (typeof taskId !== "string" || taskId.trim().length === 0))
-    return err(appError("INVALID_INPUT", "Task ID is invalid"));
-  const timeoutSeconds = value.timeout_seconds === void 0 ? defaultTimeoutSeconds : value.timeout_seconds;
-  if (typeof timeoutSeconds !== "number" || !Number.isFinite(timeoutSeconds) || timeoutSeconds < 0.1 || timeoutSeconds > MAX_TIMEOUT_SECONDS)
-    return err(appError("INVALID_INPUT", "Timeout is invalid"));
-  const requestedMaxBytes = value.max_output_bytes === void 0 ? maxOutputBytes : value.max_output_bytes;
-  if (typeof requestedMaxBytes !== "number" || !Number.isInteger(requestedMaxBytes) || requestedMaxBytes < 1 || requestedMaxBytes > MAX_OUTPUT_BYTES)
-    return err(appError("INVALID_INPUT", "Output limit is invalid"));
-  const tailLines = value.tail_lines === void 0 ? void 0 : value.tail_lines;
-  if (tailLines !== void 0 && (typeof tailLines !== "number" || !Number.isInteger(tailLines) || tailLines < 0 || tailLines > 1e4))
-    return err(appError("INVALID_INPUT", "Tail limit is invalid"));
-  const includeStdout = value.include_stdout === void 0 ? true : value.include_stdout;
-  const includeStderr = value.include_stderr === void 0 ? true : value.include_stderr;
-  const dryRun = value.dry_run === void 0 ? false : value.dry_run;
-  const userConfirmed = value.userConfirmed === true;
-  if (typeof includeStdout !== "boolean" || typeof includeStderr !== "boolean" || typeof dryRun !== "boolean")
-    return err(appError("INVALID_INPUT", "Shell flags are invalid"));
-  return ok({ operation, ...executable === void 0 ? {} : { executable: executable.trim() }, arguments: rawArguments, privilege, ...cwd === void 0 ? {} : { cwd }, execution, ...taskId === void 0 ? {} : { taskId }, timeoutSeconds, maxOutputBytes: requestedMaxBytes, ...tailLines === void 0 ? {} : { tailLines }, includeStdout, includeStderr, dryRun, userConfirmed });
-}
-function isShellOperation(value) {
-  return typeof value === "string" && SHELL_OPERATIONS.some((operation) => operation === value);
-}
-function isRecord4(value) {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-function isWithin3(root, candidate) {
-  const relative = import_node_path24.default.relative(root, candidate);
-  return relative === "" || relative !== ".." && !relative.startsWith(`..${import_node_path24.default.sep}`) && !import_node_path24.default.isAbsolute(relative);
-}
-function createSafeEnvironment2(source, unrestricted) {
-  if (unrestricted)
-    return { ...source };
-  const allowed = new Set(["PATH", "PATHEXT", "SystemRoot", "WINDIR", "TEMP", "TMP", "USERPROFILE", "HOMEDRIVE", "HOMEPATH", "HOME", "LANG", "LC_ALL", "APPDATA", "LOCALAPPDATA", "ProgramData", "ProgramFiles", "ProgramFiles(x86)", "ComSpec"].map((key) => process.platform === "win32" ? key.toLowerCase() : key));
-  return Object.fromEntries(Object.entries(source).filter(([key, entry]) => {
-    const normalizedKey = process.platform === "win32" ? key.toLowerCase() : key;
-    return entry !== void 0 && allowed.has(normalizedKey);
-  }));
-}
-function redactText(value) {
-  return value.replace(/(\bauthorization\s*:\s*bearer\s+)[^\s]+/gi, "$1[redacted]").replace(/\b(token|secret|password|api[_-]?key|private[_-]?key)\s*[:=]\s*[^\s]+/gi, "$1=[redacted]");
-}
-function clampNumber(value, minimum, maximum) {
-  return Math.min(maximum, Math.max(minimum, value));
-}
-function isDeleteLikeShellCommand(executable, args) {
-  const basename2 = import_node_path24.default.win32.basename(executable).toLowerCase();
-  if (basename2 === "git" || basename2 === "git.exe")
-    return false;
-  const deleteNames = /* @__PURE__ */ new Set(["del", "del.exe", "erase", "erase.exe", "rm", "rm.exe", "rmdir", "rmdir.exe", "rd", "rd.exe", "unlink", "unlink.exe"]);
-  if (deleteNames.has(basename2))
-    return true;
-  const joined = args.map((entry) => entry.toLowerCase()).join(" ");
-  if (basename2 === "powershell.exe" || basename2 === "powershell" || basename2 === "pwsh.exe" || basename2 === "pwsh") {
-    if (/\bremove-item\b/.test(joined))
-      return true;
-    const withoutGitRm = joined.replace(/\bgit(?:\.exe)?\s+rm\b/g, " ");
-    return /\brm\b/.test(withoutGitRm) || /\bdel\b/.test(withoutGitRm);
-  }
-  if (basename2 === "cmd.exe" || basename2 === "cmd") {
-    return /(^|[\s&|])(del|erase|rd|rmdir)\b/.test(joined);
-  }
-  return false;
-}
-function delay(milliseconds) {
-  return new Promise((resolve) => setTimeout(resolve, milliseconds));
-}
-
-// ../../packages/capabilities/dist/browser-cdp-protocol.js
-var import_promises20 = require("node:fs/promises");
-var import_node_fs5 = require("node:fs");
-var import_node_os3 = __toESM(require("node:os"), 1);
-var import_node_path25 = __toESM(require("node:path"), 1);
-var import_node_child_process7 = require("node:child_process");
-var NodeBrowserCdpProtocol = class {
-  port;
-  profileDir;
-  chromeExecutable;
-  constructor(options = {}) {
-    this.port = options.port ?? readPort(process.env.LNWJUD_BROWSER_CDP_PORT);
-    this.profileDir = options.profileDir ?? process.env.LNWJUD_BROWSER_PROFILE ?? import_node_path25.default.join(import_node_os3.default.tmpdir(), "lnwjud-browser-profile");
-    this.chromeExecutable = options.chromeExecutable ?? process.env.LNWJUD_BROWSER_EXECUTABLE;
-  }
-  async status() {
-    try {
-      const response = await fetch(this.endpoint("/json/version"));
-      return { ready: response.ok, port: this.port };
-    } catch {
-      return { ready: false, port: this.port };
-    }
-  }
-  async listTabs() {
-    const value = await this.requestJson("/json/list");
-    if (!Array.isArray(value))
-      throw new Error("Chrome tabs response was invalid");
-    return value.flatMap((item) => {
-      const tab = toTab(item);
-      return tab === void 0 ? [] : [tab];
-    });
-  }
-  async newTab(url2) {
-    const response = await fetch(this.endpoint(`/json/new?${encodeURIComponent(url2)}`), { method: "PUT" });
-    if (!response.ok)
-      throw new Error(`Chrome new-tab request failed: ${response.status}`);
-    const value = await response.json();
-    const tab = toTab(value);
-    if (tab === void 0)
-      throw new Error("Chrome new-tab response was invalid");
-    return tab;
-  }
-  async closeTab(tabId) {
-    const response = await fetch(this.endpoint(`/json/close/${encodeURIComponent(tabId)}`));
-    return { closed: response.ok, tab_id: tabId };
-  }
-  async request(tabId, method, params) {
-    const tabs = await this.listTabs();
-    const tab = tabs.find((candidate) => candidate.id === tabId);
-    if (tab === void 0)
-      throw new Error("Chrome tab was not found");
-    const socketUrl = validateWebSocketUrl(tab.webSocketDebuggerUrl, this.port);
-    return sendWebSocketRequest(socketUrl, method, params);
-  }
-  async launch(url2) {
-    const existing = await this.status();
-    if (existing.ready)
-      return ok({ ready: true, port: this.port, launched: false });
-    const executable = this.findChromeExecutable();
-    if (executable === void 0)
-      return err(appError("EXECUTABLE_NOT_FOUND", "Google Chrome was not found"));
-    try {
-      await (0, import_promises20.mkdir)(this.profileDir, { recursive: true });
-      const args = [
-        `--remote-debugging-port=${this.port}`,
-        `--user-data-dir=${this.profileDir}`,
-        "--no-first-run",
-        "--no-default-browser-check",
-        ...url2 === void 0 ? [] : [url2]
-      ];
-      (0, import_node_child_process7.spawn)(executable, args, { shell: false, windowsHide: false, detached: false, stdio: "ignore" });
-    } catch {
-      return err(appError("INTERNAL_ERROR", "Chrome could not be started", true));
-    }
-    const deadline = Date.now() + 3e4;
-    while (Date.now() <= deadline) {
-      const state = await this.status();
-      if (state.ready)
-        return ok({ ready: true, port: this.port, launched: true });
-      await delay2(100);
-    }
-    return err(appError("PROCESS_TIMEOUT", "Chrome CDP did not become ready", true));
-  }
-  endpoint(resource) {
-    return `http://127.0.0.1:${this.port}${resource}`;
-  }
-  async requestJson(resource) {
-    const response = await fetch(this.endpoint(resource));
-    if (!response.ok)
-      throw new Error(`Chrome CDP HTTP request failed: ${response.status}`);
-    const value = await response.json();
-    return value;
-  }
-  findChromeExecutable() {
-    if (this.chromeExecutable !== void 0 && this.chromeExecutable.trim().length > 0)
-      return this.chromeExecutable;
-    if (process.platform !== "win32")
-      return void 0;
-    const localAppData = process.env.LOCALAPPDATA;
-    const programFiles = process.env.ProgramFiles;
-    const programFilesX86 = process.env["ProgramFiles(x86)"];
-    const candidates = [
-      localAppData === void 0 ? void 0 : import_node_path25.default.join(localAppData, "Google", "Chrome", "Application", "chrome.exe"),
-      programFiles === void 0 ? void 0 : import_node_path25.default.join(programFiles, "Google", "Chrome", "Application", "chrome.exe"),
-      programFilesX86 === void 0 ? void 0 : import_node_path25.default.join(programFilesX86, "Google", "Chrome", "Application", "chrome.exe"),
-      localAppData === void 0 ? void 0 : import_node_path25.default.join(localAppData, "Microsoft", "Edge", "Application", "msedge.exe"),
-      programFiles === void 0 ? void 0 : import_node_path25.default.join(programFiles, "Microsoft", "Edge", "Application", "msedge.exe"),
-      programFilesX86 === void 0 ? void 0 : import_node_path25.default.join(programFilesX86, "Microsoft", "Edge", "Application", "msedge.exe")
-    ];
-    return candidates.find((candidate) => candidate !== void 0 && (0, import_node_fs5.existsSync)(candidate));
-  }
-};
-function toTab(value) {
-  if (!isRecord5(value))
-    return void 0;
-  if (typeof value.id !== "string" || typeof value.title !== "string" || typeof value.url !== "string" || typeof value.webSocketDebuggerUrl !== "string")
-    return void 0;
-  return { id: value.id, title: value.title, url: value.url, webSocketDebuggerUrl: value.webSocketDebuggerUrl };
-}
-function validateWebSocketUrl(value, port) {
-  const url2 = new URL(value);
-  if (url2.protocol !== "ws:" || url2.hostname !== "127.0.0.1" && url2.hostname !== "localhost" || url2.port !== "" && Number(url2.port) !== port)
-    throw new Error("Chrome CDP socket is not local");
-  return url2.toString();
-}
-function sendWebSocketRequest(url2, method, params) {
-  return new Promise((resolve, reject) => {
-    if (typeof WebSocket === "undefined") {
-      reject(new Error("WebSocket is not available"));
-      return;
-    }
-    const socket = new WebSocket(url2);
-    const id = 1;
-    const timer = setTimeout(() => {
-      socket.close();
-      reject(new Error("Chrome CDP request timed out"));
-    }, 3e4);
-    const finish = (callback) => {
-      clearTimeout(timer);
-      socket.close();
-      callback();
-    };
-    socket.addEventListener("open", () => socket.send(JSON.stringify({ id, method, params })));
-    socket.addEventListener("message", (event) => {
-      const value = typeof event.data === "string" ? parseJson(event.data) : void 0;
-      if (!isRecord5(value) || value.id !== id)
-        return;
-      finish(() => resolve(value));
-    });
-    socket.addEventListener("error", () => finish(() => reject(new Error("Chrome CDP socket failed"))));
-  });
-}
-function parseJson(value) {
-  try {
-    return JSON.parse(value);
-  } catch {
-    return void 0;
-  }
-}
-function isRecord5(value) {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-function readPort(value) {
-  const port = value === void 0 ? 9222 : Number(value);
-  return Number.isInteger(port) && port >= 9222 && port <= 9322 ? port : 9222;
-}
-function delay2(milliseconds) {
-  return new Promise((resolve) => setTimeout(resolve, milliseconds));
-}
-
-// ../../packages/capabilities/dist/browser-cdp-backend.js
-var BROWSER_ACTIONS = ["launch", "status", "list_tabs", "new_tab", "close_tab", "navigate", "evaluate", "query", "click", "type", "wait", "screenshot"];
-var DEFAULT_TIMEOUT_SECONDS2 = 30;
-var MAX_TIMEOUT_SECONDS2 = 3600;
-var BrowserCdpBackend = class {
-  protocol;
-  launcher;
-  constructor(options = {}) {
-    this.protocol = options.protocol ?? new NodeBrowserCdpProtocol();
-    this.launcher = options.launcher;
-  }
-  async execute(input) {
-    const parsed = parseBrowserRequest(input);
-    if (!parsed.ok)
-      return parsed;
-    if (parsed.value.steps !== void 0)
-      return this.executeSteps(parsed.value);
-    if (parsed.value.action === void 0)
-      return err(appError("INVALID_INPUT", "DOM action is required"));
-    return this.executeAction(parsed.value, parsed.value.action, parsed.value.parameters);
-  }
-  async executeSteps(request) {
-    const values = [];
-    for (const step of request.steps ?? []) {
-      const result = await this.executeAction(request, step.action, step.parameters);
-      if (!result.ok)
-        return result;
-      values.push(result.value);
-    }
-    return ok({ steps: values });
-  }
-  async executeAction(request, action, parameters) {
-    if (request.dryRun)
-      return ok({ dry_run: true, action, parameters });
-    switch (action) {
-      case "status":
-        return ok(await this.protocol.status());
-      case "launch":
-        if (this.launcher === void 0)
-          return err(appError("INTERNAL_ERROR", "Browser launcher is not configured", true));
-        return this.launcher(readString2(parameters, "url"));
-      case "list_tabs":
-        return ok({ tabs: await this.protocol.listTabs() });
-      case "new_tab":
-        return ok(await this.protocol.newTab(readString2(parameters, "url") ?? "about:blank"));
-      case "close_tab": {
-        const tabId = request.tabId ?? readString2(parameters, "tab_id");
-        return tabId === void 0 ? err(appError("INVALID_INPUT", "Tab ID is required")) : ok(await this.protocol.closeTab(tabId));
-      }
-      case "navigate":
-        return this.withTab(request, parameters, async (tab) => this.evaluateProtocol(tab.id, "Page.navigate", { url: readString2(parameters, "url") ?? "" }));
-      case "evaluate": {
-        const expression = readString2(parameters, "expression");
-        return expression === void 0 ? err(appError("INVALID_INPUT", "JavaScript expression is required")) : this.withTab(request, parameters, async (tab) => this.evaluateProtocol(tab.id, "Runtime.evaluate", { expression, returnByValue: true, awaitPromise: true }));
-      }
-      case "query":
-        return this.withTab(request, parameters, async (tab) => this.evaluateProtocol(tab.id, "Runtime.evaluate", { expression: queryScript(readString2(parameters, "selector") ?? ""), returnByValue: true, awaitPromise: true }));
-      case "click":
-        return this.withTab(request, parameters, async (tab) => this.evaluateProtocol(tab.id, "Runtime.evaluate", { expression: clickScript(readString2(parameters, "selector") ?? ""), returnByValue: true, awaitPromise: true }));
-      case "type":
-        return this.withTab(request, parameters, async (tab) => this.evaluateProtocol(tab.id, "Runtime.evaluate", { expression: typeScript(readString2(parameters, "selector") ?? "", readString2(parameters, "text") ?? ""), returnByValue: true, awaitPromise: true }));
-      case "wait":
-        return this.waitFor(request, parameters);
-      case "screenshot":
-        return this.withTab(request, parameters, async (tab) => {
-          const result = await this.protocol.request(tab.id, "Page.captureScreenshot", { format: "png" });
-          const data = readScreenshotData(result);
-          return data === void 0 ? err(appError("INTERNAL_ERROR", "Browser screenshot response was invalid", true)) : ok({ format: "png", data_base64: data });
-        });
-    }
-  }
-  async waitFor(request, parameters) {
-    const selector = readString2(parameters, "selector");
-    const expression = readString2(parameters, "expression");
-    if (selector === void 0 && expression === void 0)
-      return err(appError("INVALID_INPUT", "Wait requires a selector or expression"));
-    const deadline = Date.now() + Math.min(request.timeoutSeconds, MAX_TIMEOUT_SECONDS2) * 1e3;
-    while (Date.now() <= deadline) {
-      const result = await this.withTab(request, parameters, async (tab) => this.evaluateProtocol(tab.id, "Runtime.evaluate", {
-        expression: selector === void 0 ? expression : `Boolean(document.querySelector(${JSON.stringify(selector)}))`,
-        returnByValue: true,
-        awaitPromise: true
-      }));
-      if (!result.ok)
-        return result;
-      if (result.value === true)
-        return ok({ ready: true });
-      await delay3(Math.min(readNumber(parameters, "poll_interval_seconds") ?? 0.1, 1) * 1e3);
-    }
-    return ok({ ready: false, timed_out: true });
-  }
-  async withTab(request, parameters, callback) {
-    const tabId = request.tabId ?? readString2(parameters, "tab_id");
-    const tabs = await this.protocol.listTabs();
-    const tab = tabId === void 0 ? tabs[0] : tabs.find((candidate) => candidate.id === tabId);
-    return tab === void 0 ? err(appError("INVALID_INPUT", "A managed Chrome tab is required")) : callback(tab);
-  }
-  async evaluateProtocol(tabId, method, params) {
-    try {
-      return ok(readCdpValue(await this.protocol.request(tabId, method, params)));
-    } catch {
-      return err(appError("INTERNAL_ERROR", "Browser CDP request failed", true));
-    }
-  }
-};
-function parseBrowserRequest(value) {
-  if (!isRecord6(value))
-    return err(appError("INVALID_INPUT", "DOM input must be an object"));
-  const actionValue = value.action;
-  const action = actionValue === void 0 ? void 0 : isBrowserAction(actionValue) ? actionValue : null;
-  if (action === null)
-    return err(appError("INVALID_INPUT", "DOM action is invalid"));
-  const parametersValue = value.parameters;
-  const parameters = parametersValue === void 0 ? {} : parametersValue;
-  if (!isRecord6(parameters))
-    return err(appError("INVALID_INPUT", "DOM parameters must be an object"));
-  const tabId = value.tab_id;
-  if (tabId !== void 0 && typeof tabId !== "string")
-    return err(appError("INVALID_INPUT", "Tab ID is invalid"));
-  const timeoutSeconds = value.timeout_seconds === void 0 ? DEFAULT_TIMEOUT_SECONDS2 : value.timeout_seconds;
-  if (typeof timeoutSeconds !== "number" || !Number.isFinite(timeoutSeconds) || timeoutSeconds < 0.1 || timeoutSeconds > MAX_TIMEOUT_SECONDS2)
-    return err(appError("INVALID_INPUT", "DOM timeout is invalid"));
-  const dryRun = value.dry_run === void 0 ? false : value.dry_run;
-  if (typeof dryRun !== "boolean")
-    return err(appError("INVALID_INPUT", "Dry-run flag is invalid"));
-  const stepsValue = value.steps;
-  if (stepsValue !== void 0 && (!Array.isArray(stepsValue) || stepsValue.length < 1 || stepsValue.length > 100))
-    return err(appError("INVALID_INPUT", "DOM steps must contain 1 to 100 items"));
-  const normalizedSteps = [];
-  if (stepsValue !== void 0) {
-    for (const step of stepsValue) {
-      if (!isRecord6(step) || !isBrowserAction(step.action))
-        return err(appError("INVALID_INPUT", "DOM step is invalid"));
-      const stepParameters = step.parameters === void 0 ? {} : step.parameters;
-      if (!isRecord6(stepParameters))
-        return err(appError("INVALID_INPUT", "DOM step parameters are invalid"));
-      normalizedSteps.push({ action: step.action, parameters: stepParameters });
-    }
-  }
-  return ok({ ...action === void 0 ? {} : { action }, parameters, ...stepsValue === void 0 ? {} : { steps: normalizedSteps }, ...tabId === void 0 ? {} : { tabId }, timeoutSeconds, dryRun });
-}
-function isBrowserAction(value) {
-  return typeof value === "string" && BROWSER_ACTIONS.some((action) => action === value);
-}
-function isRecord6(value) {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-function readString2(value, key) {
-  const result = value[key];
-  return typeof result === "string" ? result : void 0;
-}
-function readNumber(value, key) {
-  const result = value[key];
-  return typeof result === "number" && Number.isFinite(result) ? result : void 0;
-}
-function readCdpValue(response) {
-  if (!isRecord6(response))
-    return void 0;
-  const outerResult = response.result;
-  if (!isRecord6(outerResult))
-    return void 0;
-  const remoteResult = outerResult.result;
-  if (!isRecord6(remoteResult))
-    return void 0;
-  if ("exceptionDetails" in remoteResult)
-    return void 0;
-  return "value" in remoteResult ? remoteResult.value : void 0;
-}
-function readScreenshotData(response) {
-  if (!isRecord6(response) || !isRecord6(response.result))
-    return void 0;
-  return typeof response.result.data === "string" ? response.result.data : void 0;
-}
-function queryScript(selector) {
-  return `(() => { const el=document.querySelector(${JSON.stringify(selector)}); if(!el) return {ok:false}; const r=el.getBoundingClientRect(); return {ok:true,text:el.innerText||el.value||'',tag:el.tagName,disabled:!!el.disabled,frame:{x:r.x,y:r.y,width:r.width,height:r.height}}; })()`;
-}
-function clickScript(selector) {
-  return `(() => { const el=document.querySelector(${JSON.stringify(selector)}); if(!el) return {ok:false}; el.scrollIntoView({block:'center',inline:'center'}); el.click(); return {ok:true}; })()`;
-}
-function typeScript(selector, text) {
-  return `(() => { const el=document.querySelector(${JSON.stringify(selector)}); if(!el) return {ok:false}; el.focus(); const setter=Object.getOwnPropertyDescriptor(Object.getPrototypeOf(el),'value')?.set; if(setter) setter.call(el,${JSON.stringify(text)}); else el.value=${JSON.stringify(text)}; el.dispatchEvent(new Event('input',{bubbles:true})); el.dispatchEvent(new Event('change',{bubbles:true})); return {ok:true,value:el.value}; })()`;
-}
-function delay3(milliseconds) {
-  return new Promise((resolve) => setTimeout(resolve, milliseconds));
-}
-
-// ../../packages/capabilities/dist/health-backend.js
-var HealthCapabilityBackend = class {
-  platform;
-  domCdp;
-  accessibility;
-  constructor(options = {}) {
-    this.platform = options.platform ?? process.platform;
-    this.domCdp = options.domCdp;
-    this.accessibility = options.accessibility;
-  }
-  async execute(input) {
-    if (!isRecord7(input))
-      return err(appError("INVALID_INPUT", "Health input must be an object"));
-    const operation = input.operation === void 0 ? "check_all" : input.operation;
-    if (operation !== "check_all" && operation !== "check_tool")
-      return err(appError("INVALID_INPUT", "Health operation is invalid"));
-    const tool = input.tool;
-    const validatedTool = isCapabilityToolName(tool) ? tool : void 0;
-    if (operation === "check_tool" && validatedTool === void 0)
-      return err(appError("INVALID_INPUT", "Health tool is required"));
-    if (operation === "check_tool" && validatedTool !== void 0)
-      return ok({ tool: validatedTool, ...await this.check(validatedTool) });
-    const capabilities = {};
-    for (const name of capabilityToolNames)
-      capabilities[name] = await this.check(name);
-    return ok({ capabilities });
-  }
-  async check(tool) {
-    if (tool === "shell" || tool === "health" || tool === "web_fetch" || tool === "scheduler")
-      return { available: true, ready: true, local: true };
-    if (tool === "system_info" || tool === "notification" || tool === "file_dialog" || tool === "clipboard" || tool === "audio" || tool === "screen_record" || tool === "office") {
-      return { available: this.platform === "win32", ready: this.platform === "win32", local: true };
-    }
-    if (tool === "input_event" || tool === "vision" || tool === "window")
-      return { available: this.platform === "win32", ready: this.platform === "win32", local: true };
-    if (tool === "dom_cdp")
-      return this.checkDelegated(this.domCdp, { action: "status" });
-    return this.checkDelegated(this.accessibility, { action: "status" });
-  }
-  async checkDelegated(backend, input) {
-    if (backend === void 0)
-      return { available: false, ready: false, local: true, reason: "Backend is not configured" };
-    const result = await backend.execute(input);
-    if (!result.ok)
-      return { available: false, ready: false, local: true, reason: result.error.message };
-    const value = isRecord7(result.value) ? result.value : {};
-    return { available: value.available !== false, ready: value.ready !== false, local: true, ...value };
-  }
-};
-function isCapabilityToolName(value) {
-  return typeof value === "string" && capabilityToolNames.some((name) => name === value);
-}
-function isRecord7(value) {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
-// ../../packages/capabilities/dist/web-fetch-backend.js
-var DEFAULT_MAX_BYTES2 = 5 * 1024 * 1024;
-var MAX_MAX_BYTES = 10 * 1024 * 1024;
-var DEFAULT_TIMEOUT_SECONDS3 = 60;
-var MAX_TIMEOUT_SECONDS3 = 600;
-var TEXT_SAFE_CTYPES = /* @__PURE__ */ new Set(["application/json", "application/javascript", "application/xml", "application/x-www-form-urlencoded"]);
-var WebFetchCapabilityBackend = class {
-  fetchImpl;
-  constructor(options = {}) {
-    this.fetchImpl = options.fetchImpl ?? fetch;
-  }
-  async execute(input) {
-    const parsed = parseRequest(input);
-    if (!parsed.ok)
-      return parsed;
-    const request = parsed.value;
-    let url2;
-    try {
-      url2 = new URL(request.url);
-    } catch {
-      return err(appError("INVALID_INPUT", "URL is invalid"));
-    }
-    if (url2.protocol !== "http:" && url2.protocol !== "https:") {
-      return err(appError("INVALID_INPUT", "Only http and https URLs are supported"));
-    }
-    const headers = {};
-    for (const entry of request.headers ?? []) {
-      if (typeof entry.name !== "string" || typeof entry.value !== "string") {
-        return err(appError("INVALID_INPUT", "Header entries must be name/value strings"));
-      }
-      headers[entry.name] = entry.value;
-    }
-    let body;
-    if (request.body !== void 0) {
-      if (request.method === "GET" || request.method === "HEAD") {
-        return err(appError("INVALID_INPUT", "GET and HEAD requests cannot have a body"));
-      }
-      body = request.body;
-    }
-    if (request.dryRun) {
-      return ok({ dry_run: true, url: url2.toString(), method: request.method });
-    }
-    const signal = AbortSignal.timeout(request.timeoutSeconds * 1e3);
-    let response;
-    try {
-      response = await this.fetchImpl(url2.toString(), {
-        method: request.method,
-        headers,
-        ...body === void 0 ? {} : { body },
-        redirect: "follow",
-        signal
-      });
-    } catch (error46) {
-      const reason = error46 instanceof Error && error46.name === "TimeoutError" ? "Request timed out" : "Request failed";
-      return err(appError("INTERNAL_ERROR", reason, true));
-    }
-    let bytes;
-    let truncated = false;
-    try {
-      if (response.body === null) {
-        bytes = Buffer.alloc(0);
-      } else {
-        const reader = response.body.getReader();
-        const chunks = [];
-        let total = 0;
-        while (true) {
-          const chunk = await reader.read();
-          if (chunk.done)
-            break;
-          const remaining = request.maxBytes - total;
-          if (remaining <= 0) {
-            truncated = true;
-            await reader.cancel().catch(() => void 0);
-            break;
-          }
-          const slice = chunk.value.subarray(0, remaining);
-          chunks.push(slice);
-          total += slice.byteLength;
-          if (slice.byteLength < chunk.value.byteLength) {
-            truncated = true;
-            await reader.cancel().catch(() => void 0);
-            break;
-          }
-        }
-        bytes = Buffer.concat(chunks);
-      }
-    } catch {
-      return err(appError("INTERNAL_ERROR", "Response body could not be read", true));
-    }
-    const contentType = response.headers.get("content-type") ?? "";
-    const isText = contentType.startsWith("text/") || TEXT_SAFE_CTYPES.has(contentType.split(";")[0]?.trim().toLowerCase() ?? "");
-    const value = {
-      status: response.status,
-      status_text: response.statusText,
-      url: response.url,
-      content_type: contentType,
-      byte_length: bytes.byteLength,
-      truncated,
-      ...isText ? { text: bytes.toString("utf8") } : { data_base64: bytes.toString("base64") }
-    };
-    return ok(value);
-  }
-};
-function parseRequest(value) {
-  if (!isRecord8(value))
-    return err(appError("INVALID_INPUT", "web_fetch input must be an object"));
-  const url2 = value.url;
-  if (typeof url2 !== "string" || url2.trim().length === 0)
-    return err(appError("INVALID_INPUT", "URL is required"));
-  const methodValue = value.method === void 0 ? "GET" : value.method;
-  if (methodValue !== "GET" && methodValue !== "POST" && methodValue !== "PUT" && methodValue !== "DELETE" && methodValue !== "HEAD") {
-    return err(appError("INVALID_INPUT", "Method is invalid"));
-  }
-  const headers = value.headers === void 0 ? [] : value.headers;
-  if (!Array.isArray(headers) || headers.length > 64)
-    return err(appError("INVALID_INPUT", "Headers are invalid"));
-  const body = value.body === void 0 ? void 0 : value.body;
-  if (body !== void 0 && typeof body !== "string")
-    return err(appError("INVALID_INPUT", "Body must be a string"));
-  const maxBytes = value.max_bytes === void 0 ? DEFAULT_MAX_BYTES2 : value.max_bytes;
-  if (typeof maxBytes !== "number" || !Number.isInteger(maxBytes) || maxBytes < 1 || maxBytes > MAX_MAX_BYTES) {
-    return err(appError("INVALID_INPUT", "max_bytes is invalid"));
-  }
-  const timeoutSeconds = value.timeout_seconds === void 0 ? DEFAULT_TIMEOUT_SECONDS3 : value.timeout_seconds;
-  if (typeof timeoutSeconds !== "number" || !Number.isFinite(timeoutSeconds) || timeoutSeconds < 1 || timeoutSeconds > MAX_TIMEOUT_SECONDS3) {
-    return err(appError("INVALID_INPUT", "timeout_seconds is invalid"));
-  }
-  const dryRun = value.dry_run === void 0 ? false : value.dry_run;
-  if (typeof dryRun !== "boolean")
-    return err(appError("INVALID_INPUT", "dry_run is invalid"));
-  return ok({
-    url: url2.trim(),
-    method: methodValue,
-    headers,
-    ...body === void 0 ? {} : { body },
-    maxBytes,
-    timeoutSeconds,
-    dryRun
-  });
-}
-function isRecord8(value) {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
-// ../../packages/capabilities/dist/scheduler-backend.js
-var import_node_child_process8 = require("node:child_process");
-var import_node_util = require("node:util");
-var execFileAsync = (0, import_node_util.promisify)(import_node_child_process8.execFile);
-var TASK_NAME_PATTERN = /^[\w .-]{1,200}$/;
-var SchedulerCapabilityBackend = class {
-  platform;
-  executable;
-  runImpl;
-  constructor(options = {}) {
-    this.platform = options.platform ?? process.platform;
-    this.executable = options.executable ?? "schtasks.exe";
-    this.runImpl = options.runImpl ?? (async (executable, args) => {
-      const result = await execFileAsync(executable, [...args], { windowsHide: true, encoding: "utf8", maxBuffer: 4 * 1024 * 1024 });
-      return { stdout: typeof result.stdout === "string" ? result.stdout : "", stderr: typeof result.stderr === "string" ? result.stderr : "" };
-    });
-  }
-  async execute(input) {
-    if (this.platform !== "win32")
-      return err(appError("INTERNAL_ERROR", "Scheduled tasks are unavailable on this platform", true));
-    const parsed = parseRequest2(input);
-    if (!parsed.ok)
-      return parsed;
-    const request = parsed.value;
-    try {
-      switch (request.action) {
-        case "list":
-          return ok({ tasks: await this.list() });
-        case "create":
-          return ok(await this.create(request.taskName, request.command, request.arguments ?? [], request.schedule ?? "DAILY", request.startTime ?? "09:00"));
-        case "delete":
-          if (request.userConfirmed !== true) {
-            return err(appError("PERMISSION_REQUIRED", "Deleting a scheduled task requires the user to confirm in chat first, then retry scheduler with userConfirmed: true"));
-          }
-          return ok(await this.delete(request.taskName));
-        case "run":
-          return ok(await this.run(request.taskName));
-      }
-    } catch (error46) {
-      const detail = extractDetail(error46);
-      return err(appError("INTERNAL_ERROR", detail.length > 0 ? detail : "Scheduled task operation failed", true));
-    }
-  }
-  async list() {
-    const result = await this.runImpl(this.executable, ["/Query", "/FO", "LIST"]);
-    const lines = result.stdout.split(/\r?\n/);
-    const tasks = [];
-    let current = null;
-    for (const raw of lines) {
-      const separator = raw.indexOf(":");
-      if (separator < 0) {
-        if (current !== null) {
-          tasks.push(current);
-          current = null;
-        }
-        continue;
-      }
-      const key = raw.slice(0, separator).trim();
-      const value = raw.slice(separator + 1).trim();
-      if (key.length === 0 || value.length === 0)
-        continue;
-      if (key === "TaskName") {
-        if (current !== null)
-          tasks.push(current);
-        current = { name: value };
-      } else if (current !== null) {
-        current[key.toLowerCase().replace(/[^a-z0-9]/g, "_")] = value;
-      }
-    }
-    if (current !== null)
-      tasks.push(current);
-    return tasks;
-  }
-  async create(taskName, command, args, schedule, startTime) {
-    const taskRun = buildTaskRun(command, args);
-    await this.runImpl(this.executable, [
-      "/Create",
-      "/TN",
-      taskName,
-      "/TR",
-      taskRun,
-      "/SC",
-      schedule.toUpperCase(),
-      "/ST",
-      startTime,
-      "/F"
-    ]);
-    return { created: true, task_name: taskName, schedule, start_time: startTime };
-  }
-  async delete(taskName) {
-    await this.runImpl(this.executable, ["/Delete", "/TN", taskName, "/F"]);
-    return { deleted: true, task_name: taskName };
-  }
-  async run(taskName) {
-    await this.runImpl(this.executable, ["/Run", "/TN", taskName]);
-    return { started: true, task_name: taskName };
-  }
-};
-function parseRequest2(value) {
-  if (!isRecord9(value))
-    return err(appError("INVALID_INPUT", "scheduler input must be an object"));
-  const action = value.action === void 0 ? "list" : value.action;
-  if (action !== "list" && action !== "create" && action !== "delete" && action !== "run") {
-    return err(appError("INVALID_INPUT", "scheduler action is invalid"));
-  }
-  const taskName = value.task_name === void 0 ? "" : value.task_name;
-  if (action !== "list" && (typeof taskName !== "string" || !TASK_NAME_PATTERN.test(taskName.trim()))) {
-    return err(appError("INVALID_INPUT", "task_name must be 1-200 letters, digits, spaces, dots, dashes, or underscores"));
-  }
-  const command = value.command === void 0 ? "" : value.command;
-  if (action === "create" && (typeof command !== "string" || command.trim().length === 0 || command.length > 2048)) {
-    return err(appError("INVALID_INPUT", "command is required (at most 2048 characters)"));
-  }
-  const argumentsValue = value.arguments === void 0 ? [] : value.arguments;
-  if (action === "create" && (!Array.isArray(argumentsValue) || argumentsValue.length > 64 || !argumentsValue.every((entry) => typeof entry === "string" && entry.length <= 2048))) {
-    return err(appError("INVALID_INPUT", "arguments must be at most 64 strings"));
-  }
-  const schedule = value.schedule === void 0 ? "DAILY" : value.schedule;
-  if (action === "create" && (typeof schedule !== "string" || !/^[A-Z]{1,16}$/.test(schedule.toUpperCase()))) {
-    return err(appError("INVALID_INPUT", "schedule must be a short uppercase schedule name (e.g. DAILY)"));
-  }
-  const startTime = value.start_time === void 0 ? "09:00" : value.start_time;
-  if (action === "create" && (typeof startTime !== "string" || !/^([01]\d|2[0-3]):[0-5]\d$/.test(startTime))) {
-    return err(appError("INVALID_INPUT", "start_time must be HH:MM"));
-  }
-  const userConfirmed = value.userConfirmed === true;
-  return ok({
-    action,
-    taskName: typeof taskName === "string" ? taskName.trim() : "",
-    command: typeof command === "string" ? command.trim() : "",
-    arguments: action === "create" && Array.isArray(argumentsValue) ? argumentsValue.filter((entry) => typeof entry === "string") : [],
-    schedule: typeof schedule === "string" ? schedule.toUpperCase() : "DAILY",
-    startTime: typeof startTime === "string" ? startTime : "09:00",
-    userConfirmed
-  });
-}
-function buildTaskRun(command, args) {
-  const quoted = [command, ...args].map((entry) => /[\s"]/.test(entry) ? `"${entry.replaceAll('"', '\\"')}"` : entry).join(" ");
-  return quoted.length > 250 ? quoted.slice(0, 250) : quoted;
-}
-function extractDetail(error46) {
-  if (typeof error46 !== "object" || error46 === null)
-    return "";
-  const record2 = error46;
-  const stderr = typeof record2.stderr === "string" ? record2.stderr.trim() : "";
-  if (stderr.length > 0)
-    return stderr.slice(0, 500);
-  return typeof record2.message === "string" ? record2.message.slice(0, 500) : "";
-}
-function isRecord9(value) {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
-// ../../packages/capabilities/dist/windows-native-backend.js
-var import_node_path26 = __toESM(require("node:path"), 1);
-var PATH_FIELDS = {
-  accessibility: [],
-  input_event: [],
-  vision: [],
-  window: [],
-  system_info: [],
-  notification: [],
-  file_dialog: [],
-  clipboard: [],
-  audio: ["file_path", "output_path"],
-  screen_record: ["output_path"],
-  office: ["file_path", "target_path"]
-};
-var WindowsNativeCapabilityBackend = class {
-  capability;
-  bridge;
-  platform;
-  options;
-  constructor(capability, bridge, platform = process.platform, options = {}) {
-    this.capability = capability;
-    this.bridge = bridge;
-    this.platform = platform;
-    this.options = options;
-  }
-  async execute(input) {
-    if (this.platform !== "win32")
-      return err(appError("INTERNAL_ERROR", "Windows capability is unavailable on this platform", true));
-    if (!isRecord10(input))
-      return err(appError("INVALID_INPUT", "Native capability input must be an object"));
-    if (input.dry_run === true)
-      return ok({ dry_run: true, capability: this.capability });
-    const pathCheck = await this.assertPathsAllowed(input);
-    if (!pathCheck.ok)
-      return pathCheck;
-    return this.bridge.execute({ capability: this.capability, input });
-  }
-  async assertPathsAllowed(input) {
-    if (this.options.unrestricted === true)
-      return ok(void 0);
-    const fields = PATH_FIELDS[this.capability];
-    const targets = [];
-    for (const field of fields) {
-      const value = input[field];
-      if (typeof value === "string" && value.trim().length > 0)
-        targets.push(import_node_path26.default.resolve(value.trim()));
-    }
-    if (targets.length === 0)
-      return ok(void 0);
-    const roots = this.options.allowedRootsProvider === void 0 ? [] : (await this.options.allowedRootsProvider()).map((root) => import_node_path26.default.resolve(root));
-    for (const target of targets) {
-      const within = roots.some((root) => isWithin4(root, target));
-      if (!within)
-        return err(appError("PATH_OUTSIDE_WORKSPACE", `${this.capability} target path is outside configured local roots`));
-    }
-    return ok(void 0);
-  }
-};
-function isWithin4(root, candidate) {
-  const relative = import_node_path26.default.relative(root, candidate);
-  return relative === "" || relative !== ".." && !relative.startsWith(`..${import_node_path26.default.sep}`) && !import_node_path26.default.isAbsolute(relative);
-}
-function isRecord10(value) {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
-// ../../packages/capabilities/dist/windows-bridge.js
-var import_node_child_process9 = require("node:child_process");
-var import_node_path27 = __toESM(require("node:path"), 1);
-var DEFAULT_TIMEOUT_SECONDS4 = 600;
-var MAX_TIMEOUT_SECONDS4 = 14400;
-var DEFAULT_MAX_OUTPUT_BYTES2 = 8 * 1024 * 1024;
-var APP_ERROR_CODES = [
-  "INVALID_INPUT",
-  "WORKSPACE_NOT_FOUND",
-  "PATH_OUTSIDE_WORKSPACE",
-  "SECRET_ACCESS_DENIED",
-  "PERMISSION_DENIED",
-  "PERMISSION_REQUIRED",
-  "FILE_NOT_FOUND",
-  "FILE_TOO_LARGE",
-  "BINARY_FILE",
-  "PROCESS_NOT_FOUND",
-  "PROCESS_TIMEOUT",
-  "EXECUTABLE_NOT_FOUND",
-  "GIT_NOT_REPOSITORY",
-  "CODEX_NOT_AVAILABLE",
-  "INTERNAL_ERROR"
-];
-var PowerShellWindowsCapabilityBridge = class {
-  scriptPath;
-  powershellPath;
-  platform;
-  maxOutputBytes;
-  terminator;
-  constructor(options) {
-    this.scriptPath = import_node_path27.default.resolve(options.scriptPath);
-    this.powershellPath = options.powershellPath ?? powershellExecutable();
-    this.platform = options.platform ?? process.platform;
-    this.maxOutputBytes = Math.max(1, Math.min(options.maxOutputBytes ?? DEFAULT_MAX_OUTPUT_BYTES2, DEFAULT_MAX_OUTPUT_BYTES2));
-    this.terminator = options.terminator ?? new WindowsProcessTree();
-  }
-  execute(request) {
-    if (this.platform !== "win32")
-      return Promise.resolve(err(appError("INTERNAL_ERROR", "Windows bridge is unavailable on this platform", true)));
-    if (!import_node_path27.default.isAbsolute(this.scriptPath))
-      return Promise.resolve(err(appError("INVALID_INPUT", "Windows bridge script path must be absolute")));
-    let serialized;
-    try {
-      serialized = JSON.stringify(request);
-    } catch {
-      return Promise.resolve(err(appError("INVALID_INPUT", "Windows bridge input could not be serialized")));
-    }
-    return new Promise((resolve) => {
-      let stdout = "";
-      let timedOut = false;
-      let settled = false;
-      const child = (0, import_node_child_process9.spawn)(this.powershellPath, ["-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File", this.scriptPath], {
-        shell: false,
-        windowsHide: false,
-        stdio: ["pipe", "pipe", "pipe"]
-      });
-      const timeoutSeconds = readTimeout(request.input);
-      const timer = setTimeout(() => {
-        timedOut = true;
-        const pid = child.pid;
-        if (pid === void 0)
-          child.kill();
-        else
-          void this.terminator.stop(child, pid);
-      }, timeoutSeconds * 1e3);
-      const append = (current, value) => {
-        const chunk = Buffer.isBuffer(value) ? value.toString("utf8") : value;
-        const remaining = this.maxOutputBytes - Buffer.byteLength(current, "utf8");
-        return remaining <= 0 ? current : current + chunk.slice(0, remaining);
-      };
-      child.stdout?.on("data", (chunk) => {
-        stdout = append(stdout, chunk);
-      });
-      child.stderr?.resume();
-      child.once("error", () => {
-        if (settled)
-          return;
-        settled = true;
-        clearTimeout(timer);
-        resolve(err(appError("INTERNAL_ERROR", "Windows bridge process could not start", true)));
-      });
-      child.once("close", () => {
-        if (settled)
-          return;
-        settled = true;
-        clearTimeout(timer);
-        if (timedOut) {
-          resolve(err(appError("PROCESS_TIMEOUT", "Windows bridge timed out", true)));
-          return;
-        }
-        const result = parseBridgeResult(stdout);
-        if (result !== void 0) {
-          resolve(result);
-          return;
-        }
-        resolve(err(appError("INTERNAL_ERROR", "Windows bridge returned an invalid response", true)));
-      });
-      child.stdin?.end(serialized, "utf8");
-    });
-  }
-};
-function parseBridgeResult(value) {
-  let parsed;
-  try {
-    parsed = JSON.parse(value.trim());
-  } catch {
-    return void 0;
-  }
-  if (!isRecord11(parsed) || typeof parsed.ok !== "boolean")
-    return void 0;
-  if (parsed.ok)
-    return ok(parsed.value);
-  const error46 = parsed.error;
-  if (!isRecord11(error46) || typeof error46.code !== "string" || typeof error46.message !== "string" || typeof error46.recoverable !== "boolean")
-    return void 0;
-  const code = APP_ERROR_CODES.find((candidate) => candidate === error46.code) ?? "INTERNAL_ERROR";
-  return err(appError(code, error46.message, error46.recoverable));
-}
-function readTimeout(value) {
-  if (!isRecord11(value) || typeof value.timeout_seconds !== "number" || !Number.isFinite(value.timeout_seconds))
-    return DEFAULT_TIMEOUT_SECONDS4;
-  return Math.min(MAX_TIMEOUT_SECONDS4, Math.max(0.1, value.timeout_seconds));
-}
-function powershellExecutable() {
-  return process.platform === "win32" && process.env.SystemRoot !== void 0 ? import_node_path27.default.join(process.env.SystemRoot, "System32", "WindowsPowerShell", "v1.0", "powershell.exe") : "powershell.exe";
-}
-function isRecord11(value) {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
-// ../../packages/capabilities/dist/index.js
-var capabilityToolNames = Object.freeze([
-  "shell",
-  "dom_cdp",
-  "accessibility",
-  "input_event",
-  "vision",
-  "window",
-  "health",
-  "system_info",
-  "notification",
-  "file_dialog",
-  "clipboard",
-  "web_fetch",
-  "audio",
-  "screen_record",
-  "office",
-  "scheduler"
-]);
 
 // ../../packages/extensions/dist/types.js
 var DEFAULT_EXTENSIONS_SETTINGS = Object.freeze({
@@ -37031,9 +38201,9 @@ function normalizePathKey(value) {
 }
 
 // ../../packages/extensions/dist/skill-catalog.js
-var import_promises21 = require("node:fs/promises");
+var import_promises22 = require("node:fs/promises");
 var import_node_os4 = __toESM(require("node:os"), 1);
-var import_node_path28 = __toESM(require("node:path"), 1);
+var import_node_path30 = __toESM(require("node:path"), 1);
 var SkillCatalog = class {
   options;
   constructor(options) {
@@ -37058,20 +38228,20 @@ var SkillCatalog = class {
     if (skill === void 0)
       return err(appError("FILE_NOT_FOUND", `Skill not found: ${input.skillId}`));
     const relativePath = input.relativePath?.trim() || "SKILL.md";
-    if (relativePath.includes("\0") || import_node_path28.default.isAbsolute(relativePath)) {
+    if (relativePath.includes("\0") || import_node_path30.default.isAbsolute(relativePath)) {
       return err(appError("PATH_OUTSIDE_WORKSPACE", "Skill relative path must stay inside the skill folder"));
     }
-    const skillDir = import_node_path28.default.dirname(skill.skillPath);
-    const resolved = import_node_path28.default.resolve(skillDir, relativePath);
+    const skillDir = import_node_path30.default.dirname(skill.skillPath);
+    const resolved = import_node_path30.default.resolve(skillDir, relativePath);
     if (!isPathInside(skillDir, resolved)) {
       return err(appError("PATH_OUTSIDE_WORKSPACE", "Skill relative path must stay inside the skill folder"));
     }
     try {
-      const content = await (0, import_promises21.readFile)(resolved, "utf8");
+      const content = await (0, import_promises22.readFile)(resolved, "utf8");
       if (Buffer.byteLength(content, "utf8") > 2 * 1024 * 1024) {
         return err(appError("FILE_TOO_LARGE", "Skill file exceeds 2 MiB"));
       }
-      const meta3 = parseSkillMarkdown(content, import_node_path28.default.basename(skillDir));
+      const meta3 = parseSkillMarkdown(content, import_node_path30.default.basename(skillDir));
       return ok({
         id: skill.id,
         name: meta3.name,
@@ -37093,8 +38263,8 @@ var SkillCatalog = class {
       const skillFiles = await findSkillFiles(root.path, 3);
       for (const skillPath of skillFiles) {
         try {
-          const content = await (0, import_promises21.readFile)(skillPath, "utf8");
-          const fallbackName = import_node_path28.default.basename(import_node_path28.default.dirname(skillPath));
+          const content = await (0, import_promises22.readFile)(skillPath, "utf8");
+          const fallbackName = import_node_path30.default.basename(import_node_path30.default.dirname(skillPath));
           const meta3 = parseSkillMarkdown(content, fallbackName);
           skills.push({
             id: `${root.source}/${meta3.name}`,
@@ -37114,17 +38284,17 @@ var SkillCatalog = class {
   roots() {
     const home = this.options.homeDir ?? import_node_os4.default.homedir();
     const defaults = [
-      { source: "cursor-skills-cursor", path: import_node_path28.default.join(home, ".cursor", "skills-cursor") },
-      { source: "cursor-skills", path: import_node_path28.default.join(home, ".cursor", "skills") },
-      { source: "claude-skills", path: import_node_path28.default.join(home, ".claude", "skills") },
-      { source: "agents-skills", path: import_node_path28.default.join(home, ".agents", "skills") }
+      { source: "cursor-skills-cursor", path: import_node_path30.default.join(home, ".cursor", "skills-cursor") },
+      { source: "cursor-skills", path: import_node_path30.default.join(home, ".cursor", "skills") },
+      { source: "claude-skills", path: import_node_path30.default.join(home, ".claude", "skills") },
+      { source: "agents-skills", path: import_node_path30.default.join(home, ".agents", "skills") }
     ];
     const workspaceRoot = this.options.workspaceRoot?.trim();
     if (workspaceRoot !== void 0 && workspaceRoot.length > 0) {
-      defaults.push({ source: "workspace-cursor-skills", path: import_node_path28.default.join(workspaceRoot, ".cursor", "skills") }, { source: "workspace-claude-skills", path: import_node_path28.default.join(workspaceRoot, ".claude", "skills") });
+      defaults.push({ source: "workspace-cursor-skills", path: import_node_path30.default.join(workspaceRoot, ".cursor", "skills") }, { source: "workspace-claude-skills", path: import_node_path30.default.join(workspaceRoot, ".claude", "skills") });
     }
     for (const extra of [...this.options.settings.extraSkillRoots, ...this.options.extraRoots ?? []]) {
-      defaults.push({ source: `extra:${import_node_path28.default.basename(extra)}`, path: import_node_path28.default.resolve(extra) });
+      defaults.push({ source: `extra:${import_node_path30.default.basename(extra)}`, path: import_node_path30.default.resolve(extra) });
     }
     return defaults;
   }
@@ -37206,7 +38376,7 @@ async function findSkillFiles(root, maxDepth) {
 async function walkForSkills(current, depth, maxDepth, results) {
   if (depth > maxDepth)
     return;
-  const skillPath = import_node_path28.default.join(current, "SKILL.md");
+  const skillPath = import_node_path30.default.join(current, "SKILL.md");
   if (depth > 0 && await isFile(skillPath)) {
     results.push(skillPath);
     return;
@@ -37214,12 +38384,12 @@ async function walkForSkills(current, depth, maxDepth, results) {
   if (depth === maxDepth)
     return;
   for (const entry of await safeReaddir(current)) {
-    await walkForSkills(import_node_path28.default.join(current, entry), depth + 1, maxDepth, results);
+    await walkForSkills(import_node_path30.default.join(current, entry), depth + 1, maxDepth, results);
   }
 }
 async function safeReaddir(root) {
   try {
-    const entries = await (0, import_promises21.readdir)(root, { withFileTypes: true });
+    const entries = await (0, import_promises22.readdir)(root, { withFileTypes: true });
     return entries.filter((entry) => entry.isDirectory()).map((entry) => entry.name);
   } catch {
     return [];
@@ -37227,14 +38397,14 @@ async function safeReaddir(root) {
 }
 async function isFile(filePath) {
   try {
-    return (await (0, import_promises21.stat)(filePath)).isFile();
+    return (await (0, import_promises22.stat)(filePath)).isFile();
   } catch {
     return false;
   }
 }
 function isPathInside(root, candidate) {
-  const relative = import_node_path28.default.relative(import_node_path28.default.resolve(root), import_node_path28.default.resolve(candidate));
-  return relative === "" || !relative.startsWith("..") && !import_node_path28.default.isAbsolute(relative);
+  const relative = import_node_path30.default.relative(import_node_path30.default.resolve(root), import_node_path30.default.resolve(candidate));
+  return relative === "" || !relative.startsWith("..") && !import_node_path30.default.isAbsolute(relative);
 }
 function dedupeById(skills) {
   const seen = /* @__PURE__ */ new Set();
@@ -37249,9 +38419,9 @@ function dedupeById(skills) {
 }
 
 // ../../packages/extensions/dist/mcp-config-loader.js
-var import_promises22 = require("node:fs/promises");
+var import_promises23 = require("node:fs/promises");
 var import_node_os5 = __toESM(require("node:os"), 1);
-var import_node_path29 = __toESM(require("node:path"), 1);
+var import_node_path31 = __toESM(require("node:path"), 1);
 var McpConfigLoader = class {
   options;
   constructor(options) {
@@ -37259,10 +38429,10 @@ var McpConfigLoader = class {
   }
   async discover() {
     const home = this.options.homeDir ?? import_node_os5.default.homedir();
-    const appData = this.options.appDataDir ?? process.env.APPDATA ?? import_node_path29.default.join(home, "AppData", "Roaming");
+    const appData = this.options.appDataDir ?? process.env.APPDATA ?? import_node_path31.default.join(home, "AppData", "Roaming");
     const discovered = [];
-    await this.loadFile(discovered, import_node_path29.default.join(home, ".cursor", "mcp.json"), "cursor");
-    await this.loadFile(discovered, import_node_path29.default.join(appData, "Claude", "claude_desktop_config.json"), "claude-desktop");
+    await this.loadFile(discovered, import_node_path31.default.join(home, ".cursor", "mcp.json"), "cursor");
+    await this.loadFile(discovered, import_node_path31.default.join(appData, "Claude", "claude_desktop_config.json"), "claude-desktop");
     for (const [name, config2] of Object.entries(this.options.settings.extraMcpServers)) {
       discovered.push(this.toServer(name, "lnwjud-settings", config2));
     }
@@ -37270,7 +38440,7 @@ var McpConfigLoader = class {
   }
   async loadFile(target, filePath, source) {
     try {
-      const raw = await (0, import_promises22.readFile)(filePath, "utf8");
+      const raw = await (0, import_promises23.readFile)(filePath, "utf8");
       const parsed = JSON.parse(raw);
       if (typeof parsed !== "object" || parsed === null)
         return;
@@ -37321,7 +38491,7 @@ function exclusionReason(name, config2) {
   if (lowered === "lnwjud" || lowered.startsWith("lnwjud-")) {
     return "Refusing to aggregate lnwjud itself";
   }
-  const command = import_node_path29.default.basename(config2.command).toLowerCase();
+  const command = import_node_path31.default.basename(config2.command).toLowerCase();
   if (command === "lnwjud" || command === "lnwjud.exe" || command.includes("lnwjud")) {
     return "Refusing to aggregate lnwjud itself";
   }
@@ -39971,9 +41141,9 @@ var rev2026Codec2 = {
     });
     const parsed = buildSchemas20262().RequestMetaEnvelopeSchema.safeParse(meta3);
     if (!parsed.success) for (const issue2 of parsed.error.issues) {
-      const path32 = issue2.path.map(String);
-      const key = path32.length > 0 ? path32.join(".") : "_meta";
-      if (path32.length === 1 && issues.some((existing) => existing.key === key && existing.problem === "missing")) continue;
+      const path34 = issue2.path.map(String);
+      const key = path34.length > 0 ? path34.join(".") : "_meta";
+      if (path34.length === 1 && issues.some((existing) => existing.key === key && existing.problem === "missing")) continue;
       issues.push({
         key,
         problem: issue2.message
@@ -40270,29 +41440,29 @@ var PERMITTED_X_MCP_HEADER_TYPES2 = /* @__PURE__ */ new Set([
 function scanXMcpHeaderDeclarations2(inputSchema) {
   const declarations = [];
   const seenLower = /* @__PURE__ */ new Map();
-  const visit = (node, path32, reachable) => {
+  const visit = (node, path34, reachable) => {
     if (node === null || typeof node !== "object") return void 0;
     const schema = node;
     if (X_MCP_HEADER_KEY2 in schema) {
-      if (!reachable || path32.length === 0) return `${pathName2(path32)}: x-mcp-header is only permitted on properties statically reachable via a chain of 'properties' keys (not under items, additionalProperties, oneOf/anyOf/allOf/not, if/then/else, or $ref)`;
+      if (!reachable || path34.length === 0) return `${pathName2(path34)}: x-mcp-header is only permitted on properties statically reachable via a chain of 'properties' keys (not under items, additionalProperties, oneOf/anyOf/allOf/not, if/then/else, or $ref)`;
       const raw = schema[X_MCP_HEADER_KEY2];
-      if (typeof raw !== "string" || raw.length === 0) return `${pathName2(path32)}: x-mcp-header MUST be a non-empty string`;
-      if (!RFC9110_TOKEN2.test(raw)) return `${pathName2(path32)}: x-mcp-header '${raw}' is not a valid RFC 9110 token (no spaces, control characters or HTTP delimiters)`;
+      if (typeof raw !== "string" || raw.length === 0) return `${pathName2(path34)}: x-mcp-header MUST be a non-empty string`;
+      if (!RFC9110_TOKEN2.test(raw)) return `${pathName2(path34)}: x-mcp-header '${raw}' is not a valid RFC 9110 token (no spaces, control characters or HTTP delimiters)`;
       const type = typeof schema.type === "string" ? schema.type : void 0;
-      if (type === void 0 || !PERMITTED_X_MCP_HEADER_TYPES2.has(type)) return `${pathName2(path32)}: x-mcp-header is only permitted on primitive-typed properties (string, integer, boolean); got ${type ?? "<none>"}`;
+      if (type === void 0 || !PERMITTED_X_MCP_HEADER_TYPES2.has(type)) return `${pathName2(path34)}: x-mcp-header is only permitted on primitive-typed properties (string, integer, boolean); got ${type ?? "<none>"}`;
       const lower = raw.toLowerCase();
       const prior = seenLower.get(lower);
       if (prior !== void 0) return `x-mcp-header '${raw}' is not case-insensitively unique (also declared as '${prior}')`;
       seenLower.set(lower, raw);
       declarations.push({
-        path: path32,
+        path: path34,
         headerName: raw,
         type
       });
     }
     const properties = schema.properties;
     if (properties !== null && typeof properties === "object") for (const [key, child] of Object.entries(properties)) {
-      const fault$1 = visit(child, [...path32, key], reachable);
+      const fault$1 = visit(child, [...path34, key], reachable);
       if (fault$1 !== void 0) return fault$1;
     }
     for (const k of NON_REACHABLE_SUBSCHEMA_KEYWORDS2) {
@@ -40300,7 +41470,7 @@ function scanXMcpHeaderDeclarations2(inputSchema) {
       if (sub === void 0) continue;
       const branches = Array.isArray(sub) ? sub : sub !== null && typeof sub === "object" && OBJECT_VALUED_SUBSCHEMA_KEYWORDS2.has(k) ? Object.values(sub) : [sub];
       for (const branch of branches) {
-        const fault$1 = visit(branch, [...path32, `<${k}>`], false);
+        const fault$1 = visit(branch, [...path34, `<${k}>`], false);
         if (fault$1 !== void 0) return fault$1;
       }
     }
@@ -40340,8 +41510,8 @@ var OBJECT_VALUED_SUBSCHEMA_KEYWORDS2 = /* @__PURE__ */ new Set([
   "$defs",
   "definitions"
 ]);
-function pathName2(path32) {
-  return path32.length === 0 ? "<root>" : path32.join(".");
+function pathName2(path34) {
+  return path34.length === 0 ? "<root>" : path34.join(".");
 }
 var BASE64_SENTINEL_PREFIX = "=?base64?";
 var BASE64_SENTINEL_SUFFIX = "?=";
@@ -40374,9 +41544,9 @@ function utf8ToBase64(s) {
 function encodeMcpParamValue(value) {
   return needsBase64(value) ? `${BASE64_SENTINEL_PREFIX}${utf8ToBase64(value)}${BASE64_SENTINEL_SUFFIX}` : value;
 }
-function valueAtPath(root, path32) {
+function valueAtPath(root, path34) {
   let node = root;
-  for (const key of path32) {
+  for (const key of path34) {
     if (node === null || typeof node !== "object") return void 0;
     node = node[key];
   }
@@ -40631,7 +41801,7 @@ var PROPERTY_KEYS_BY_TYPE2 = {
   array: shapeKeys2([UntitledMultiSelectEnumSchemaSchema, TitledMultiSelectEnumSchemaSchema])
 };
 var SUPPORTED_STRING_FORMATS2 = new Set(StringSchemaSchema.shape.format.unwrap().options);
-function walkProperty2(node, path32, vendor, unsupported) {
+function walkProperty2(node, path34, vendor, unsupported) {
   if (!isJsonObject2(node)) return node;
   const allowedKeys = typeof node.type === "string" && Object.hasOwn(PROPERTY_KEYS_BY_TYPE2, node.type) ? PROPERTY_KEYS_BY_TYPE2[node.type] : void 0;
   if (allowedKeys === void 0) return node;
@@ -40639,8 +41809,8 @@ function walkProperty2(node, path32, vendor, unsupported) {
   for (const [key, value] of Object.entries(node)) if (allowedKeys.has(key) || isAnnotationOnlyJsonSchemaKeyword2(key)) pruned[key] = value;
   else if (key === "pattern" && node.type === "string" && typeof node.format === "string") {
     if (!SUPPORTED_STRING_FORMATS2.has(node.format)) pruned[key] = value;
-    else if (typeof value !== "string" || !isLibraryFormatPattern2(node.format, value, vendor)) unsupported.push(`${path32}.${key}`);
-  } else unsupported.push(`${path32}.${key}`);
+    else if (typeof value !== "string" || !isLibraryFormatPattern2(node.format, value, vendor)) unsupported.push(`${path34}.${key}`);
+  } else unsupported.push(`${path34}.${key}`);
   return pruned;
 }
 function walkRequestedSchema2(converted, vendor) {
@@ -40657,11 +41827,11 @@ function describeUnsupportedProperties2(pruned, fallback) {
   const offenders = Object.entries(pruned.properties).filter(([, node]) => !parseSchema2(PrimitiveSchemaDefinitionSchema, node).success).map(([name]) => `properties.${name}`);
   return offenders.length > 0 ? offenders.join(", ") : fallback;
 }
-function findDroppedConstraintPaths2(original, parsed, path32 = "") {
-  if (Array.isArray(original) && Array.isArray(parsed)) return original.flatMap((item, index) => findDroppedConstraintPaths2(item, parsed[index], `${path32}[${index}]`));
+function findDroppedConstraintPaths2(original, parsed, path34 = "") {
+  if (Array.isArray(original) && Array.isArray(parsed)) return original.flatMap((item, index) => findDroppedConstraintPaths2(item, parsed[index], `${path34}[${index}]`));
   if (!isJsonObject2(original) || !isJsonObject2(parsed)) return [];
   return Object.entries(original).flatMap(([key, value]) => {
-    const childPath = path32 ? `${path32}.${key}` : key;
+    const childPath = path34 ? `${path34}.${key}` : key;
     if (!Object.prototype.hasOwnProperty.call(parsed, key)) return isAnnotationOnlyJsonSchemaKeyword2(key) ? [] : [childPath];
     return findDroppedConstraintPaths2(value, parsed[key], childPath);
   });
@@ -44812,8 +45982,8 @@ var require_utils2 = /* @__PURE__ */ __commonJSMin2(((exports2, module2) => {
     for (let i = 0; i < str.length; i++) if (str[i] === token) ind++;
     return ind;
   }
-  function removeDotSegments(path32) {
-    let input = path32;
+  function removeDotSegments(path34) {
+    let input = path34;
     const output = [];
     let nextSlash = -1;
     let len = 0;
@@ -44966,8 +46136,8 @@ var require_schemes2 = /* @__PURE__ */ __commonJSMin2(((exports2, module2) => {
       wsComponent.secure = void 0;
     }
     if (wsComponent.resourceName) {
-      const [path32, query] = wsComponent.resourceName.split("?");
-      wsComponent.path = path32 && path32 !== "/" ? path32 : void 0;
+      const [path34, query] = wsComponent.resourceName.split("?");
+      wsComponent.path = path34 && path34 !== "/" ? path34 : void 0;
       wsComponent.query = query;
       wsComponent.resourceName = void 0;
     }
@@ -51983,9 +53153,9 @@ function createLocalExtensionsService(options = {}) {
 // ../cli/src/runtime/stdio-mcp-runtime.ts
 var import_meta = {};
 function createStdioMcpRuntime(dataPath, workspace, unrestricted = false) {
-  const database = new SqliteDatabase(import_node_path30.default.join(dataPath, "lnwjud.sqlite"));
+  const database = new SqliteDatabase(import_node_path32.default.join(dataPath, "lnwjud.sqlite"));
   const workspaceRepository = new SqliteWorkspaceRepository(database);
-  const workspaceIndex = new WorkspaceIndexService(workspaceRepository, new JsonWorkspaceIndexStore(import_node_path30.default.join(dataPath, "workspace-index")));
+  const workspaceIndex = new WorkspaceIndexService(workspaceRepository, new JsonWorkspaceIndexStore(import_node_path32.default.join(dataPath, "workspace-index")));
   const settingsRepository = new SqliteSettingsRepository(database);
   const auditRepository = new SqliteAuditRepository(database);
   const auditService = new AuditService(auditRepository);
@@ -52038,6 +53208,8 @@ function createStdioMcpRuntime(dataPath, workspace, unrestricted = false) {
           ...event.targetSummary === void 0 ? {} : { targetSummary: event.targetSummary },
           resultCode: event.resultCode,
           ...event.resultMessage === void 0 ? {} : { resultMessage: event.resultMessage },
+          ...event.traceId === void 0 ? {} : { traceId: event.traceId },
+          ...event.traceParent === void 0 ? {} : { traceParent: event.traceParent },
           durationMs: event.durationMs,
           timestamp: event.timestamp
         });
@@ -52045,7 +53217,7 @@ function createStdioMcpRuntime(dataPath, workspace, unrestricted = false) {
     }
   ]));
   const services = {
-    runtimeStatePath: import_node_path30.default.join(dataPath, "upgrade-runtime.json"),
+    runtimeStatePath: import_node_path32.default.join(dataPath, "upgrade-runtime.json"),
     capabilities: capabilityService,
     extensions,
     workspaceInfo: new WorkspaceInfoService(workspaceRepository, workspaceService, unrestricted),
@@ -52077,33 +53249,65 @@ function createStdioMcpRuntime(dataPath, workspace, unrestricted = false) {
   };
 }
 function createStdioCapabilityService(dataPath, workspaceRootsProvider, unrestricted) {
+  const capabilityRootsProvider = async () => {
+    const workspaceRoots = await workspaceRootsProvider();
+    const configuredRoots = readCapabilityRoots(process.env.LNWJUD_CAPABILITY_ROOTS);
+    const roots = [...workspaceRoots, ...configuredRoots, ...unrestricted ? [...allFixedDriveRoots()] : [machineRootPath()]];
+    return roots.length === 0 ? [dataPath] : roots;
+  };
   const shellBackend = new ShellCapabilityBackend({
     allowedRoots: [dataPath, ...unrestricted ? [...allFixedDriveRoots()] : [machineRootPath()]],
-    allowedRootsProvider: async () => {
-      const workspaceRoots = await workspaceRootsProvider();
-      const configuredRoots = readCapabilityRoots(process.env.LNWJUD_CAPABILITY_ROOTS);
-      const roots = [...workspaceRoots, ...configuredRoots, ...unrestricted ? [...allFixedDriveRoots()] : [machineRootPath()]];
-      return roots.length === 0 ? [dataPath] : roots;
-    },
+    allowedRootsProvider: capabilityRootsProvider,
     unrestricted
   });
-  const browserProtocol = new NodeBrowserCdpProtocol({ profileDir: import_node_path30.default.join(dataPath, "browser-profile") });
+  const browserProtocol = new NodeBrowserCdpProtocol({ profileDir: import_node_path32.default.join(dataPath, "browser-profile") });
   const browserBackend = new BrowserCdpBackend({
     protocol: browserProtocol,
     launcher: (url2) => browserProtocol.launch(url2)
   });
   const windowsBridge = new PowerShellWindowsCapabilityBridge({ scriptPath: capabilityBridgeScriptPath() });
   const nativeOptions = { allowedRootsProvider: workspaceRootsProvider, unrestricted };
+  const accessibilityBackend = new WindowsNativeCapabilityBackend("accessibility", windowsBridge);
+  const nativeVisionBackend = new WindowsNativeCapabilityBackend("vision", windowsBridge);
+  const ocrHelperPath = windowsOcrHelperPath();
+  const ocrHelper = ocrHelperPath === void 0 ? void 0 : new WindowsOcrProcessBridge({ helperPath: ocrHelperPath });
+  const visionBackend = new VisionCapabilityBackend(nativeVisionBackend, new WindowsOcrCapabilityBackend({
+    platform: process.platform,
+    ...ocrHelper === void 0 ? {} : { helper: ocrHelper },
+    ...ocrHelper === void 0 ? {} : { packageIdentity: async () => ({ ok: true, value: true }) }
+  }));
+  const wslAvailabilityProbe = async () => {
+    const result = await shellBackend.execute({ operation: "run", executable: "wsl.exe", arguments: ["--status"], cwd: dataPath, execution: "foreground", timeout_seconds: 5, max_output_bytes: 32 * 1024, userConfirmed: false });
+    if (!result.ok) return { ok: true, value: { available: false, ready: false, local: true, reason: "wsl_executable_unavailable" } };
+    const value = typeof result.value === "object" && result.value !== null && !Array.isArray(result.value) ? result.value : {};
+    const ready = value.state === "completed" && value.exit_code === 0;
+    return { ok: true, value: { available: ready, ready, local: true, ...ready ? {} : { reason: "wsl_status_failed" } } };
+  };
+  const wslBackend = new WslCapabilityBackend({
+    platform: process.platform,
+    runner: shellBackend,
+    allowedRoots: [dataPath],
+    allowedRootsProvider: capabilityRootsProvider,
+    availabilityProbe: wslAvailabilityProbe
+  });
+  const wslFsBackend = new WslFilesystemCapabilityBackend({
+    platform: process.platform,
+    allowedRoots: [dataPath],
+    allowedRootsProvider: capabilityRootsProvider,
+    availabilityProbe: wslAvailabilityProbe
+  });
   const health = new HealthCapabilityBackend({
     domCdp: browserBackend,
-    accessibility: new WindowsNativeCapabilityBackend("accessibility", windowsBridge)
+    accessibility: accessibilityBackend,
+    wslExec: wslBackend,
+    wslFs: wslFsBackend
   });
   return new LocalCapabilityService({
     shell: shellBackend,
     domCdp: browserBackend,
-    accessibility: new WindowsNativeCapabilityBackend("accessibility", windowsBridge),
+    accessibility: accessibilityBackend,
     inputEvent: new WindowsNativeCapabilityBackend("input_event", windowsBridge),
-    vision: new WindowsNativeCapabilityBackend("vision", windowsBridge),
+    vision: visionBackend,
     window: new WindowsNativeCapabilityBackend("window", windowsBridge),
     health,
     systemInfo: new WindowsNativeCapabilityBackend("system_info", windowsBridge),
@@ -52114,26 +53318,28 @@ function createStdioCapabilityService(dataPath, workspaceRootsProvider, unrestri
     audio: new WindowsNativeCapabilityBackend("audio", windowsBridge, process.platform, nativeOptions),
     screenRecord: new WindowsNativeCapabilityBackend("screen_record", windowsBridge, process.platform, nativeOptions),
     office: new WindowsNativeCapabilityBackend("office", windowsBridge, process.platform, nativeOptions),
-    scheduler: new SchedulerCapabilityBackend()
+    scheduler: new SchedulerCapabilityBackend(),
+    wslExec: wslBackend,
+    wslFs: wslFsBackend
   });
 }
 function readCapabilityRoots(value) {
   if (value === void 0 || value.trim().length === 0) return [];
-  return value.split(";").map((root) => root.trim()).filter((root) => root.length > 0).map((root) => import_node_path30.default.resolve(root));
+  return value.split(";").map((root) => root.trim()).filter((root) => root.length > 0).map((root) => import_node_path32.default.resolve(root));
 }
 function capabilityBridgeScriptPath() {
   const configured = process.env.LNWJUD_CAPABILITY_BRIDGE_SCRIPT;
-  if (configured !== void 0 && configured.trim().length > 0) return import_node_path30.default.resolve(configured);
+  if (configured !== void 0 && configured.trim().length > 0) return import_node_path32.default.resolve(configured);
   const scriptDir = resolveScriptDirectory();
   const resourcesPath = process.resourcesPath;
   const candidates = [
-    scriptDir === void 0 ? void 0 : import_node_path30.default.join(scriptDir, "windows-capability-bridge.ps1"),
-    scriptDir === void 0 ? void 0 : import_node_path30.default.join(scriptDir, "resources", "windows-capability-bridge.ps1"),
-    import_node_path30.default.resolve(process.cwd(), "packages", "capabilities", "src", "windows-capability-bridge.ps1"),
-    import_node_path30.default.resolve(process.cwd(), "..", "..", "packages", "capabilities", "src", "windows-capability-bridge.ps1"),
-    resourcesPath === void 0 ? void 0 : import_node_path30.default.join(resourcesPath, "windows-capability-bridge.ps1"),
-    import_node_path30.default.join(import_node_path30.default.dirname(process.execPath), "windows-capability-bridge.ps1"),
-    import_node_path30.default.join(import_node_path30.default.dirname(process.execPath), "resources", "windows-capability-bridge.ps1")
+    scriptDir === void 0 ? void 0 : import_node_path32.default.join(scriptDir, "windows-capability-bridge.ps1"),
+    scriptDir === void 0 ? void 0 : import_node_path32.default.join(scriptDir, "resources", "windows-capability-bridge.ps1"),
+    import_node_path32.default.resolve(process.cwd(), "packages", "capabilities", "src", "windows-capability-bridge.ps1"),
+    import_node_path32.default.resolve(process.cwd(), "..", "..", "packages", "capabilities", "src", "windows-capability-bridge.ps1"),
+    resourcesPath === void 0 ? void 0 : import_node_path32.default.join(resourcesPath, "windows-capability-bridge.ps1"),
+    import_node_path32.default.join(import_node_path32.default.dirname(process.execPath), "windows-capability-bridge.ps1"),
+    import_node_path32.default.join(import_node_path32.default.dirname(process.execPath), "resources", "windows-capability-bridge.ps1")
   ].filter((candidate) => candidate !== void 0);
   return candidates.find((candidate) => (0, import_node_fs6.existsSync)(candidate)) ?? candidates[0];
 }
@@ -52141,18 +53347,30 @@ function resolveScriptDirectory() {
   const arg1 = process.argv[1];
   if (typeof arg1 === "string" && arg1.trim().length > 0) {
     try {
-      return import_node_path30.default.dirname(import_node_path30.default.resolve(arg1));
+      return import_node_path32.default.dirname(import_node_path32.default.resolve(arg1));
     } catch {
     }
   }
   try {
     const metaUrl = import_meta.url;
     if (typeof metaUrl === "string" && metaUrl.length > 0) {
-      return import_node_path30.default.dirname((0, import_node_url.fileURLToPath)(metaUrl));
+      return import_node_path32.default.dirname((0, import_node_url.fileURLToPath)(metaUrl));
     }
   } catch {
   }
   return void 0;
+}
+function windowsOcrHelperPath() {
+  const configured = process.env.LNWJUD_WINDOWS_OCR_HELPER;
+  if (configured !== void 0 && configured.trim().length > 0) return import_node_path32.default.resolve(configured);
+  const resourcesPath = process.resourcesPath;
+  const scriptDir = resolveScriptDirectory();
+  const candidates = [
+    scriptDir === void 0 ? void 0 : import_node_path32.default.join(scriptDir, "native", "windows-ocr", "lnwjud-windows-ocr.exe"),
+    resourcesPath === void 0 ? void 0 : import_node_path32.default.join(resourcesPath, "windows-ocr", "lnwjud-windows-ocr.exe"),
+    import_node_path32.default.join(import_node_path32.default.dirname(process.execPath), "windows-ocr", "lnwjud-windows-ocr.exe")
+  ].filter((candidate) => candidate !== void 0);
+  return candidates.find((candidate) => (0, import_node_fs6.existsSync)(candidate));
 }
 
 // ../cli/src/bin/mcp-stdio.ts
@@ -52168,7 +53386,7 @@ function hasFlag(flag) {
 function resolveDataPath() {
   const configured = process.env.LNWJUD_DATA_PATH?.trim();
   if (configured) return configured;
-  return import_node_path31.default.join(process.env.APPDATA ?? import_node_path31.default.join(import_node_os6.default.homedir(), "AppData", "Roaming"), "lnwjud");
+  return import_node_path33.default.join(process.env.APPDATA ?? import_node_path33.default.join(import_node_os6.default.homedir(), "AppData", "Roaming"), "lnwjud");
 }
 async function main() {
   const eRoot = machineRootPath();
@@ -52178,13 +53396,13 @@ async function main() {
   }
   const dataPath = resolveDataPath();
   import_node_fs7.default.mkdirSync(dataPath, { recursive: true });
-  const database = new SqliteDatabase(import_node_path31.default.join(dataPath, "lnwjud.sqlite"));
+  const database = new SqliteDatabase(import_node_path33.default.join(dataPath, "lnwjud.sqlite"));
   const workspaceRepository = new SqliteWorkspaceRepository(database);
   const settingsRepository = new SqliteSettingsRepository(database);
   const workspaceService = new WorkspaceService(workspaceRepository);
   const unrestricted = isUnrestricted(process.env, settingsRepository.get(UNRESTRICTED_SETTING_KEY));
   const requestedRaw = readArg("--workspace") ?? process.env.LNWJUD_WORKSPACE;
-  const requestedPath = import_node_path31.default.resolve(requestedRaw && requestedRaw.trim().length > 0 ? requestedRaw : eRoot);
+  const requestedPath = import_node_path33.default.resolve(requestedRaw && requestedRaw.trim().length > 0 ? requestedRaw : eRoot);
   if (!import_node_fs7.default.existsSync(requestedPath)) {
     process.stderr.write(`lnwjud MCP stdio: workspace path does not exist: ${requestedPath}
 `);
@@ -52212,7 +53430,7 @@ async function main() {
   const workspaces = await workspaceService.list();
   let workspace = workspaces.find((entry) => normalizeWorkspaceRoot(entry.realRootPath).toLowerCase() === requestedNorm) ?? workspaces.find((entry) => requestedNorm.startsWith(normalizeWorkspaceRoot(entry.realRootPath).toLowerCase()));
   if (workspace === void 0 && requestedNorm !== normalizeWorkspaceRoot(eRoot).toLowerCase()) {
-    const displayName = import_node_path31.default.basename(requestedPath) || "Workspace";
+    const displayName = import_node_path33.default.basename(requestedPath) || "Workspace";
     const added = await workspaceService.add(displayName, requestedPath);
     if (!added.ok) {
       process.stderr.write(`lnwjud MCP stdio: could not register ${requestedPath} (${added.error.message})

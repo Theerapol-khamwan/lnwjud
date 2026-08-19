@@ -18,9 +18,10 @@ describe('MCP tool registry', () => {
       'process_logs', 'process_stop', 'project_dev', 'project_test', 'project_lint',
       'project_typecheck', 'project_build', 'codex_status', 'codex_run',
       'codex_task_status', 'codex_task_logs', 'codex_stop',
-      'shell', 'dom_cdp', 'accessibility', 'input_event', 'vision', 'window', 'health',
+      'shell', 'dom_cdp', 'accessibility', 'input_event', 'vision', 'vision_annotated_capture', 'ui_target_action', 'window', 'health',
       'system_info', 'notification', 'file_dialog', 'clipboard', 'web_fetch',
       'audio', 'screen_record', 'office', 'scheduler',
+      'wsl_exec', 'wsl_fs',
       'skills_list', 'skills_read', 'mcp_list', 'mcp_describe', 'mcp_call',
       'workspace_context', 'workspace_context_continue', 'workspace_full_scan', 'workspace_full_scan_continue',
       'workspace_snapshot', 'search_all', 'read_many_files',
@@ -43,6 +44,8 @@ describe('MCP tool registry', () => {
     expect(byName.get('window')?.parse({ operation: 'list' })).toMatchObject({ ok: true });
     expect(byName.get('window')?.parse({ operation: 'set_window_frame', parameters: { x: 0, y: 0, width: 800, height: 600 } })).toMatchObject({ ok: true });
     expect(byName.get('health')?.parse({ operation: 'check_all' })).toMatchObject({ ok: true });
+    expect(byName.get('wsl_exec')?.parse({ workspaceId: 'workspace-1', executable: 'node', arguments: ['--version'] })).toMatchObject({ ok: true });
+    expect(byName.get('wsl_fs')?.parse({ operation: 'translate', workspaceId: 'workspace-1', direction: 'windows_to_wsl', path: 'C:\\workspace' })).toMatchObject({ ok: true });
   });
 
   it('blocks dangerous capability execution under the safe profile before reaching the backend', async () => {

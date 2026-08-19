@@ -1,6 +1,6 @@
 # lnwjud Upgrade Architecture Contract
 
-Status: Phase 41 implementation checkpoint for the `v3.0.0` release.
+Status: God-Tier local-first implementation checkpoint for `v4.0.0`.
 
 This document is the architectural boundary for the upgrade roadmap. It describes
 the existing runtime before Phase 01 and the invariants every later phase must
@@ -41,7 +41,7 @@ MCP clients (ChatGPT / Codex / Claude / other agents)
              MCP stdio or loopback Streamable HTTP
                          |
                          v
-                  ToolRegistry (184 tools after Phase 05–41 foundation)
+                  ToolRegistry (208 tools: 184-tool baseline plus additive gateway contracts)
                          |
        +-----------------+------------------+
        |                 |                  |
@@ -81,7 +81,7 @@ MCP clients (ChatGPT / Codex / Claude / other agents)
 | `packages/audit` | redaction and structured audit events | child-call, cache, hook and planner events |
 | `packages/storage` | SQLite database, migrations, repositories | index/cache/session/telemetry stores |
 | `packages/mcp-server` | tool definitions, registry, stdio/HTTP transports | batch/context/router/recipe registration |
-| `packages/capabilities` | shell, CDP, Windows UI, input, vision, media, Office, scheduler | Windows/browser intelligence |
+| `packages/capabilities` | shell, CDP, Windows UI, input, vision, media, Office, scheduler, WSL, OCR boundary | Windows/browser intelligence |
 | `packages/extensions` | skills and local MCP bridge discovery/calls | plugin SDK, schema registry, aliases |
 | `packages/ipc-contracts` | typed Electron main/preload/renderer contracts | dashboard and Live Logs v2 contracts |
 | `apps/cli` | CLI runtime and packaged stdio launcher | benchmark and automation entrypoints |
@@ -91,6 +91,25 @@ MCP clients (ChatGPT / Codex / Claude / other agents)
 implementations, or MCP transport classes. Transport adapters call application
 services; they never bypass path, command, permission, ownership, or audit
 boundaries.
+
+## God-Tier local-first vertical slices
+
+The current additive implementation keeps the original primitive pipeline and
+builds the high-impact slices on top of it:
+
+| Slice | Runtime boundary | Truthful fallback |
+| --- | --- | --- |
+| WSL runner | `WslCapabilityBackend` delegates argv/task lifecycle to `ShellCapabilityBackend`; `WslFilesystemCapabilityBackend` only maps paths/metadata | missing `wsl.exe`, distro, timeout, cancellation, and escape are explicit errors/statuses |
+| Set-of-Marks | `SetOfMarksService` correlates Accessibility observation + vision PNG, stores TTL/hash, then revalidates the mark before action | unknown, stale, expired, cross-workspace, or unconfirmed actions are rejected |
+| WinRT OCR | `VisionCapabilityBackend` routes only `action: ocr` to `WindowsOcrCapabilityBackend` and the packaged C# helper | no package identity/helper/language returns `available: false` |
+| Router | deterministic token/tag scorer with primitive visibility, reason codes, permission metadata, and local-rerank fallback | ranking never grants permission and local data never leaves the machine |
+| Later Windows/dev/productivity waves | catalog descriptors include requirements, availability, cancellation, dry-run, and audit target; Sandbox has an artifact-only WSB plan | missing optional runtime is `optional`/`planned`, never a fake successful execution |
+
+Long-running operations use the existing task handles where a concrete backend
+exists. Activity events now carry bounded `traceId`/`traceParent` values into
+NDJSON and SQLite audit metadata. The 184-tool snapshot remains a compatibility
+baseline; current transports advertise 208 tools because all additions are
+append-only.
 
 ## Request and side-effect pipeline
 

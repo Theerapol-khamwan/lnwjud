@@ -1,7 +1,7 @@
 import { appError } from '@lnwjud/domain';
 import { sanitizeException, type DiagnosticLogger, type FileActor } from '@lnwjud/application';
 import { DefaultPermissionEngine, permissionProfiles, type PermissionProfile } from '@lnwjud/permissions';
-import { ActivityTracker, type ActivitySink } from './activity-tracker.js';
+import { ActivityTracker, type ActivitySink, type TraceContext } from './activity-tracker.js';
 import { ContextEngine } from './context-engine.js';
 import { ContextEconomyRuntime } from './context-economy.js';
 import { hasExplicitUserConfirmation, inspectDestructiveOperation } from './destructive-policy.js';
@@ -94,8 +94,8 @@ export class ToolRegistry {
     return this.schemaRegistry.describe(name);
   }
 
-  public async invoke(name: string, input: unknown): Promise<McpToolResponse> {
-    const callId = await this.activity.begin(name, input);
+  public async invoke(name: string, input: unknown, traceContext?: TraceContext): Promise<McpToolResponse> {
+    const callId = await this.activity.begin(name, input, traceContext);
     const started = Date.now();
     try {
       const tool = this.tools.find((candidate) => candidate.name === name);

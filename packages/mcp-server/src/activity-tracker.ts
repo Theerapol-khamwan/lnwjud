@@ -10,6 +10,13 @@ export interface ActivitySinkEvent {
   readonly targetSummary?: string;
   readonly resultMessage?: string;
   readonly timestamp: string;
+  readonly traceId?: string;
+  readonly traceParent?: string;
+}
+
+export interface TraceContext {
+  readonly traceId?: string;
+  readonly traceParent?: string;
 }
 
 export interface ActivitySink {
@@ -24,6 +31,8 @@ export interface InFlightToolCall {
   readonly startedAt: string;
   readonly workspaceId?: string;
   readonly targetSummary?: string;
+  readonly traceId?: string;
+  readonly traceParent?: string;
 }
 
 export class ActivityTracker {
@@ -38,17 +47,20 @@ export class ActivityTracker {
     return [...this.inflight.values()];
   }
 
-  public async begin(toolName: string, input: unknown): Promise<string> {
+  public async begin(toolName: string, input: unknown, traceContext?: TraceContext): Promise<string> {
     const callId = randomUUID();
     const timestamp = new Date().toISOString();
     const workspaceId = readWorkspaceId(input);
     const targetSummary = summarizeToolTarget(toolName, input);
+    const trace = traceContext ?? readTraceContext(input);
     const entry: InFlightToolCall = {
       callId,
       toolName,
       startedAt: timestamp,
       ...(workspaceId === undefined ? {} : { workspaceId }),
       ...(targetSummary === undefined ? {} : { targetSummary }),
+      ...(trace.traceId === undefined ? {} : { traceId: trace.traceId }),
+      ...(trace.traceParent === undefined ? {} : { traceParent: trace.traceParent }),
     };
     this.inflight.set(callId, entry);
     await this.safeRecord({
@@ -60,6 +72,8 @@ export class ActivityTracker {
       timestamp,
       ...(workspaceId === undefined ? {} : { workspaceId }),
       ...(targetSummary === undefined ? {} : { targetSummary }),
+      ...(trace.traceId === undefined ? {} : { traceId: trace.traceId }),
+      ...(trace.traceParent === undefined ? {} : { traceParent: trace.traceParent }),
     });
     return callId;
   }
@@ -77,6 +91,8 @@ export class ActivityTracker {
       timestamp,
       ...(existing?.workspaceId === undefined ? {} : { workspaceId: existing.workspaceId }),
       ...(existing?.targetSummary === undefined ? {} : { targetSummary: existing.targetSummary }),
+      ...(existing?.traceId === undefined ? {} : { traceId: existing.traceId }),
+      ...(existing?.traceParent === undefined ? {} : { traceParent: existing.traceParent }),
       ...(resultMessage === undefined || resultMessage.length === 0 ? {} : { resultMessage }),
     });
   }
@@ -118,6 +134,17 @@ export function summarizeToolTarget(toolName: string, input: unknown): string | 
   return undefined;
 }
 
+export function readTraceContext(input: unknown): TraceContext {
+  if (!isRecord(input)) return {};
+  const metadata = isRecord(input.metadata) ? input.metadata : undefined;
+  const traceId = boundedTraceValue(input.trace_id ?? input.traceId ?? metadata?.trace_id ?? metadata?.traceId);
+  const traceParent = boundedTraceValue(input.traceparent ?? input.traceParent ?? metadata?.traceparent ?? metadata?.traceParent);
+  return {
+    ...(traceId === undefined ? {} : { traceId }),
+    ...(traceParent === undefined ? {} : { traceParent }),
+  };
+}
+
 function readWorkspaceId(input: unknown): string | undefined {
   if (!isRecord(input) || typeof input.workspaceId !== 'string' || input.workspaceId.trim().length === 0) {
     return undefined;
@@ -135,6 +162,11 @@ function firstString(input: Readonly<Record<string, unknown>>, keys: readonly st
 
 function truncate(value: string, max: number): string {
   return value.length <= max ? value : `${value.slice(0, max - 1)}…`;
+}
+
+function boundedTraceValue(value: unknown): string | undefined {
+  if (typeof value !== 'string' || value.trim().length === 0) return undefined;
+  return truncate(value.trim(), 256);
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

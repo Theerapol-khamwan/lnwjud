@@ -54,4 +54,6 @@ export interface McpToolAuditInput {
   readonly resultCode: string;
   readonly resultMessage?: string;
   readonly durationMs: number;
+  readonly traceId?: string;
+  readonly traceParent?: string;
 }

@@ -22,6 +22,8 @@ export interface LocalCapabilityBackends {
   readonly screenRecord?: CapabilityBackend;
   readonly office?: CapabilityBackend;
   readonly scheduler?: CapabilityBackend;
+  readonly wslExec?: CapabilityBackend;
+  readonly wslFs?: CapabilityBackend;
 }
 
 export class LocalCapabilityService implements CapabilityService {
@@ -52,6 +54,8 @@ export class LocalCapabilityService implements CapabilityService {
       case 'screen_record': return this.backends.screenRecord;
       case 'office': return this.backends.office;
       case 'scheduler': return this.backends.scheduler;
+      case 'wsl_exec': return this.backends.wslExec;
+      case 'wsl_fs': return this.backends.wslFs;
     }
   }
 }

@@ -22,12 +22,16 @@ receive a public shell and does not read the local Codex configuration. For a
 ChatGPT web connection, OpenAI Secure MCP Tunnel forwards MCP requests to a
 local lnwjud process; the tunnel is outbound-only.
 
-## v3.0.4 release status
+## v4.0.0 release status
 
-Release `v3.0.4` expands all dashboard panel views (Work Log, Live Logs, Projects, Git status, and Doctor diagnostics) to full viewport height, eliminating remaining dead space and restrictive height caps while keeping compact home modes intact. It maintains:
+Release `v4.0.0` ships the additive God-Tier local-first gateway slices while keeping the existing security and primitive-tool contracts intact. The current runtime advertises 208 tools with the historical 184-tool catalog preserved as a compatibility baseline. It includes:
+- Scoped WSL execution and registered-workspace path translation with task ownership, timeout, cancellation, and audit boundaries.
+- Set-of-Marks annotated capture with expiring observation hashes and approval-gated target actions.
+- Trace-correlated health, task, NDJSON, and SQLite audit metadata.
+- Deterministic semantic tool routing with ranked candidates, reason codes, permission metadata, and local-only fallback behavior.
+- A Windows OCR helper boundary with truthful unavailable behavior when package identity or the signed sparse package is not present.
 - Branded Windows tray mode with background service persistence.
 - Permission enforcement for Desktop MCP capability tools with full-access stdio/tunnel profiles.
-- 184-tool catalog across workspace, shell, process, Git, Office, and vision capabilities.
 - Compound/parallel workflows, persistent indexing, and Context Economy Engine.
 - Stable external tunnel detection and DPAPI-encrypted credential management.
 
@@ -64,7 +68,7 @@ Choose your preferred setup method:
 Follow this 4-step quick start to connect ChatGPT or any AI agent to your Windows PC using the official pre-built installer:
 
 #### Step 1: Download & Install Lnwjud Desktop
-1. Download the latest installer (`lnwjud-Setup-3.0.4.exe`) from **[GitHub Releases](https://github.com/engasnm111/lnwjud/releases/latest)**.
+1. Download the latest installer (`lnwjud-Setup-4.0.0.exe`) from **[GitHub Releases](https://github.com/engasnm111/lnwjud/releases/latest)**.
 2. Run the installer (it automatically creates start menu and desktop shortcuts).
 3. Launch **Lnwjud Agent Control Center**.
 
@@ -322,7 +326,7 @@ corepack pnpm@10.15.0 package:windows
 The x64 NSIS installer is written to:
 
 ```text
-apps/desktop/dist/installers/lnwjud-Setup-3.0.4.exe
+apps/desktop/dist/installers/lnwjud-Setup-4.0.0.exe
 ```
 
 The installer is per-user by default. A common installed executable path is:

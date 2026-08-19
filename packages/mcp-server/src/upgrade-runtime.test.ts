@@ -37,6 +37,34 @@ describe('upgrade runtime', () => {
     if (search.ok) expect(search.value).toHaveProperty('matches');
   });
 
+  it('ranks primitive and upgrade tools with deterministic reasons without granting authorization', async () => {
+    const runtime = new UpgradeRuntimeService({}, actor);
+    const search = await runtime.execute('tool_dynamic_filter', { query: 'run a Linux WSL developer command', limit: 20, reranker: 'local' });
+
+    expect(search).toMatchObject({ ok: true, value: {
+      selectedModel: 'deterministic',
+      fallbackReason: 'local_model_not_configured',
+      primitiveToolsRemainAvailable: true,
+      authorizationUnchanged: true,
+      rankedCandidates: expect.arrayContaining([
+        expect.objectContaining({ name: 'wsl_exec', permission: 'EXECUTE', reasonCodes: expect.any(Array) }),
+      ]),
+    } });
+    if (search.ok) expect(search.value.rankedCandidates[0]?.name).toBe('wsl_exec');
+  });
+
+  it('returns route reason codes and a measurable deterministic model selection', async () => {
+    const runtime = new UpgradeRuntimeService({}, actor);
+    const route = await runtime.execute('route_intent', { prompt: 'debug the WSL task timeout and inspect live logs' });
+
+    expect(route).toMatchObject({ ok: true, value: {
+      route: 'debug',
+      selectedModel: 'deterministic',
+      reasonCodes: expect.arrayContaining(['keyword:debug', 'keyword:wsl']),
+      authorizationUnchanged: true,
+    } });
+  });
+
   it('keeps context reads unrestricted while asking for dangerous actions', async () => {
     const runtime = new UpgradeRuntimeService({}, actor);
     const read = await runtime.execute('permission_check', { action: 'filesystem.read' });
@@ -73,5 +101,66 @@ describe('upgrade runtime', () => {
     expect(resumed).toMatchObject({ ok: true, value: { checkpoints: [{ summary: 'inspect logs' }] } });
     const task = await second.execute('task_create', { instruction: 'run tests' });
     expect(task).toMatchObject({ ok: true, value: { inputDigest: expect.any(String) } });
+    });
   });
-});
+
+  it('keeps Git worktree spawning path-scoped and dry-run first', async () => {
+    const calls: unknown[] = [];
+    const runtime = new UpgradeRuntimeService({
+      git: {
+        async run(_actor, request): Promise<ReturnType<typeof ok>> {
+          calls.push(request);
+          return ok({ exitCode: 0, stdout: 'worktree ready', stderr: '' });
+        },
+      },
+    }, actor);
+
+    await expect(runtime.execute('git_worktree_spawn', { workspaceId: 'ws-1', worktreePath: '.worktrees/agent-1', ref: 'main' })).resolves.toMatchObject({ ok: true, value: { dryRun: true, sideEffectsStarted: false } });
+    await expect(runtime.execute('git_worktree_spawn', { workspaceId: 'ws-1', worktreePath: '..\\outside', ref: 'main', dryRun: false, userConfirmed: true })).resolves.toMatchObject({ ok: false, error: { code: 'PATH_OUTSIDE_WORKSPACE' } });
+    await expect(runtime.execute('git_worktree_spawn', { workspaceId: 'ws-1', worktreePath: '.worktrees/agent-1', ref: 'main', dryRun: false })).resolves.toMatchObject({ ok: false, error: { code: 'PERMISSION_REQUIRED' } });
+    await expect(runtime.execute('git_worktree_spawn', { workspaceId: 'ws-1', worktreePath: '.worktrees/agent-1', ref: 'main', dryRun: false, userConfirmed: true })).resolves.toMatchObject({ ok: true, value: { status: 'completed', sideEffectsStarted: true } });
+    expect(calls).toEqual([{ workspaceId: 'ws-1', args: ['worktree', 'add', '--detach', '.worktrees/agent-1', 'main'] }]);
+  });
+
+  it('keeps the 50-prompt routing golden set in the top-20 with a local p95 budget', async () => {
+    const templates = [
+      ['run a Linux WSL developer command', 'wsl_exec'],
+      ['capture a numbered native UI observation', 'vision_annotated_capture'],
+      ['read Thai and English text with offline OCR', 'vision'],
+      ['detonate an artifact offline in Windows Sandbox', 'sandbox_exec'],
+      ['watch an allowlisted ETW event provider', 'event_watch'],
+      ['show TypeScript compiler diagnostics from LSP', 'lsp_diagnostics'],
+      ['rename a symbol with a cross-file LSP edit plan', 'lsp_rename'],
+      ['attach to an owned DAP debug adapter', 'debug_attach'],
+      ['step the debugger and inspect locals', 'debug_step'],
+      ['spawn an isolated Git worktree', 'git_worktree_spawn'],
+      ['inspect the local database schema', 'db_inspect'],
+      ['run a bounded local SQL database query', 'db_query'],
+      ['create a PowerPoint slide through Office', 'office_ppt'],
+      ['draft an Outlook message through Office', 'office_outlook'],
+      ['extract tables from a PDF', 'pdf_extract_tables'],
+      ['merge DOCX documents after approval', 'docx_merge'],
+      ['plan a safe reversible self-healing fix', 'self_heal_plan'],
+      ['import a compatible local agent skill', 'skills_import'],
+      ['plan an owned parallel agent swarm', 'agent_swarm_run'],
+      ['discover connected MCP servers in the hub', 'mcp_hub'],
+      ['run a bounded shell process', 'shell'],
+      ['act on a revalidated marked UI control', 'ui_target_action'],
+      ['translate a registered Windows path to WSL', 'wsl_fs'],
+      ['inspect context economy telemetry', 'context_economy_stats'],
+      ['discover project tests', 'discover_tests'],
+    ] as const;
+    const golden = Array.from({ length: 50 }, (_, index) => ({ query: `${templates[index % templates.length]![0]} ${index}`, target: templates[index % templates.length]![1] }));
+    const runtime = new UpgradeRuntimeService({}, actor);
+    const latencies: number[] = [];
+    for (const prompt of golden) {
+      const started = performance.now();
+      const result = await runtime.execute('tool_dynamic_filter', { query: prompt.query, limit: 20 });
+      latencies.push(performance.now() - started);
+      expect(result).toMatchObject({ ok: true, value: { rankedCandidates: expect.any(Array), primitiveToolsRemainAvailable: true } });
+      if (result.ok) expect(result.value.rankedCandidates.map((candidate) => candidate.name)).toContain(prompt.target);
+    }
+    const sorted = [...latencies].sort((left, right) => left - right);
+    const p95 = sorted[Math.min(sorted.length - 1, Math.ceil(sorted.length * 0.95) - 1)] ?? Number.POSITIVE_INFINITY;
+    expect(p95).toBeLessThan(50);
+  });

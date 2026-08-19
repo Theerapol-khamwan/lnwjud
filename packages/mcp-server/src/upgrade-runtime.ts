@@ -1,9 +1,9 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
-import type { Result } from '@lnwjud/domain';
-import { ok } from '@lnwjud/domain';
+import { appError, err, ok, type Result } from '@lnwjud/domain';
 import type { FileActor } from '@lnwjud/application';
+import { capabilityDescriptors, type CapabilityDescriptor } from '@lnwjud/capabilities';
 import type { McpApplicationServices } from './tools/tool-types.js';
 import { ContextEngine } from './context-engine.js';
 import { ContextEconomyRuntime } from './context-economy.js';
@@ -31,12 +31,56 @@ interface CacheCounters {
   bytesSaved: number;
 }
 
+interface SearchCatalogEntry extends UpgradeToolCatalogEntry {
+  readonly primitive?: boolean;
+  readonly auditTarget?: string;
+}
+
+interface RankedToolCandidate {
+  readonly name: string;
+  readonly score: number;
+  readonly reasonCodes: readonly string[];
+  readonly permission: UpgradeToolCatalogEntry['permission'];
+  readonly permissionMetadata: {
+    readonly permission: UpgradeToolCatalogEntry['permission'];
+    readonly authorization: 'not_granted_by_ranking';
+    readonly destructiveHint: boolean;
+  };
+  readonly source: 'primitive' | 'upgrade';
+  readonly tags: readonly string[];
+  readonly phase: number;
+}
+
 interface PersistedRuntimeState {
   readonly tasks?: readonly RuntimeTask[];
   readonly checkpoints?: readonly SessionCheckpoint[];
   readonly plugins?: readonly { readonly name: string; readonly enabled: boolean }[];
   readonly session?: readonly [string, unknown][];
 }
+
+const PRIMITIVE_SEARCH_ENTRIES: readonly SearchCatalogEntry[] = [
+  primitiveEntry('workspace_list', 'List registered workspaces.', 'READ', ['workspace', 'read']),
+  primitiveEntry('workspace_tree', 'Read a bounded registered workspace tree.', 'READ', ['workspace', 'tree', 'read']),
+  primitiveEntry('read_file', 'Read one guarded workspace file.', 'READ', ['workspace', 'file', 'read']),
+  primitiveEntry('read_files', 'Read multiple guarded workspace files.', 'READ', ['workspace', 'file', 'read']),
+  primitiveEntry('search_files', 'Search guarded workspace file paths.', 'READ', ['workspace', 'search', 'read']),
+  primitiveEntry('search_text', 'Search guarded workspace text.', 'READ', ['workspace', 'search', 'read']),
+  primitiveEntry('git', 'Run a guarded Git operation.', 'DANGEROUS', ['git', 'execute']),
+  primitiveEntry('write_file', 'Write a guarded workspace file.', 'WRITE', ['workspace', 'file', 'write']),
+  primitiveEntry('apply_patch', 'Apply a guarded workspace patch.', 'WRITE', ['workspace', 'file', 'write']),
+  primitiveEntry('shell', 'Run a local task through the bounded shell runner.', 'EXECUTE', ['shell', 'process', 'execute']),
+  primitiveEntry('vision', 'Capture local screen content or use the OCR boundary.', 'READ', ['vision', 'display', 'read']),
+  primitiveEntry('vision_annotated_capture', 'Capture an expiring Set-of-Marks observation.', 'READ', ['vision', 'ui', 'read']),
+  primitiveEntry('ui_target_action', 'Act on a revalidated visual mark.', 'DANGEROUS', ['vision', 'ui', 'execute']),
+  primitiveEntry('tool_batch', 'Invoke registered tools with bounded dependency groups.', 'DANGEROUS', ['workflow', 'execute']),
+];
+
+const CAPABILITY_SEARCH_ENTRIES: readonly SearchCatalogEntry[] = capabilityDescriptors.map((descriptor) => capabilitySearchEntry(descriptor));
+const SEARCH_CATALOG: readonly SearchCatalogEntry[] = dedupeSearchEntries([
+  ...PRIMITIVE_SEARCH_ENTRIES,
+  ...CAPABILITY_SEARCH_ENTRIES,
+  ...UPGRADE_TOOL_CATALOG,
+]);
 
 export class UpgradeRuntimeService {
   private readonly contextEngine: ContextEngine;
@@ -65,7 +109,8 @@ export class UpgradeRuntimeService {
     switch (name) {
       case 'tool_search':
       case 'tool_function_find':
-        return ok(this.searchTools(readString(input, 'query') ?? readString(input, 'prompt') ?? ''));
+      case 'tool_dynamic_filter':
+        return ok(this.searchTools(readString(input, 'query') ?? readString(input, 'prompt') ?? '', input));
       case 'tool_describe':
         return ok(this.describeTool(readString(input, 'name') ?? readString(input, 'tool')));
       case 'tool_categories':
@@ -189,6 +234,12 @@ export class UpgradeRuntimeService {
       case 'mcp_health':
       case 'mcp_resources':
         return ok({ servers: this.services.extensions === undefined ? [] : 'available', nativeToolsRemainVisible: true, connectionPooling: true, timeoutIsolation: true });
+      case 'mcp_hub':
+        return ok({ tool: name, status: 'optional', available: this.services.extensions !== undefined, flattenChildTools: false, credentialsStoredInRepository: false, statelessTransport: true, tasksExtension: true, cacheMetadata: true, tracePropagation: true, authorizationUnchanged: true });
+      case 'self_heal_plan':
+        return ok({ tool: name, status: 'ready', available: true, applied: false, mutationRequired: false, safeReversibleFixes: [], automaticDestructiveRetry: false, auditTarget: 'recovery-plan' });
+      case 'git_worktree_spawn':
+        return this.gitWorktreeSpawn(input);
       case 'handoff_context':
         return ok({ goal: summarize(readString(input, 'prompt') ?? readString(input, 'goal') ?? ''), workspaceId: readString(input, 'workspaceId') ?? null, branch: null, filesChanged: [], filesInspected: [], tests: [], failures: [], decisions: [], openQuestions: [], recommendedNextActions: ['inspect current status', 'continue with primitive tools'] });
       case 'benchmark_run':
@@ -250,19 +301,53 @@ export class UpgradeRuntimeService {
       case 'dev_context':
         return ok({ prompt: summarize(readString(input, 'prompt') ?? ''), route: routeIntent(readString(input, 'prompt') ?? '').route, executed: ['route_intent', 'workspace_context', 'git_context', 'test_context'], continuationPaths: true, primitiveToolsRemainAvailable: true });
       default:
-        return ok({ tool: name, status: 'ready', phase: UPGRADE_TOOL_CATALOG.find((entry) => entry.name === name)?.phase ?? null, inputKeys: Object.keys(input).sort() });
+        return ok(contractStatus(name, input));
     }
   }
 
-  private searchTools(query: string): { readonly query: string; readonly matches: readonly UpgradeToolCatalogEntry[] } {
+  private searchTools(query: string, input: Record<string, unknown> = {}): Record<string, unknown> {
     const normalized = query.toLowerCase().trim();
-    const matches = UPGRADE_TOOL_CATALOG.filter((entry) => normalized.length === 0 || `${entry.name} ${entry.description} ${entry.tags.join(' ')}`.toLowerCase().includes(normalized));
-    return { query, matches };
+    const limit = boundedInteger(input.limit ?? input.topK, 20, 1, 100);
+    const requestedReranker = readString(input, 'reranker') ?? readString(input, 'model') ?? 'deterministic';
+    const category = readString(input, 'category')?.toLowerCase();
+    const route = routeIntent(query);
+    const scored = SEARCH_CATALOG
+      .filter((entry) => category === undefined || entry.tags.some((tag) => tag.toLowerCase() === category))
+      .map((entry) => scoreToolEntry(entry, normalized, route))
+      .filter((entry) => normalized.length === 0 || entry.score > 0)
+      .sort((left, right) => right.score - left.score || Number(right.entry.primitive === true) - Number(left.entry.primitive === true) || left.entry.name.localeCompare(right.entry.name));
+    const rankedCandidates: readonly RankedToolCandidate[] = scored.slice(0, limit).map((candidate) => ({
+      name: candidate.entry.name,
+      score: Number(candidate.score.toFixed(4)),
+      reasonCodes: candidate.reasonCodes,
+      permission: candidate.entry.permission,
+      permissionMetadata: {
+        permission: candidate.entry.permission,
+        authorization: 'not_granted_by_ranking',
+        destructiveHint: candidate.entry.permission === 'DANGEROUS',
+      },
+      source: candidate.entry.primitive === true ? 'primitive' : 'upgrade',
+      tags: candidate.entry.tags,
+      phase: candidate.entry.phase,
+    }));
+    const selectedModel = requestedReranker === 'local' ? 'deterministic' : 'deterministic';
+    return {
+      query,
+      matches: scored.slice(0, limit).map((candidate) => candidate.entry),
+      totalMatches: scored.length,
+      limit,
+      rankedCandidates,
+      selectedModel,
+      ...(requestedReranker === 'local' ? { fallbackReason: 'local_model_not_configured' } : {}),
+      primitiveToolsRemainAvailable: true,
+      authorizationUnchanged: true,
+      route: route.route,
+    };
   }
 
   private describeTool(name: string | undefined): unknown {
-    const entry = UPGRADE_TOOL_CATALOG.find((candidate) => candidate.name === name);
-    return entry === undefined ? { found: false, name: name ?? null } : { found: true, ...entry, schema: { type: 'object', additionalProperties: true } };
+    const entry = SEARCH_CATALOG.find((candidate) => candidate.name === name);
+    return entry === undefined ? { found: false, name: name ?? null } : { found: true, ...entry, schema: { type: 'object', additionalProperties: true }, authorizationUnchanged: true };
   }
 
   private categories(): { readonly categories: readonly { readonly category: string; readonly tools: number }[] } {
@@ -302,6 +387,39 @@ export class UpgradeRuntimeService {
     task.state = 'cancelled';
     await this.persistState();
     return { cancelled: true, id };
+  }
+
+  private async gitWorktreeSpawn(input: Record<string, unknown>): Promise<Result<unknown>> {
+    const workspaceId = readString(input, 'workspaceId');
+    if (workspaceId === undefined) return err(appError('INVALID_INPUT', 'workspaceId is required for a Git worktree'));
+    const worktreePath = readString(input, 'worktreePath') ?? `.worktrees/agent-${randomUUID().slice(0, 8)}`;
+    const normalizedPath = worktreePath.replaceAll('\\', '/');
+    if (normalizedPath.startsWith('/') || /^[A-Za-z]:/.test(normalizedPath) || normalizedPath.split('/').some((part) => part === '..') || !(normalizedPath.startsWith('.worktrees/') || normalizedPath.startsWith('.lnwjud/worktrees/'))) {
+      return err(appError('PATH_OUTSIDE_WORKSPACE', 'Git worktree path must remain under .worktrees or .lnwjud/worktrees'));
+    }
+    const ref = readString(input, 'ref') ?? 'HEAD';
+    if (ref.includes('\0') || ref.length > 256) return err(appError('INVALID_INPUT', 'Git worktree ref is invalid'));
+    const plan = {
+      tool: 'git_worktree_spawn',
+      workspaceId,
+      worktreePath: normalizedPath,
+      ref,
+      owner: this.actor.clientId,
+      collisionPolicy: 'one-owner-per-worktree-path',
+      mutationPolicy: 'explicit-confirmation-and-dry-run',
+      sideEffectsStarted: false,
+    };
+    const dryRun = input.dryRun !== false && input.dry_run !== false;
+    if (dryRun) return ok({ ...plan, dryRun: true });
+    if (input.userConfirmed !== true) return err(appError('PERMISSION_REQUIRED', 'Creating a Git worktree requires explicit user confirmation'));
+    if (this.services.git === undefined) return ok({ ...plan, dryRun: false, status: 'optional', available: false, reason: 'Git service is not configured' });
+    const result = await this.services.git.run(this.actor, {
+      workspaceId,
+      args: ['worktree', 'add', '--detach', normalizedPath, ref],
+      ...(typeof input.timeoutMs === 'number' ? { timeoutMs: input.timeoutMs } : {}),
+    });
+    if (!result.ok) return result;
+    return ok({ ...plan, dryRun: false, sideEffectsStarted: true, status: 'completed', result: result.value });
   }
 
   private async repositoryMap(workspaceId: string | undefined): Promise<Result<unknown>> {
@@ -426,14 +544,133 @@ function lifecycleEvents(): readonly string[] {
   return ['beforeTool', 'afterTool', 'beforeRead', 'afterRead', 'beforeWrite', 'afterWrite', 'beforeShell', 'afterShell', 'beforeGit', 'afterGit', 'beforeBrowser', 'afterBrowser'];
 }
 
-function routeIntent(prompt: string): { readonly route: string; readonly domain: string; readonly confidence: 'high' | 'medium' } {
+function primitiveEntry(name: string, description: string, permission: UpgradeToolCatalogEntry['permission'], tags: readonly string[]): SearchCatalogEntry {
+  return { name, phase: 0, description, permission, tags, parallelSafe: permission === 'READ', primitive: true };
+}
+
+function capabilitySearchEntry(descriptor: CapabilityDescriptor): SearchCatalogEntry {
+  return {
+    name: descriptor.name,
+    phase: 0,
+    description: `${descriptor.name} local capability (${descriptor.auditTarget})`,
+    permission: descriptor.permission,
+    tags: [descriptor.name, descriptor.auditTarget, 'capability'],
+    parallelSafe: descriptor.permission === 'READ',
+    primitive: true,
+    auditTarget: descriptor.auditTarget,
+  };
+}
+
+function dedupeSearchEntries(entries: readonly SearchCatalogEntry[]): readonly SearchCatalogEntry[] {
+  const seen = new Set<string>();
+  return entries.filter((entry) => {
+    if (seen.has(entry.name)) return false;
+    seen.add(entry.name);
+    return true;
+  });
+}
+
+function scoreToolEntry(entry: SearchCatalogEntry, query: string, route: ReturnType<typeof routeIntent>): { readonly entry: SearchCatalogEntry; readonly score: number; readonly reasonCodes: readonly string[] } {
+  if (query.length === 0) return { entry, score: 0, reasonCodes: ['empty-query'] };
+  const queryTokens = tokenize(query);
+  const nameTokens = tokenize(entry.name);
+  const tagTokens = entry.tags.flatMap((tag) => tokenize(tag));
+  const description = entry.description.toLowerCase();
+  let score = 0;
+  const reasons = new Set<string>();
+  if (entry.name.toLowerCase() === query) {
+    score += 2;
+    reasons.add('exact-name');
+  }
+  if (entry.name.toLowerCase().includes(query)) {
+    score += 1;
+    reasons.add('name-phrase');
+  }
+  for (const token of queryTokens) {
+    if (nameTokens.includes(token)) {
+      score += 1;
+      reasons.add(`name-token:${token}`);
+    } else if (tagTokens.includes(token)) {
+      score += 0.8;
+      reasons.add(`tag-token:${token}`);
+    } else if (description.includes(token)) {
+      score += 0.25;
+      reasons.add(`description-token:${token}`);
+    }
+  }
+  if (route.route !== 'workspace' && entry.tags.some((tag) => route.route === tag || route.domain.split('/').some((part) => tag === part))) {
+    score += 0.5;
+    reasons.add(`route:${route.route}`);
+  }
+  if (entry.primitive === true) reasons.add('primitive-visible');
+  return { entry, score, reasonCodes: [...reasons] };
+}
+
+function tokenize(value: string): string[] {
+  return value
+    .replace(/([a-z0-9])([A-Z])/g, '$1 $2')
+    .toLowerCase()
+    .split(/[^a-z0-9ก-๙]+/u)
+    .filter((token) => token.length > 0);
+}
+
+function boundedInteger(value: unknown, fallback: number, minimum: number, maximum: number): number {
+  return typeof value === 'number' && Number.isInteger(value) ? Math.min(maximum, Math.max(minimum, value)) : fallback;
+}
+
+function contractStatus(name: string, input: Record<string, unknown>): Record<string, unknown> {
+  const entry = UPGRADE_TOOL_CATALOG.find((candidate) => candidate.name === name);
+  const status = entry?.availability ?? 'ready';
+  return {
+    tool: name,
+    status,
+    available: status === 'ready',
+    ready: status === 'ready',
+    phase: entry?.phase ?? null,
+    ...(entry?.requirements === undefined ? {} : { requirements: entry.requirements }),
+    supportsCancel: entry?.supportsCancel === true,
+    supportsDryRun: entry?.supportsDryRun === true,
+    ...(entry?.auditTarget === undefined ? {} : { auditTarget: entry.auditTarget }),
+    executed: false,
+    primitiveFallbacks: ['read_file', 'search_text', 'workspace_tree'],
+    inputKeys: Object.keys(input).sort(),
+    authorizationUnchanged: true,
+  };
+}
+
+function routeIntent(prompt: string): {
+  readonly route: string;
+  readonly domain: string;
+  readonly confidence: 'high' | 'medium';
+  readonly selectedModel: 'deterministic';
+  readonly reasonCodes: readonly string[];
+  readonly authorizationUnchanged: true;
+} {
   const normalized = prompt.toLowerCase();
-  if (/(live log|mcp activity|tunnel|stdio|connect)/.test(normalized)) return { route: 'debug', domain: 'desktop/mcp/logging', confidence: 'high' };
-  if (/(test|vitest|jest|playwright|pytest)/.test(normalized)) return { route: 'test', domain: 'project/tests', confidence: 'high' };
-  if (/(review|diff|pull request|changed)/.test(normalized)) return { route: 'review', domain: 'git/code', confidence: 'high' };
-  if (/(browser|ui|button|dom|screenshot)/.test(normalized)) return { route: 'frontend', domain: 'browser/ui', confidence: 'medium' };
-  if (/(release|tag|publish|deploy)/.test(normalized)) return { route: 'release', domain: 'git/release', confidence: 'medium' };
-  return { route: 'workspace', domain: 'workspace/code', confidence: 'medium' };
+  const rules: readonly { readonly route: string; readonly domain: string; readonly confidence: 'high' | 'medium'; readonly terms: readonly (readonly [string, string])[] }[] = [
+    { route: 'debug', domain: 'desktop/mcp/logging', confidence: 'high' as const, terms: [['live log', 'live-logs'], ['mcp activity', 'mcp'], ['tunnel', 'tunnel'], ['stdio', 'stdio'], ['connect', 'connect'], ['debug', 'debug'], ['wsl', 'wsl'], ['timeout', 'timeout'], ['crash', 'crash']] },
+    { route: 'test', domain: 'project/tests', confidence: 'high' as const, terms: [['test', 'test'], ['vitest', 'vitest'], ['jest', 'jest'], ['playwright', 'playwright'], ['pytest', 'pytest']] },
+    { route: 'review', domain: 'git/code', confidence: 'high' as const, terms: [['review', 'review'], ['diff', 'diff'], ['pull request', 'pull-request'], ['changed', 'changed']] },
+    { route: 'frontend', domain: 'browser/ui', confidence: 'medium' as const, terms: [['browser', 'browser'], ['ui', 'ui'], ['button', 'button'], ['dom', 'dom'], ['screenshot', 'screenshot']] },
+    { route: 'release', domain: 'git/release', confidence: 'medium' as const, terms: [['release', 'release'], ['tag', 'tag'], ['publish', 'publish'], ['deploy', 'deploy']] },
+  ];
+  const scored = rules.map((rule, index) => ({
+    ...rule,
+    matches: rule.terms.filter(([term]) => normalized.includes(term)),
+    index,
+  })).filter((rule) => rule.matches.length > 0);
+  const selected = scored.sort((left, right) => right.matches.length - left.matches.length || left.index - right.index)[0];
+  if (selected === undefined) {
+    return { route: 'workspace', domain: 'workspace/code', confidence: 'medium', selectedModel: 'deterministic', reasonCodes: ['fallback:workspace'], authorizationUnchanged: true };
+  }
+  return {
+    route: selected.route,
+    domain: selected.domain,
+    confidence: selected.confidence,
+    selectedModel: 'deterministic',
+    reasonCodes: selected.matches.map(([, reason]) => `keyword:${reason}`),
+    authorizationUnchanged: true,
+  };
 }
 
 function recipeCatalog(): readonly { readonly name: string; readonly steps: readonly string[]; readonly optional: boolean }[] {

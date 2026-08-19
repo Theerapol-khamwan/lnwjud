@@ -25,8 +25,13 @@ import {
   PowerShellWindowsCapabilityBridge,
   SchedulerCapabilityBackend,
   ShellCapabilityBackend,
+  VisionCapabilityBackend,
   WebFetchCapabilityBackend,
   WindowsNativeCapabilityBackend,
+  WindowsOcrCapabilityBackend,
+  WindowsOcrProcessBridge,
+  WslCapabilityBackend,
+  WslFilesystemCapabilityBackend,
 } from '@lnwjud/capabilities';
 import type { Result } from '@lnwjud/domain';
 import {
@@ -114,6 +119,8 @@ export function createStdioMcpRuntime(dataPath: string, workspace: Workspace, un
           ...(event.targetSummary === undefined ? {} : { targetSummary: event.targetSummary }),
           resultCode: event.resultCode,
           ...(event.resultMessage === undefined ? {} : { resultMessage: event.resultMessage }),
+          ...(event.traceId === undefined ? {} : { traceId: event.traceId }),
+          ...(event.traceParent === undefined ? {} : { traceParent: event.traceParent }),
           durationMs: event.durationMs,
           timestamp: event.timestamp,
         });
@@ -159,14 +166,15 @@ function createStdioCapabilityService(
   workspaceRootsProvider: () => Promise<readonly string[]>,
   unrestricted: boolean,
 ): LocalCapabilityService {
+  const capabilityRootsProvider = async (): Promise<readonly string[]> => {
+    const workspaceRoots = await workspaceRootsProvider();
+    const configuredRoots = readCapabilityRoots(process.env.LNWJUD_CAPABILITY_ROOTS);
+    const roots = [...workspaceRoots, ...configuredRoots, ...(unrestricted ? [...allFixedDriveRoots()] : [machineRootPath()])];
+    return roots.length === 0 ? [dataPath] : roots;
+  };
   const shellBackend = new ShellCapabilityBackend({
     allowedRoots: [dataPath, ...(unrestricted ? [...allFixedDriveRoots()] : [machineRootPath()])],
-    allowedRootsProvider: async (): Promise<readonly string[]> => {
-      const workspaceRoots = await workspaceRootsProvider();
-      const configuredRoots = readCapabilityRoots(process.env.LNWJUD_CAPABILITY_ROOTS);
-      const roots = [...workspaceRoots, ...configuredRoots, ...(unrestricted ? [...allFixedDriveRoots()] : [machineRootPath()])];
-      return roots.length === 0 ? [dataPath] : roots;
-    },
+    allowedRootsProvider: capabilityRootsProvider,
     unrestricted,
   });
   const browserProtocol = new NodeBrowserCdpProtocol({ profileDir: path.join(dataPath, 'browser-profile') });
@@ -176,16 +184,47 @@ function createStdioCapabilityService(
   });
   const windowsBridge = new PowerShellWindowsCapabilityBridge({ scriptPath: capabilityBridgeScriptPath() });
   const nativeOptions = { allowedRootsProvider: workspaceRootsProvider, unrestricted };
+  const accessibilityBackend = new WindowsNativeCapabilityBackend('accessibility', windowsBridge);
+  const nativeVisionBackend = new WindowsNativeCapabilityBackend('vision', windowsBridge);
+  const ocrHelperPath = windowsOcrHelperPath();
+  const ocrHelper = ocrHelperPath === undefined ? undefined : new WindowsOcrProcessBridge({ helperPath: ocrHelperPath });
+  const visionBackend = new VisionCapabilityBackend(nativeVisionBackend, new WindowsOcrCapabilityBackend({
+    platform: process.platform,
+    ...(ocrHelper === undefined ? {} : { helper: ocrHelper }),
+    ...(ocrHelper === undefined ? {} : { packageIdentity: async (): Promise<Result<boolean>> => ({ ok: true, value: true }) }),
+  }));
+  const wslAvailabilityProbe = async (): Promise<Result<unknown>> => {
+    const result = await shellBackend.execute({ operation: 'run', executable: 'wsl.exe', arguments: ['--status'], cwd: dataPath, execution: 'foreground', timeout_seconds: 5, max_output_bytes: 32 * 1024, userConfirmed: false });
+    if (!result.ok) return { ok: true, value: { available: false, ready: false, local: true, reason: 'wsl_executable_unavailable' } };
+    const value = typeof result.value === 'object' && result.value !== null && !Array.isArray(result.value) ? result.value as Record<string, unknown> : {};
+    const ready = value.state === 'completed' && value.exit_code === 0;
+    return { ok: true, value: { available: ready, ready, local: true, ...(ready ? {} : { reason: 'wsl_status_failed' }) } };
+  };
+  const wslBackend = new WslCapabilityBackend({
+    platform: process.platform,
+    runner: shellBackend,
+    allowedRoots: [dataPath],
+    allowedRootsProvider: capabilityRootsProvider,
+    availabilityProbe: wslAvailabilityProbe,
+  });
+  const wslFsBackend = new WslFilesystemCapabilityBackend({
+    platform: process.platform,
+    allowedRoots: [dataPath],
+    allowedRootsProvider: capabilityRootsProvider,
+    availabilityProbe: wslAvailabilityProbe,
+  });
   const health = new HealthCapabilityBackend({
     domCdp: browserBackend,
-    accessibility: new WindowsNativeCapabilityBackend('accessibility', windowsBridge),
+    accessibility: accessibilityBackend,
+    wslExec: wslBackend,
+    wslFs: wslFsBackend,
   });
   return new LocalCapabilityService({
     shell: shellBackend,
     domCdp: browserBackend,
-    accessibility: new WindowsNativeCapabilityBackend('accessibility', windowsBridge),
+    accessibility: accessibilityBackend,
     inputEvent: new WindowsNativeCapabilityBackend('input_event', windowsBridge),
-    vision: new WindowsNativeCapabilityBackend('vision', windowsBridge),
+    vision: visionBackend,
     window: new WindowsNativeCapabilityBackend('window', windowsBridge),
     health,
     systemInfo: new WindowsNativeCapabilityBackend('system_info', windowsBridge),
@@ -197,6 +236,8 @@ function createStdioCapabilityService(
     screenRecord: new WindowsNativeCapabilityBackend('screen_record', windowsBridge, process.platform, nativeOptions),
     office: new WindowsNativeCapabilityBackend('office', windowsBridge, process.platform, nativeOptions),
     scheduler: new SchedulerCapabilityBackend(),
+    wslExec: wslBackend,
+    wslFs: wslFsBackend,
   });
 }
 
@@ -241,4 +282,17 @@ function resolveScriptDirectory(): string | undefined {
     // Bundled CJS may leave import.meta.url empty.
   }
   return undefined;
+}
+
+function windowsOcrHelperPath(): string | undefined {
+  const configured = process.env.LNWJUD_WINDOWS_OCR_HELPER;
+  if (configured !== undefined && configured.trim().length > 0) return path.resolve(configured);
+  const resourcesPath = (process as NodeJS.Process & { resourcesPath?: string }).resourcesPath;
+  const scriptDir = resolveScriptDirectory();
+  const candidates = [
+    scriptDir === undefined ? undefined : path.join(scriptDir, 'native', 'windows-ocr', 'lnwjud-windows-ocr.exe'),
+    resourcesPath === undefined ? undefined : path.join(resourcesPath, 'windows-ocr', 'lnwjud-windows-ocr.exe'),
+    path.join(path.dirname(process.execPath), 'windows-ocr', 'lnwjud-windows-ocr.exe'),
+  ].filter((candidate): candidate is string => candidate !== undefined);
+  return candidates.find((candidate) => existsSync(candidate));
 }

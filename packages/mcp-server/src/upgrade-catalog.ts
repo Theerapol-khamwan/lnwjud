@@ -8,6 +8,11 @@ export interface UpgradeToolCatalogEntry {
   readonly tags: readonly string[];
   readonly streamable?: boolean;
   readonly parallelSafe?: boolean;
+  readonly availability?: 'ready' | 'optional' | 'planned' | 'unavailable';
+  readonly requirements?: readonly string[];
+  readonly supportsCancel?: boolean;
+  readonly supportsDryRun?: boolean;
+  readonly auditTarget?: string;
 }
 
 const read = (name: string, phase: number, description: string, tags: readonly string[], options: Partial<UpgradeToolCatalogEntry> = {}): UpgradeToolCatalogEntry => ({ name, phase, description, permission: 'READ', tags, parallelSafe: true, ...options });
@@ -112,10 +117,12 @@ export const UPGRADE_TOOL_CATALOG: readonly UpgradeToolCatalogEntry[] = [
   write('tool_schema_register', 32, 'Register a backward-compatible tool schema descriptor.', ['schema', 'registry']),
   read('capabilities', 33, 'Discover capability categories without requiring every full schema.', ['capability', 'discovery']),
   read('tool_search', 33, 'Search tools, tags, phases, and descriptions deterministically.', ['tool', 'search', 'discovery']),
+  read('tool_dynamic_filter', 33, 'Return a bounded ranked tool set using deterministic scoring with optional local rerank fallback.', ['tool', 'search', 'router', 'filter']),
   read('tool_describe', 33, 'Describe one tool contract on demand.', ['tool', 'discovery']),
   read('tool_categories', 33, 'List tool categories and counts.', ['tool', 'discovery']),
   read('tool_function_find', 34, 'Find the best local tool/function candidates for a prompt.', ['tool', 'search']),
   read('tool_aliases', 33, 'List stable shorthand aliases and their primitive tool targets.', ['tool', 'alias', 'discovery']),
+  read('mcp_hub', 41, 'Describe the additive MCP hub boundary without flattening child tools or retaining credentials.', ['mcp', 'gateway', 'hub'], { availability: 'optional', requirements: ['configured child MCP server', 'credential provider outside repository'], supportsCancel: true, supportsDryRun: true, auditTarget: 'mcp-server' }),
   read('dev_context', 35, 'Run the unified deterministic development-context facade.', ['development', 'context'], { streamable: true }),
   read('recipe_catalog', 36, 'Return inspectable developer automation recipes.', ['recipe', 'automation']),
   read('capture_screenshot', 37, 'Capture screenshot metadata for visual validation.', ['visual', 'browser']),
@@ -133,6 +140,24 @@ export const UPGRADE_TOOL_CATALOG: readonly UpgradeToolCatalogEntry[] = [
   read('handoff_context', 39, 'Build a structured cross-agent handoff bundle.', ['handoff', 'session']),
   execute('benchmark_run', 40, 'Run or preview a benchmark scenario.', ['benchmark', 'regression']),
   read('regression_report', 40, 'Return benchmark and regression results.', ['benchmark', 'regression']),
+  execute('sandbox_exec', 42, 'Run an artifact-based Windows Sandbox job with networking disabled and read-only mapped input.', ['windows', 'sandbox', 'detonation'], { availability: 'optional', requirements: ['Windows Sandbox feature', 'interactive user session', 'artifact output directory'], supportsCancel: false, supportsDryRun: true, auditTarget: 'sandbox-artifact' }),
+  execute('event_watch', 42, 'Watch an allowlisted user-mode ETW or Windows Event Log diagnostic stream.', ['windows', 'etw', 'events', 'diagnostics'], { availability: 'optional', requirements: ['allowlisted provider', 'admin diagnostics only when required'], supportsCancel: true, supportsDryRun: true, auditTarget: 'event-provider' }),
+  read('crash_trace', 42, 'Return bounded crash and service-diagnostic context from allowlisted user-mode sources.', ['windows', 'crash', 'diagnostics'], { availability: 'optional', requirements: ['allowlisted provider', 'Windows Event Log'], supportsCancel: true, supportsDryRun: true, auditTarget: 'crash-diagnostic' }),
+  read('lsp_diagnostics', 43, 'Read diagnostics from an owned language-server child process.', ['code', 'lsp', 'diagnostics'], { availability: 'optional', requirements: ['language server executable', 'registered workspace'], supportsCancel: true, supportsDryRun: true, auditTarget: 'language-server' }),
+  write('lsp_rename', 43, 'Create a cross-file LSP rename edit plan before any workspace write.', ['code', 'lsp', 'refactor'], { availability: 'optional', requirements: ['language server executable', 'edit-plan approval'], supportsCancel: true, supportsDryRun: true, auditTarget: 'workspace-edit-plan' }),
+  execute('debug_attach', 43, 'Attach a DAP client only to an owned workspace debug adapter.', ['code', 'dap', 'debug'], { availability: 'optional', requirements: ['debug adapter executable', 'registered workspace'], supportsCancel: true, supportsDryRun: true, auditTarget: 'debug-session' }),
+  execute('debug_step', 43, 'Perform a bounded DAP stepping/read operation in an owned debug session.', ['code', 'dap', 'debug'], { availability: 'optional', requirements: ['owned debug session'], supportsCancel: true, supportsDryRun: true, auditTarget: 'debug-session' }),
+  dangerous('git_worktree_spawn', 44, 'Create an owned Git worktree for isolated agent work with collision metadata.', ['git', 'worktree', 'agent'], { availability: 'optional', requirements: ['registered Git workspace'], supportsCancel: true, supportsDryRun: true, auditTarget: 'git-worktree' }),
+  read('db_inspect', 44, 'Inspect a local database schema through a configured, read-only connection.', ['database', 'schema', 'local'], { availability: 'optional', requirements: ['local database driver', 'registered database target'], supportsCancel: true, supportsDryRun: true, auditTarget: 'database-schema' }),
+  dangerous('db_query', 44, 'Run a bounded local database query under explicit connection and mutation policy.', ['database', 'query', 'local'], { availability: 'optional', requirements: ['local database driver', 'approved database target'], supportsCancel: true, supportsDryRun: true, auditTarget: 'database-query' }),
+  dangerous('office_ppt', 45, 'Automate PowerPoint through the existing Office policy boundary.', ['office', 'powerpoint', 'com'], { availability: 'optional', requirements: ['Microsoft PowerPoint', 'Office COM policy'], supportsCancel: false, supportsDryRun: true, auditTarget: 'office-presentation' }),
+  dangerous('office_outlook', 45, 'Read or draft Outlook operations through the existing Office policy boundary.', ['office', 'outlook', 'com'], { availability: 'optional', requirements: ['Microsoft Outlook', 'Office COM policy', 'redaction policy'], supportsCancel: false, supportsDryRun: true, auditTarget: 'office-mail' }),
+  read('pdf_extract_tables', 45, 'Extract bounded PDF text and tables through a local document provider.', ['document', 'pdf', 'extract'], { availability: 'optional', requirements: ['local PDF provider', 'bounded document size'], supportsCancel: true, supportsDryRun: true, auditTarget: 'document' }),
+  write('docx_merge', 45, 'Create a deterministic DOCX merge plan and write only after approval.', ['document', 'docx', 'merge'], { availability: 'optional', requirements: ['local DOCX provider', 'edit approval'], supportsCancel: true, supportsDryRun: true, auditTarget: 'document' }),
+  read('self_heal_plan', 46, 'Propose safe, deterministic, reversible recovery steps without applying mutations.', ['recovery', 'self-healing', 'safety'], { availability: 'ready', requirements: ['diagnostic evidence'], supportsCancel: false, supportsDryRun: true, auditTarget: 'recovery-plan' }),
+  dangerous('self_heal_apply', 46, 'Apply an approved reversible recovery plan without automatic destructive retries.', ['recovery', 'self-healing', 'safety'], { availability: 'planned', requirements: ['approved recovery plan', 'dry-run preview', 'audit trail'], supportsCancel: true, supportsDryRun: true, auditTarget: 'recovery-mutation' }),
+  write('skills_import', 46, 'Import a compatible skill descriptor after validation and permission review.', ['skills', 'compatibility', 'import'], { availability: 'optional', requirements: ['validated local skill source'], supportsCancel: false, supportsDryRun: true, auditTarget: 'skill-catalog' }),
+  execute('agent_swarm_run', 46, 'Plan bounded parallel subagents with ownership, collision, approval, and cancellation metadata.', ['agent', 'swarm', 'parallel'], { availability: 'planned', requirements: ['subagent provider', 'ownership ledger', 'mutation policy'], supportsCancel: true, supportsDryRun: true, auditTarget: 'agent-swarm' }),
 ];
 
 export function upgradeCatalogEntry(name: string): UpgradeToolCatalogEntry | undefined {

@@ -28,4 +28,25 @@ describe('HealthCapabilityBackend', () => {
 
     await expect(backend.execute({ operation: 'check_tool', tool: 'input_event' })).resolves.toMatchObject({ ok: true, value: { tool: 'input_event', available: false } });
   });
+
+  it('delegates WSL readiness independently from accessibility', async () => {
+    const backend = new HealthCapabilityBackend({
+      platform: 'win32',
+      wslExec: { execute: async (): Promise<Result<unknown>> => ok({ available: true, ready: true, distro: 'Ubuntu' }) },
+      wslFs: { execute: async (): Promise<Result<unknown>> => ok({ available: true, ready: true }) },
+    });
+
+    await expect(backend.execute({ operation: 'check_all' })).resolves.toMatchObject({ ok: true, value: { capabilities: {
+      wsl_exec: { available: true, ready: true, distro: 'Ubuntu' },
+      wsl_fs: { available: true, ready: true },
+    } } });
+
+    const single = await backend.execute({ operation: 'check_tool', tool: 'wsl_exec' });
+    expect(single).toMatchObject({ ok: true, value: {
+      permission: 'EXECUTE',
+      supportsCancel: true,
+      supportsDryRun: true,
+      auditTarget: 'workspace',
+    } });
+  });
 });

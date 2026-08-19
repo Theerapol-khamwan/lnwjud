@@ -166,6 +166,35 @@ export const shellCapabilitySchema = z.object({
   ...capabilityRequestSchema,
 }).strict();
 
+const wslEnvironmentSchema = z.record(z.string().regex(/^[A-Za-z_][A-Za-z0-9_]*$/), z.string().max(4_096)).refine((value) => Object.keys(value).length <= 64, 'WSL environment has too many entries');
+
+export const wslCapabilitySchema = z.object({
+  operation: z.enum(['run', 'status', 'wait', 'logs', 'result', 'cancel']).default('run'),
+  workspaceId: workspaceIdSchema.optional(),
+  distro: z.string().trim().min(1).max(64).regex(/^[A-Za-z0-9._-]+$/).optional(),
+  executable: z.string().trim().min(1).max(1_024).optional(),
+  arguments: z.array(z.string().max(32_768)).max(128).optional(),
+  cwd: pathSchema.optional(),
+  environment: wslEnvironmentSchema.optional(),
+  execution: z.enum(['foreground', 'background', 'auto']).default('auto'),
+  task_id: z.string().trim().min(1).max(128).optional(),
+  timeout_seconds: z.number().min(0.1).max(14_400).optional(),
+  max_output_bytes: z.number().int().min(1).max(8 * 1024 * 1024).optional(),
+  tail_lines: z.number().int().min(0).max(10_000).optional(),
+  include_stdout: z.boolean().default(true),
+  include_stderr: z.boolean().default(true),
+  ...capabilityRequestSchema,
+}).strict();
+
+export const wslFilesystemCapabilitySchema = z.object({
+  operation: z.enum(['status', 'translate', 'metadata']).default('translate'),
+  workspaceId: workspaceIdSchema.optional(),
+  direction: z.enum(['windows_to_wsl', 'wsl_to_windows']).optional(),
+  distro: z.string().trim().min(1).max(64).regex(/^[A-Za-z0-9._-]+$/).optional(),
+  path: pathSchema.optional(),
+  ...capabilityRequestSchema,
+}).strict();
+
 const domStepSchema = z.object({
   action: z.string().trim().min(1).max(128),
   parameters: capabilityParametersSchema.optional(),
@@ -201,14 +230,45 @@ export const inputEventCapabilitySchema = z.object({
 }).strict();
 
 export const visionCapabilitySchema = z.object({
-  action: z.enum(['capture_display', 'capture_region', 'capture_window', 'ocr']),
+  action: z.enum(['capture_display', 'capture_region', 'capture_window', 'annotate', 'ocr']),
   region: capabilityParametersSchema.optional(),
   app: capabilityParametersSchema.optional(),
   window_index: z.number().int().min(0).optional(),
+  image_base64: z.string().min(1).max(16 * 1024 * 1024).optional(),
+  marks: z.array(z.object({
+    mark_id: z.string().trim().min(1).max(32),
+    label: z.string().max(256).optional(),
+    bounds: z.object({ x: z.number(), y: z.number(), width: z.number().positive(), height: z.number().positive() }).strict(),
+  }).strict()).max(500).optional(),
   text: z.string().max(32_768).optional(),
   exact: z.boolean().default(false),
   min_confidence: z.number().min(0).max(1).optional(),
   display_id: z.string().trim().min(1).max(128).optional(),
+  timeout_seconds: z.number().min(0.1).max(14_400).optional(),
+  ...capabilityRequestSchema,
+}).strict();
+
+export const visionAnnotatedCaptureSchema = z.object({
+  workspaceId: workspaceIdSchema,
+  capture: z.enum(['display', 'region', 'window']).default('display'),
+  region: capabilityParametersSchema.optional(),
+  app: capabilityParametersSchema.optional(),
+  window_index: z.number().int().min(0).optional(),
+  display_id: z.string().trim().min(1).max(128).optional(),
+  max_depth: z.number().int().min(0).max(12).optional(),
+  max_marks: z.number().int().min(1).max(500).optional(),
+  ttl_seconds: z.number().min(1).max(300).optional(),
+  timeout_seconds: z.number().min(0.1).max(14_400).optional(),
+  ...capabilityRequestSchema,
+}).strict();
+
+export const uiTargetActionSchema = z.object({
+  workspaceId: workspaceIdSchema,
+  observationId: z.string().trim().min(1).max(128),
+  markId: z.string().trim().min(1).max(32),
+  observationHash: z.string().trim().regex(/^[a-f0-9]{64}$/).optional(),
+  action: z.enum(['click', 'focus', 'read_value', 'set_value', 'select_item', 'menu_select']).default('click'),
+  value: z.string().max(1_000_000).optional(),
   timeout_seconds: z.number().min(0.1).max(14_400).optional(),
   ...capabilityRequestSchema,
 }).strict();
@@ -222,7 +282,7 @@ export const windowCapabilitySchema = z.object({
 
 export const healthCapabilitySchema = z.object({
   operation: z.enum(['check_all', 'check_tool']).default('check_all'),
-  tool: z.enum(['shell', 'dom_cdp', 'accessibility', 'input_event', 'vision', 'window', 'health', 'system_info', 'notification', 'file_dialog', 'clipboard', 'web_fetch']).optional(),
+  tool: z.enum(['shell', 'dom_cdp', 'accessibility', 'input_event', 'vision', 'window', 'health', 'system_info', 'notification', 'file_dialog', 'clipboard', 'web_fetch', 'audio', 'screen_record', 'office', 'scheduler', 'wsl_exec', 'wsl_fs']).optional(),
   request_id: z.string().trim().min(1).max(128).optional(),
 }).strict();
 

@@ -292,6 +292,39 @@ function Invoke-VisionAction {
   Add-Type -AssemblyName System.Windows.Forms
   Add-Type -AssemblyName System.Drawing
   if ($Action -eq 'ocr') { return [ordered]@{ available = $false; reason = 'A local Windows OCR runtime is not installed; use accessibility for semantic text.' } }
+  if ($Action -eq 'annotate') {
+    $encoded = Get-Field $Parameters 'image_base64'
+    if ($encoded -isnot [string] -or $encoded.Length -eq 0) { throw 'image_base64 is required for annotation' }
+    $bytes = [Convert]::FromBase64String($encoded)
+    if ($bytes.Length -gt 16MB) { throw 'Annotation image is too large' }
+    $inputStream = New-Object System.IO.MemoryStream(, $bytes)
+    $bitmap = [System.Drawing.Bitmap]::FromStream($inputStream)
+    $graphics = [System.Drawing.Graphics]::FromImage($bitmap)
+    $pen = New-Object System.Drawing.Pen([System.Drawing.Color]::Red, 3)
+    $labelBrush = New-Object System.Drawing.SolidBrush([System.Drawing.Color]::Yellow)
+    $labelBackground = New-Object System.Drawing.SolidBrush([System.Drawing.Color]::FromArgb(190, 0, 0, 0))
+    $font = New-Object System.Drawing.Font -ArgumentList @('Arial', 12, [System.Drawing.FontStyle]::Bold)
+    foreach ($mark in @(Get-Field $Parameters 'marks')) {
+      $bounds = Get-Field $mark 'bounds'
+      if ($null -eq $bounds) { continue }
+      $markId = [string](Get-Field $mark 'mark_id')
+      $markX = [int](Get-Field $bounds 'x'); $markY = [int](Get-Field $bounds 'y')
+      $markWidth = [int](Get-Field $bounds 'width'); $markHeight = [int](Get-Field $bounds 'height')
+      if ($markWidth -lt 1 -or $markHeight -lt 1) { continue }
+      $graphics.DrawRectangle($pen, $markX, $markY, $markWidth, $markHeight)
+      $labelSize = $graphics.MeasureString($markId, $font)
+      $labelRect = New-Object System.Drawing.RectangleF($markX, $markY, [Math]::Max($labelSize.Width + 8, 24), [Math]::Max($labelSize.Height + 4, 20))
+      $graphics.FillRectangle($labelBackground, $labelRect)
+      $graphics.DrawString($markId, $font, $labelBrush, $markX + 4, $markY + 2)
+    }
+    $outputStream = New-Object System.IO.MemoryStream
+    $bitmap.Save($outputStream, [System.Drawing.Imaging.ImageFormat]::Png)
+    $outputBytes = $outputStream.ToArray()
+    $outputWidth = [int]$bitmap.Width; $outputHeight = [int]$bitmap.Height
+    $graphics.Dispose(); $pen.Dispose(); $labelBrush.Dispose(); $labelBackground.Dispose(); $font.Dispose(); $bitmap.Dispose(); $inputStream.Dispose(); $outputStream.Dispose()
+    if ($outputBytes.Length -gt 16MB) { throw 'Annotated image is too large' }
+    return [ordered]@{ format = 'png'; mime_type = 'image/png'; data_base64 = [Convert]::ToBase64String($outputBytes); width = $outputWidth; height = $outputHeight; annotated = $true; backend = 'Win32/System.Drawing Set-of-Marks overlay' }
+  }
   $x = 0; $y = 0; $width = 0; $height = 0; $source = $Action
   if ($Action -eq 'capture_display') {
     $screens = [System.Windows.Forms.Screen]::AllScreens
@@ -323,7 +356,7 @@ function Invoke-VisionAction {
   $bytes = $stream.ToArray()
   $graphics.Dispose(); $bitmap.Dispose(); $stream.Dispose()
   if ($bytes.Length -gt 8MB) { throw 'Capture is too large' }
-  return [ordered]@{ format = 'png'; mime_type = 'image/png'; data_base64 = [Convert]::ToBase64String($bytes); width = $width; height = $height; source = $source; backend = 'Win32/System.Drawing screen capture' }
+  return [ordered]@{ format = 'png'; mime_type = 'image/png'; data_base64 = [Convert]::ToBase64String($bytes); width = $width; height = $height; origin_x = $x; origin_y = $y; source = $source; backend = 'Win32/System.Drawing screen capture' }
 }
 
 function Invoke-SystemInfoAction {

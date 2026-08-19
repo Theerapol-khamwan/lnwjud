@@ -2,7 +2,7 @@ import { McpServer, type CallToolResult } from '@modelcontextprotocol/server';
 import type { DiagnosticLogger, FileActor } from '@lnwjud/application';
 import type { PermissionProfile } from '@lnwjud/permissions';
 import { APP_NAME, APP_VERSION } from '@lnwjud/shared';
-import type { ActivitySink, ActivityTracker } from './activity-tracker.js';
+import { readTraceContext, type ActivitySink, type ActivityTracker } from './activity-tracker.js';
 import { withProgressHeartbeat, type ProgressNotifyContext } from './progress-heartbeat.js';
 import { ToolRegistry, type McpApplicationServices } from './tool-registry.js';
 
@@ -30,7 +30,7 @@ export function createMcpServer(options: McpServerOptions): McpServer {
       annotations: tool.annotations,
     }, async (input: unknown, context): Promise<CallToolResult> => {
       return withProgressHeartbeat(context as ProgressNotifyContext, tool.name, async () => (
-        registry.invoke(tool.name, input) as unknown as Promise<CallToolResult>
+        registry.invoke(tool.name, input, readTraceContext(context)) as unknown as Promise<CallToolResult>
       ));
     });
   }

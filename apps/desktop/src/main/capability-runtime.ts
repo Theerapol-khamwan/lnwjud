@@ -11,7 +11,12 @@ import {
   SchedulerCapabilityBackend,
   ShellCapabilityBackend,
   WebFetchCapabilityBackend,
+  VisionCapabilityBackend,
   WindowsNativeCapabilityBackend,
+  WindowsOcrCapabilityBackend,
+  WindowsOcrProcessBridge,
+  WslCapabilityBackend,
+  WslFilesystemCapabilityBackend,
 } from '@lnwjud/capabilities';
 import type { Result } from '@lnwjud/domain';
 import type { DashboardSnapshot } from '@lnwjud/ipc-contracts';
@@ -27,16 +32,17 @@ export function createLocalCapabilityRuntime(
   workspaceRootsProvider: () => Promise<readonly string[]>,
   unrestricted: boolean = false,
 ): LocalCapabilityRuntime {
+  const capabilityRootsProvider = async (): Promise<readonly string[]> => {
+    const workspaceRoots = await workspaceRootsProvider();
+    const configuredRoots = readCapabilityRoots(process.env.LNWJUD_CAPABILITY_ROOTS);
+    const roots = unrestricted
+      ? [...workspaceRoots, ...configuredRoots, ...allFixedDriveRoots()]
+      : [...workspaceRoots, ...configuredRoots];
+    return roots.length === 0 ? [dataPath] : roots;
+  };
   const shellBackend = new ShellCapabilityBackend({
     allowedRoots: [dataPath],
-    allowedRootsProvider: async (): Promise<readonly string[]> => {
-      const workspaceRoots = await workspaceRootsProvider();
-      const configuredRoots = readCapabilityRoots(process.env.LNWJUD_CAPABILITY_ROOTS);
-      const roots = unrestricted
-        ? [...workspaceRoots, ...configuredRoots, ...allFixedDriveRoots()]
-        : [...workspaceRoots, ...configuredRoots];
-      return roots.length === 0 ? [dataPath] : roots;
-    },
+    allowedRootsProvider: capabilityRootsProvider,
     unrestricted,
   });
   const browserProtocol = new NodeBrowserCdpProtocol({ profileDir: path.join(dataPath, 'browser-profile') });
@@ -48,7 +54,14 @@ export function createLocalCapabilityRuntime(
   const nativeOptions = { allowedRootsProvider: workspaceRootsProvider, unrestricted };
   const accessibilityBackend = new WindowsNativeCapabilityBackend('accessibility', windowsBridge);
   const inputEventBackend = new WindowsNativeCapabilityBackend('input_event', windowsBridge);
-  const visionBackend = new WindowsNativeCapabilityBackend('vision', windowsBridge);
+  const nativeVisionBackend = new WindowsNativeCapabilityBackend('vision', windowsBridge);
+  const ocrHelperPath = windowsOcrHelperPath();
+  const ocrHelper = ocrHelperPath === undefined ? undefined : new WindowsOcrProcessBridge({ helperPath: ocrHelperPath });
+  const visionBackend = new VisionCapabilityBackend(nativeVisionBackend, new WindowsOcrCapabilityBackend({
+    platform: process.platform,
+    ...(ocrHelper === undefined ? {} : { helper: ocrHelper }),
+    ...(ocrHelper === undefined ? {} : { packageIdentity: async (): Promise<Result<boolean>> => ({ ok: true, value: true }) }),
+  }));
   const windowBackend = new WindowsNativeCapabilityBackend('window', windowsBridge);
   const systemInfoBackend = new WindowsNativeCapabilityBackend('system_info', windowsBridge);
   const notificationBackend = new WindowsNativeCapabilityBackend('notification', windowsBridge);
@@ -59,7 +72,27 @@ export function createLocalCapabilityRuntime(
   const officeBackend = new WindowsNativeCapabilityBackend('office', windowsBridge, process.platform, nativeOptions);
   const webFetchBackend = new WebFetchCapabilityBackend();
   const schedulerBackend = new SchedulerCapabilityBackend();
-  const health = new HealthCapabilityBackend({ domCdp: browserBackend, accessibility: accessibilityBackend });
+  const wslAvailabilityProbe = async (): Promise<Result<unknown>> => {
+    const result = await shellBackend.execute({ operation: 'run', executable: 'wsl.exe', arguments: ['--status'], cwd: dataPath, execution: 'foreground', timeout_seconds: 5, max_output_bytes: 32 * 1024, userConfirmed: false });
+    if (!result.ok) return { ok: true, value: { available: false, ready: false, local: true, reason: 'wsl_executable_unavailable' } };
+    const value = isRecord(result.value) ? result.value : {};
+    const ready = value.state === 'completed' && value.exit_code === 0;
+    return { ok: true, value: { available: ready, ready, local: true, ...(ready ? {} : { reason: 'wsl_status_failed' }) } };
+  };
+  const wslBackend = new WslCapabilityBackend({
+    platform: process.platform,
+    runner: shellBackend,
+    allowedRoots: [dataPath],
+    allowedRootsProvider: capabilityRootsProvider,
+    availabilityProbe: wslAvailabilityProbe,
+  });
+  const wslFsBackend = new WslFilesystemCapabilityBackend({
+    platform: process.platform,
+    allowedRoots: [dataPath],
+    allowedRootsProvider: capabilityRootsProvider,
+    availabilityProbe: wslAvailabilityProbe,
+  });
+  const health = new HealthCapabilityBackend({ domCdp: browserBackend, accessibility: accessibilityBackend, wslExec: wslBackend, wslFs: wslFsBackend });
   const service = new LocalCapabilityService({
     shell: shellBackend,
     domCdp: browserBackend,
@@ -77,6 +110,8 @@ export function createLocalCapabilityRuntime(
     screenRecord: screenRecordBackend,
     office: officeBackend,
     scheduler: schedulerBackend,
+    wslExec: wslBackend,
+    wslFs: wslFsBackend,
   });
   return { service, health };
 }
@@ -111,6 +146,18 @@ function capabilityBridgeScriptPath(): string {
   return candidates.find((candidate) => existsSync(candidate)) ?? candidates[0]!;
 }
 
+function windowsOcrHelperPath(): string | undefined {
+  const configured = process.env.LNWJUD_WINDOWS_OCR_HELPER;
+  if (configured !== undefined && configured.trim().length > 0) return path.resolve(configured);
+  const resourcesPath = (process as NodeJS.Process & { resourcesPath?: string }).resourcesPath;
+  const candidates = [
+    path.resolve(process.cwd(), 'native', 'windows-ocr', 'bin', 'lnwjud-windows-ocr.exe'),
+    resourcesPath === undefined ? undefined : path.join(resourcesPath, 'windows-ocr', 'lnwjud-windows-ocr.exe'),
+    path.join(path.dirname(process.execPath), 'windows-ocr', 'lnwjud-windows-ocr.exe'),
+  ].filter((candidate): candidate is string => candidate !== undefined);
+  return candidates.find((candidate) => existsSync(candidate));
+}
+
 const capabilityTitles: Readonly<Record<(typeof capabilityToolNames)[number], string>> = {
   shell: 'Run system and CLI tasks',
   dom_cdp: 'Control managed Chrome',
@@ -128,6 +175,8 @@ const capabilityTitles: Readonly<Record<(typeof capabilityToolNames)[number], st
   screen_record: 'Record the screen to MP4',
   office: 'Automate Excel and Word',
   scheduler: 'Manage Windows scheduled tasks',
+  wsl_exec: 'Run scoped Linux developer tasks',
+  wsl_fs: 'Translate scoped Windows and WSL paths',
 };
 
 const capabilityDescriptions: Readonly<Record<(typeof capabilityToolNames)[number], string>> = {
@@ -147,6 +196,8 @@ const capabilityDescriptions: Readonly<Record<(typeof capabilityToolNames)[numbe
   screen_record: 'ffmpeg gdigrab screen capture with start/stop/status',
   office: 'Excel range read/write and Word text operations via COM',
   scheduler: 'schtasks.exe list/create/run/delete operations',
+  wsl_exec: 'WSL2 argv-only execution inside registered workspaces',
+  wsl_fs: 'Path translation and metadata without raw WSL filesystem access',
 };
 
 function isRecord(value: unknown): value is Record<string, unknown> {

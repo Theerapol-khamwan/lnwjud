@@ -1,5 +1,6 @@
 import { defineTool, missingService, type McpToolContext, type McpToolDefinition } from './tool-types.js';
 import type { Result } from '@lnwjud/domain';
+import { SetOfMarksService } from '../set-of-marks-service.js';
 import {
   accessibilityCapabilitySchema,
   audioCapabilitySchema,
@@ -15,8 +16,12 @@ import {
   shellCapabilitySchema,
   systemInfoCapabilitySchema,
   visionCapabilitySchema,
+  visionAnnotatedCaptureSchema,
+  uiTargetActionSchema,
   webFetchCapabilitySchema,
   windowCapabilitySchema,
+  wslCapabilitySchema,
+  wslFilesystemCapabilitySchema,
 } from './schemas.js';
 
 export function capabilityTools(context: McpToolContext): McpToolDefinition[] {
@@ -25,6 +30,7 @@ export function capabilityTools(context: McpToolContext): McpToolDefinition[] {
       ? Promise.resolve(missingService())
       : context.services.capabilities.execute(tool, input)
   );
+  const setOfMarks = new SetOfMarksService(context.services.capabilities);
 
   return [
     defineTool({
@@ -66,6 +72,22 @@ export function capabilityTools(context: McpToolContext): McpToolDefinition[] {
       annotations: { readOnlyHint: true, destructiveHint: false },
       inputSchema: visionCapabilitySchema,
       handler: async (input) => execute('vision', input),
+    }),
+    defineTool({
+      name: 'vision_annotated_capture',
+      description: 'Capture a local Windows screen/region/window and return a short-lived Set-of-Marks observation with numbered bounds, a content hash, and an annotated PNG. This tool only observes; use ui_target_action for a separately gated action.',
+      permission: 'READ',
+      annotations: { readOnlyHint: true, destructiveHint: false },
+      inputSchema: visionAnnotatedCaptureSchema,
+      handler: async (input) => setOfMarks.capture(input),
+    }),
+    defineTool({
+      name: 'ui_target_action',
+      description: 'Act on one mark from a current vision_annotated_capture observation. The observation ID, optional hash, TTL, workspace owner, and current Accessibility element are checked before the action is sent.',
+      permission: 'DANGEROUS',
+      annotations: { readOnlyHint: false, destructiveHint: true },
+      inputSchema: uiTargetActionSchema,
+      handler: async (input) => setOfMarks.act(input),
     }),
     defineTool({
       name: 'window',
@@ -154,6 +176,22 @@ export function capabilityTools(context: McpToolContext): McpToolDefinition[] {
       annotations: { readOnlyHint: false, destructiveHint: true },
       inputSchema: schedulerCapabilitySchema,
       handler: async (input) => execute('scheduler', input),
+    }),
+    defineTool({
+      name: 'wsl_exec',
+      description: 'Scoped WSL2 developer runner. Executes one Linux executable with argv, an explicit distribution, and a registered Windows workspace cwd. It never accepts shell command strings; background calls return the existing task_id contract.',
+      permission: 'EXECUTE',
+      annotations: { readOnlyHint: false, destructiveHint: true },
+      inputSchema: wslCapabilitySchema,
+      handler: async (input) => execute('wsl_exec', input),
+    }),
+    defineTool({
+      name: 'wsl_fs',
+      description: 'Translate paths and inspect metadata between a registered Windows workspace and WSL without exposing raw \\\\wsl$ read/write access.',
+      permission: 'READ',
+      annotations: { readOnlyHint: true, destructiveHint: false },
+      inputSchema: wslFilesystemCapabilitySchema,
+      handler: async (input) => execute('wsl_fs', input),
     }),
   ];
 }

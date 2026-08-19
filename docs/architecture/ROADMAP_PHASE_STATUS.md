@@ -50,6 +50,25 @@ Codex installation, or browser session exists when it is not connected.
 | 40 | complete | Unit/integration/E2E/package/release gates and compatibility benchmarks |
 | 41 | complete | Context Economy policy, Context Ledger, duplicate/diff delivery, explicit-access override, and quota telemetry |
 
+## God-Tier Windows AI Gateway waves
+
+These additive waves are tracked separately from the historical Phase 00–41
+catalog. “Contract-ready” means the tool has a schema/permission/audit boundary
+and reports a truthful optional or planned state when its OS/runtime dependency
+is absent; it does not claim that dependency is installed.
+
+| Wave | Status | Evidence |
+| ---: | --- | --- |
+| 0 | complete | Capability descriptors, health metadata, bounded trace propagation into NDJSON/SQLite audit, and 184-tool compatibility baseline |
+| 1 | complete | `wsl_exec` argv-only scoped runner, workspace-owned task handles, cancellation/timeout delegation, and `wsl_fs` translation/metadata boundary |
+| 2 | complete | `vision_annotated_capture`, expiring observation hash, screen-origin normalization, annotated PNG, Accessibility revalidation, and gated `ui_target_action` |
+| 3 | complete-boundary | `vision.ocr` remains public; WinRT helper adapter, C# source, and sparse-package manifest template are present; signed package registration is environment/release work |
+| 4 | complete | Deterministic semantic scorer, primitive-visible ranked candidates, reason codes, permission metadata, `tool_dynamic_filter`, and local-rerank fallback |
+| 5 | contract-ready | Artifact-only Windows Sandbox plan plus optional ETW/Event Log catalog contracts; actual Sandbox/provider runtime remains environment-gated |
+| 6 | contract-ready | LSP/DAP/database catalog contracts and safe Git worktree dry-run/approval boundary; language servers/debug adapters/database drivers remain optional |
+| 7 | contract-ready | PowerPoint/Outlook/PDF/DOCX policy contracts with redaction/dry-run requirements; provider installation remains optional |
+| 8 | contract-ready | Self-healing plan is read-only and reversible by construction; mutation/swarm execution remains explicitly planned and approval-gated |
+
 ## Phase 04 visibility and economy rule
 
 Automatic discovery/indexing skips vendor, build/cache, binary, and generated

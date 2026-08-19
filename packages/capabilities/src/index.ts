@@ -17,6 +17,8 @@ export const capabilityToolNames = Object.freeze([
   'screen_record',
   'office',
   'scheduler',
+  'wsl_exec',
+  'wsl_fs',
 ] as const);
 
 export type CapabilityToolName = (typeof capabilityToolNames)[number];
@@ -32,5 +34,20 @@ export { NodeBrowserCdpProtocol } from './browser-cdp-protocol.js';
 export { HealthCapabilityBackend } from './health-backend.js';
 export { WebFetchCapabilityBackend } from './web-fetch-backend.js';
 export { SchedulerCapabilityBackend } from './scheduler-backend.js';
+export { WslCapabilityBackend, WslFilesystemCapabilityBackend, type WslCapabilityOptions, type WslFilesystemCapabilityOptions } from './wsl-backend.js';
+export {
+  VisionCapabilityBackend,
+  WindowsOcrCapabilityBackend,
+  WindowsOcrProcessBridge,
+  type WindowsOcrCapabilityOptions,
+  type WindowsOcrHelper,
+  type WindowsOcrProcessBridgeOptions,
+} from './windows-ocr-backend.js';
 export { WindowsNativeCapabilityBackend, type WindowsCapabilityBridge, type WindowsCapabilityName } from './windows-native-backend.js';
 export { PowerShellWindowsCapabilityBridge, type PowerShellWindowsBridgeOptions } from './windows-bridge.js';
+export {
+  capabilityDescriptors,
+  type CapabilityAvailability,
+  type CapabilityDescriptor,
+  type CapabilityPermission,
+} from './capability-descriptors.js';

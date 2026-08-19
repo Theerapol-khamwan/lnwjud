@@ -17,6 +17,8 @@ export function formatActivityLogLine(event: ActivitySinkEvent): string {
     ...(event.workspaceId === undefined ? {} : { workspaceId: event.workspaceId }),
     ...(event.targetSummary === undefined ? {} : { targetSummary: event.targetSummary }),
     ...(event.resultMessage === undefined ? {} : { resultMessage: event.resultMessage }),
+    ...(event.traceId === undefined ? {} : { traceId: event.traceId }),
+    ...(event.traceParent === undefined ? {} : { traceParent: event.traceParent }),
   })}\n`;
 }
 

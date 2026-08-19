@@ -23,8 +23,12 @@ export function inspectDestructiveOperation(toolName: string, input: unknown): D
       return destructive('filesystem deletion');
     case 'git':
       return inspectGit(value);
+    case 'git_worktree_spawn':
+      return destructive('creating an isolated Git worktree writes workspace state');
     case 'shell':
       return inspectShell(value);
+    case 'wsl_exec':
+      return inspectShell({ operation: value.operation, executable: value.executable, arguments: value.arguments });
     case 'process_start':
       return inspectShell({ operation: 'run', executable: value.executable, arguments: value.args });
     case 'codex_run':
@@ -52,6 +56,10 @@ export function inspectDestructiveOperation(toolName: string, input: unknown): D
       return { destructive: false };
     case 'input_event':
       return inspectInputEvent(value);
+    case 'ui_target_action':
+      return ['click', 'set_value', 'select_item', 'menu_select'].includes(String(value.action ?? 'click'))
+        ? destructive('marked native UI action can trigger opaque application side effects')
+        : { destructive: false };
     case 'write_file':
       return value.content === '' ? destructive('empty write can truncate file data') : { destructive: false };
     case 'apply_patch': {
