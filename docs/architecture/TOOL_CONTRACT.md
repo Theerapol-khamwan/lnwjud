@@ -6,9 +6,11 @@ This is the compatibility contract for the current MCP surface. The runtime
 advertises the JSON Schema for every input through `tools/list`; the TypeScript
 Zod schemas in `packages/mcp-server/src/tools/` are the implementation source
 of truth. The existing human-oriented catalog remains useful for field details,
-while this document records the complete 208-tool runtime snapshot, preserves the
-184-tool compatibility baseline, and records policy class,
-annotations, and schema source.
+while this document records the primitive/core contract, preserves the earlier
+compatibility baseline, and records policy class, annotations, and schema source.
+The current v4 runtime advertises 208 tools; the additive v4 entries are defined
+in `packages/mcp-server/src/upgrade-catalog.ts` and the exact runtime order is
+verified by `packages/mcp-server/src/tool-registry.test.ts`.
 
 ## Protocol and result rules
 
@@ -37,13 +39,15 @@ Desktop and packaged stdio runtimes use the configured full local capability
 profile to preserve the working v1 behavior. This does not disable workspace
 guards, ownership checks, secret policy, or hard blocks.
 
-## Complete runtime catalog
+## Core primitive runtime catalog
 
-The `schema` column identifies the authoritative implementation file and the
-number of top-level input properties observed from the live `tools/list`
-response. The exact optional/default/enum constraints are the Zod schema in that
-file and the MCP JSON Schema returned at runtime; changing either requires a
-contract test and a catalog update.
+The table below records the core primitive layer. The full **208-tool** runtime
+index is generated from `ToolRegistry` in the project README so it cannot be
+mistaken for this smaller primitive table. The `schema` column identifies the
+authoritative implementation file and the number of top-level input properties
+observed from the live `tools/list` response. The exact optional/default/enum
+constraints are the Zod schema in that file and the MCP JSON Schema returned at
+runtime; changing either requires a contract test and a catalog update.
 
 | # | Tool | Permission | Read-only hint | Destructive hint | Input properties | Schema source |
 | ---: | --- | --- | :---: | :---: | ---: | --- |

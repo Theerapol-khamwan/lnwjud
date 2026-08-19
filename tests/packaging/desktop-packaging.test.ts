@@ -13,6 +13,20 @@ describe('Windows desktop packaging', () => {
     expect(desktopPackage.version).toBe('4.0.0');
   });
 
+  it('publishes complete desktop application metadata', async () => {
+    const desktopPackage = JSON.parse(await readFile(path.join(desktopRoot, 'package.json'), 'utf8')) as {
+      description?: unknown;
+      author?: unknown;
+      homepage?: unknown;
+      repository?: { type?: unknown; url?: unknown };
+    };
+
+    expect(desktopPackage.description).toBe('Windows-first local AI-agent runtime and MCP gateway with 208 tools.');
+    expect(desktopPackage.author).toBe('Adisorn');
+    expect(desktopPackage.homepage).toBe('https://github.com/engasnm111/lnwjud#readme');
+    expect(desktopPackage.repository).toEqual({ type: 'git', url: 'https://github.com/engasnm111/lnwjud.git' });
+  });
+
   it('declares lnwjud x64 NSIS packaging and built runtime bundles', async () => {
     const configPath = path.join(desktopRoot, 'electron-builder.yml');
     const config = await readFile(configPath, 'utf8');

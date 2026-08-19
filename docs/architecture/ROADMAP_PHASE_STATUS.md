@@ -1,4 +1,4 @@
-# v3.0.0 Roadmap Phase Status
+# v4.0.0 Roadmap Phase Status
 
 This is the implementation checklist for the upgrade roadmap. All phase
 surfaces are additive to the primitive MCP contract. Optional external

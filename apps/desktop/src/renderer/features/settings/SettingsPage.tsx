@@ -136,7 +136,7 @@ export function SettingsPage(props: SettingsPageProps): ReactElement {
         )}
       </section>
 
-      {/* Card 4: Cloudflare Remote Tunnel */}
+      {/* Card 4: OpenAI Secure MCP Tunnel */}
       <section className="panel settings-card" aria-label={t('settings.tunnelTitle')}>
         <div className="section-heading">
           <h2 className="settings-card-title">
@@ -156,7 +156,7 @@ export function SettingsPage(props: SettingsPageProps): ReactElement {
                 <input
                   id="tunnel-key"
                   type={showApiKey ? 'text' : 'password'}
-                  placeholder={props.dashboard.tunnel.hasApiKey ? '••••••••••••••••••••••••' : 'cf_token_...'}
+                  placeholder={props.dashboard.tunnel.hasApiKey ? '••••••••••••••••••••••••' : 'sk-...'}
                   value={apiKey}
                   onChange={(event) => setApiKey(event.target.value)}
                   autoComplete="off"
@@ -194,7 +194,7 @@ export function SettingsPage(props: SettingsPageProps): ReactElement {
             <div className="form-row">
               <input
                 id="tunnel-client-path"
-                placeholder="C:\Program Files\cloudflared\cloudflared.exe"
+                placeholder="C:\tools\tunnel-client.exe"
                 value={clientPath}
                 onChange={(event) => setClientPath(event.target.value)}
               />
@@ -212,7 +212,7 @@ export function SettingsPage(props: SettingsPageProps): ReactElement {
               </button>
             </div>
             <p className="hint">
-              {props.locale === 'th' ? 'path สำหรับรัน executable ของ cloudflared / tunnel client' : 'Executable path for cloudflared / tunnel client'}
+              {props.locale === 'th' ? 'path สำหรับรัน OpenAI tunnel-client.exe' : 'Path to the OpenAI tunnel-client.exe executable'}
             </p>
           </div>
         </div>

@@ -1,80 +1,119 @@
-import os
-import shutil
+from __future__ import annotations
+
+import argparse
+from pathlib import Path
+
 from PIL import Image
 
-SOURCE_PATH = r"C:\Users\developer\.gemini\antigravity\brain\29bd6992-96b0-4d52-983c-905b3cc1997d\.user_uploaded\media_1786886545203.png"
-WORKSPACE_ROOT = r"e:\lnwjud"
+REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
+DEFAULT_SOURCE_PATH = REPOSITORY_ROOT / "assets" / "logo" / "logo.png"
 
-def generate():
-    if not os.path.exists(SOURCE_PATH):
-        raise FileNotFoundError(f"Source file not found: {SOURCE_PATH}")
 
-    img = Image.open(SOURCE_PATH).convert("RGBA")
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description="Generate lnwjud application and web icon assets.")
+    parser.add_argument(
+        "--source",
+        type=Path,
+        default=DEFAULT_SOURCE_PATH,
+        help="Master PNG source image (defaults to assets/logo/logo.png).",
+    )
+    parser.add_argument(
+        "--workspace-root",
+        type=Path,
+        default=REPOSITORY_ROOT,
+        help="Repository root to receive generated assets.",
+    )
+    return parser.parse_args()
+
+
+def generate(source_path: Path, workspace_root: Path) -> None:
+    source_path = source_path.expanduser().resolve()
+    workspace_root = workspace_root.expanduser().resolve()
+    if not source_path.is_file():
+        raise FileNotFoundError(f"Source file not found: {source_path}")
+
+    img = Image.open(source_path).convert("RGBA")
     print(f"Loaded master logo: {img.size} {img.mode}")
 
-    # Output directories
-    assets_dir = os.path.join(WORKSPACE_ROOT, "assets", "logo")
-    desktop_build_dir = os.path.join(WORKSPACE_ROOT, "apps", "desktop", "build")
-    desktop_icons_dir = os.path.join(desktop_build_dir, "icons")
-    renderer_public_dir = os.path.join(WORKSPACE_ROOT, "apps", "desktop", "src", "renderer", "public")
+    assets_dir = workspace_root / "assets" / "logo"
+    desktop_build_dir = workspace_root / "apps" / "desktop" / "build"
+    desktop_icons_dir = desktop_build_dir / "icons"
+    renderer_public_dir = workspace_root / "apps" / "desktop" / "src" / "renderer" / "public"
 
-    for d in [assets_dir, desktop_build_dir, desktop_icons_dir, renderer_public_dir]:
-        os.makedirs(d, exist_ok=True)
+    for directory in [assets_dir, desktop_build_dir, desktop_icons_dir, renderer_public_dir]:
+        directory.mkdir(parents=True, exist_ok=True)
 
-    # 1. Standard PNG sizes for assets/logo
     sizes = [16, 24, 32, 48, 64, 96, 128, 180, 192, 256, 384, 512, 1024]
-    
-    # Save original master copy
-    img.save(os.path.join(assets_dir, "logo.png"), format="PNG", optimize=True)
-    
-    for s in sizes:
-        resized = img.resize((s, s), Image.Resampling.LANCZOS)
-        resized.save(os.path.join(assets_dir, f"logo-{s}x{s}.png"), format="PNG", optimize=True)
-        if s == 180:
-            resized.save(os.path.join(assets_dir, "apple-touch-icon.png"), format="PNG", optimize=True)
-        elif s == 192:
-            resized.save(os.path.join(assets_dir, "android-chrome-192x192.png"), format="PNG", optimize=True)
-        elif s == 512:
-            resized.save(os.path.join(assets_dir, "android-chrome-512x512.png"), format="PNG", optimize=True)
 
-    # Specific mstile (150x150)
-    mstile = img.resize((150, 150), Image.Resampling.LANCZOS)
-    mstile.save(os.path.join(assets_dir, "mstile-150x150.png"), format="PNG", optimize=True)
+    img.save(assets_dir / "logo.png", format="PNG", optimize=True)
 
-    # Multi-size ICO for Windows & web
+    for size in sizes:
+        resized = img.resize((size, size), Image.Resampling.LANCZOS)
+        resized.save(assets_dir / f"logo-{size}x{size}.png", format="PNG", optimize=True)
+        if size == 180:
+            resized.save(assets_dir / "apple-touch-icon.png", format="PNG", optimize=True)
+        elif size == 192:
+            resized.save(assets_dir / "android-chrome-192x192.png", format="PNG", optimize=True)
+        elif size == 512:
+            resized.save(assets_dir / "android-chrome-512x512.png", format="PNG", optimize=True)
+
+    img.resize((150, 150), Image.Resampling.LANCZOS).save(
+        assets_dir / "mstile-150x150.png",
+        format="PNG",
+        optimize=True,
+    )
+
     ico_sizes = [(16, 16), (24, 24), (32, 32), (48, 48), (64, 64), (128, 128), (256, 256)]
-    img.save(os.path.join(assets_dir, "favicon.ico"), format="ICO", sizes=ico_sizes)
-    img.save(os.path.join(assets_dir, "logo.ico"), format="ICO", sizes=ico_sizes)
+    img.save(assets_dir / "favicon.ico", format="ICO", sizes=ico_sizes)
+    img.save(assets_dir / "logo.ico", format="ICO", sizes=ico_sizes)
 
-    # 2. Desktop build resources (electron-builder)
-    img.save(os.path.join(desktop_build_dir, "icon.ico"), format="ICO", sizes=ico_sizes)
-    img.resize((512, 512), Image.Resampling.LANCZOS).save(os.path.join(desktop_build_dir, "icon.png"), format="PNG", optimize=True)
-    img.resize((1024, 1024), Image.Resampling.LANCZOS).save(os.path.join(desktop_build_dir, "icon-1024.png"), format="PNG", optimize=True)
+    img.save(desktop_build_dir / "icon.ico", format="ICO", sizes=ico_sizes)
+    img.resize((512, 512), Image.Resampling.LANCZOS).save(
+        desktop_build_dir / "icon.png",
+        format="PNG",
+        optimize=True,
+    )
+    img.resize((1024, 1024), Image.Resampling.LANCZOS).save(
+        desktop_build_dir / "icon-1024.png",
+        format="PNG",
+        optimize=True,
+    )
 
-    for s in [16, 24, 32, 48, 64, 128, 256, 512, 1024]:
-        resized = img.resize((s, s), Image.Resampling.LANCZOS)
-        resized.save(os.path.join(desktop_icons_dir, f"{s}x{s}.png"), format="PNG", optimize=True)
+    for size in [16, 24, 32, 48, 64, 128, 256, 512, 1024]:
+        img.resize((size, size), Image.Resampling.LANCZOS).save(
+            desktop_icons_dir / f"{size}x{size}.png",
+            format="PNG",
+            optimize=True,
+        )
 
-    # 3. Renderer public assets
-    img.save(os.path.join(renderer_public_dir, "favicon.ico"), format="ICO", sizes=[(16, 16), (24, 24), (32, 32), (48, 48)])
-    img.resize((16, 16), Image.Resampling.LANCZOS).save(os.path.join(renderer_public_dir, "favicon-16x16.png"), format="PNG", optimize=True)
-    img.resize((32, 32), Image.Resampling.LANCZOS).save(os.path.join(renderer_public_dir, "favicon-32x32.png"), format="PNG", optimize=True)
-    img.resize((48, 48), Image.Resampling.LANCZOS).save(os.path.join(renderer_public_dir, "favicon-48x48.png"), format="PNG", optimize=True)
-    img.resize((180, 180), Image.Resampling.LANCZOS).save(os.path.join(renderer_public_dir, "apple-touch-icon.png"), format="PNG", optimize=True)
-    img.resize((192, 192), Image.Resampling.LANCZOS).save(os.path.join(renderer_public_dir, "logo-192.png"), format="PNG", optimize=True)
-    img.resize((512, 512), Image.Resampling.LANCZOS).save(os.path.join(renderer_public_dir, "logo-512.png"), format="PNG", optimize=True)
-    img.resize((512, 512), Image.Resampling.LANCZOS).save(os.path.join(renderer_public_dir, "logo.png"), format="PNG", optimize=True)
+    img.save(
+        renderer_public_dir / "favicon.ico",
+        format="ICO",
+        sizes=[(16, 16), (24, 24), (32, 32), (48, 48)],
+    )
+    for size, name in [
+        (16, "favicon-16x16.png"),
+        (32, "favicon-32x32.png"),
+        (48, "favicon-48x48.png"),
+        (180, "apple-touch-icon.png"),
+        (192, "logo-192.png"),
+        (512, "logo-512.png"),
+        (512, "logo.png"),
+    ]:
+        img.resize((size, size), Image.Resampling.LANCZOS).save(
+            renderer_public_dir / name,
+            format="PNG",
+            optimize=True,
+        )
 
-    # 4. OpenGraph Social Share Banner (1200x630)
     bg = Image.new("RGBA", (1200, 630), (14, 15, 20, 255))
     logo_banner_size = 440
     logo_banner = img.resize((logo_banner_size, logo_banner_size), Image.Resampling.LANCZOS)
     pos_x = (1200 - logo_banner_size) // 2
     pos_y = (630 - logo_banner_size) // 2
     bg.paste(logo_banner, (pos_x, pos_y), logo_banner)
-    bg.save(os.path.join(assets_dir, "og-banner-1200x630.png"), format="PNG", optimize=True)
+    bg.save(assets_dir / "og-banner-1200x630.png", format="PNG", optimize=True)
 
-    # 5. Web manifest
     manifest_content = """{
   "name": "lnwjud",
   "short_name": "lnwjud",
@@ -105,12 +144,12 @@ def generate():
   "display": "standalone"
 }
 """
-    with open(os.path.join(renderer_public_dir, "site.webmanifest"), "w", encoding="utf-8") as f:
-        f.write(manifest_content)
-    with open(os.path.join(assets_dir, "site.webmanifest"), "w", encoding="utf-8") as f:
-        f.write(manifest_content)
+    (renderer_public_dir / "site.webmanifest").write_text(manifest_content, encoding="utf-8")
+    (assets_dir / "site.webmanifest").write_text(manifest_content, encoding="utf-8")
 
     print("All logos and icon formats generated successfully!")
 
+
 if __name__ == "__main__":
-    generate()
+    args = parse_args()
+    generate(args.source, args.workspace_root)

@@ -1355,7 +1355,7 @@ input:focus, select:focus {
   font-weight: 500;
 }
 
-/* Cloudflare Tunnel Settings Grid */
+/* OpenAI Secure MCP Tunnel Settings Grid */
 .tunnel-config-grid {
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
