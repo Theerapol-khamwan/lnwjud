@@ -31534,6 +31534,34 @@ function unwrapOptionalSchema(schema) {
   return schema.def?.innerType ?? schema;
 }
 
+// ../../packages/shared/dist/unrestricted.js
+var UNRESTRICTED_SETTING_KEY = "unrestricted_mode";
+var TRUE_VALUES = /* @__PURE__ */ new Set(["1", "true", "on", "yes"]);
+var FALSE_VALUES = /* @__PURE__ */ new Set(["0", "false", "off", "no"]);
+function parseFlag(value) {
+  const normalized = value?.trim().toLowerCase() ?? "";
+  if (normalized.length === 0)
+    return void 0;
+  if (TRUE_VALUES.has(normalized))
+    return true;
+  if (FALSE_VALUES.has(normalized))
+    return false;
+  return void 0;
+}
+function isUnrestricted(env, settingValue) {
+  const fromEnv = parseFlag(env.LNWJUD_UNRESTRICTED);
+  if (fromEnv !== void 0)
+    return fromEnv;
+  const fromSetting = parseFlag(settingValue);
+  if (fromSetting !== void 0)
+    return fromSetting;
+  return true;
+}
+
+// ../../packages/shared/dist/index.js
+var APP_NAME = "lnwjud";
+var APP_VERSION = "3.0.2";
+
 // ../../packages/mcp-server/dist/progress-heartbeat.js
 var HEARTBEAT_FIRST_MS = 15e3;
 var HEARTBEAT_INTERVAL_MS = 15e3;
@@ -34732,7 +34760,7 @@ function createMcpServer(options) {
     ...options.activityTracker === void 0 ? {} : { activityTracker: options.activityTracker },
     ...options.profileProvider === void 0 ? {} : { profileProvider: options.profileProvider }
   });
-  const server = new McpServer({ name: "lnwjud", version: "3.0.1" }, { capabilities: { tools: {} } });
+  const server = new McpServer({ name: APP_NAME, version: APP_VERSION }, { capabilities: { tools: {} } });
   for (const tool of registry2.list()) {
     server.registerTool(tool.name, {
       description: tool.description,
@@ -35244,30 +35272,6 @@ function writeStdioDiagnostic(error46) {
 }
 function startMcpStdio(options) {
   return serveStdio(() => createMcpServer(options), { legacy: "reject", onerror: options.onError ?? writeStdioDiagnostic });
-}
-
-// ../../packages/shared/dist/unrestricted.js
-var UNRESTRICTED_SETTING_KEY = "unrestricted_mode";
-var TRUE_VALUES = /* @__PURE__ */ new Set(["1", "true", "on", "yes"]);
-var FALSE_VALUES = /* @__PURE__ */ new Set(["0", "false", "off", "no"]);
-function parseFlag(value) {
-  const normalized = value?.trim().toLowerCase() ?? "";
-  if (normalized.length === 0)
-    return void 0;
-  if (TRUE_VALUES.has(normalized))
-    return true;
-  if (FALSE_VALUES.has(normalized))
-    return false;
-  return void 0;
-}
-function isUnrestricted(env, settingValue) {
-  const fromEnv = parseFlag(env.LNWJUD_UNRESTRICTED);
-  if (fromEnv !== void 0)
-    return fromEnv;
-  const fromSetting = parseFlag(settingValue);
-  if (fromSetting !== void 0)
-    return fromSetting;
-  return true;
 }
 
 // ../../packages/storage/dist/audit-repository.js

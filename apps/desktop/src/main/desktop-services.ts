@@ -39,7 +39,7 @@ import {
 import { permissionProfiles, type PermissionProfile, type PermissionProfileName } from '@lnwjud/permissions';
 import type { ManagedProcess } from '@lnwjud/process';
 import { PathExecutableResolver } from '@lnwjud/search';
-import { isUnrestricted, UNRESTRICTED_SETTING_KEY } from '@lnwjud/shared';
+import { APP_NAME, APP_VERSION, isUnrestricted, UNRESTRICTED_SETTING_KEY } from '@lnwjud/shared';
 import { SqliteAuditRepository, SqliteCheckpointRepository, SqliteDatabase, SqliteSettingsRepository, SqliteWorkspaceRepository } from '@lnwjud/storage';
 import type { Workspace } from '@lnwjud/workspace';
 import { isUnderEDrive, SecretPolicy, WorkspacePathGuard, WorkspaceService } from '@lnwjud/workspace';
@@ -78,13 +78,12 @@ import { DesktopMcpLifecycle } from './mcp-lifecycle.js';
 import { CLIENT_PATH_SETTING, TunnelController } from './tunnel-controller.js';
 import { packagedStdioLauncherCandidates, preferredTunnelMcpCommand, resolveStdioLauncherPath } from './tunnel-profile.js';
 
-const actor: FileActor = { clientId: 'desktop-renderer', clientName: 'lnwjud desktop' };
-const mcpActor: FileActor = { clientId: 'desktop-mcp-http', clientName: 'lnwjud desktop MCP' };
+const actor: FileActor = { clientId: 'desktop-renderer', clientName: `${APP_NAME} desktop` };
+const mcpActor: FileActor = { clientId: 'desktop-mcp-http', clientName: `${APP_NAME} desktop MCP` };
 const permissionSettingKey = 'permission_profile';
 const selectedWorkspaceSettingKey = 'selected_workspace_id';
 const workLogClearedSettingKey = 'work_log_cleared_at';
 const localeSettingKey = 'ui_locale';
-const APP_VERSION = '3.0.1';
 
 export interface DesktopRuntime {
   readonly services: DesktopIpcServices;

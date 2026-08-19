@@ -13,7 +13,8 @@
     { "path": "../domain" },
     { "path": "../extensions" },
     { "path": "../permissions" },
-    { "path": "../search" }
+    { "path": "../search" },
+    { "path": "../shared" }
   ],
   "include": ["src/**/*.ts"],
   "exclude": ["src/**/*.test.ts"]

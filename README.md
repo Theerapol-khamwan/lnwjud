@@ -22,17 +22,16 @@ receive a public shell and does not read the local Codex configuration. For a
 ChatGPT web connection, OpenAI Secure MCP Tunnel forwards MCP requests to a
 local lnwjud process; the tunnel is outbound-only.
 
-## v3.0.0 release status
+## v3.0.2 release status
 
-Release `v3.0.0` builds on the v2.0.0 MCP gateway with a branded Windows tray
-  mode, permission enforcement for Desktop MCP capability tools, profile-safe
-  stdio/tunnel startup, and stable external tunnel state detection. It keeps
-  the 184-tool catalog, compound/parallel workflows, persistent workspace
-  indexing, paged reads, Live Logs v2, recovery/session state, capability
-  discovery, project/visual inspection adapters, and the Context Economy Engine
-  for quota-aware discovery and duplicate-aware delivery. See the
-  [phase completion checklist](docs/architecture/ROADMAP_PHASE_STATUS.md) and
-  the [foundation benchmark](docs/benchmarks/PHASE-05.md).
+Release `v3.0.2` builds on the v3.0.0/v3.0.1 series with important UI layout fixes, eliminating card border overflows (กรอบทะลุ) across Git, Doctor, Project, and Work Log views, and improving responsiveness and text wrapping for long paths and commands. It maintains:
+- Branded Windows tray mode with background service persistence.
+- Permission enforcement for Desktop MCP capability tools with full-access stdio/tunnel profiles.
+- 184-tool catalog across workspace, shell, process, Git, Office, and vision capabilities.
+- Compound/parallel workflows, persistent indexing, and Context Economy Engine.
+- Stable external tunnel detection and DPAPI-encrypted credential management.
+
+See the [phase completion checklist](docs/architecture/ROADMAP_PHASE_STATUS.md) and the [foundation benchmark](docs/benchmarks/PHASE-05.md).
 
 The v2.2 visibility contract separates discovery efficiency from access:
 automatic filename/text search, indexing, and watchers skip vendor/build/cache
@@ -65,7 +64,7 @@ Choose your preferred setup method:
 Follow this 4-step quick start to connect ChatGPT or any AI agent to your Windows PC using the official pre-built installer:
 
 #### Step 1: Download & Install Lnwjud Desktop
-1. Download the latest installer (`lnwjud-Setup-3.0.0.exe`) from **[GitHub Releases](https://github.com/engasnm111/lnwjud/releases/latest)**.
+1. Download the latest installer (`lnwjud-Setup-3.0.2.exe`) from **[GitHub Releases](https://github.com/engasnm111/lnwjud/releases/latest)**.
 2. Run the installer (it automatically creates start menu and desktop shortcuts).
 3. Launch **Lnwjud Agent Control Center**.
 
@@ -323,7 +322,7 @@ corepack pnpm@10.15.0 package:windows
 The x64 NSIS installer is written to:
 
 ```text
-apps/desktop/dist/installers/lnwjud-Setup-3.0.0.exe
+apps/desktop/dist/installers/lnwjud-Setup-3.0.2.exe
 ```
 
 The installer is per-user by default. A common installed executable path is:

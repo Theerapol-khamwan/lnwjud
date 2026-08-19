@@ -381,6 +381,7 @@ input:focus, select:focus {
   display: flex;
   flex-direction: column;
   overflow-y: auto;
+  overflow-x: hidden;
   background: transparent;
 }
 
@@ -410,8 +411,8 @@ input:focus, select:focus {
 
 .main-content {
   min-width: 0;
-  flex: 1;
-  min-height: 0;
+  flex: 1 0 auto;
+  min-height: 100%;
   display: flex;
   flex-direction: column;
   padding: 24px 32px 32px;
@@ -420,8 +421,7 @@ input:focus, select:focus {
 .page-content {
   display: flex;
   flex-direction: column;
-  flex: 1;
-  min-height: 0;
+  flex: 1 0 auto;
   min-width: 0;
   gap: 20px;
 }
@@ -468,6 +468,8 @@ input:focus, select:focus {
 /* Modern Dark Gold Panels & Cards */
 .panel, .info-card {
   min-width: 0;
+  height: auto;
+  min-height: min-content;
   border: 1px solid var(--border);
   border-radius: 14px;
   background: var(--bg-panel);
@@ -603,8 +605,11 @@ input:focus, select:focus {
 .worklog-panel {
   display: flex;
   flex-direction: column;
-  flex: 1;
-  min-height: 280px;
+}
+
+.worklog-panel:not(.compact) {
+  flex: 1 0 auto;
+  min-height: 480px;
 }
 
 .worklog-panel .section-heading {
@@ -612,9 +617,8 @@ input:focus, select:focus {
 }
 
 .worklog-stream {
-  flex: 1;
   min-height: 220px;
-  max-height: none;
+  max-height: 600px;
   overflow-y: auto;
   padding: 12px 14px;
   border-radius: 10px;
@@ -623,6 +627,12 @@ input:focus, select:focus {
   font-family: var(--font-mono);
   font-variant-numeric: tabular-nums;
   font-size: 12.5px;
+  min-width: 0;
+}
+
+.worklog-panel:not(.compact) .worklog-stream {
+  flex: 1;
+  max-height: 65vh;
 }
 
 /* Compact mode for Home / Dashboard */
@@ -637,11 +647,12 @@ input:focus, select:focus {
 
 .worklog-line {
   display: grid;
-  grid-template-columns: 84px 72px 140px 1fr auto;
+  grid-template-columns: 84px 72px 140px minmax(0, 1fr) auto;
   gap: 12px;
   padding: 7px 4px;
   border-bottom: 1px solid rgba(255, 255, 255, 0.04);
   align-items: center;
+  min-width: 0;
 }
 
 .worklog-line:hover {
@@ -651,6 +662,7 @@ input:focus, select:focus {
 .worklog-line .tag {
   color: var(--gold-primary);
   font-weight: 600;
+  flex-shrink: 0;
 }
 
 .worklog-line.error .tag {
@@ -661,18 +673,29 @@ input:focus, select:focus {
   color: var(--copper);
 }
 
+.worklog-line strong {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.worklog-line span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
 .worklog-line em {
   color: var(--muted);
   font-style: normal;
   font-size: 11.5px;
+  flex-shrink: 0;
 }
 
 /* Live Logs Panel */
 .log-panel {
   display: flex;
   flex-direction: column;
-  flex: 1;
-  min-height: 280px;
+  flex: 1 0 auto;
+  min-height: 480px;
 }
 
 .log-panel .section-heading {
@@ -719,7 +742,7 @@ input:focus, select:focus {
 .log-stream {
   flex: 1;
   min-height: 220px;
-  max-height: none;
+  max-height: 65vh;
   overflow-y: auto;
   padding: 12px 14px;
   border-radius: 10px;
@@ -729,25 +752,29 @@ input:focus, select:focus {
   font-size: 12.5px;
   line-height: 1.55;
   font-variant-numeric: tabular-nums;
+  min-width: 0;
 }
 
 .log-line {
   display: grid;
-  grid-template-columns: 84px 64px 1fr;
+  grid-template-columns: 84px 64px minmax(0, 1fr);
   gap: 12px;
   padding: 5px 0;
   border-bottom: 1px solid rgba(255, 255, 255, 0.03);
   white-space: pre-wrap;
   word-break: break-word;
+  min-width: 0;
 }
 
 .log-line time {
   color: var(--muted);
+  flex-shrink: 0;
 }
 
 .log-line .tag {
   color: var(--gold-primary);
   font-weight: 600;
+  flex-shrink: 0;
 }
 
 .log-line.warn .tag {
@@ -760,6 +787,11 @@ input:focus, select:focus {
 
 .log-line.error {
   color: #ffd9dd;
+}
+
+.log-line span {
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 
 /* Log Viewer Popout Shell */
@@ -780,8 +812,6 @@ input:focus, select:focus {
 .project-list-panel {
   display: flex;
   flex-direction: column;
-  flex: 1;
-  min-height: 240px;
 }
 
 .project-list {
@@ -790,8 +820,6 @@ input:focus, select:focus {
   padding: 0;
   display: grid;
   gap: 12px;
-  overflow-y: auto;
-  flex: 1;
   align-content: start;
 }
 
@@ -805,6 +833,8 @@ input:focus, select:focus {
   border-radius: 12px;
   background: rgba(14, 19, 28, 0.6);
   transition: all 0.2s ease;
+  min-width: 0;
+  flex-wrap: wrap;
 }
 
 .project-list li:hover {
@@ -821,19 +851,30 @@ input:focus, select:focus {
   color: var(--gold-bright);
 }
 
+.project-list li > div {
+  min-width: 0;
+  flex: 1 1 200px;
+  overflow-wrap: anywhere;
+}
+
 .project-list p {
   margin: 4px 0 0;
   color: var(--muted);
   font-size: 12px;
   font-family: var(--font-mono);
+  overflow-wrap: anywhere;
+}
+
+.project-list button {
+  flex-shrink: 0;
 }
 
 /* Git Panel & Metrics */
 .git-panel {
   display: flex;
   flex-direction: column;
-  flex: 1;
-  min-height: 280px;
+  height: auto;
+  min-height: auto;
 }
 
 .git-status-message {
@@ -844,13 +885,14 @@ input:focus, select:focus {
   border: 1px solid var(--border-subtle);
   color: var(--gold-bright);
   font-size: 14px;
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 
 .git-metrics-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
   gap: 16px;
-  flex: 1;
   align-content: start;
 }
 
@@ -863,6 +905,7 @@ input:focus, select:focus {
   flex-direction: column;
   gap: 8px;
   transition: border-color 0.2s ease;
+  min-width: 0;
 }
 
 .git-metric-card:hover {
@@ -901,22 +944,32 @@ input:focus, select:focus {
   display: flex;
   flex-direction: column;
   gap: 14px;
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 
 .git-notice-header {
   display: flex;
   gap: 12px;
   align-items: flex-start;
+  min-width: 0;
+}
+
+.git-notice-header > div {
+  min-width: 0;
+  flex: 1;
 }
 
 .git-notice-icon {
   font-size: 24px;
+  flex-shrink: 0;
 }
 
 .git-switch-list {
   display: grid;
   gap: 10px;
   margin-top: 6px;
+  min-width: 0;
 }
 
 .git-switch-item {
@@ -929,17 +982,30 @@ input:focus, select:focus {
   background: rgba(14, 19, 28, 0.7);
   border: 1px solid var(--border-subtle);
   flex-wrap: wrap;
+  min-width: 0;
+}
+
+.git-switch-item > div {
+  min-width: 0;
+  flex: 1 1 200px;
+  overflow-wrap: anywhere;
+  word-break: break-all;
 }
 
 .git-switch-item p {
   margin: 2px 0 0;
+  overflow-wrap: anywhere;
+  word-break: break-all;
+}
+
+.git-switch-item button {
+  flex-shrink: 0;
 }
 
 .git-files-section {
   margin-top: 22px;
   display: flex;
   flex-direction: column;
-  flex: 1;
   min-height: 0;
 }
 
@@ -962,16 +1028,18 @@ input:focus, select:focus {
   border: 1px solid var(--border-subtle);
   font-family: var(--font-mono);
   font-size: 12.5px;
+  min-width: 0;
 }
 
 .git-file-item {
   display: grid;
-  grid-template-columns: 110px 1fr auto;
+  grid-template-columns: 110px minmax(0, 1fr) auto;
   gap: 12px;
   padding: 6px 8px;
   border-radius: 6px;
   border-bottom: 1px solid rgba(255, 255, 255, 0.03);
   align-items: center;
+  min-width: 0;
 }
 
 .git-file-item:hover {
@@ -981,6 +1049,7 @@ input:focus, select:focus {
 .git-file-tag {
   font-weight: 700;
   color: var(--gold-primary);
+  flex-shrink: 0;
 }
 
 .git-file-tag.modified {
@@ -997,12 +1066,15 @@ input:focus, select:focus {
 
 .git-file-path {
   overflow-wrap: anywhere;
+  word-break: break-all;
+  min-width: 0;
   color: var(--text);
 }
 
 .git-file-status {
   font-size: 11px;
   color: var(--muted);
+  flex-shrink: 0;
 }
 
 .git-clean-notice {
@@ -1015,20 +1087,20 @@ input:focus, select:focus {
   gap: 12px;
   align-items: center;
   font-size: 14px;
+  min-width: 0;
 }
 
 /* Doctor Diagnostics */
 .doctor-panel {
   display: flex;
   flex-direction: column;
-  flex: 1;
-  min-height: 280px;
+  height: auto;
+  min-height: auto;
 }
 
 .doctor-empty-state {
   display: grid;
   place-items: center;
-  flex: 1;
   min-height: 180px;
   color: var(--muted);
 }
@@ -1037,8 +1109,6 @@ input:focus, select:focus {
   display: grid;
   gap: 12px;
   margin-top: 18px;
-  overflow-y: auto;
-  flex: 1;
   align-content: start;
 }
 

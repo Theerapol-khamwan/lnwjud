@@ -2,6 +2,8 @@ import { app, BrowserWindow, dialog, ipcMain, Menu, nativeImage, Tray, type IpcM
 import { autoUpdater } from 'electron-updater';
 import { writeFile } from 'node:fs/promises';
 import {
+  APP_NAME,
+  APP_VERSION,
   ipcChannels,
   pushChannels,
   type AddWorkspaceRequest,
@@ -98,7 +100,7 @@ const defaultDesktopServices: DesktopIpcServices = {
     workLog: [],
     inFlight: [],
     tunnel: emptyTunnel,
-    appVersion: '3.0.1',
+    appVersion: APP_VERSION,
   }),
   setPermissionProfile: async (request): Promise<{ readonly profile: PermissionProfileName }> => ({ profile: request.profile }),
   setUnrestrictedMode: async (request): Promise<{ readonly unrestricted: boolean; readonly restartRequired: boolean }> => ({
@@ -672,7 +674,7 @@ async function closeDesktopRuntimeAndQuit(): Promise<void> {
 }
 
 function configureDataPath(): string {
-  app.setName('lnwjud');
+  app.setName(APP_NAME);
   const configuredDataPath = process.env.LNWJUD_DATA_PATH;
   if (typeof configuredDataPath === 'string' && configuredDataPath.trim().length > 0) {
     app.setPath('userData', configuredDataPath);
