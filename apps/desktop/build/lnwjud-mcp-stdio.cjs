@@ -31560,7 +31560,7 @@ function isUnrestricted(env, settingValue) {
 
 // ../../packages/shared/dist/index.js
 var APP_NAME = "lnwjud";
-var APP_VERSION = "3.0.2";
+var APP_VERSION = "3.0.4";
 
 // ../../packages/mcp-server/dist/progress-heartbeat.js
 var HEARTBEAT_FIRST_MS = 15e3;

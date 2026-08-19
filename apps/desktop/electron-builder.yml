@@ -1,6 +1,7 @@
 appId: com.lnwjud.desktop
 productName: lnwjud
 asar: true
+npmRebuild: false
 directories:
   output: dist/installers
   buildResources: build

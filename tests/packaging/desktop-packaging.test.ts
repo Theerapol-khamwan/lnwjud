@@ -6,11 +6,11 @@ const desktopRoot = path.resolve(import.meta.dirname, '..', '..', 'apps', 'deskt
 const repositoryRoot = path.resolve(desktopRoot, '..', '..');
 
 describe('Windows desktop packaging', () => {
-  it('pins the product release to v3.0.3', async () => {
+  it('pins the product release to v3.0.4', async () => {
     const rootPackage = JSON.parse(await readFile(path.join(repositoryRoot, 'package.json'), 'utf8')) as { version?: unknown };
     const desktopPackage = JSON.parse(await readFile(path.join(desktopRoot, 'package.json'), 'utf8')) as { version?: unknown };
-    expect(rootPackage.version).toBe('3.0.3');
-    expect(desktopPackage.version).toBe('3.0.3');
+    expect(rootPackage.version).toBe('3.0.4');
+    expect(desktopPackage.version).toBe('3.0.4');
   });
 
   it('declares lnwjud x64 NSIS packaging and built runtime bundles', async () => {
@@ -33,7 +33,7 @@ describe('Windows desktop packaging', () => {
     const mainBundle = await readFile(path.join(desktopRoot, 'dist', 'main', 'main.js'), 'utf8');
     expect(mainBundle).toContain('webSecurity: true');
     expect(mainBundle).not.toContain('webSecurity: false');
-    expect(mainBundle).toContain('setName("lnwjud"');
+    expect(mainBundle).toMatch(/setName\(["']lnwjud["']|setName\(APP_NAME\)/);
     expect(mainBundle).toContain('LNWJUD_DATA_PATH');
     expect(mainBundle).toContain('LNWJUD_UNRESTRICTED');
     expect(mainBundle).toContain('setPath("userData"');
