@@ -55,6 +55,21 @@ export class GitAdapter {
     return ok({ entries: parsePorcelainStatus(result.stdout) });
   }
 
+  public async branch(cwd: string): Promise<Result<string | null>> {
+    const result = await this.runner.run(['branch', '--show-current'], cwd);
+    if (result.exitCode === 0 && result.stdout.trim().length > 0) {
+      return ok(result.stdout.trim());
+    }
+    const revResult = await this.runner.run(['rev-parse', '--abbrev-ref', 'HEAD'], cwd);
+    if (revResult.exitCode === 0) {
+      const name = revResult.stdout.trim();
+      return ok(name === 'HEAD' || name.length === 0 ? null : name);
+    }
+    const error = this.mapError(result);
+    if (error !== null) return error;
+    return ok(null);
+  }
+
   public async diff(cwd: string, request: GitDiffRequest = {}): Promise<Result<GitDiffResult>> {
     const maxBytes = request.maxBytes ?? 1024 * 1024;
     if (!this.isLimit(maxBytes, 4 * 1024 * 1024)) return err(appError('INVALID_INPUT', 'Git diff byte limit is invalid'));

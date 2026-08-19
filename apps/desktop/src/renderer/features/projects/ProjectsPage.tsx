@@ -31,7 +31,7 @@ export function ProjectsPage(props: ProjectsPageProps): ReactElement {
           </button>
         </div>
       </section>
-      <section className="panel">
+      <section className="panel project-list-panel">
         <ul className="project-list">
           {props.workspaces.map((workspace) => (
             <li key={workspace.id} className={workspace.id === props.selectedWorkspaceId ? 'active' : undefined}>

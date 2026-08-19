@@ -98,7 +98,7 @@ const defaultDesktopServices: DesktopIpcServices = {
     workLog: [],
     inFlight: [],
     tunnel: emptyTunnel,
-    appVersion: '3.0.0',
+    appVersion: '3.0.1',
   }),
   setPermissionProfile: async (request): Promise<{ readonly profile: PermissionProfileName }> => ({ profile: request.profile }),
   setUnrestrictedMode: async (request): Promise<{ readonly unrestricted: boolean; readonly restartRequired: boolean }> => ({

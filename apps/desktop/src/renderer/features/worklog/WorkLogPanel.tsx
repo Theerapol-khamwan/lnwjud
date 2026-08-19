@@ -25,7 +25,7 @@ export function WorkLogPanel(props: WorkLogPanelProps): ReactElement {
   const visible = props.compact ? filtered.slice(0, 40) : filtered;
 
   return (
-    <section className="panel worklog-panel" aria-label={props.title}>
+    <section className={`panel worklog-panel${props.compact ? ' compact' : ''}`} aria-label={props.title}>
       <div className="section-heading">
         <h2>{props.title}</h2>
         <div className="worklog-actions">

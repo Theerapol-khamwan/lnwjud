@@ -117,14 +117,26 @@ export interface ExportLogsRequest {
   readonly filePath: string;
 }
 
+export interface GitStatusEntrySummary {
+  readonly path: string;
+  readonly kind: string;
+  readonly indexStatus: string;
+  readonly worktreeStatus: string;
+}
+
+export interface DashboardGitSummary {
+  readonly branch: string | null;
+  readonly changedFiles: number;
+  readonly stagedFiles: number;
+  readonly message: string;
+  readonly repositoryPath?: string | null;
+  readonly isRepo?: boolean;
+  readonly entries?: readonly GitStatusEntrySummary[];
+}
+
 export interface DashboardSnapshot {
   readonly selectedWorkspace: WorkspaceSummary | null;
-  readonly gitSummary: {
-    readonly branch: string | null;
-    readonly changedFiles: number;
-    readonly stagedFiles: number;
-    readonly message: string;
-  };
+  readonly gitSummary: DashboardGitSummary;
   readonly mcp: {
     readonly running: boolean;
     readonly url: string | null;

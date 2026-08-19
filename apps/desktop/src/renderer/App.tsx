@@ -273,7 +273,16 @@ export function App(): ReactElement {
           onAddWorkspace={addWorkspace}
         />
       ) : null}
-      {screen === 'git' ? <GitPage locale={locale} gitSummary={dashboard.gitSummary} /> : null}
+      {screen === 'git' ? (
+        <GitPage
+          locale={locale}
+          gitSummary={dashboard.gitSummary}
+          selectedWorkspace={dashboard.selectedWorkspace}
+          workspaces={workspaces}
+          onSelectWorkspace={selectWorkspace}
+          onRefresh={refresh}
+        />
+      ) : null}
       {screen === 'worklog' ? (
         <WorkLogPage locale={locale} dashboard={dashboard} onClearWorkLog={clearWorkLog} />
       ) : null}

@@ -69,8 +69,12 @@ html,
 body,
 #root {
   width: 100%;
+  height: 100%;
   min-width: 0;
   min-height: 100%;
+  margin: 0;
+  padding: 0;
+  overflow: hidden;
 }
 
 body {
@@ -82,7 +86,7 @@ body {
   background-attachment: fixed;
   color: var(--text);
   font-family: var(--font);
-  overflow-x: auto;
+  overflow: hidden;
 }
 
 /* Custom Scrollbars */
@@ -168,8 +172,10 @@ input:focus, select:focus {
   display: flex;
   flex-direction: column;
   width: 100%;
+  height: 100vh;
+  max-height: 100vh;
   min-width: 0;
-  min-height: 100dvh;
+  overflow: hidden;
 }
 
 /* ==========================================================================
@@ -181,14 +187,13 @@ input:focus, select:focus {
   align-items: center;
   min-width: 0;
   height: 38px;
+  flex-shrink: 0;
   background: #07090e;
   border-bottom: 1px solid var(--border);
   padding: 0 12px;
   /* Space reserved for Windows native titleBarOverlay buttons (Minimize, Maximize, Close) */
   padding-right: 146px;
   user-select: none;
-  position: sticky;
-  top: 0;
   z-index: 1000;
 }
 
@@ -283,7 +288,9 @@ input:focus, select:focus {
   width: 100%;
   min-width: 0;
   flex: 1;
-  min-height: calc(100dvh - 38px);
+  min-height: 0;
+  height: calc(100vh - 38px);
+  overflow: hidden;
 }
 
 /* Sidebar */
@@ -295,6 +302,8 @@ input:focus, select:focus {
   background: #07090e;
   border-right: 1px solid var(--border);
   position: relative;
+  height: 100%;
+  overflow-y: auto;
 }
 
 .sidebar::before {
@@ -367,6 +376,11 @@ input:focus, select:focus {
 /* Main Content Pane */
 .main-pane {
   min-width: 0;
+  height: 100%;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow-y: auto;
   background: transparent;
 }
 
@@ -396,11 +410,18 @@ input:focus, select:focus {
 
 .main-content {
   min-width: 0;
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
   padding: 24px 32px 32px;
 }
 
 .page-content {
-  display: grid;
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
   min-width: 0;
   gap: 20px;
 }
@@ -580,19 +601,38 @@ input:focus, select:focus {
 
 /* Work Log & Terminal Stream */
 .worklog-panel {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
   min-height: 280px;
 }
 
+.worklog-panel .section-heading {
+  flex-shrink: 0;
+}
+
 .worklog-stream {
-  max-height: 380px;
-  overflow: auto;
-  padding: 12px;
+  flex: 1;
+  min-height: 220px;
+  max-height: none;
+  overflow-y: auto;
+  padding: 12px 14px;
   border-radius: 10px;
   background: #06080c;
   border: 1px solid var(--border-subtle);
   font-family: var(--font-mono);
   font-variant-numeric: tabular-nums;
   font-size: 12.5px;
+}
+
+/* Compact mode for Home / Dashboard */
+.worklog-panel.compact {
+  flex: initial;
+}
+
+.worklog-panel.compact .worklog-stream {
+  flex: initial;
+  max-height: 380px;
 }
 
 .worklog-line {
@@ -629,13 +669,21 @@ input:focus, select:focus {
 
 /* Live Logs Panel */
 .log-panel {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
   min-height: 280px;
+}
+
+.log-panel .section-heading {
+  flex-shrink: 0;
 }
 
 .log-tabs {
   display: flex;
   gap: 8px;
   margin-bottom: 14px;
+  flex-shrink: 0;
 }
 
 .log-tab {
@@ -665,11 +713,14 @@ input:focus, select:focus {
   color: var(--text);
   font-family: var(--font-mono);
   font-size: 13px;
+  flex-shrink: 0;
 }
 
 .log-stream {
-  max-height: 520px;
-  overflow: auto;
+  flex: 1;
+  min-height: 220px;
+  max-height: none;
+  overflow-y: auto;
   padding: 12px 14px;
   border-radius: 10px;
   background: #06080c;
@@ -715,19 +766,33 @@ input:focus, select:focus {
 .log-viewer-shell {
   padding: 16px 20px;
   flex: 1;
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
 }
 
 .log-viewer-shell .log-stream {
-  max-height: calc(100vh - 140px);
+  flex: 1;
+  max-height: none;
 }
 
 /* Projects List */
+.project-list-panel {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 240px;
+}
+
 .project-list {
   list-style: none;
   margin: 0;
   padding: 0;
   display: grid;
   gap: 12px;
+  overflow-y: auto;
+  flex: 1;
+  align-content: start;
 }
 
 .project-list li {
@@ -763,11 +828,218 @@ input:focus, select:focus {
   font-family: var(--font-mono);
 }
 
+/* Git Panel & Metrics */
+.git-panel {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 280px;
+}
+
+.git-status-message {
+  margin-bottom: 20px;
+  padding: 16px 18px;
+  border-radius: 10px;
+  background: #06080c;
+  border: 1px solid var(--border-subtle);
+  color: var(--gold-bright);
+  font-size: 14px;
+}
+
+.git-metrics-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 16px;
+  flex: 1;
+  align-content: start;
+}
+
+.git-metric-card {
+  padding: 18px 20px;
+  border-radius: 12px;
+  background: rgba(14, 19, 28, 0.6);
+  border: 1px solid var(--border-subtle);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  transition: border-color 0.2s ease;
+}
+
+.git-metric-card:hover {
+  border-color: var(--border-hover);
+}
+
+.git-metric-label {
+  font-size: 12px;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  font-weight: 600;
+}
+
+.git-metric-value {
+  font-size: 18px;
+  font-family: var(--font-mono);
+  color: var(--text);
+  overflow-wrap: anywhere;
+}
+
+.status-clean {
+  color: #4ade80;
+}
+
+.status-dirty {
+  color: var(--gold-primary);
+}
+
+.git-not-repo-notice {
+  margin-top: 20px;
+  padding: 18px 20px;
+  border-radius: 12px;
+  background: rgba(245, 197, 66, 0.04);
+  border: 1px solid rgba(245, 197, 66, 0.25);
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.git-notice-header {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+}
+
+.git-notice-icon {
+  font-size: 24px;
+}
+
+.git-switch-list {
+  display: grid;
+  gap: 10px;
+  margin-top: 6px;
+}
+
+.git-switch-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 14px;
+  border-radius: 10px;
+  background: rgba(14, 19, 28, 0.7);
+  border: 1px solid var(--border-subtle);
+  flex-wrap: wrap;
+}
+
+.git-switch-item p {
+  margin: 2px 0 0;
+}
+
+.git-files-section {
+  margin-top: 22px;
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+}
+
+.git-files-section h3 {
+  margin: 0 0 12px;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.git-file-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: 360px;
+  overflow-y: auto;
+  padding: 10px;
+  background: #06080c;
+  border-radius: 10px;
+  border: 1px solid var(--border-subtle);
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+}
+
+.git-file-item {
+  display: grid;
+  grid-template-columns: 110px 1fr auto;
+  gap: 12px;
+  padding: 6px 8px;
+  border-radius: 6px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.03);
+  align-items: center;
+}
+
+.git-file-item:hover {
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.git-file-tag {
+  font-weight: 700;
+  color: var(--gold-primary);
+}
+
+.git-file-tag.modified {
+  color: #f59e0b;
+}
+
+.git-file-tag.added, .git-file-tag.untracked {
+  color: #4ade80;
+}
+
+.git-file-tag.deleted {
+  color: var(--danger);
+}
+
+.git-file-path {
+  overflow-wrap: anywhere;
+  color: var(--text);
+}
+
+.git-file-status {
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.git-clean-notice {
+  margin-top: 20px;
+  padding: 16px 20px;
+  border-radius: 12px;
+  background: rgba(74, 222, 128, 0.06);
+  border: 1px solid rgba(74, 222, 128, 0.25);
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  font-size: 14px;
+}
+
 /* Doctor Diagnostics */
+.doctor-panel {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 280px;
+}
+
+.doctor-empty-state {
+  display: grid;
+  place-items: center;
+  flex: 1;
+  min-height: 180px;
+  color: var(--muted);
+}
+
 .doctor-list {
   display: grid;
   gap: 12px;
   margin-top: 18px;
+  overflow-y: auto;
+  flex: 1;
+  align-content: start;
 }
 
 .doctor-check {

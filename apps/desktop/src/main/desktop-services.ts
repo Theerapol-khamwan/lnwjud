@@ -84,7 +84,7 @@ const permissionSettingKey = 'permission_profile';
 const selectedWorkspaceSettingKey = 'selected_workspace_id';
 const workLogClearedSettingKey = 'work_log_cleared_at';
 const localeSettingKey = 'ui_locale';
-const APP_VERSION = '3.0.0';
+const APP_VERSION = '3.0.1';
 
 export interface DesktopRuntime {
   readonly services: DesktopIpcServices;
@@ -563,13 +563,33 @@ async function buildGitSummary(
   fileActor: FileActor,
 ): Promise<DashboardSnapshot['gitSummary']> {
   const result = await gitService.status(fileActor, workspace.id);
-  if (!result.ok) return { branch: null, changedFiles: 0, stagedFiles: 0, message: result.error.code === 'GIT_NOT_REPOSITORY' ? 'Not a Git repository' : 'Git status unavailable' };
+  if (!result.ok) {
+    return {
+      branch: null,
+      changedFiles: 0,
+      stagedFiles: 0,
+      message: result.error.code === 'GIT_NOT_REPOSITORY' ? 'Not a Git repository' : 'Git status unavailable',
+      repositoryPath: workspace.realRootPath,
+      isRepo: false,
+      entries: [],
+    };
+  }
+  const branchResult = await gitService.branch(fileActor, workspace.id);
+  const branch = branchResult.ok ? branchResult.value : null;
   const stagedFiles = result.value.entries.filter((entry) => entry.indexStatus !== ' ').length;
   return {
-    branch: null,
+    branch,
     changedFiles: result.value.entries.length,
     stagedFiles,
     message: result.value.entries.length === 0 ? 'Clean working tree' : `${result.value.entries.length} changed file(s)`,
+    repositoryPath: workspace.realRootPath,
+    isRepo: true,
+    entries: result.value.entries.map((entry) => ({
+      path: entry.path,
+      kind: entry.kind,
+      indexStatus: entry.indexStatus,
+      worktreeStatus: entry.worktreeStatus,
+    })),
   };
 }
 

@@ -21,7 +21,7 @@ export function createMcpServer(options: McpServerOptions): McpServer {
     ...(options.activityTracker === undefined ? {} : { activityTracker: options.activityTracker }),
     ...(options.profileProvider === undefined ? {} : { profileProvider: options.profileProvider }),
   });
-  const server = new McpServer({ name: 'lnwjud', version: '3.0.0' }, { capabilities: { tools: {} } });
+  const server = new McpServer({ name: 'lnwjud', version: '3.0.1' }, { capabilities: { tools: {} } });
   for (const tool of registry.list()) {
     server.registerTool(tool.name, {
       description: tool.description,

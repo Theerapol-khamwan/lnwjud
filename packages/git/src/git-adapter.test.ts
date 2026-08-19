@@ -21,6 +21,14 @@ describe('GitAdapter', () => {
     expect(runner.calls).toEqual([{ args: ['status', '--porcelain=v1', '-z', '--untracked-files=all'], cwd: 'C:\\workspace' }]);
   });
 
+  it('queries the current branch name', async () => {
+    const runner = new FakeGitRunner({ exitCode: 0, stdout: 'main\n', stderr: '' });
+    const result = await new GitAdapter(runner).branch('C:\\workspace');
+
+    expect(result).toEqual({ ok: true, value: 'main' });
+    expect(runner.calls).toEqual([{ args: ['branch', '--show-current'], cwd: 'C:\\workspace' }]);
+  });
+
   it('bounds diff output and keeps the path as a separate argument', async () => {
     const runner = new FakeGitRunner({ exitCode: 0, stdout: '0123456789', stderr: '' });
     const result = await new GitAdapter(runner).diff('C:\\workspace', { path: 'src\\space file.txt', maxBytes: 5 });

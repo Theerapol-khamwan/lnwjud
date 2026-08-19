@@ -2432,6 +2432,21 @@ var GitAdapter = class {
       return error46;
     return ok({ entries: parsePorcelainStatus(result.stdout) });
   }
+  async branch(cwd) {
+    const result = await this.runner.run(["branch", "--show-current"], cwd);
+    if (result.exitCode === 0 && result.stdout.trim().length > 0) {
+      return ok(result.stdout.trim());
+    }
+    const revResult = await this.runner.run(["rev-parse", "--abbrev-ref", "HEAD"], cwd);
+    if (revResult.exitCode === 0) {
+      const name = revResult.stdout.trim();
+      return ok(name === "HEAD" || name.length === 0 ? null : name);
+    }
+    const error46 = this.mapError(result);
+    if (error46 !== null)
+      return error46;
+    return ok(null);
+  }
   async diff(cwd, request = {}) {
     const maxBytes = request.maxBytes ?? 1024 * 1024;
     if (!this.isLimit(maxBytes, 4 * 1024 * 1024))
@@ -2527,6 +2542,13 @@ var GitService = class {
     if (!workspace.ok)
       return workspace;
     return this.adapter.status(workspace.value.realRootPath);
+  }
+  async branch(actor, workspaceId) {
+    void actor;
+    const workspace = await this.getWorkspace(workspaceId);
+    if (!workspace.ok)
+      return workspace;
+    return this.adapter.branch(workspace.value.realRootPath);
   }
   async diff(actor, workspaceId, request = {}) {
     void actor;
@@ -34710,7 +34732,7 @@ function createMcpServer(options) {
     ...options.activityTracker === void 0 ? {} : { activityTracker: options.activityTracker },
     ...options.profileProvider === void 0 ? {} : { profileProvider: options.profileProvider }
   });
-  const server = new McpServer({ name: "lnwjud", version: "3.0.0" }, { capabilities: { tools: {} } });
+  const server = new McpServer({ name: "lnwjud", version: "3.0.1" }, { capabilities: { tools: {} } });
   for (const tool of registry2.list()) {
     server.registerTool(tool.name, {
       description: tool.description,
