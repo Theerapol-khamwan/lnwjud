@@ -201,14 +201,18 @@ export async function probeProcessStart(pid: number): Promise<ProcessProbeResult
       '-Command',
       `$ErrorActionPreference='Stop'; $p=Get-CimInstance Win32_Process -Filter "ProcessId = ${pid}" -ErrorAction Stop; if($null -eq $p){'GONE'}else{'LIVE|' + $p.CreationDate.ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ss.fffZ',[Globalization.CultureInfo]::InvariantCulture)}`,
     ], { windowsHide: true, encoding: 'utf8', timeout: 3_000 });
-    const value = stdout.trim();
-    if (value === 'GONE' || value.length === 0) return { state: 'gone' };
-    if (value.startsWith('LIVE|') && validTimestamp(value.slice(5))) return { state: 'live', processStartedAt: value.slice(5) };
-    return { state: 'unverifiable', reason: 'invalid_probe_response' };
+    return parseProcessProbeOutput(stdout);
   } catch (error: unknown) {
     const code = typeof error === 'object' && error !== null && 'code' in error ? String((error as { code?: unknown }).code ?? '') : '';
     return { state: 'unverifiable', reason: code === 'ETIMEDOUT' ? 'probe_timeout' : 'probe_failed' };
   }
+}
+
+export function parseProcessProbeOutput(stdout: string): ProcessProbeResult {
+  const value = stdout.trim();
+  if (value === 'GONE') return { state: 'gone' };
+  if (value.startsWith('LIVE|') && validTimestamp(value.slice(5))) return { state: 'live', processStartedAt: value.slice(5) };
+  return { state: 'unverifiable', reason: 'invalid_probe_response' };
 }
 
 export function sharedActivitySnapshotPath(profileDirectory: string): string {

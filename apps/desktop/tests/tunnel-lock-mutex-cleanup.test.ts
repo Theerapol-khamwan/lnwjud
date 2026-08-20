@@ -1,0 +1,97 @@
+import { EventEmitter } from 'node:events';
+import { mkdtemp, rm } from 'node:fs/promises';
+import os from 'node:os';
+import path from 'node:path';
+import { PassThrough } from 'node:stream';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+
+const mutexHelper = vi.hoisted(() => ({ exitCodes: [] as number[] }));
+
+vi.mock('node:child_process', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('node:child_process')>();
+  return {
+    ...actual,
+    spawn: vi.fn(() => {
+      const child = new EventEmitter() as EventEmitter & {
+        stdin: PassThrough;
+        stdout: PassThrough;
+        stderr: PassThrough;
+        exitCode: number | null;
+        kill: () => boolean;
+      };
+      child.stdin = new PassThrough();
+      child.stdout = new PassThrough();
+      child.stderr = new PassThrough();
+      child.exitCode = null;
+      const exitCode = mutexHelper.exitCodes.shift() ?? 0;
+      child.kill = (): boolean => {
+        if (child.exitCode === null) {
+          child.exitCode = 1;
+          child.emit('exit', 1);
+        }
+        return true;
+      };
+      child.stdin.once('finish', () => {
+        queueMicrotask(() => {
+          if (child.exitCode !== null) return;
+          child.exitCode = exitCode;
+          child.emit('exit', exitCode);
+        });
+      });
+      queueMicrotask(() => child.stdout.write('READY\n'));
+      return child;
+    }),
+  };
+});
+
+import { acquireTunnelLock, readTunnelLock, type TunnelLockOwner } from '../src/main/tunnel-lock.js';
+
+const temporaryRoots: string[] = [];
+
+afterEach(async () => {
+  mutexHelper.exitCodes = [];
+  await Promise.all(temporaryRoots.splice(0).map((root) => rm(root, { recursive: true, force: true })));
+});
+
+describe('tunnel lock mutex cleanup semantics', () => {
+  it('reports acquisition success when the authoritative lock was published before mutex cleanup failed', async () => {
+    const directory = await temporaryDirectory();
+    const expectedOwner = owner(1201, '2026-08-20T00:00:00.000Z');
+    mutexHelper.exitCodes = [1];
+
+    const claim = await acquireTunnelLock({
+      profileDirectory: directory,
+      owner: expectedOwner,
+      inspectProcess: async () => ({ state: 'gone' }),
+    });
+
+    expect(claim.acquired).toBe(true);
+    expect(await readTunnelLock(directory)).toEqual(expectedOwner);
+  });
+
+  it('reports release success when the authoritative lock was removed before mutex cleanup failed', async () => {
+    const directory = await temporaryDirectory();
+    const expectedOwner = owner(1202, '2026-08-20T00:00:00.000Z');
+    mutexHelper.exitCodes = [0, 1];
+    const claim = await acquireTunnelLock({
+      profileDirectory: directory,
+      owner: expectedOwner,
+      inspectProcess: async () => ({ state: 'live', processStartedAt: expectedOwner.processStartedAt }),
+    });
+    expect(claim.acquired).toBe(true);
+    if (!claim.acquired) return;
+
+    await expect(claim.release()).resolves.toBe(true);
+    expect(await readTunnelLock(directory)).toBeNull();
+  });
+});
+
+async function temporaryDirectory(): Promise<string> {
+  const directory = await mkdtemp(path.join(os.tmpdir(), 'lnwjud-tunnel-lock-mutex-'));
+  temporaryRoots.push(directory);
+  return directory;
+}
+
+function owner(pid: number, processStartedAt: string): TunnelLockOwner {
+  return { pid, processStartedAt, acquiredAt: '2026-08-20T00:00:00.000Z' };
+}

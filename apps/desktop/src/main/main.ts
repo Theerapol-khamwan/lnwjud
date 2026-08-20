@@ -32,6 +32,7 @@ import {
   type WorkspaceSummary,
 } from '@lnwjud/ipc-contracts';
 import { readSharedActivitySnapshot, startMcpStdio } from '@lnwjud/mcp-server';
+import { resolveLnwjudDataPath } from '@lnwjud/shared';
 import { createDesktopRuntime, type DesktopRuntime } from './desktop-services.js';
 import { DesktopShutdownCoordinator } from './desktop-shutdown.js';
 import { shouldHoldSingleInstanceLock, wantsMcpStdio } from './instance-lock.js';
@@ -139,7 +140,7 @@ const defaultDesktopServices: DesktopIpcServices = {
     tunnelLogExists: false,
   }),
   clearLogBuffer: async (): Promise<{ readonly cleared: boolean }> => ({ cleared: false }),
-  captureIncident: async (): Promise<IncidentReport> => ({ schemaVersion: 1, capturedAt: new Date().toISOString(), appVersion: APP_VERSION, tunnelClientVersion: null, tunnelClientVersionReason: 'desktop_services_unavailable', classification: 'healthy_or_inconclusive', classificationReasons: ['desktop_services_unavailable'], updaterEventTail: [], tunnel: { state: 'stopped', source: 'desktop', message: null, instanceIds: [], requestIds: [], health: { state: 'unavailable', message: 'unavailable' } }, mcpCalls: [], tunnelLogTail: [], processTree: { available: false, entries: [], error: 'unavailable' }, tcpListeners: { available: false, entries: [], error: 'unavailable' } }),
+  captureIncident: async (): Promise<IncidentReport> => ({ schemaVersion: 1, capturedAt: new Date().toISOString(), appVersion: APP_VERSION, tunnelClientVersion: null, tunnelClientVersionReason: 'desktop_services_unavailable', classification: 'healthy_or_inconclusive', classificationReasons: ['desktop_services_unavailable'], updaterEventTail: [], tunnel: { state: 'stopped', source: 'desktop', instanceIds: [], requestIds: [], health: { state: 'unavailable', message: 'unavailable' } }, mcpCalls: [], tunnelLogTail: [], processTree: { available: false, entries: [], error: 'unavailable' }, tcpListeners: { available: false, entries: [], error: 'unavailable' } }),
 };
 
 const updaterEventTail: string[] = [];
@@ -616,7 +617,7 @@ function initAutoUpdater(runtime: DesktopRuntime): void {
           : { state: snapshot.state, reason: snapshot.reason };
       },
       install: (): void => {
-        void desktopShutdownCoordinator?.requestQuit(() => autoUpdater.quitAndInstall());
+        void desktopShutdownCoordinator?.requestQuit(() => autoUpdater.quitAndInstall(), 'install');
       },
     });
     updateDownloadedDialogController = new UpdateDownloadedDialogController({
@@ -799,12 +800,9 @@ function handleDesktopBeforeQuit(event: Electron.Event): void {
 
 function configureDataPath(): string {
   app.setName(APP_NAME);
-  const configuredDataPath = process.env.LNWJUD_DATA_PATH;
-  if (typeof configuredDataPath === 'string' && configuredDataPath.trim().length > 0) {
-    app.setPath('userData', configuredDataPath);
-    return configuredDataPath;
-  }
-  return app.getPath('userData');
+  const dataPath = resolveLnwjudDataPath(process.env, app.getPath('appData'));
+  app.setPath('userData', dataPath);
+  return dataPath;
 }
 
 const gotInstanceLock = shouldHoldSingleInstanceLock(process.argv) ? app.requestSingleInstanceLock() : true;

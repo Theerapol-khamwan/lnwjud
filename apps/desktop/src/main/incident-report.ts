@@ -20,12 +20,12 @@ export type IncidentClassification = 'local_tool_failed' | 'tunnel_disconnected'
 export type TunnelHealthState = 'live' | 'unhealthy' | 'unavailable' | 'unknown';
 export interface IncidentHealth { readonly state: TunnelHealthState; readonly message: string | null; }
 type IncidentLine = Pick<LogLine, 'source' | 'text' | 'timestamp' | 'correlation'> & { readonly id?: number };
-export interface IncidentEvidence { readonly triggeredByUser: boolean; readonly appVersion: string; readonly tunnelClientVersion: string | null; readonly tunnelClientVersionReason?: string | null; readonly tunnel: Pick<TunnelStatus, 'state' | 'source' | 'message'> & { readonly health: IncidentHealth }; readonly updaterEvents: readonly string[]; readonly logLines: readonly IncidentLine[]; readonly relevantPids?: readonly number[]; readonly relevantPidUnavailableReason?: string; readonly collectProcessTree?: (pids: readonly number[]) => Promise<readonly IncidentProcess[]>; readonly collectListeners?: (pids: readonly number[]) => Promise<readonly IncidentListener[]>; }
+export interface IncidentEvidence { readonly triggeredByUser: boolean; readonly appVersion: string; readonly tunnelClientVersion: string | null; readonly tunnelClientVersionReason?: string | null; readonly tunnel: Pick<TunnelStatus, 'state' | 'source'> & { readonly message?: string | null; readonly health: IncidentHealth }; readonly updaterEvents: readonly string[]; readonly logLines: readonly IncidentLine[]; readonly relevantPids?: readonly number[]; readonly relevantPidUnavailableReason?: string; readonly collectProcessTree?: (pids: readonly number[]) => Promise<readonly IncidentProcess[]>; readonly collectListeners?: (pids: readonly number[]) => Promise<readonly IncidentListener[]>; }
 export interface IncidentProcess { readonly pid: number; readonly parentPid: number | null; readonly executable: string; }
 export interface IncidentListener { readonly pid: number; readonly address: string; readonly port: number; readonly owner?: string; }
 export type IncidentCompletionState = 'success' | 'failure' | 'unknown' | 'conflict';
 export interface IncidentCall { readonly callId: string; readonly toolName: string | null; readonly resultCode: 'SUCCESS' | 'FAILED' | 'FATAL' | 'UNKNOWN' | null; readonly completionState: IncidentCompletionState; readonly incomplete: boolean; readonly startedWithoutCompletion: boolean; readonly completionWithoutStart: boolean; readonly sourceSequence: number; readonly lastEvidenceSequence: number; readonly startedAt: string | null; readonly completedAt: string | null; }
-export interface IncidentReport { readonly schemaVersion: 1; readonly capturedAt: string; readonly appVersion: string; readonly tunnelClientVersion: string | null; readonly tunnelClientVersionReason: string | null; readonly classification: IncidentClassification; readonly classificationReasons: readonly string[]; readonly updaterEventTail: readonly { readonly category: 'checking-for-update' | 'update-available' | 'update-not-available' | 'update-downloaded' | 'error'; readonly version?: string }[]; readonly tunnel: { readonly state: TunnelStatus['state']; readonly source: TunnelStatus['source']; readonly message: string | null; readonly instanceIds: readonly string[]; readonly requestIds: readonly string[]; readonly health: IncidentHealth; }; readonly mcpCalls: readonly IncidentCall[]; readonly tunnelLogTail: readonly { readonly timestamp: string; readonly lifecycle: TunnelLifecycleCategory; readonly instanceId?: string; readonly requestId?: string }[]; readonly processTree: { readonly available: boolean; readonly entries: readonly { readonly pid: number; readonly parentPid: number | null; readonly executable: string }[]; readonly error?: string; }; readonly tcpListeners: { readonly available: boolean; readonly entries: readonly { readonly pid: number; readonly address: string; readonly port: number }[]; readonly error?: string; }; }
+export interface IncidentReport { readonly schemaVersion: 1; readonly capturedAt: string; readonly appVersion: string; readonly tunnelClientVersion: string | null; readonly tunnelClientVersionReason: string | null; readonly classification: IncidentClassification; readonly classificationReasons: readonly string[]; readonly updaterEventTail: readonly { readonly category: 'checking-for-update' | 'update-available' | 'update-not-available' | 'update-downloaded' | 'error'; readonly version?: string }[]; readonly tunnel: { readonly state: TunnelStatus['state']; readonly source: TunnelStatus['source']; readonly instanceIds: readonly string[]; readonly requestIds: readonly string[]; readonly health: IncidentHealth; }; readonly mcpCalls: readonly IncidentCall[]; readonly tunnelLogTail: readonly { readonly timestamp: string; readonly lifecycle: TunnelLifecycleCategory; readonly instanceId?: string; readonly requestId?: string }[]; readonly processTree: { readonly available: boolean; readonly entries: readonly { readonly pid: number; readonly parentPid: number | null; readonly executable: string }[]; readonly error?: string; }; readonly tcpListeners: { readonly available: boolean; readonly entries: readonly { readonly pid: number; readonly address: string; readonly port: number }[]; readonly error?: string; }; }
 
 export function classifyIncident(evidence: Pick<IncidentEvidence, 'triggeredByUser' | 'tunnel' | 'logLines'>): { readonly classification: IncidentClassification; readonly reasons: readonly string[] } {
   const latestCall = pairMcpCalls(evidence.logLines).reduce<IncidentCall | undefined>((latest, call) => latest === undefined || call.lastEvidenceSequence >= latest.lastEvidenceSequence ? call : latest, undefined);
@@ -167,7 +167,7 @@ export async function buildIncidentReport(evidence: IncidentEvidence): Promise<I
     classification: classification.classification,
     classificationReasons: classification.reasons,
     updaterEventTail: normalizeUpdaterEvents(evidence.updaterEvents),
-    tunnel: { state: evidence.tunnel.state, source: evidence.tunnel.source, message: evidence.tunnel.message, ...correlations, health: { state: evidence.tunnel.health.state, message: evidence.tunnel.health.message } },
+    tunnel: { state: evidence.tunnel.state, source: evidence.tunnel.source, ...correlations, health: { state: evidence.tunnel.health.state, message: evidence.tunnel.health.message } },
     mcpCalls: pairMcpCalls(evidence.logLines),
     tunnelLogTail: evidence.logLines.filter((line) => line.source === 'tunnel').slice(-MAX_ENTRIES).map((line) => {
       const tunnelCorrelation = line.correlation?.kind === 'tunnel' ? line.correlation : undefined;
@@ -192,20 +192,22 @@ export async function collectRelevantProcessTree(pids: readonly number[]): Promi
   // Query only non-sensitive identity/parent/name fields. Descendant expansion
   // happens locally and remains anchored to the verified root PIDs.
   const { stdout } = await execFileAsync('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', 'Get-CimInstance Win32_Process -ErrorAction Stop | Select-Object ProcessId,ParentProcessId,Name | ConvertTo-Json -Compress'], { windowsHide: true, timeout: 3_000, encoding: 'utf8' });
-  const rows = parseRows(stdout).map((row) => ({ pid: number(row.ProcessId), parentPid: nullableNumber(row.ParentProcessId), executable: safe(typeof row.Name === 'string' ? row.Name : 'unknown') }))
+  const rows = parseRows(stdout, null).map((row) => ({ pid: number(row.ProcessId), parentPid: nullableNumber(row.ParentProcessId), executable: safe(typeof row.Name === 'string' ? row.Name : 'unknown') }))
     .filter((entry) => entry.pid > 0);
-  const included = new Set(roots);
+  return selectRelevantProcesses(rows, roots);
+}
+export function selectRelevantProcesses(entries: readonly IncidentProcess[], rootPids: readonly number[]): readonly IncidentProcess[] {
+  const included = new Set(trustedPids(rootPids));
   let changed = true;
-  while (changed && included.size < MAX_ENTRIES) {
+  while (changed) {
     changed = false;
-    for (const entry of rows) {
+    for (const entry of entries) {
       if (included.has(entry.pid) || entry.parentPid === null || !included.has(entry.parentPid)) continue;
       included.add(entry.pid);
       changed = true;
-      if (included.size >= MAX_ENTRIES) break;
     }
   }
-  return rows.filter((entry) => included.has(entry.pid)).slice(0, MAX_ENTRIES);
+  return entries.filter((entry) => included.has(entry.pid)).slice(0, MAX_ENTRIES);
 }
 export async function collectRelevantListeners(pids: readonly number[]): Promise<readonly IncidentListener[]> { if (pids.length === 0) return []; const clause = pids.map((pid) => `$_.OwningProcess -eq ${pid}`).join(' -or '); const { stdout } = await execFileAsync('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', `Get-NetTCPConnection -State Listen -ErrorAction Stop | Where-Object { ${clause} } | Select-Object OwningProcess,LocalAddress,LocalPort | ConvertTo-Json -Compress`], { windowsHide: true, timeout: 3_000, encoding: 'utf8' }); return parseRows(stdout).map((row) => ({ pid: number(row.OwningProcess), address: safe(typeof row.LocalAddress === 'string' ? row.LocalAddress : 'unknown'), port: number(row.LocalPort) })); }
 async function collectProcesses(collector: IncidentEvidence['collectProcessTree'], pids: readonly number[], noPidReason: string): Promise<IncidentReport['processTree']> {
@@ -269,6 +271,6 @@ function mcpEvidenceIdentity(line: IncidentLine, correlation: Extract<NonNullabl
   const sourceId = typeof line.id === 'number' && Number.isSafeInteger(line.id) ? `id:${line.id}` : `event:${line.timestamp}:${line.text}`;
   return `${sourceId}:${correlation.phase}:${correlation.callId}:${correlation.toolName}:${String(correlation.resultCode)}`;
 }
-function parseRows(raw: string): Record<string, unknown>[] { try { const parsed: unknown = JSON.parse(raw || '[]'); return (Array.isArray(parsed) ? parsed : [parsed]).filter((value): value is Record<string, unknown> => typeof value === 'object' && value !== null).slice(0, MAX_ENTRIES); } catch { return []; } }
+function parseRows(raw: string, limit: number | null = MAX_ENTRIES): Record<string, unknown>[] { try { const parsed: unknown = JSON.parse(raw || '[]'); const rows = (Array.isArray(parsed) ? parsed : [parsed]).filter((value): value is Record<string, unknown> => typeof value === 'object' && value !== null); return limit === null ? rows : rows.slice(0, limit); } catch { return []; } }
 function number(value: unknown): number { return typeof value === 'number' && Number.isFinite(value) ? value : 0; }
 function nullableNumber(value: unknown): number | null { const parsed = number(value); return parsed > 0 ? parsed : null; }

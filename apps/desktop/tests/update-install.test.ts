@@ -162,6 +162,39 @@ describe('downloaded update installation', () => {
     expect(install).toHaveBeenCalledOnce();
   });
 
+  it('re-samples local activity after awaiting the shared snapshot before entering the quiet period', async () => {
+    vi.useFakeTimers();
+    let active = 0;
+    let revision = 0;
+    const firstShared = deferred<UpdateSharedActivitySnapshot>();
+    const secondShared = deferred<UpdateSharedActivitySnapshot>();
+    const sharedActivitySnapshot = vi.fn()
+      .mockImplementationOnce(() => firstShared.promise)
+      .mockImplementationOnce(() => secondShared.promise);
+    const install = vi.fn();
+    const coordinator = new UpdateInstallCoordinator({
+      activeCallCount: (): number => active,
+      activityRevision: (): number => revision,
+      tunnelRunning: async (): Promise<boolean> => true,
+      sharedActivitySnapshot,
+      install,
+      pollIntervalMs: 10,
+      quietPeriodMs: 20,
+    });
+
+    coordinator.requestInstall();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(sharedActivitySnapshot).toHaveBeenCalledTimes(1);
+
+    active = 1;
+    revision += 1;
+    firstShared.resolve({ state: 'available', activeCallCount: 0, revision: 10 });
+    await vi.advanceTimersByTimeAsync(0);
+
+    expect(install).not.toHaveBeenCalled();
+    expect(sharedActivitySnapshot).toHaveBeenCalledTimes(1);
+  });
+
   it('cancels a pending idle wait during shutdown', async () => {
     vi.useFakeTimers();
     const install = vi.fn();

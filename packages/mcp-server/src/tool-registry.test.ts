@@ -32,6 +32,12 @@ describe('MCP tool registry', () => {
     ]);
   });
 
+  it('does not advertise a fixed drive letter in workspace registration metadata', () => {
+    const registry = new ToolRegistry({}, actor);
+    const registration = registry.list().find((tool) => tool.name === 'workspace_register');
+    expect(registration?.description).not.toContain('E:\\');
+  });
+
   it('exposes the local desktop capability contract', () => {
     const registry = new ToolRegistry({}, actor);
     const byName = new Map(registry.list().map((tool) => [tool.name, tool]));

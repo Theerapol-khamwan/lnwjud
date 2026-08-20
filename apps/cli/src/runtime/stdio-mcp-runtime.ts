@@ -83,11 +83,12 @@ export function createStdioMcpRuntime(dataPath: string, workspace: Workspace, un
   const checkpointService = new CheckpointService(workspaceRepository, checkpointRepository, {
     profile: fullProfile,
   });
-  const pathGuard = unrestricted ? new WorkspacePathGuard(new SecretPolicy(), { unrestricted: true }) : undefined;
+  const pathGuard = new WorkspacePathGuard(new SecretPolicy(), { unrestricted, trustedWorkspaceAccess: true });
   const fileService = new FileService(workspaceRepository, pathGuard, undefined, {
     checkpointService,
     profileProvider: (): typeof permissionProfiles.full => fullProfile,
     unrestricted,
+    trustedWorkspaceAccess: true,
   });
   const gitService = new GitService(workspaceRepository);
   const workspaceQuery = new WorkspaceQueryService(workspaceRepository, pathGuard);
@@ -99,10 +100,10 @@ export function createStdioMcpRuntime(dataPath: string, workspace: Workspace, un
     auditService,
     profileProvider: (): typeof permissionProfiles.full => fullProfile,
   });
-  const capabilityService = createStdioCapabilityService(dataPath, async () => {
+  const capabilityService = createStdioCapabilityService(dataPath, machineRootPath(workspace.realRootPath), async () => {
     const listed = await workspaceRepository.list();
     const roots = listed.map((entry) => entry.realRootPath);
-    if (roots.length === 0) return unrestricted ? [...allFixedDriveRoots()] : [machineRootPath()];
+    if (roots.length === 0) return unrestricted ? [...allFixedDriveRoots()] : [machineRootPath(workspace.realRootPath)];
     return roots;
   }, unrestricted);
   const actor: FileActor = { clientId: 'cli-mcp-stdio', clientName: 'lnwjud cli MCP' };
@@ -187,17 +188,18 @@ async function createSharedActivityLease(profileDirectory: string | undefined): 
 
 function createStdioCapabilityService(
   dataPath: string,
+  restrictedRoot: string,
   workspaceRootsProvider: () => Promise<readonly string[]>,
   unrestricted: boolean,
 ): LocalCapabilityService {
   const capabilityRootsProvider = async (): Promise<readonly string[]> => {
     const workspaceRoots = await workspaceRootsProvider();
     const configuredRoots = readCapabilityRoots(process.env.LNWJUD_CAPABILITY_ROOTS);
-    const roots = [...workspaceRoots, ...configuredRoots, ...(unrestricted ? [...allFixedDriveRoots()] : [machineRootPath()])];
+    const roots = [...workspaceRoots, ...configuredRoots, ...(unrestricted ? [...allFixedDriveRoots()] : [restrictedRoot])];
     return roots.length === 0 ? [dataPath] : roots;
   };
   const shellBackend = new ShellCapabilityBackend({
-    allowedRoots: [dataPath, ...(unrestricted ? [...allFixedDriveRoots()] : [machineRootPath()])],
+    allowedRoots: [dataPath, ...(unrestricted ? [...allFixedDriveRoots()] : [restrictedRoot])],
     allowedRootsProvider: capabilityRootsProvider,
     unrestricted,
   });

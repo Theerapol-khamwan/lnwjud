@@ -2,8 +2,7 @@ import path from 'node:path';
 import { appError, err, ok, type Result } from '@lnwjud/domain';
 import {
   isDriveRoot,
-  isEMachineRoot,
-  isUnderEDrive,
+  isWithin,
   type Workspace,
   type WorkspaceRepository,
   type WorkspaceService,
@@ -49,9 +48,7 @@ export class WorkspaceInfoService {
   }
 
   private toWorkspaceInfo(workspace: Workspace): WorkspaceInfo {
-    const isRoot = this.unrestricted
-      ? isDriveRoot(workspace.realRootPath) || isDriveRoot(workspace.rootPath)
-      : isEMachineRoot(workspace.realRootPath) || isEMachineRoot(workspace.rootPath);
+    const isRoot = isDriveRoot(workspace.realRootPath) || isDriveRoot(workspace.rootPath);
     return {
       id: workspace.id,
       displayName: workspace.displayName,
@@ -64,6 +61,7 @@ export class WorkspaceInfoService {
 
   public async register(actor: FileActor, request: RegisterWorkspaceRequest): Promise<Result<WorkspaceInfo>> {
     void actor;
+    void this.unrestricted;
     if (this.workspaceService === undefined) {
       return err(appError('INTERNAL_ERROR', 'Workspace registration is unavailable'));
     }
@@ -72,29 +70,23 @@ export class WorkspaceInfoService {
     if (parent === null) {
       return err(appError('WORKSPACE_NOT_FOUND', 'Parent workspace was not found'));
     }
-    if (this.unrestricted) {
-      if (!isDriveRoot(parent.realRootPath) && !isDriveRoot(parent.rootPath)) {
-        return err(appError('INVALID_INPUT', 'parentWorkspaceId must be a drive-root machine root'));
-      }
-    } else if (!isEMachineRoot(parent.realRootPath) && !isEMachineRoot(parent.rootPath)) {
-      return err(appError('INVALID_INPUT', 'parentWorkspaceId must be the E:\\ machine root'));
+    if (!isDriveRoot(parent.realRootPath) && !isDriveRoot(parent.rootPath)) {
+      return err(appError('INVALID_INPUT', 'parentWorkspaceId must be a drive-root machine root'));
     }
 
     const absolutePath = path.isAbsolute(request.path)
       ? path.resolve(request.path)
       : path.resolve(parent.rootPath, request.path);
-
-    if (!this.unrestricted && !isUnderEDrive(absolutePath)) {
-      return err(appError('INVALID_INPUT', 'Registered path must be under E:\\'));
+    const parentRoot = path.resolve(parent.realRootPath || parent.rootPath);
+    if (!isWithin(parentRoot, absolutePath)) {
+      return err(appError('INVALID_INPUT', 'Registered path must be under its parent machine root'));
     }
 
     const existing = await this.workspaces.list();
     const normalizedTarget = normalizeCompare(absolutePath);
     const duplicate = existing.find((entry) => normalizeCompare(entry.realRootPath) === normalizedTarget
       || normalizeCompare(entry.rootPath) === normalizedTarget);
-    if (duplicate !== undefined) {
-      return ok(this.toWorkspaceInfo(duplicate));
-    }
+    if (duplicate !== undefined) return ok(this.toWorkspaceInfo(duplicate));
 
     const displayName = request.displayName?.trim()
       || path.basename(absolutePath)

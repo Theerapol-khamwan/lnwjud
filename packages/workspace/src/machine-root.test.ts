@@ -1,34 +1,33 @@
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { allFixedDriveRoots, isDriveRoot, isEMachineRoot, isUnderEDrive, machineRootPath, machineRootPaths, normalizeWorkspaceRoot } from './machine-root.js';
+import { allFixedDriveRoots, driveRootForPath, isDriveRoot, isUnderMachineRoot, machineRootPath, machineRootPaths, normalizeWorkspaceRoot } from './machine-root.js';
 
 describe('machine-root helpers', () => {
-  it('detects E: machine root and containment', () => {
-    expect(isEMachineRoot('E:\\')).toBe(true);
-    expect(isEMachineRoot('E:')).toBe(true);
-    expect(isEMachineRoot('E:\\projects')).toBe(false);
-    expect(isDriveRoot('C:\\')).toBe(true);
-    expect(isDriveRoot('E:\\apps')).toBe(false);
-    expect(isUnderEDrive('E:\\lnwjud')).toBe(true);
-    expect(isUnderEDrive('C:\\Windows')).toBe(false);
-    expect(machineRootPath().toUpperCase()).toBe('E:\\');
-    expect(normalizeWorkspaceRoot('E:\\foo')).toBe(path.resolve('E:\\foo') + path.sep);
+  it('derives the restricted machine root from an explicit workspace instead of a fixed drive letter', () => {
+    expect(driveRootForPath('D:\\DPLANT-V8')).toBe('D:\\');
+    expect(isDriveRoot('D:\\')).toBe(true);
+    expect(isDriveRoot('D:\\apps')).toBe(false);
+    expect(isUnderMachineRoot('D:\\DPLANT-V8', 'D:\\')).toBe(true);
+    expect(isUnderMachineRoot('C:\\Windows', 'D:\\')).toBe(false);
+    expect(machineRootPath('D:\\DPLANT-V8', { SystemDrive: 'C:' })).toBe('D:\\');
+    expect(normalizeWorkspaceRoot('D:\\foo')).toBe(path.resolve('D:\\foo') + path.sep);
+  });
+
+  it('falls back to the Windows system drive without assuming E:', () => {
+    expect(machineRootPath(undefined, { SystemDrive: 'C:' })).toBe('C:\\');
+    expect(machineRootPath(undefined, { HOMEDRIVE: 'F:' })).toBe('F:\\');
   });
 
   it('lists only existing drive roots', () => {
     const roots = allFixedDriveRoots();
     expect(Array.isArray(roots)).toBe(true);
-    for (const root of roots) {
-      expect(root).toMatch(/^[A-Z]:\\$/);
-    }
-    if (process.platform === 'win32') {
-      expect(roots.length).toBeGreaterThan(0);
-    }
+    for (const root of roots) expect(root).toMatch(/^[A-Z]:\\$/);
+    if (process.platform === 'win32') expect(roots.length).toBeGreaterThan(0);
   });
 
-  it('expands machine roots in unrestricted mode', () => {
-    expect(machineRootPaths(false)).toEqual(['E:\\']);
-    const roots = machineRootPaths(true);
+  it('uses the selected workspace drive in restricted mode and every fixed drive in unrestricted mode', () => {
+    expect(machineRootPaths(false, 'D:\\DPLANT-V8')).toEqual(['D:\\']);
+    const roots = machineRootPaths(true, 'D:\\DPLANT-V8');
     expect(roots.length).toBeGreaterThan(0);
     expect(roots.every((root) => /^[A-Z]:\\$/.test(root))).toBe(true);
   });

@@ -265,17 +265,22 @@ async function withTunnelLockCriticalSection<T>(profileDirectory: string, action
     actionError = error;
   }
   holder.stdin.end();
-  let cleanupFailed = false;
-  let cleanupError: unknown;
+  let cleanupError: unknown = null;
   try {
     await waitForMutexExit(holder, () => stderr);
   } catch (error: unknown) {
-    if (holder.exitCode === null) holder.kill();
-    cleanupFailed = true;
     cleanupError = error;
+    if (holder.exitCode === null) {
+      holder.kill();
+      await waitForMutexExit(holder, () => stderr).catch(() => undefined);
+    }
   }
   if (actionFailed) throw actionError;
-  if (cleanupFailed) throw cleanupError;
+  if (cleanupError !== null) {
+    // The authoritative action already completed while the mutex was held.
+    // Do not misreport that mutation as failed because only helper cleanup failed.
+    console.warn('Tunnel lock mutex cleanup failed after the authoritative action completed');
+  }
   return actionResult;
 }
 

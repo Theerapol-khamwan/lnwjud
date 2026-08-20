@@ -29,7 +29,7 @@ describe('MVP release verification gate', () => {
   });
 
   it('documents the acceptance evidence and clean-machine limitations', async () => {
-    const checklist = await readFile(path.join(repositoryRoot, 'docs', 'development', 'RELEASE_CHECKLIST.md'), 'utf8');
+    const checklist = await readFile(path.join(repositoryRoot, '.github', 'RELEASE_CHECKLIST.md'), 'utf8');
     for (const evidence of [
       'traversal',
       'junction',

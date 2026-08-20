@@ -2,41 +2,30 @@ import { existsSync } from 'node:fs';
 import {
   allFixedDriveRoots,
   isDriveRoot,
-  isEMachineRoot,
   machineRootPath,
   normalizeWorkspaceRoot,
   type Workspace,
   type WorkspaceService,
 } from '@lnwjud/workspace';
 
-/**
- * Ensures E:\ is registered as the sole machine root and removes other drive-root workspaces.
- * Project workspaces under E:\ are preserved.
- */
-export async function syncEMachineRoot(workspaceService: WorkspaceService): Promise<Workspace | null> {
-  const existing = await workspaceService.list();
-  for (const workspace of existing) {
-    if (isDriveRoot(workspace.realRootPath) && !isEMachineRoot(workspace.realRootPath)) {
-      await workspaceService.delete(workspace.id);
-    }
-  }
-
-  const root = machineRootPath();
+/** Ensure the drive containing the preferred workspace is registered as a machine root. */
+export async function syncPreferredMachineRoot(
+  workspaceService: WorkspaceService,
+  preferredPath?: string,
+): Promise<Workspace | null> {
+  const root = machineRootPath(preferredPath);
   if (!existsSync(root)) return null;
 
-  const afterPrune = await workspaceService.list();
+  const existing = await workspaceService.list();
   const target = normalizeWorkspaceRoot(root).toLowerCase();
-  const found = afterPrune.find((entry) => normalizeWorkspaceRoot(entry.realRootPath).toLowerCase() === target);
+  const found = existing.find((entry) => normalizeWorkspaceRoot(entry.realRootPath).toLowerCase() === target);
   if (found !== undefined) return found;
 
-  const added = await workspaceService.add('Local Disk E:', root);
+  const added = await workspaceService.add(`Local Disk ${root[0]?.toUpperCase() ?? ''}:`, root);
   return added.ok ? added.value : null;
 }
 
-/**
- * Unrestricted mode: register every fixed drive root (C:\, D:\, E:\, …) as a machine root.
- * Existing roots are kept and never pruned. Returns the first available machine root.
- */
+/** Register every existing fixed drive root without pruning previously registered roots. */
 export async function syncAllDriveRoots(workspaceService: WorkspaceService): Promise<Workspace | null> {
   const roots = allFixedDriveRoots();
   if (roots.length === 0) return null;
@@ -58,10 +47,11 @@ export async function syncAllDriveRoots(workspaceService: WorkspaceService): Pro
   return after.find((entry) => isDriveRoot(entry.realRootPath)) ?? after[0] ?? null;
 }
 
-/**
- * Machine-root sync for the current access mode.
- * Default mode keeps E:\ as the sole machine root; unrestricted mode registers every fixed drive.
- */
-export function syncMachineRoots(workspaceService: WorkspaceService, unrestricted: boolean): Promise<Workspace | null> {
-  return unrestricted ? syncAllDriveRoots(workspaceService) : syncEMachineRoot(workspaceService);
+/** Machine-root synchronization for the current access mode. */
+export function syncMachineRoots(
+  workspaceService: WorkspaceService,
+  unrestricted: boolean,
+  preferredPath?: string,
+): Promise<Workspace | null> {
+  return unrestricted ? syncAllDriveRoots(workspaceService) : syncPreferredMachineRoot(workspaceService, preferredPath);
 }

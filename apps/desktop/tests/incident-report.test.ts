@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { LogHub } from '../src/main/log-hub.js';
 import {
-  buildIncidentReport,
+  buildIncidentReport, selectRelevantProcesses,
   classifyIncident,
   exportIncidentReport,
   pairMcpCalls,
@@ -310,6 +310,13 @@ describe('incident correlation and privacy', () => {
     for (const secret of ['Basic dXNlcjpwYXNz', 'Bearer abc.def.ghi', 'token=very-secret', '"apiKey":"json-secret"', 'X-Api-Key: newline-secret', 'newline-secret']) expect(serialized).not.toContain(secret);
   });
 
+  it('filters process evidence to trusted roots and descendants before applying the export bound', () => {
+    const unrelated = Array.from({ length: 205 }, (_, index) => ({ pid: index + 1, parentPid: null, executable: 'other.exe' }));
+    const rootPid = 9001;
+    const selected = selectRelevantProcesses([...unrelated, { pid: rootPid, parentPid: null, executable: 'tunnel-client.exe' }, { pid: 9002, parentPid: rootPid, executable: 'node.exe' }], [rootPid]);
+    expect(selected).toEqual([{ pid: rootPid, parentPid: null, executable: 'tunnel-client.exe' }, { pid: 9002, parentPid: rootPid, executable: 'node.exe' }]);
+  });
+
   it('uses only explicitly trusted PIDs and reports a reason when none are available', async () => {
     let collectedWith: readonly number[] = [];
     const report = await buildIncidentReport(evidence({
@@ -327,6 +334,13 @@ describe('incident correlation and privacy', () => {
     const unavailable = await buildIncidentReport(evidence({ relevantPids: [], relevantPidUnavailableReason: 'no_verified_tunnel_pid', collectProcessTree: async () => { throw new Error('must not collect'); }, collectListeners: async () => { throw new Error('must not collect'); } }));
     expect(unavailable.processTree).toEqual({ available: false, entries: [], error: 'no_verified_tunnel_pid' });
     expect(unavailable.tcpListeners).toEqual({ available: false, entries: [], error: 'no_verified_tunnel_pid' });
+  });
+
+  it('never exports the free-form tunnel status message', async () => {
+    const marker = 'free_form_tunnel_message_must_not_export';
+    const report = await buildIncidentReport(evidence({ tunnel: { ...healthyTunnel, message: marker } }));
+    expect(report.tunnel).not.toHaveProperty('message');
+    expect(JSON.stringify(report)).not.toContain(marker);
   });
 
   it('structurally excludes raw command, environment, owner, and tunnel text fields', async () => {

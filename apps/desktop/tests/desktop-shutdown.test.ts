@@ -26,6 +26,25 @@ describe('Desktop main shutdown coordinator', () => {
     expect(quit).toHaveBeenCalledOnce();
   });
 
+  it('upgrades an in-flight ordinary quit to quitAndInstall before cleanup completes', async () => {
+    const closed = deferred<void>();
+    const closeRuntime = vi.fn((): Promise<void> => closed.promise);
+    const ordinaryQuit = vi.fn();
+    const quitAndInstall = vi.fn();
+    const coordinator = new DesktopShutdownCoordinator({ closeRuntime, onDeferred: vi.fn() });
+
+    const ordinary = coordinator.requestQuit(ordinaryQuit);
+    const install = coordinator.requestQuit(quitAndInstall, 'install');
+    expect(closeRuntime).toHaveBeenCalledOnce();
+    expect(ordinaryQuit).not.toHaveBeenCalled();
+    expect(quitAndInstall).not.toHaveBeenCalled();
+
+    closed.resolve();
+    await expect(Promise.all([ordinary, install])).resolves.toEqual(['quit', 'quit']);
+    expect(ordinaryQuit).not.toHaveBeenCalled();
+    expect(quitAndInstall).toHaveBeenCalledOnce();
+  });
+
   it('defers quit on a stubborn or unverifiable owned child and permits a later retry', async () => {
     const onDeferred = vi.fn();
     const quit = vi.fn();

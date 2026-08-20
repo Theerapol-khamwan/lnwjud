@@ -130,6 +130,22 @@ describe('CodexDiscovery', () => {
     expect(result).toMatchObject({ exitCode: -1, spawnErrorCode: 'ENOENT' });
   });
 
+  it('executes a Windows .cmd Codex shim through ComSpec instead of spawning the batch file directly', async () => {
+    if (process.platform !== 'win32') return;
+    const root = await mkdtemp(path.join(os.tmpdir(), 'lnwjud-codex-cmd-'));
+    try {
+      const shim = path.join(root, 'codex.cmd');
+      await writeFile(shim, '@echo off\r\nif "%~1"=="--version" echo codex 9.9.9\r\n', 'utf8');
+
+      const result = await new DirectCodexCommandRunner().run(shim, ['--version']);
+
+      expect(result).toMatchObject({ exitCode: 0, stdout: expect.stringContaining('codex 9.9.9') });
+      expect(result.spawnErrorCode).toBeUndefined();
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
   it('prefers Windows executable extensions over an extensionless shim', async () => {
     if (process.platform !== 'win32') return;
     const root = await mkdtemp(path.join(os.tmpdir(), 'lnwjud-codex-resolver-'));

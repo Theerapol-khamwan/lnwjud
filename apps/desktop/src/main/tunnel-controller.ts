@@ -24,6 +24,11 @@ const MAX_AUTO_RESTARTS = 5;
 const RESTART_WINDOW_MS = 30_000;
 const MAX_HEALTH_METADATA_BYTES = 64 * 1024;
 
+export interface OwnedProcessIdentity {
+  readonly pid: number;
+  readonly processStartedAt: string;
+}
+
 export interface TunnelControllerOptions {
   readonly getClientPath: () => string | null;
   readonly setClientPath: (value: string) => void;
@@ -37,6 +42,7 @@ export interface TunnelControllerOptions {
   readonly escalationTimeoutMs?: number;
   readonly terminateOwnedProcessTree?: (pid: number) => Promise<void>;
   readonly inspectOwnedProcess?: (pid: number) => Promise<ProcessProbeResult>;
+  readonly inspectOwnedProcessTree?: (rootPid: number) => Promise<readonly OwnedProcessIdentity[]>;
   readonly decryptSecret?: (encrypted: string) => Promise<string>;
   readonly probeHealthEndpoint?: (host: string, port: number) => Promise<boolean>;
   readonly healthProbeTimeoutMs?: number;
@@ -244,16 +250,15 @@ export class TunnelController {
         }
         if (beforeEscalation.state === 'unverifiable') throw new Error(`Tunnel child liveness is unverifiable (${beforeEscalation.reason}); ownership retained`);
         if (beforeEscalation.processStartedAt !== this.ownedChildStartedAt) throw new Error('Tunnel child process identity changed; targeted escalation refused and ownership retained');
+
+        const descendants = await (this.options.inspectOwnedProcessTree?.(pid as number) ?? inspectWindowsProcessTreeIdentities(pid as number));
+        const expectedTree = normalizeOwnedProcessTree([
+          { pid: pid as number, processStartedAt: this.ownedChildStartedAt },
+          ...descendants,
+        ]);
         await (this.options.terminateOwnedProcessTree?.(pid as number) ?? terminateWindowsProcessTree(pid as number));
-        try {
-          await waitForTunnelChildExit(child, this.options.escalationTimeoutMs ?? 2_000);
-        } catch {
-          const probe = await inspect(pid as number);
-          if (probe.state === 'unverifiable') {
-            throw new Error(`Tunnel child liveness is unverifiable (${probe.reason}); ownership retained`);
-          }
-          if (probe.state === 'live' && probe.processStartedAt === this.ownedChildStartedAt) throw new Error('Tunnel child remained live after targeted escalation; ownership retained');
-        }
+        await waitForTunnelChildExit(child, this.options.escalationTimeoutMs ?? 2_000).catch(() => undefined);
+        await verifyOwnedProcessTreeExited(expectedTree, inspect);
       }
       if (this.child === child) {
         this.child = null;
@@ -591,6 +596,74 @@ export function waitForTunnelChildExit(child: Pick<ChildProcess, 'exitCode' | 'o
   });
 }
 
+async function inspectWindowsProcessTreeIdentities(rootPid: number): Promise<readonly OwnedProcessIdentity[]> {
+  const script = [
+    "$ErrorActionPreference='Stop'",
+    "$rows=Get-CimInstance Win32_Process -ErrorAction Stop | ForEach-Object { if($null -ne $_.CreationDate){ [pscustomobject]@{ ProcessId=$_.ProcessId; ParentProcessId=$_.ParentProcessId; ProcessStartedAt=$_.CreationDate.ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ss.fffZ',[Globalization.CultureInfo]::InvariantCulture) } } }",
+    "$rows | ConvertTo-Json -Compress",
+  ].join('; ');
+  const { stdout } = await execFileAsync('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', script], {
+    windowsHide: true,
+    timeout: 3_000,
+    encoding: 'utf8',
+    maxBuffer: 2 * 1024 * 1024,
+  });
+  const parsed: unknown = JSON.parse(stdout.trim() || '[]');
+  const rawRows = (Array.isArray(parsed) ? parsed : [parsed]).filter((entry): entry is Record<string, unknown> => typeof entry === 'object' && entry !== null);
+  const rows = rawRows.map((row) => ({
+    pid: Number(row.ProcessId),
+    parentPid: Number(row.ParentProcessId),
+    processStartedAt: typeof row.ProcessStartedAt === 'string' ? row.ProcessStartedAt : '',
+  })).filter((row) => Number.isInteger(row.pid) && row.pid > 0 && Number.isInteger(row.parentPid) && row.parentPid >= 0 && validOwnedProcessTimestamp(row.processStartedAt));
+  const included = new Set<number>([rootPid]);
+  let changed = true;
+  while (changed) {
+    changed = false;
+    for (const row of rows) {
+      if (included.has(row.pid) || !included.has(row.parentPid)) continue;
+      included.add(row.pid);
+      changed = true;
+    }
+  }
+  return rows.filter((row) => row.pid !== rootPid && included.has(row.pid)).map((row) => ({ pid: row.pid, processStartedAt: row.processStartedAt }));
+}
+
+function normalizeOwnedProcessTree(identities: readonly OwnedProcessIdentity[]): readonly OwnedProcessIdentity[] {
+  const normalized = new Map<number, OwnedProcessIdentity>();
+  for (const identity of identities) {
+    if (!Number.isInteger(identity.pid) || identity.pid <= 0 || identity.pid > 2_147_483_647 || !validOwnedProcessTimestamp(identity.processStartedAt)) {
+      throw new Error('Tunnel child process tree identity is invalid; ownership retained');
+    }
+    const existing = normalized.get(identity.pid);
+    if (existing !== undefined && existing.processStartedAt !== identity.processStartedAt) {
+      throw new Error('Tunnel child process tree identity is conflicting; ownership retained');
+    }
+    normalized.set(identity.pid, identity);
+  }
+  return [...normalized.values()];
+}
+
+async function verifyOwnedProcessTreeExited(
+  identities: readonly OwnedProcessIdentity[],
+  inspect: (pid: number) => Promise<ProcessProbeResult>,
+): Promise<void> {
+  for (const identity of identities) {
+    const probe = await inspect(identity.pid);
+    if (probe.state === 'unverifiable') {
+      throw new Error(`Tunnel child process tree liveness is unverifiable (${probe.reason}); ownership retained`);
+    }
+    if (probe.state === 'live' && probe.processStartedAt === identity.processStartedAt) {
+      throw new Error(`Tunnel child process tree remained live at PID ${identity.pid} after targeted escalation; ownership retained`);
+    }
+  }
+}
+
+function validOwnedProcessTimestamp(value: string): boolean {
+  if (!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/.test(value)) return false;
+  const parsed = new Date(value);
+  return !Number.isNaN(parsed.getTime()) && parsed.toISOString() === value;
+}
+
 async function terminateWindowsProcessTree(pid: number): Promise<void> {
   await execFileAsync('taskkill.exe', ['/PID', String(pid), '/T', '/F'], {
     windowsHide: true,
@@ -602,9 +675,11 @@ async function terminateWindowsProcessTree(pid: number): Promise<void> {
 function probeLoopbackHealth(host: string, port: number, timeoutMs: number): Promise<boolean> {
   return new Promise((resolve) => {
     let settled = false;
+    let deadline: ReturnType<typeof setTimeout> | null = null;
     const finish = (live: boolean): void => {
       if (settled) return;
       settled = true;
+      if (deadline !== null) clearTimeout(deadline);
       resolve(live);
     };
     const healthRequest = httpRequest({ host, port, path: '/healthz', method: 'GET', headers: { accept: 'application/json' } }, (response) => {
@@ -617,7 +692,10 @@ function probeLoopbackHealth(host: string, port: number, timeoutMs: number): Pro
       response.once('end', () => finish(response.statusCode === 200 && isLiveHealthBody(body)));
       response.once('error', () => finish(false));
     });
-    healthRequest.setTimeout(timeoutMs, () => healthRequest.destroy(new Error('health request timed out')));
+    deadline = setTimeout(() => {
+      healthRequest.destroy(new Error('health request total deadline exceeded'));
+      finish(false);
+    }, Math.max(1, timeoutMs));
     healthRequest.once('error', () => finish(false));
     healthRequest.end();
   });

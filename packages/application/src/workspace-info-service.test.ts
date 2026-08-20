@@ -1,4 +1,3 @@
-import { existsSync } from 'node:fs';
 import { mkdtemp, rm } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
@@ -13,10 +12,11 @@ afterEach(async () => {
 });
 
 describe('WorkspaceInfoService.register', () => {
-  it('registers a project under the E: machine root and is idempotent', async () => {
-    if (!existsSync('E:\\')) return;
-    const projectRoot = await mkdtemp(path.join('E:\\', 'lnwjud-register-'));
+  it('registers a project under whichever drive-root machine root owns it and is idempotent', async () => {
+    const projectRoot = await mkdtemp(path.join(os.tmpdir(), 'lnwjud-register-'));
     temporaryRoots.push(projectRoot);
+    const machineRoot = path.parse(projectRoot).root;
+    if (!/^[A-Za-z]:\\$/.test(machineRoot)) return;
 
     const store = new Map<string, Workspace>();
     const repository: WorkspaceRepository = {
@@ -26,7 +26,7 @@ describe('WorkspaceInfoService.register', () => {
       async delete(id: string): Promise<void> { store.delete(id); },
     };
     const workspaceService = new WorkspaceService(repository);
-    const machine = await workspaceService.add('Local Disk E:', 'E:\\');
+    const machine = await workspaceService.add(`Local Disk ${machineRoot[0]}:`, machineRoot);
     expect(machine.ok).toBe(true);
     if (!machine.ok) return;
 
@@ -42,21 +42,22 @@ describe('WorkspaceInfoService.register', () => {
     if (!second.ok) return;
     expect(second.value.id).toBe(first.value.id);
 
+    const alternateDrive = machineRoot[0]?.toUpperCase() === 'Z' ? 'Y' : 'Z';
     const outside = await service.register(actor, {
       parentWorkspaceId: machine.value.id,
-      path: path.join(os.tmpdir(), 'outside-lnwjud'),
+      path: `${alternateDrive}:\\outside-lnwjud`,
     });
     expect(outside).toMatchObject({ ok: false, error: { code: 'INVALID_INPUT' } });
   });
 
-  it('lists machine_root kind for E:\\', async () => {
+  it('classifies every drive root as machine_root without a special drive letter', async () => {
     const repository: WorkspaceRepository = {
       async list(): Promise<Workspace[]> {
         return [{
-          id: 'e-root',
-          displayName: 'Local Disk E:',
-          rootPath: 'E:\\',
-          realRootPath: 'E:\\',
+          id: 'c-root',
+          displayName: 'Local Disk C:',
+          rootPath: 'C:\\',
+          realRootPath: 'C:\\',
           createdAt: new Date(0).toISOString(),
         }];
       },

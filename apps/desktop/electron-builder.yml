@@ -44,6 +44,8 @@ nsis:
   perMachine: false
   allowToChangeInstallationDirectory: true
   deleteAppDataOnUninstall: false
+  # Create the Start Menu link in installer.nsh from $INSTDIR so no build-user path can be baked in.
+  createStartMenuShortcut: false
   installerIcon: build/icon.ico
   uninstallerIcon: build/icon.ico
   uninstallDisplayName: ${productName}

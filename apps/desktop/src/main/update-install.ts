@@ -108,7 +108,7 @@ export class UpdateInstallCoordinator {
     this.evaluating = true;
     let activity: { readonly trustworthy: boolean; readonly activeCount: number; readonly revision: string };
     try {
-      activity = await this.observeActivity(this.options.activeCallCount(), this.options.activityRevision?.() ?? 0);
+      activity = await this.observeActivity();
     } finally {
       this.evaluating = false;
     }
@@ -127,7 +127,7 @@ export class UpdateInstallCoordinator {
     if (!this.pending || this.shutdown) return;
     // Poll the existing tracker throughout the quiet period so a short call
     // that starts and ends inside the interval restarts the quiet clock.
-    const activity = await this.observeActivity(this.options.activeCallCount(), this.options.activityRevision?.() ?? 0);
+    const activity = await this.observeActivity();
     if (!this.pending || this.shutdown) return;
     if (!activity.trustworthy || activity.activeCount > 0 || activity.revision !== this.quietRevision) {
       void this.evaluate();
@@ -142,24 +142,37 @@ export class UpdateInstallCoordinator {
     this.schedule(Math.min(this.pollIntervalMs, remaining), () => { void this.waitForQuietPeriod(); });
   }
 
-  private async observeActivity(localCount: number, localRevision: number): Promise<{ readonly trustworthy: boolean; readonly activeCount: number; readonly revision: string }> {
+  private async observeActivity(): Promise<{ readonly trustworthy: boolean; readonly activeCount: number; readonly revision: string }> {
+    const initialLocal = this.sampleLocalActivity();
     let tunnelState: boolean | 'unverifiable' = false;
     try {
       tunnelState = this.options.tunnelRunning === undefined ? false : await this.options.tunnelRunning();
     } catch {
       tunnelState = 'unverifiable';
     }
+
+    const afterTunnel = this.sampleLocalActivity();
+    if (!sameLocalActivity(initialLocal, afterTunnel)) return staleLocalActivity(afterTunnel);
     if (tunnelState === false) {
-      return { trustworthy: true, activeCount: localCount, revision: `local:${localRevision}` };
+      return { trustworthy: true, activeCount: afterTunnel.activeCount, revision: localRevisionKey(afterTunnel) };
     }
-    if (this.options.sharedActivitySnapshot === undefined) return { trustworthy: false, activeCount: localCount, revision: `local:${localRevision}:shared:missing` };
+    if (this.options.sharedActivitySnapshot === undefined) {
+      return { trustworthy: false, activeCount: afterTunnel.activeCount, revision: `${localRevisionKey(afterTunnel)}:shared:missing` };
+    }
     try {
       const shared = await this.options.sharedActivitySnapshot();
-      if (shared.state !== 'available') return { trustworthy: false, activeCount: localCount, revision: `local:${localRevision}:shared:${shared.state}` };
-      return { trustworthy: true, activeCount: localCount + shared.activeCallCount, revision: `local:${localRevision}:shared:${shared.ownerKey ?? ''}:${shared.revision}` };
+      const afterShared = this.sampleLocalActivity();
+      if (!sameLocalActivity(afterTunnel, afterShared)) return staleLocalActivity(afterShared);
+      if (shared.state !== 'available') return { trustworthy: false, activeCount: afterShared.activeCount, revision: `${localRevisionKey(afterShared)}:shared:${shared.state}` };
+      return { trustworthy: true, activeCount: afterShared.activeCount + shared.activeCallCount, revision: `${localRevisionKey(afterShared)}:shared:${shared.ownerKey ?? ''}:${shared.revision}` };
     } catch {
-      return { trustworthy: false, activeCount: localCount, revision: `local:${localRevision}:shared:unverifiable` };
+      const afterShared = this.sampleLocalActivity();
+      return { trustworthy: false, activeCount: afterShared.activeCount, revision: `${localRevisionKey(afterShared)}:shared:unverifiable` };
     }
+  }
+
+  private sampleLocalActivity(): LocalActivityObservation {
+    return { activeCount: this.options.activeCallCount(), revision: this.options.activityRevision?.() ?? 0 };
   }
 
   private schedule(delayMs: number, action: () => void): void {
@@ -176,4 +189,21 @@ export class UpdateInstallCoordinator {
       this.timer = null;
     }
   }
+}
+
+interface LocalActivityObservation {
+  readonly activeCount: number;
+  readonly revision: number;
+}
+
+function sameLocalActivity(left: LocalActivityObservation, right: LocalActivityObservation): boolean {
+  return left.activeCount === right.activeCount && left.revision === right.revision;
+}
+
+function localRevisionKey(activity: LocalActivityObservation): string {
+  return `local:${activity.revision}`;
+}
+
+function staleLocalActivity(activity: LocalActivityObservation): { readonly trustworthy: false; readonly activeCount: number; readonly revision: string } {
+  return { trustworthy: false, activeCount: activity.activeCount, revision: `${localRevisionKey(activity)}:changed` };
 }

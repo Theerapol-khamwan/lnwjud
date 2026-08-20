@@ -1,0 +1,158 @@
+import { pathToFileURL } from 'node:url';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { ipcChannels, type TunnelStatus } from '@lnwjud/ipc-contracts';
+
+const electronHarness = vi.hoisted(() => ({
+  handlers: new Map<string, (event: unknown, payload?: unknown) => Promise<unknown>>(),
+  quit: vi.fn(),
+}));
+
+vi.mock('electron', () => ({
+  app: {
+    requestSingleInstanceLock: vi.fn(() => false),
+    quit: electronHarness.quit,
+    on: vi.fn(),
+    whenReady: vi.fn(async () => undefined),
+    setName: vi.fn(),
+    setPath: vi.fn(),
+    getPath: vi.fn(() => ''),
+    setAppUserModelId: vi.fn(),
+    isPackaged: false,
+  },
+  BrowserWindow: class BrowserWindow {
+    public static getAllWindows(): unknown[] { return []; }
+  },
+  dialog: {
+    showSaveDialog: vi.fn(),
+    showMessageBox: vi.fn(async () => ({ response: 1 })),
+  },
+  ipcMain: {
+    handle: vi.fn((channel: string, handler: (event: unknown, payload?: unknown) => Promise<unknown>) => {
+      electronHarness.handlers.set(channel, handler);
+    }),
+  },
+  Menu: { buildFromTemplate: vi.fn() },
+  nativeImage: { createFromPath: vi.fn() },
+  Tray: class Tray {},
+}));
+
+vi.mock('electron-updater', () => ({
+  autoUpdater: {
+    autoDownload: false,
+    autoInstallOnAppQuit: false,
+    on: vi.fn(),
+    checkForUpdates: vi.fn(),
+    quitAndInstall: vi.fn(),
+  },
+}));
+
+import { registerIpcHandlers, type DesktopIpcServices } from '../src/main/main.js';
+import { getRendererEntryPath } from '../src/main/window.js';
+
+const stoppedTunnel: TunnelStatus = {
+  state: 'stopped',
+  source: 'desktop',
+  hasApiKey: false,
+  clientPath: null,
+  profileExists: false,
+  message: null,
+  logPath: null,
+};
+
+describe('production desktop IPC acceptance', () => {
+  beforeEach(() => {
+    electronHarness.handlers.clear();
+    electronHarness.quit.mockClear();
+  });
+
+  it('routes critical MCP and tunnel start/stop/status calls through registered production handlers', async () => {
+    const services = desktopServices();
+    registerIpcHandlers(() => ({}) as never, services);
+
+    const event = { senderFrame: { url: pathToFileURL(getRendererEntryPath()).href } };
+    const startMcp = requiredHandler(ipcChannels.startMcp);
+    const stopMcp = requiredHandler(ipcChannels.stopMcp);
+    const startTunnel = requiredHandler(ipcChannels.startTunnel);
+    const stopTunnel = requiredHandler(ipcChannels.stopTunnel);
+    const getTunnelStatus = requiredHandler(ipcChannels.getTunnelStatus);
+
+    await expect(startMcp(event, { workspaceId: 'workspace-production' })).resolves.toEqual({ running: true, url: null, workspaceId: 'workspace-production' });
+    await expect(stopMcp(event)).resolves.toEqual({ running: false, url: null, workspaceId: null });
+    await expect(startTunnel(event)).resolves.toMatchObject({ state: 'running', source: 'desktop' });
+    await expect(getTunnelStatus(event)).resolves.toMatchObject({ state: 'running', source: 'desktop' });
+    await expect(stopTunnel(event)).resolves.toMatchObject({ state: 'stopped', source: 'desktop' });
+
+    expect(services.startMcp).toHaveBeenCalledWith({ workspaceId: 'workspace-production' });
+    expect(services.stopMcp).toHaveBeenCalledOnce();
+    expect(services.startTunnel).toHaveBeenCalledOnce();
+    expect(services.getTunnelStatus).toHaveBeenCalledOnce();
+    expect(services.stopTunnel).toHaveBeenCalledOnce();
+  });
+
+  it('enforces the production IPC sender and payload guards before invoking services', async () => {
+    const services = desktopServices();
+    registerIpcHandlers(() => ({}) as never, services);
+    const handler = requiredHandler(ipcChannels.startMcp);
+    const trusted = { senderFrame: { url: pathToFileURL(getRendererEntryPath()).href } };
+
+    await expect(handler(trusted, { workspaceId: '' })).rejects.toThrow('Invalid IPC payload: workspaceId');
+    await expect(handler({ senderFrame: { url: 'https://example.invalid/' } }, { workspaceId: 'workspace-production' })).rejects.toThrow('IPC sender rejected');
+    expect(services.startMcp).not.toHaveBeenCalled();
+  });
+});
+
+function requiredHandler(channel: string): (event: unknown, payload?: unknown) => Promise<unknown> {
+  const handler = electronHarness.handlers.get(channel);
+  if (handler === undefined) throw new Error(`Production IPC handler was not registered: ${channel}`);
+  return handler;
+}
+
+function desktopServices(): DesktopIpcServices {
+  let tunnelStatus: TunnelStatus = stoppedTunnel;
+  return {
+    listWorkspaces: vi.fn(async () => []),
+    addWorkspace: vi.fn(async () => { throw new Error('unused'); }),
+    selectWorkspace: vi.fn(async () => { throw new Error('unused'); }),
+    getDashboard: vi.fn(async () => { throw new Error('unused'); }),
+    setPermissionProfile: vi.fn(async (request) => ({ profile: request.profile })),
+    setUnrestrictedMode: vi.fn(async (request) => ({ unrestricted: request.enabled, restartRequired: false })),
+    listProcesses: vi.fn(async () => []),
+    startProcess: vi.fn(async () => { throw new Error('unused'); }),
+    stopProcess: vi.fn(async () => ({ stopped: true })),
+    startMcp: vi.fn(async (request) => ({ running: true, url: null, workspaceId: request.workspaceId })),
+    stopMcp: vi.fn(async () => ({ running: false, url: null, workspaceId: null })),
+    restartMcp: vi.fn(async () => ({ running: true, url: null, workspaceId: 'workspace-production' })),
+    clearWorkLog: vi.fn(async () => ({ cleared: true })),
+    saveTunnelApiKey: vi.fn(async () => ({ saved: true })),
+    startTunnel: vi.fn(async () => {
+      tunnelStatus = { ...stoppedTunnel, state: 'running' };
+      return tunnelStatus;
+    }),
+    stopTunnel: vi.fn(async () => {
+      tunnelStatus = stoppedTunnel;
+      return tunnelStatus;
+    }),
+    getTunnelStatus: vi.fn(async () => tunnelStatus),
+    setTunnelClientPath: vi.fn(async (request) => ({ clientPath: request.clientPath })),
+    setLocale: vi.fn(async (request) => ({ locale: request.locale })),
+    launchManagedBrowser: vi.fn(async () => ({ ready: true, port: 9222, launched: false })),
+    runDoctor: vi.fn(async () => ({ checks: [], exitCode: 0 })),
+    getLogSnapshot: vi.fn(async () => ({ lines: [], tunnelLogPath: null, tunnelLogExists: false })),
+    clearLogBuffer: vi.fn(async () => ({ cleared: true })),
+    captureIncident: vi.fn(async () => ({
+      schemaVersion: 1,
+      capturedAt: new Date(0).toISOString(),
+      appVersion: 'test',
+      tunnelClientVersion: null,
+      tunnelClientVersionReason: 'test',
+      classification: 'healthy_or_inconclusive',
+      classificationReasons: [],
+      updaterEventTail: [],
+      tunnel: { state: 'stopped', source: 'desktop', instanceIds: [], requestIds: [], health: { state: 'unavailable', message: 'test' } },
+      mcpCalls: [],
+      tunnelLogTail: [],
+      processTree: { available: false, entries: [], error: 'test' },
+      tcpListeners: { available: false, entries: [], error: 'test' },
+    })),
+  };
+}

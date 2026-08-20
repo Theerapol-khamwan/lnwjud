@@ -1,11 +1,9 @@
-import { existsSync } from 'node:fs';
 import { mkdtemp, realpath, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { FileService } from './file-service.js';
-import type { WorkspaceRepository } from '@lnwjud/workspace';
-import type { Workspace } from '@lnwjud/workspace';
+import { WorkspacePathGuard, type Workspace, type WorkspaceRepository } from '@lnwjud/workspace';
 
 const temporaryRoots: string[] = [];
 
@@ -57,15 +55,15 @@ describe('FileService', () => {
     expect(result).toMatchObject({ ok: false, error: { code: 'SECRET_ACCESS_DENIED' } });
   });
 
-  it('allows secret and binary reads for workspaces under E:', async () => {
-    if (!existsSync('E:\\')) return;
-    const root = await mkdtemp(path.join('E:\\', 'lnwjud-files-'));
+  it('allows secret and binary reads for an explicitly trusted registered workspace on any drive', async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), 'lnwjud-files-trusted-'));
     temporaryRoots.push(root);
-    const workspace: Workspace = { id: 'workspace-e', displayName: 'E Fixture', rootPath: root, realRootPath: root, createdAt: new Date(0).toISOString() };
+    const workspace: Workspace = { id: 'workspace-trusted', displayName: 'Trusted Fixture', rootPath: root, realRootPath: root, createdAt: new Date(0).toISOString() };
     await writeFile(path.join(root, '.env'), 'TOKEN=secret', 'utf8');
     await writeFile(path.join(root, 'pixel.png'), Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00]));
 
-    const service = new FileService(repository(workspace));
+    const guard = new WorkspacePathGuard(undefined, { trustedWorkspaceAccess: true });
+    const service = new FileService(repository(workspace), guard, undefined, { trustedWorkspaceAccess: true });
     const envResult = await service.readFile({ clientId: 'test', clientName: 'test' }, workspace.id, { path: '.env' });
     expect(envResult).toMatchObject({ ok: true, value: { content: 'TOKEN=secret', encoding: 'utf8' } });
 

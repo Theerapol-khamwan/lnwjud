@@ -38,6 +38,12 @@ describe('Windows desktop packaging', () => {
     expect(config).toContain('icon: build/icon.ico');
     expect(config).toContain('signAndEditExecutable: true');
     expect(config).not.toContain('signAndEditExecutable: false');
+    expect(config).toContain('createStartMenuShortcut: false');
+    expect(config).not.toMatch(/[A-Z]:\\Users\\[^\r\n]+/i);
+    const installerScript = await readFile(path.join(desktopRoot, 'build', 'installer.nsh'), 'utf8');
+    expect(installerScript).toContain('CreateShortCut "$SMPROGRAMS\\lnwjud.lnk" "$INSTDIR\\lnwjud.exe"');
+    expect(installerScript).toContain('SetOutPath "$INSTDIR"');
+    expect(installerScript).not.toMatch(/[A-Z]:\\Users\\[^\r\n]+/i);
     expect(config).toContain('extraResources:');
     expect(config).toContain('windows-capability-bridge.ps1');
     await access(path.join(desktopRoot, 'dist', 'main', 'main.js'));

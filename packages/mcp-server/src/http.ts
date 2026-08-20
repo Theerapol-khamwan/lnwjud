@@ -1,9 +1,13 @@
-import { once } from 'node:events';
+import { randomUUID } from 'node:crypto';
 import { createServer, type IncomingMessage, type Server as HttpServer, type ServerResponse } from 'node:http';
 import {
   createMcpHandler,
   hostHeaderValidationResponse,
+  isLegacyRequest,
   localhostAllowedHostnames,
+  WebStandardStreamableHTTPServerTransport,
+  type McpHttpHandler,
+  type McpServer,
 } from '@modelcontextprotocol/server';
 import { createMcpServer, type McpServerOptions } from './server.js';
 import { createOriginPolicy, type OriginPolicy } from './origin-policy.js';
@@ -30,6 +34,11 @@ export interface McpHttpServerHandle {
 interface BodyReadResult {
   readonly tooLarge: boolean;
   readonly body: Buffer;
+}
+
+interface LegacySession {
+  readonly server: McpServer;
+  readonly transport: WebStandardStreamableHTTPServerTransport;
 }
 
 function writeDiagnostic(error: Error): void {
@@ -77,6 +86,25 @@ function sendStatus(response: ServerResponse, status: number, message: string): 
   response.end(message);
 }
 
+function waitForDrainOrClose(response: ServerResponse): Promise<boolean> {
+  return new Promise((resolve) => {
+    const cleanup = (): void => {
+      response.off('drain', onDrain);
+      response.off('close', onClose);
+    };
+    const onDrain = (): void => {
+      cleanup();
+      resolve(true);
+    };
+    const onClose = (): void => {
+      cleanup();
+      resolve(false);
+    };
+    response.once('drain', onDrain);
+    response.once('close', onClose);
+  });
+}
+
 async function writeFetchResponse(response: ServerResponse, result: Response): Promise<void> {
   response.statusCode = result.status;
   result.headers.forEach((value, name) => response.setHeader(name, value));
@@ -86,22 +114,119 @@ async function writeFetchResponse(response: ServerResponse, result: Response): P
   }
 
   const reader = result.body.getReader();
+  let clientDisconnected = false;
+  const onClose = (): void => {
+    if (response.writableEnded) return;
+    clientDisconnected = true;
+    void reader.cancel(new Error('MCP HTTP client disconnected')).catch(() => undefined);
+  };
+  response.once('close', onClose);
+  response.flushHeaders();
+
   try {
-    while (true) {
+    while (!clientDisconnected) {
       const next = await reader.read();
       if (next.done) break;
-      if (!response.write(next.value)) await once(response, 'drain');
+      if (response.destroyed) {
+        clientDisconnected = true;
+        break;
+      }
+      if (!response.write(next.value) && !(await waitForDrainOrClose(response))) {
+        clientDisconnected = true;
+        break;
+      }
     }
+    if (clientDisconnected) await reader.cancel().catch(() => undefined);
   } finally {
+    response.off('close', onClose);
     reader.releaseLock();
   }
-  response.end();
+
+  if (!clientDisconnected && !response.destroyed && !response.writableEnded) response.end();
+}
+
+function sessionNotFoundResponse(): Response {
+  return Response.json({
+    jsonrpc: '2.0',
+    error: { code: -32001, message: 'Session not found' },
+    id: null,
+  }, { status: 404 });
+}
+
+function createSessionfulMcpHandler(options: McpHttpServerOptions): McpHttpHandler {
+  const factory = (): McpServer => createMcpServer(options);
+  const modernHandler = createMcpHandler(factory, { legacy: 'reject', onerror: writeDiagnostic });
+  const sessions = new Map<string, LegacySession>();
+  let closed = false;
+
+  const closeLegacySession = async (sessionId: string, session: LegacySession): Promise<void> => {
+    if (sessions.get(sessionId) === session) sessions.delete(sessionId);
+    await session.server.close();
+  };
+
+  const createLegacySession = async (request: Request): Promise<Response> => {
+    if (closed) return sessionNotFoundResponse();
+
+    const server = factory();
+    let registeredSessionId: string | undefined;
+    const transport = new WebStandardStreamableHTTPServerTransport({
+      sessionIdGenerator: randomUUID,
+      onsessioninitialized(sessionId): void {
+        registeredSessionId = sessionId;
+        sessions.set(sessionId, { server, transport });
+      },
+      onsessionclosed(sessionId): void {
+        if (sessions.get(sessionId)?.transport === transport) sessions.delete(sessionId);
+      },
+    });
+
+    try {
+      await server.connect(transport);
+      const result = await transport.handleRequest(request);
+      if (registeredSessionId === undefined) await server.close();
+      return result;
+    } catch (error: unknown) {
+      if (registeredSessionId !== undefined && sessions.get(registeredSessionId)?.transport === transport) {
+        sessions.delete(registeredSessionId);
+      }
+      await server.close().catch(() => undefined);
+      throw error;
+    }
+  };
+
+  return {
+    bus: modernHandler.bus,
+    notify: modernHandler.notify,
+    async fetch(request, requestOptions): Promise<Response> {
+      if (!(await isLegacyRequest(request))) return modernHandler.fetch(request, requestOptions);
+
+      const sessionId = request.headers.get('mcp-session-id')?.trim();
+      if (sessionId === undefined || sessionId.length === 0) {
+        return createLegacySession(request);
+      }
+
+      const session = sessions.get(sessionId);
+      if (session === undefined) return sessionNotFoundResponse();
+
+      const result = await session.transport.handleRequest(request, requestOptions);
+      if (request.method === 'DELETE') await closeLegacySession(sessionId, session);
+      return result;
+    },
+    async close(): Promise<void> {
+      if (closed) return;
+      closed = true;
+      await modernHandler.close();
+      const activeSessions = [...sessions.entries()];
+      sessions.clear();
+      await Promise.allSettled(activeSessions.map(([, session]) => session.server.close()));
+    },
+  };
 }
 
 async function handleRequest(
   request: IncomingMessage,
   response: ServerResponse,
-  handler: ReturnType<typeof createMcpHandler>,
+  handler: McpHttpHandler,
   originPolicy: OriginPolicy,
   maxBodyBytes: number,
 ): Promise<void> {
@@ -154,10 +279,7 @@ export async function startMcpHttp(options: McpHttpServerOptions): Promise<McpHt
   const maxBodyBytes = options.maxBodyBytes ?? MAX_MCP_HTTP_BODY_BYTES;
   if (!Number.isInteger(maxBodyBytes) || maxBodyBytes <= 0) throw new Error('MCP HTTP body limit must be positive');
 
-  const handler = createMcpHandler(
-    () => createMcpServer(options),
-    { legacy: 'stateless', onerror: writeDiagnostic },
-  );
+  const handler = createSessionfulMcpHandler(options);
   const originPolicy = options.originPolicy ?? createOriginPolicy();
   const server = createServer((request, response) => {
     void handleRequest(request, response, handler, originPolicy, maxBodyBytes).catch((error: unknown) => {

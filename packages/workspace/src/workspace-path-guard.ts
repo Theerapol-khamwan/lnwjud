@@ -1,7 +1,6 @@
 import { lstat, realpath, stat } from 'node:fs/promises';
 import path from 'node:path';
 import { appError, err, ok, type Result } from '@lnwjud/domain';
-import { isUnderEDrive } from './machine-root.js';
 import { isWithin } from './path-containment.js';
 import { SecretPolicy } from './secret-policy.js';
 import type { ResolvedWorkspacePath, Workspace } from './workspace-types.js';
@@ -14,6 +13,8 @@ interface ExistingAncestor {
 export interface WorkspacePathGuardOptions {
   /** When true, secret-file checks are bypassed for every drive (full-access mode). */
   readonly unrestricted?: boolean;
+  /** Registered/selected workspaces are an explicit trust boundary for agent access. */
+  readonly trustedWorkspaceAccess?: boolean;
 }
 
 export class WorkspacePathGuard {
@@ -114,8 +115,8 @@ export class WorkspacePathGuard {
   }
 
   private assertSecretReadable(workspace: Workspace, relativePath: string): Result<void> {
-    // Trusted E: agent surface: secrets and hidden files are intentionally readable.
-    if (this.options.unrestricted === true || isUnderEDrive(workspace.realRootPath) || isUnderEDrive(workspace.rootPath)) {
+    void workspace;
+    if (this.options.unrestricted === true || this.options.trustedWorkspaceAccess === true) {
       return ok(undefined);
     }
     return this.secretPolicy.assertReadable(relativePath);

@@ -15,7 +15,7 @@ import {
   type LineRange,
 } from '@lnwjud/filesystem';
 import { DefaultPermissionEngine, permissionProfiles, type PermissionEngine, type PermissionProfile } from '@lnwjud/permissions';
-import { isUnderEDrive, isWithin, WorkspacePathGuard, type Workspace, type WorkspaceRepository } from '@lnwjud/workspace';
+import { isWithin, WorkspacePathGuard, type Workspace, type WorkspaceRepository } from '@lnwjud/workspace';
 import type { CheckpointServicePort } from './checkpoint-service.js';
 import { resolveSharedWorkspace, resolveWorkspaceForPath } from './workspace-locator.js';
 
@@ -56,6 +56,8 @@ export interface FileServiceDependencies {
   readonly unboundedReader?: UnboundedFileReader;
   /** When true, every workspace uses the trusted read path (binary/base64, no size cap). */
   readonly unrestricted?: boolean;
+  /** Registered/selected workspaces are trusted even when global unrestricted mode is off. */
+  readonly trustedWorkspaceAccess?: boolean;
 }
 
 export interface WriteFileRequest {
@@ -107,6 +109,7 @@ export class FileService {
   private readonly profileProvider: () => PermissionProfile;
   private readonly unboundedReader: UnboundedFileReader;
   private readonly unrestricted: boolean;
+  private readonly trustedWorkspaceAccess: boolean;
 
   public constructor(
     private readonly workspaces: WorkspaceRepository,
@@ -121,10 +124,12 @@ export class FileService {
     this.profileProvider = dependencies.profileProvider ?? ((): PermissionProfile => dependencies.profile ?? permissionProfiles.balanced);
     this.unboundedReader = dependencies.unboundedReader ?? new UnboundedFileReader();
     this.unrestricted = dependencies.unrestricted === true;
+    this.trustedWorkspaceAccess = dependencies.trustedWorkspaceAccess === true;
   }
 
   private isTrustedWorkspace(workspace: Workspace): boolean {
-    return this.unrestricted || isUnderEDrive(workspace.realRootPath) || isUnderEDrive(workspace.rootPath);
+    void workspace;
+    return this.unrestricted || this.trustedWorkspaceAccess;
   }
 
   public async readFile(actor: FileActor, workspaceId: string | undefined, request: ReadFileRequest): Promise<Result<ReadFileResult>> {
@@ -170,7 +175,7 @@ export class FileService {
     if (typeof firstPath !== 'string') return err(appError('INVALID_INPUT', 'At least one file is required'));
     const workspaceResult = await resolveWorkspaceForPath(this.workspaces, workspaceId, firstPath);
     if (!workspaceResult.ok) return workspaceResult;
-    const trustedE = this.isTrustedWorkspace(workspaceResult.value);
+    const trustedWorkspace = this.isTrustedWorkspace(workspaceResult.value);
 
     const files: ReadFileResult[] = [];
     let totalBytes = 0;
@@ -184,7 +189,7 @@ export class FileService {
       if (!result.ok) return result;
       totalBytes += result.value.byteLength
         ?? Buffer.byteLength(result.value.content, result.value.encoding === 'base64' ? 'base64' : 'utf8');
-      if (!trustedE && totalBytes > MAX_MULTI_FILE_BYTES) {
+      if (!trustedWorkspace && totalBytes > MAX_MULTI_FILE_BYTES) {
         return err(appError('FILE_TOO_LARGE', 'Total file content exceeds the maximum read size'));
       }
       files.push(result.value);

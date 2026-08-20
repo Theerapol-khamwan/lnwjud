@@ -4,16 +4,24 @@ export interface DesktopShutdownCoordinatorOptions {
 }
 
 export type DesktopShutdownResult = 'quit' | 'deferred';
+export type DesktopQuitIntent = 'normal' | 'install';
+
+interface PendingQuitIntent {
+  readonly intent: DesktopQuitIntent;
+  readonly quit: () => void;
+}
 
 /**
  * Serializes every app/update quit through the owned-runtime shutdown. A
  * failed shutdown is deliberately retryable: the application keeps running
  * with its ownership state intact instead of falling through to app.quit().
+ * A later install quit can upgrade an ordinary quit while cleanup is pending.
  */
 export class DesktopShutdownCoordinator {
   private shutdown: Promise<DesktopShutdownResult> | null = null;
   private quitAllowed = false;
   private quitIssued = false;
+  private pendingQuit: PendingQuitIntent | null = null;
 
   public constructor(private readonly options: DesktopShutdownCoordinatorOptions) {}
 
@@ -21,21 +29,22 @@ export class DesktopShutdownCoordinator {
     return this.quitAllowed;
   }
 
-  public requestQuit(quit: () => void): Promise<DesktopShutdownResult> {
+  public requestQuit(quit: () => void, intent: DesktopQuitIntent = 'normal'): Promise<DesktopShutdownResult> {
+    this.rememberQuitIntent(quit, intent);
     if (this.quitAllowed) {
-      this.issueQuit(quit);
+      this.issuePendingQuit();
       return Promise.resolve('quit');
     }
     if (this.shutdown !== null) return this.shutdown;
-    this.shutdown = this.closeThenQuit(quit);
+    this.shutdown = this.closeThenQuit();
     return this.shutdown;
   }
 
-  private async closeThenQuit(quit: () => void): Promise<DesktopShutdownResult> {
+  private async closeThenQuit(): Promise<DesktopShutdownResult> {
     try {
       await this.options.closeRuntime();
       this.quitAllowed = true;
-      this.issueQuit(quit);
+      this.issuePendingQuit();
       return 'quit';
     } catch (error: unknown) {
       const normalized = error instanceof Error ? error : new Error('Desktop shutdown could not be verified');
@@ -46,9 +55,21 @@ export class DesktopShutdownCoordinator {
     }
   }
 
-  private issueQuit(quit: () => void): void {
-    if (this.quitIssued) return;
-    this.quitIssued = true;
-    quit();
+  private rememberQuitIntent(quit: () => void, intent: DesktopQuitIntent): void {
+    if (this.pendingQuit === null || quitIntentPriority(intent) > quitIntentPriority(this.pendingQuit.intent)) {
+      this.pendingQuit = { intent, quit };
+    }
   }
+
+  private issuePendingQuit(): void {
+    if (this.quitIssued || this.pendingQuit === null) return;
+    const pending = this.pendingQuit;
+    this.quitIssued = true;
+    this.pendingQuit = null;
+    pending.quit();
+  }
+}
+
+function quitIntentPriority(intent: DesktopQuitIntent): number {
+  return intent === 'install' ? 1 : 0;
 }

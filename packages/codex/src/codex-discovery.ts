@@ -43,28 +43,49 @@ export class PathCodexExecutableResolver implements CodexExecutableResolver {
 
   private withWindowsExtensions(candidate: string): string[] {
     if (process.platform !== 'win32') return [candidate];
-    const extensions = (this.environment.PATHEXT ?? '.EXE;.CMD;.BAT;.COM').split(';');
-    return [...extensions.map((extension) => `${candidate}${extension.toLowerCase()}`), candidate];
+    const configured = (this.environment.PATHEXT ?? '.EXE;.CMD;.BAT;.COM')
+      .split(';')
+      .map((extension) => extension.trim().toUpperCase())
+      .filter(Boolean);
+    const preferred = ['.EXE', '.COM', '.CMD', '.BAT'];
+    const ordered = [...preferred.filter((extension) => configured.includes(extension)), ...configured.filter((extension) => !preferred.includes(extension))];
+    return [...ordered.map((extension) => `${candidate}${extension.toLowerCase()}`), candidate];
   }
 }
 
 export class DirectCodexCommandRunner implements CodexCommandRunner {
   public run(executable: string, args: readonly string[]): Promise<CodexCommandResult> {
     return new Promise((resolve) => {
-      const child = spawn(executable, [...args], { shell: false, windowsHide: true });
       let stdout = '';
       let stderr = '';
-      child.stdout?.on('data', (chunk: Buffer) => { stdout = `${stdout}${chunk.toString('utf8')}`.slice(-1024 * 1024); });
-      child.stderr?.on('data', (chunk: Buffer) => { stderr = `${stderr}${chunk.toString('utf8')}`.slice(-1024 * 1024); });
-      child.once('error', (error: NodeJS.ErrnoException) => resolve({
+      const finishSpawnError = (error: NodeJS.ErrnoException): void => resolve({
         exitCode: -1,
         stdout,
         stderr,
         spawnErrorCode: sanitizeSpawnErrorCode(error.code),
-      }));
-      child.once('close', (exitCode) => resolve({ exitCode: exitCode ?? -1, stdout, stderr }));
+      });
+
+      try {
+        const batch = process.platform === 'win32' && /\.(?:cmd|bat)$/i.test(executable);
+        const command = batch ? (process.env.ComSpec?.trim() || 'cmd.exe') : executable;
+        const commandArgs = batch ? ['/d', '/s', '/c', windowsBatchCommand(executable, args)] : [...args];
+        const child = spawn(command, commandArgs, { shell: false, windowsHide: true, ...(batch ? { windowsVerbatimArguments: true } : {}) });
+        child.stdout?.on('data', (chunk: Buffer) => { stdout = `${stdout}${chunk.toString('utf8')}`.slice(-1024 * 1024); });
+        child.stderr?.on('data', (chunk: Buffer) => { stderr = `${stderr}${chunk.toString('utf8')}`.slice(-1024 * 1024); });
+        child.once('error', finishSpawnError);
+        child.once('close', (exitCode) => resolve({ exitCode: exitCode ?? -1, stdout, stderr }));
+      } catch (error: unknown) {
+        finishSpawnError(error as NodeJS.ErrnoException);
+      }
     });
   }
+}
+
+function windowsBatchCommand(executable: string, args: readonly string[]): string {
+  const escapedQuote = '\\' + '"';
+  const quote = (value: string): string => `"${value.replaceAll('"', escapedQuote)}"`;
+  // /S /C requires the outer quote pair when the command itself starts quoted.
+  return `"${quote(executable)}${args.map((arg) => ` ${quote(arg)}`).join('')}"`;
 }
 
 export class CodexDiscovery {

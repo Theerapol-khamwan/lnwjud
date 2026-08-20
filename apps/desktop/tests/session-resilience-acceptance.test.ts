@@ -4,6 +4,8 @@ import { createServer as createHttpServer } from 'node:http';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { Client } from '@modelcontextprotocol/client';
+import { StdioClientTransport } from '@modelcontextprotocol/client/stdio';
 import { build } from 'esbuild';
 import { appError, err, ok, type Result } from '@lnwjud/domain';
 import { ToolRegistry, readSharedActivitySnapshot, sharedActivitySnapshotPath, type McpApplicationServices } from '@lnwjud/mcp-server';
@@ -32,6 +34,54 @@ afterEach(async () => {
 });
 
 describe('session resilience acceptance', () => {
+  it('keeps the bundled production MCP stdio entrypoint alive across sequential calls and an error on a non-E workspace', async () => {
+    const root = await temporaryDirectory();
+    expect(path.parse(root).root.toUpperCase()).not.toBe('E:\\');
+    const workspace = path.join(root, 'workspace');
+    const dataPath = path.join(root, 'data');
+    const bundlePath = path.join(root, 'lnwjud-mcp-stdio.cjs');
+    await mkdir(workspace, { recursive: true });
+    await build({
+      entryPoints: [path.join(repositoryRoot, 'apps', 'cli', 'src', 'bin', 'mcp-stdio.ts')],
+      outfile: bundlePath,
+      bundle: true,
+      platform: 'node',
+      format: 'cjs',
+      target: 'node24',
+      logLevel: 'silent',
+    });
+
+    const transport = new StdioClientTransport({
+      command: process.execPath,
+      args: [bundlePath, '--workspace', workspace],
+      env: { ...process.env, LNWJUD_DATA_PATH: dataPath, LNWJUD_RESET_WORKSPACES: '1', LNWJUD_UNRESTRICTED: '0' },
+      stderr: 'pipe',
+    });
+    let diagnostics = '';
+    transport.stderr?.on('data', (chunk: Buffer) => { diagnostics += chunk.toString('utf8'); });
+    const client = new Client(
+      { name: 'lnwjud-production-stdio-acceptance', version: '1.0.0' },
+      { versionNegotiation: { mode: { pin: '2026-07-28' } } },
+    );
+    try {
+      await client.connect(transport);
+      const tools = await client.listTools();
+      expect(tools.tools).toHaveLength(208);
+      for (let index = 0; index < 3; index += 1) {
+        const result = await client.callTool({ name: 'workspace_list', arguments: {} });
+        expect(result.isError).not.toBe(true);
+      }
+      await expect(client.callTool({ name: 'definitely_not_a_real_tool', arguments: {} })).rejects.toThrow();
+      const recovered = await client.callTool({ name: 'workspace_list', arguments: {} });
+      expect(recovered.isError).not.toBe(true);
+      expect(diagnostics).toContain('lnwjud MCP stdio ready');
+      expect(diagnostics).toContain(path.resolve(workspace));
+      expect(diagnostics).not.toContain('E:\\ drive is required');
+    } finally {
+      await client.close();
+    }
+  }, 30_000);
+
   it('keeps the desktop lock and production launcher to one owner in either winner order without running tunnel-client', async () => {
     const root = await temporaryDirectory();
     const profileDirectory = path.join(root, 'tunnel-client');

@@ -1,12 +1,11 @@
 import fs from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
 import { syncMachineRoots } from '@lnwjud/application';
 import { startMcpStdio } from '@lnwjud/mcp-server';
 import { permissionProfiles } from '@lnwjud/permissions';
-import { isUnrestricted, UNRESTRICTED_SETTING_KEY } from '@lnwjud/shared';
+import { isUnrestricted, resolveLnwjudDataPath, UNRESTRICTED_SETTING_KEY } from '@lnwjud/shared';
 import { SqliteDatabase, SqliteSettingsRepository, SqliteWorkspaceRepository } from '@lnwjud/storage';
-import { isUnderEDrive, machineRootPath, normalizeWorkspaceRoot, WorkspaceService } from '@lnwjud/workspace';
+import { machineRootPath, normalizeWorkspaceRoot, WorkspaceService } from '@lnwjud/workspace';
 import { createStdioMcpRuntime } from '../runtime/stdio-mcp-runtime.js';
 
 function readArg(flag: string): string | undefined {
@@ -21,17 +20,13 @@ function hasFlag(flag: string): boolean {
 }
 
 function resolveDataPath(): string {
-  const configured = process.env.LNWJUD_DATA_PATH?.trim();
-  if (configured) return configured;
-  return path.join(process.env.APPDATA ?? path.join(os.homedir(), 'AppData', 'Roaming'), 'lnwjud');
+  return resolveLnwjudDataPath(process.env);
 }
 
 async function main(): Promise<void> {
-  const eRoot = machineRootPath();
-  if (!fs.existsSync(eRoot)) {
-    process.stderr.write('lnwjud MCP stdio: E:\\ drive is required but was not found\n');
-    process.exit(2);
-  }
+  const requestedRaw = readArg('--workspace') ?? process.env.LNWJUD_WORKSPACE;
+  const requestedPath = path.resolve(requestedRaw && requestedRaw.trim().length > 0 ? requestedRaw : machineRootPath());
+  const restrictedRoot = machineRootPath(requestedPath);
 
   const dataPath = resolveDataPath();
   fs.mkdirSync(dataPath, { recursive: true });
@@ -42,19 +37,13 @@ async function main(): Promise<void> {
   const workspaceService = new WorkspaceService(workspaceRepository);
   const unrestricted = isUnrestricted(process.env, settingsRepository.get(UNRESTRICTED_SETTING_KEY));
 
-  const requestedRaw = readArg('--workspace') ?? process.env.LNWJUD_WORKSPACE;
-  const requestedPath = path.resolve(requestedRaw && requestedRaw.trim().length > 0 ? requestedRaw : eRoot);
   if (!fs.existsSync(requestedPath)) {
     process.stderr.write(`lnwjud MCP stdio: workspace path does not exist: ${requestedPath}\n`);
     process.exit(2);
   }
-  if (!unrestricted && !isUnderEDrive(requestedPath)) {
-    process.stderr.write(`lnwjud MCP stdio: workspace must be under E:\\ (got ${requestedPath}). Enable unrestricted mode to use other drives.\n`);
-    process.exit(2);
-  }
 
   process.env.LNWJUD_CAPABILITY_ROOTS = process.env.LNWJUD_CAPABILITY_ROOTS?.trim()
-    || eRoot.replace(/\\/g, '/');
+    || restrictedRoot.replace(/\\/g, '/');
 
   const reset = hasFlag('--reset-workspaces')
     || process.env.LNWJUD_RESET_WORKSPACES === '1'
@@ -66,7 +55,7 @@ async function main(): Promise<void> {
     process.stderr.write('lnwjud MCP stdio: cleared previous workspaces\n');
   }
 
-  const machineRoot = await syncMachineRoots(workspaceService, unrestricted);
+  const machineRoot = await syncMachineRoots(workspaceService, unrestricted, requestedPath);
   if (machineRoot === null) {
     process.stderr.write('lnwjud MCP stdio: could not register machine root\n');
     process.exit(1);
@@ -74,10 +63,9 @@ async function main(): Promise<void> {
 
   const requestedNorm = normalizeWorkspaceRoot(requestedPath).toLowerCase();
   const workspaces = await workspaceService.list();
-  let workspace = workspaces.find((entry) => normalizeWorkspaceRoot(entry.realRootPath).toLowerCase() === requestedNorm)
-    ?? workspaces.find((entry) => requestedNorm.startsWith(normalizeWorkspaceRoot(entry.realRootPath).toLowerCase()));
+  let workspace = workspaces.find((entry) => normalizeWorkspaceRoot(entry.realRootPath).toLowerCase() === requestedNorm);
 
-  if (workspace === undefined && requestedNorm !== normalizeWorkspaceRoot(eRoot).toLowerCase()) {
+  if (workspace === undefined && requestedNorm !== normalizeWorkspaceRoot(restrictedRoot).toLowerCase()) {
     const displayName = path.basename(requestedPath) || 'Workspace';
     const added = await workspaceService.add(displayName, requestedPath);
     if (!added.ok) {

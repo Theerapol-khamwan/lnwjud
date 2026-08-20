@@ -110,6 +110,29 @@ describe('TunnelController lifecycle', () => {
     expect(await readTunnelLock(fixture.profileDir)).toBeNull();
   });
 
+  it('retains ownership when the parent exits but a previously verified descendant is still live', async () => {
+    const parentStartedAt = '2026-08-20T00:00:00.000Z';
+    const descendantStartedAt = '2026-08-20T00:00:01.000Z';
+    let escalated = false;
+    const fixture = await ownedController(() => true, 20, {
+      inspectOwnedProcessTree: async () => [{ pid: 8765, processStartedAt: descendantStartedAt }],
+      terminateOwnedProcessTree: async () => {
+        escalated = true;
+        fixture.child.exitCode = 1;
+        fixture.child.emit('exit', 1);
+      },
+      inspectOwnedProcess: async (pid) => {
+        if (pid === 7658) return escalated ? { state: 'gone' } : { state: 'live', processStartedAt: parentStartedAt };
+        if (pid === 8765) return { state: 'live', processStartedAt: descendantStartedAt };
+        return { state: 'gone' };
+      },
+    });
+    fixture.child.pid = 7658;
+
+    await expect(fixture.controller.stopOwned()).rejects.toThrow('process tree remained live');
+    expect(await readTunnelLock(fixture.profileDir)).toEqual(fixture.owner);
+  });
+
   it('defers shutdown and retains child plus lock when targeted escalation cannot verify exit', async () => {
     let probes = 0;
     const fixture = await ownedController(() => true, 20, {
@@ -212,6 +235,7 @@ describe('TunnelController lifecycle', () => {
       getClientPath: (): string | null => null,
       setClientPath: (): void => {},
       getDataPath: (): string => dataPath,
+      isExternalTunnelRunning: async (): Promise<boolean> => false,
       inspectLockProcess: async (): Promise<ProcessProbeResult> => ({ state: 'live', processStartedAt: '2026-08-20T00:00:00.000Z' }),
       currentLockOwner: async (): Promise<{ pid: number; processStartedAt: string; acquiredAt: string }> => ({ pid: 9999, processStartedAt: '2026-08-20T00:01:00.000Z', acquiredAt: '2026-08-20T00:01:00.000Z' }),
     });
@@ -296,6 +320,21 @@ describe('TunnelController lifecycle', () => {
     } finally { await server.close(); }
   });
 
+  it('enforces the health timeout as a total deadline even when response bytes keep arriving', async () => {
+    const server = await healthServer((_request, response) => {
+      response.writeHead(200, { 'content-type': 'application/json' });
+      const ticker = setInterval(() => response.write(' '), 10);
+      const complete = setTimeout(() => { clearInterval(ticker); response.end('{"status":"live"}'); }, 220);
+      response.once('close', () => { clearInterval(ticker); clearTimeout(complete); });
+    });
+    try {
+      const fixture = await healthController({ profile: 'health:\n  listen_addr: "127.0.0.1:0"\n', log: `health server listening at 127.0.0.1:${server.port}\n`, healthProbeTimeoutMs: 40 });
+      const started = Date.now();
+      await expect(fixture.controller.incidentHealth()).resolves.toMatchObject({ state: 'unhealthy' });
+      expect(Date.now() - started).toBeLessThan(180);
+    } finally { await server.close(); }
+  });
+
   it('reads only a bounded log tail and accepts a live JSON health response from the tail address', async () => {
     const server = await healthServer((_request, response) => { response.writeHead(200, { 'content-type': 'application/json' }); response.end('{"status":"live"}'); });
     try {
@@ -339,6 +378,7 @@ interface FakeChild extends EventEmitter {
 async function ownedController(kill: () => boolean, stopTimeoutMs = 2_000, shutdownOptions: {
   terminateOwnedProcessTree?: (pid: number) => Promise<void>;
   inspectOwnedProcess?: (pid: number) => Promise<import('@lnwjud/mcp-server').ProcessProbeResult>;
+  inspectOwnedProcessTree?: (rootPid: number) => Promise<readonly { readonly pid: number; readonly processStartedAt: string }[]>;
   escalationTimeoutMs?: number;
 } = {}, lockHooks?: NonNullable<Parameters<typeof acquireTunnelLock>[0]['hooks']>): Promise<{
   controller: TunnelController;
@@ -364,6 +404,7 @@ async function ownedController(kill: () => boolean, stopTimeoutMs = 2_000, shutd
     getDataPath: (): string => dataPath,
     isExternalTunnelRunning: async (): Promise<boolean> => false,
     stopTimeoutMs,
+    inspectOwnedProcessTree: async (): Promise<readonly { readonly pid: number; readonly processStartedAt: string }[]> => [],
     ...shutdownOptions,
   });
   const child = new EventEmitter() as FakeChild;

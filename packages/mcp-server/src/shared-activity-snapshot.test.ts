@@ -5,6 +5,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { ActivityTracker } from './activity-tracker.js';
 import {
   SharedActivitySnapshotLease,
+  parseProcessProbeOutput,
   readSharedActivitySnapshot,
   sharedActivitySnapshotPath,
   type ProcessProbeResult,
@@ -16,6 +17,14 @@ const owner: SharedActivityOwner = { pid: 7001, processStartedAt: '2026-08-20T00
 
 afterEach(async () => {
   await Promise.all(roots.splice(0).map((root) => rm(root, { recursive: true, force: true })));
+});
+
+describe('process start probe output', () => {
+  it('treats empty stdout as unverifiable instead of proving the process is gone', () => {
+    expect(parseProcessProbeOutput('')).toEqual({ state: 'unverifiable', reason: 'invalid_probe_response' });
+    expect(parseProcessProbeOutput('GONE')).toEqual({ state: 'gone' });
+    expect(parseProcessProbeOutput('LIVE|2026-08-20T00:00:00.000Z')).toEqual({ state: 'live', processStartedAt: '2026-08-20T00:00:00.000Z' });
+  });
 });
 
 describe('shared cross-process MCP activity snapshot', () => {

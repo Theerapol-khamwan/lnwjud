@@ -42,7 +42,7 @@ import { PathExecutableResolver } from '@lnwjud/search';
 import { APP_NAME, APP_VERSION, isUnrestricted, UNRESTRICTED_SETTING_KEY } from '@lnwjud/shared';
 import { SqliteAuditRepository, SqliteCheckpointRepository, SqliteDatabase, SqliteSettingsRepository, SqliteWorkspaceRepository } from '@lnwjud/storage';
 import type { Workspace } from '@lnwjud/workspace';
-import { isUnderEDrive, SecretPolicy, WorkspacePathGuard, WorkspaceService } from '@lnwjud/workspace';
+import { machineRootPath, SecretPolicy, WorkspacePathGuard, WorkspaceService } from '@lnwjud/workspace';
 import {
   type AddWorkspaceRequest,
   type AgentState,
@@ -126,11 +126,12 @@ export function createDesktopRuntime(dataPath: string, options: DesktopRuntimeOp
   const checkpointService = new CheckpointService(workspaceRepository, checkpointRepository, {
     profileProvider: (): PermissionProfile => permissionProfiles[profileName],
   });
-  const pathGuard = unrestricted ? new WorkspacePathGuard(new SecretPolicy(), { unrestricted: true }) : undefined;
+  const pathGuard = new WorkspacePathGuard(new SecretPolicy(), { unrestricted, trustedWorkspaceAccess: true });
   const fileService = new FileService(workspaceRepository, pathGuard, undefined, {
     checkpointService,
     profileProvider: (): PermissionProfile => permissionProfiles[profileName],
     unrestricted,
+    trustedWorkspaceAccess: true,
   });
   const workspaceInfoService = new WorkspaceInfoService(workspaceRepository, workspaceService, unrestricted);
   const workspaceQueryService = new WorkspaceQueryService(workspaceRepository, pathGuard);
@@ -150,10 +151,14 @@ export function createDesktopRuntime(dataPath: string, options: DesktopRuntimeOp
   ), unrestricted);
   // Start machine-root synchronization lazily so runtime construction cannot race
   // with the first workspace/database operation on slower Windows runners.
-  let machineRootReady: Promise<Workspace | null> | null = null;
-  const ensureMachineRoots = (): Promise<Workspace | null> => {
-    machineRootReady ??= syncMachineRoots(workspaceService, unrestricted);
-    return machineRootReady;
+  const machineRootsReady = new Map<string, Promise<Workspace | null>>();
+  const ensureMachineRoots = (preferredPath?: string): Promise<Workspace | null> => {
+    const key = unrestricted ? '*' : machineRootPath(preferredPath).toLowerCase();
+    const existing = machineRootsReady.get(key);
+    if (existing !== undefined) return existing;
+    const pending = syncMachineRoots(workspaceService, unrestricted, preferredPath);
+    machineRootsReady.set(key, pending);
+    return pending;
   };
   const extensionsService: ExtensionsService = createLocalExtensionsService({
     settingsJson: settingsRepository.get(EXTENSIONS_SETTINGS_KEY),
@@ -261,6 +266,7 @@ export function createDesktopRuntime(dataPath: string, options: DesktopRuntimeOp
 
   async function selectAndMaybeRestart(workspaceId: string): Promise<WorkspaceSummary> {
     const workspace = await resolveWorkspaceOrThrow(workspaceId);
+    await ensureMachineRoots(workspace.realRootPath);
     settingsRepository.set(selectedWorkspaceSettingKey, workspaceId);
     if (mcpLifecycle.status().running) {
       await mcpLifecycle.restart(workspaceId);
@@ -274,10 +280,7 @@ export function createDesktopRuntime(dataPath: string, options: DesktopRuntimeOp
       return (await workspaceService.list()).map(toWorkspaceSummary);
     },
     addWorkspace: async (request: AddWorkspaceRequest): Promise<WorkspaceSummary> => {
-      await ensureMachineRoots();
-      if (!unrestricted && !isUnderEDrive(request.rootPath)) {
-        throw new Error('Workspace path must be under E:\\ (enable Unrestricted mode in Settings to add other drives)');
-      }
+      await ensureMachineRoots(request.rootPath);
       const displayName = path.basename(path.resolve(request.rootPath)) || 'Workspace';
       const workspace = unwrap(await workspaceService.add(displayName, request.rootPath), 'Workspace could not be added');
       settingsRepository.set(selectedWorkspaceSettingKey, workspace.id);
@@ -368,7 +371,8 @@ export function createDesktopRuntime(dataPath: string, options: DesktopRuntimeOp
       return { stopped: true };
     },
     startMcp: async (request: StartMcpRequest): Promise<McpConnectionStatus> => {
-      await ensureMachineRoots();
+      const workspace = await resolveWorkspaceOrThrow(request.workspaceId);
+      await ensureMachineRoots(workspace.realRootPath);
       return mcpLifecycle.start(request.workspaceId);
     },
     stopMcp: (): Promise<McpConnectionStatus> => mcpLifecycle.stop(),
@@ -432,7 +436,7 @@ export function createDesktopRuntime(dataPath: string, options: DesktopRuntimeOp
         appVersion: APP_VERSION,
         tunnelClientVersion: tunnelClientVersion.value,
         tunnelClientVersionReason: tunnelClientVersion.reason,
-        tunnel: { state: tunnel.state, source: tunnel.source, message: tunnel.message, health: await tunnelController.incidentHealth() },
+        tunnel: { state: tunnel.state, source: tunnel.source, health: await tunnelController.incidentHealth() },
         updaterEvents,
         logLines: logHub.snapshot().lines,
         relevantPids: relevantPids.pids,
@@ -450,10 +454,7 @@ export function createDesktopRuntime(dataPath: string, options: DesktopRuntimeOp
     activityTracker,
     logHub,
     ensureDefaultWorkspace: async (rootPath: string): Promise<string> => {
-      await ensureMachineRoots();
-      if (!unrestricted && !isUnderEDrive(rootPath)) {
-        throw new Error('Workspace path must be under E:\\');
-      }
+      await ensureMachineRoots(rootPath);
       const existing = await workspaceService.list();
       const matched = existing.find((workspace) => workspace.realRootPath.toLowerCase() === path.resolve(rootPath).toLowerCase());
       if (matched !== undefined) {
@@ -478,9 +479,7 @@ export function createDesktopRuntime(dataPath: string, options: DesktopRuntimeOp
       await ensureMachineRoots();
       const envWorkspacePath = process.env.LNWJUD_WORKSPACE?.trim();
       if (envWorkspacePath !== undefined && envWorkspacePath.length > 0) {
-        if (!unrestricted && !isUnderEDrive(envWorkspacePath)) {
-          throw new Error('Workspace path must be under E:\\');
-        }
+        await ensureMachineRoots(envWorkspacePath);
         const resolvedPath = path.resolve(envWorkspacePath);
         const existing = await workspaceService.list();
         const matched = existing.find((workspace) => workspace.realRootPath.toLowerCase() === resolvedPath.toLowerCase());
@@ -493,9 +492,7 @@ export function createDesktopRuntime(dataPath: string, options: DesktopRuntimeOp
       const selected = await resolveSelectedWorkspace(workspaceService, settingsRepository);
       if (selected === null) {
         const workspacePath = process.cwd();
-        if (!unrestricted && !isUnderEDrive(workspacePath)) {
-          throw new Error('Workspace path must be under E:\\');
-        }
+        await ensureMachineRoots(workspacePath);
         const workspaceId = await (async (): Promise<string> => {
           const existing = await workspaceService.list();
           const matched = existing.find((workspace) => workspace.realRootPath.toLowerCase() === path.resolve(workspacePath).toLowerCase());
