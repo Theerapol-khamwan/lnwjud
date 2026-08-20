@@ -1229,6 +1229,56 @@ window. Rapid failures are bounded with backoff; after five failures in a
 30-second window it stops retrying and asks for a manual Start Tunnel. Parameters:
 `-NoViewer`, `-OpenDashboard`, `-ForceRestart`, `-Once`.
 
+### Session resilience / แนวทางสำหรับผู้ปฏิบัติการ
+
+Use **Capture Incident** in Control Center or Live Logs when a turn looks
+wrong. It writes one bounded, redacted JSON report after you choose a file;
+tokens, authorization values, passwords, and secret-like values are removed.
+It is still operational evidence, so review the chosen export before sharing
+it outside the support case.
+
+The classification is evidence-based, not a remote root-cause guarantee:
+
+- `local_tool_failed` — the latest structured MCP call completed locally with
+  a failure. ตรวจสอบ tool result/Work Log first.
+- `tunnel_disconnected` — the tunnel reported a lifecycle stop/TTL/stdio stop,
+  or its configured health evidence is unhealthy. ตรวจสอบ doctor and the
+  tunnel log.
+- `remote_turn_stopped` — a user manually captured after a structured local
+  success while the tunnel was live. This is an inference that the remote turn
+  stopped; it does **not** prove the remote cause.
+- `healthy_or_inconclusive` — the collected evidence cannot safely select one
+  of the cases above. Collect the report before restarting layers.
+
+Desktop Start Tunnel and `start-lnwjud-tunnel.ps1` share one profile lock. The
+losing launcher reports the actual owner PID and does not start or stop another
+owner's `tunnel-client`. A stale lock is reclaimed only when the recorded PID
+and process start time no longer match; do not manually delete a lock merely to
+force a second tunnel.
+
+For a downloaded update, **Later** is the safe default. **Restart Now** queues
+installation until active MCP calls finish and the runtime remains quiet briefly;
+a short new call resets that quiet interval. Quitting the app cancels the pending
+install rather than interrupting work.
+
+Validate the already configured health endpoint without launching another
+tunnel. With `listen_addr: 127.0.0.1:0`, use the runtime address written by the
+current client rather than copying a fixed port:
+
+```powershell
+$profile = Join-Path $env:APPDATA 'tunnel-client'
+Get-Content (Join-Path $profile 'lnwjud.tunnel.lock') -ErrorAction SilentlyContinue
+& $tc doctor --profile lnwjud --explain
+$match = Select-String -Path (Join-Path $profile 'lnwjud-tunnel.log') -Pattern 'health.*(?:listening|listen_addr).*?(127\.0\.0\.1|localhost):(\d{2,5})' | Select-Object -Last 1
+if ($null -eq $match) { throw 'No runtime health address was reported by the configured tunnel' }
+$address = [regex]::Match($match.Line, '(127\.0\.0\.1|localhost):(\d{2,5})').Value
+Invoke-WebRequest -UseBasicParsing "http://$address/healthz"
+```
+
+This validates the live configured endpoint and lock/doctor state; it does not
+start, replace, or terminate a tunnel. Repository acceptance coverage can be
+run with `corepack pnpm@10.15.0 test:acceptance`.
+
 ## Security and operational model
 
 ### Transport
