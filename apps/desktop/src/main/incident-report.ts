@@ -8,7 +8,7 @@ const execFileAsync = promisify(execFile);
 const MAX_ENTRIES = 200;
 const MAX_TEXT = 512;
 const MAX_IDS = 50;
-const SENSITIVE_KEY = '(?:access[_-]?token|refresh[_-]?token|id[_-]?token|auth[_-]?token|x[_-]api[_-]?key|api[_-]?key|client[_-]?secret|authorization|password|token|secret)';
+const SENSITIVE_KEY = '(?:access[_-]?token|refresh[_-]?token|id[_-]?token|auth[_-]?token|x[_-]?api[_-]?key|api[_-]?key|client[_-]?secret|authorization|password|token|secret)';
 const AUTHORIZATION_VALUE = new RegExp(`\\bauthorization\\s*[:=]\\s*(?:basic|bearer)\\s+[^\\r\\n,;]+`, 'gi');
 const JSON_SECRET_VALUE = new RegExp(`("${SENSITIVE_KEY}"\\s*:\\s*)(?:"(?:\\\\.|[^"\\\\])*"|[^,}\\]\\r\\n]*)`, 'gi');
 const ASSIGNED_SECRET_VALUE = new RegExp(`(^|[?&\\s;,{])(${SENSITIVE_KEY})(\\s*[:=]\\s*)(?:"(?:\\\\.|[^"\\\\])*"|'[^']*'|[^\\r\\n,;&}\\]]+)`, 'gi');

@@ -77,6 +77,8 @@ describe('incident classification', () => {
     'STDIO-command EXITED.',
     'stdio process terminated?',
     'STDIO MCP was closed',
+    'stdio MCP command exited.',
+    'STDIO.MCP_process: TERMINATED!',
     'tunnel-client is SHUTTING-DOWN!',
     'control_plane connection: stopped',
     'WebSocket connection disconnected.',
@@ -88,6 +90,18 @@ describe('incident classification', () => {
     const logLines = tunnelLines(text);
     expect(logLines[0]?.correlation).toMatchObject({ kind: 'tunnel', lifecycle: 'other' });
     expect(classifyIncident(evidence({ logLines })).classification).toBe('healthy_or_inconclusive');
+  });
+
+  it.each(['stdio MCP command exited.', 'STDIO.MCP_process: TERMINATED!'])('blocks remote attribution from multi-qualifier stdio lifecycle evidence: %s', (text) => {
+    const logLines = [started('successful', 'read_file', 1), completed('successful', 'SUCCESS', 'read_file', 2), ...tunnelLines(text)];
+    expect(classifyIncident(evidence({ logLines })).classification).toBe('tunnel_disconnected');
+  });
+
+  it.each(['previous task stopped cleanly', 'shutdown documentation loaded'])('leaves a successful remote attribution eligible after unrelated generic text: %s', (text) => {
+    const tunnelLogLines = tunnelLines(text);
+    const logLines = [started('successful', 'read_file', 1), completed('successful', 'SUCCESS', 'read_file', 2), ...tunnelLogLines];
+    expect(tunnelLogLines[0]?.correlation).toMatchObject({ kind: 'tunnel', lifecycle: 'other' });
+    expect(classifyIncident(evidence({ logLines })).classification).toBe('remote_turn_stopped');
   });
 
   it('uses normalized categories rather than raw tunnel display keywords', () => {
@@ -275,6 +289,7 @@ describe('incident correlation and privacy', () => {
       ['refresh_token', 'query'], ['refreshToken', 'assignment'], ['id_token', 'header'], ['idToken', 'json'],
       ['auth_token', 'query'], ['authToken', 'assignment'], ['api_key', 'header'], ['apiKey', 'json'],
       ['client_secret', 'query'], ['clientSecret', 'assignment'], ['password', 'json'], ['token', 'header'], ['secret', 'query'],
+      ['xApiKey', 'json'], ['XApiKey', 'assignment'], ['xApiKey', 'header'], ['XApiKey', 'query'],
     ] as const;
     const markers = cases.map(([key], index) => `marker_${index}_${key.replace(/[^a-z]/gi, '')}`);
     const lines = cases.map(([key, context], index) => {

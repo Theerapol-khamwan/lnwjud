@@ -161,10 +161,25 @@ describe('LogHub', () => {
     expect(errors[0]?.text).toContain('Unable to tail log file');
   });
 
-  it('dedupes file-tail MCP lines against syncWorkLog using callId keys', () => {
+  it('keeps distinct authoritative work-log entries sharing callId, phase, and timestamp', () => {
+    const hub = new LogHub({ tunnelLogPath: 'Z:\\missing\\lnwjud-tunnel.log' });
+    const sameTimestamp = '2026-08-20T00:00:01.000Z';
+    hub.syncWorkLog([
+      { id: 'audit-1', timestamp: sameTimestamp, callId: 'reused', kind: 'task', toolName: 'read_file', resultCode: 'STARTED', targetSummary: null },
+      { id: 'audit-2', timestamp: sameTimestamp, callId: 'reused', kind: 'task', toolName: 'write_file', resultCode: 'STARTED', targetSummary: null },
+    ], []);
+
+    expect(hub.snapshot().lines.filter((line) => line.source === 'mcp').map((line) => line.correlation)).toEqual([
+      expect.objectContaining({ kind: 'mcp', phase: 'started', callId: 'reused', toolName: 'read_file' }),
+      expect.objectContaining({ kind: 'mcp', phase: 'started', callId: 'reused', toolName: 'write_file' }),
+    ]);
+  });
+
+  it('dedupes an exact replay by stable authoritative entry ID', () => {
     const hub = new LogHub({ tunnelLogPath: 'Z:\\missing\\lnwjud-tunnel.log' });
     hub.syncWorkLog([{
       id: 'audit-1',
+      timestamp: '2026-08-20T00:00:01.000Z',
       callId: 'c1',
       kind: 'result',
       toolName: 'read_file',
@@ -174,6 +189,7 @@ describe('LogHub', () => {
     }], []);
     hub.syncWorkLog([{
       id: 'audit-1',
+      timestamp: '2026-08-20T00:00:01.000Z',
       callId: 'c1',
       kind: 'result',
       toolName: 'read_file',
@@ -182,6 +198,32 @@ describe('LogHub', () => {
       targetSummary: 'src\\app.ts',
     }], []);
     expect(hub.snapshot().lines).toHaveLength(1);
+  });
+
+  it('merges one start observed through both work-log and in-flight views', () => {
+    const hub = new LogHub({ tunnelLogPath: 'Z:\\missing\\lnwjud-tunnel.log' });
+    const startedAt = '2026-08-20T00:00:01.000Z';
+    hub.syncWorkLog(
+      [{ id: 'audit-start', timestamp: startedAt, callId: 'same', kind: 'task', toolName: 'read_file', resultCode: 'STARTED', targetSummary: null }],
+      [{ callId: 'same', toolName: 'read_file', targetSummary: null, startedAt }],
+    );
+    hub.syncWorkLog([], [{ callId: 'same', toolName: 'read_file', targetSummary: null, startedAt }]);
+
+    expect(hub.snapshot().lines.filter((line) => line.source === 'mcp')).toHaveLength(1);
+  });
+
+  it('keeps different in-flight call IDs that start in the same millisecond', () => {
+    const hub = new LogHub({ tunnelLogPath: 'Z:\\missing\\lnwjud-tunnel.log' });
+    const startedAt = '2026-08-20T00:00:01.000Z';
+    hub.syncWorkLog([], [
+      { callId: 'first', toolName: 'read_file', targetSummary: null, startedAt },
+      { callId: 'second', toolName: 'write_file', targetSummary: null, startedAt },
+    ]);
+
+    expect(hub.snapshot().lines.filter((line) => line.source === 'mcp').map((line) => line.correlation)).toEqual([
+      expect.objectContaining({ kind: 'mcp', callId: 'first' }),
+      expect.objectContaining({ kind: 'mcp', callId: 'second' }),
+    ]);
   });
 
   it('notifies subscribers of new lines', () => {
