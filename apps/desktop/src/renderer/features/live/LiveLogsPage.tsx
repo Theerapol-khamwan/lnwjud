@@ -1,5 +1,5 @@
 import { useState, type ReactElement } from 'react';
-import type { LogLine, LogSource, UiLocale } from '@lnwjud/ipc-contracts';
+import type { IncidentClassification, LogLine, LogSource, UiLocale } from '@lnwjud/ipc-contracts';
 import { createTranslator } from '../../i18n/index.js';
 import { LogStreamPanel } from './LogStreamPanel.js';
 
@@ -11,6 +11,8 @@ interface LiveLogsPageProps {
   readonly onClear: (source: LogSource) => Promise<void>;
   readonly onExport: (source: LogSource) => Promise<void>;
   readonly onPopOut: () => Promise<void>;
+  readonly onCaptureIncident: () => Promise<void>;
+  readonly incidentClassification: IncidentClassification | null;
 }
 
 type LogTab = LogSource;
@@ -28,9 +30,11 @@ export function LiveLogsPage(props: LiveLogsPageProps): ReactElement {
           <p className="page-subtitle">{t('live.subtitle')}</p>
         </div>
         <div className="heading-actions">
+          <button type="button" onClick={() => { void props.onCaptureIncident(); }}>{t('live.captureIncident')}</button>
           <button type="button" onClick={() => { void props.onPopOut(); }}>{t('live.popOut')}</button>
         </div>
       </div>
+      {props.incidentClassification === null ? null : <p className="hint" role="status">{incidentSummary(t, props.incidentClassification)}</p>}
       <div className="log-tabs" role="tablist" aria-label={t('live.title')}>
         {sources.map((source) => (
           <button
@@ -67,4 +71,11 @@ export function LiveLogsPage(props: LiveLogsPageProps): ReactElement {
       ))}
     </div>
   );
+}
+
+function incidentSummary(t: ReturnType<typeof createTranslator>, classification: IncidentClassification): string {
+  if (classification === 'local_tool_failed') return t('live.incident.localToolFailed');
+  if (classification === 'tunnel_disconnected') return t('live.incident.tunnelDisconnected');
+  if (classification === 'remote_turn_stopped') return t('live.incident.remoteTurnStopped');
+  return t('live.incident.healthyOrInconclusive');
 }

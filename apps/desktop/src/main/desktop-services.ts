@@ -74,6 +74,7 @@ import {
 import type { DesktopIpcServices } from './main.js';
 import { buildCapabilitySummary, createLocalCapabilityRuntime } from './capability-runtime.js';
 import { LogHub } from './log-hub.js';
+import { buildIncidentReport, collectRelevantListeners, collectRelevantProcessTree, type IncidentReport } from './incident-report.js';
 import { DesktopMcpLifecycle } from './mcp-lifecycle.js';
 import { CLIENT_PATH_SETTING, TunnelController } from './tunnel-controller.js';
 import { packagedStdioLauncherCandidates, preferredTunnelMcpCommand, resolveStdioLauncherPath } from './tunnel-profile.js';
@@ -421,6 +422,21 @@ export function createDesktopRuntime(dataPath: string, options: DesktopRuntimeOp
     clearLogBuffer: async (request: ClearLogBufferRequest): Promise<{ readonly cleared: boolean }> => {
       logHub.clear(request.source);
       return { cleared: true };
+    },
+    captureIncident: async (updaterEvents: readonly string[] = []): Promise<IncidentReport> => {
+      const mcp = mcpLifecycle.status();
+      const tunnel = await tunnelController.status();
+      const loopback = mcp.url !== null && /^http:\/\/(127\.0\.0\.1|localhost)(?::\d+)?\//.test(mcp.url);
+      return buildIncidentReport({
+        triggeredByUser: true,
+        appVersion: APP_VERSION,
+        tunnelClientVersion: null,
+        tunnel: { state: tunnel.state, source: tunnel.source, message: tunnel.message, health: { healthy: mcp.running && loopback, message: mcp.running && loopback ? 'local MCP loopback is live' : 'local MCP loopback is unavailable' } },
+        updaterEvents,
+        logLines: logHub.snapshot().lines,
+        collectProcessTree: collectRelevantProcessTree,
+        collectListeners: collectRelevantListeners,
+      });
     },
   };
 

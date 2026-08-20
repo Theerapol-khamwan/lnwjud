@@ -1,6 +1,5 @@
 import { app, BrowserWindow, dialog, ipcMain, Menu, nativeImage, Tray, type IpcMainInvokeEvent } from 'electron';
 import { autoUpdater } from 'electron-updater';
-import { writeFile } from 'node:fs/promises';
 import {
   APP_NAME,
   APP_VERSION,
@@ -11,6 +10,7 @@ import {
   type DashboardSnapshot,
   type DoctorReport,
   type ExportLogsRequest,
+  type IncidentExportResult,
   type IpcResponseMap,
   type LogSnapshot,
   type ManagedBrowserStatus,
@@ -36,6 +36,7 @@ import { shouldHoldSingleInstanceLock, wantsMcpStdio } from './instance-lock.js'
 import { createLogViewerWindow, createMainWindow, getRendererEntryPath, getWindowIconPath, isAllowedRendererUrl } from './window.js';
 import { createTrayMenuTemplate, shouldHideMainWindowOnClose } from './tray.js';
 import { UpdateDownloadedDialogController, UpdateInstallCoordinator } from './update-install.js';
+import { atomicWrite, type IncidentReport } from './incident-report.js';
 
 export interface DesktopIpcServices {
   listWorkspaces(): Promise<IpcResponseMap[typeof ipcChannels.listWorkspaces]>;
@@ -61,6 +62,7 @@ export interface DesktopIpcServices {
   runDoctor(): Promise<DoctorReport>;
   getLogSnapshot(): Promise<LogSnapshot>;
   clearLogBuffer(request: ClearLogBufferRequest): Promise<{ readonly cleared: boolean }>;
+  captureIncident(updaterEvents?: readonly string[]): Promise<IncidentReport>;
 }
 
 export type MainWindowProvider = () => BrowserWindow | null;
@@ -134,7 +136,11 @@ const defaultDesktopServices: DesktopIpcServices = {
     tunnelLogExists: false,
   }),
   clearLogBuffer: async (): Promise<{ readonly cleared: boolean }> => ({ cleared: false }),
+  captureIncident: async (): Promise<IncidentReport> => ({ schemaVersion: 1, capturedAt: new Date().toISOString(), appVersion: APP_VERSION, tunnelClientVersion: null, classification: 'healthy_or_inconclusive', classificationReasons: ['desktop_services_unavailable'], updaterEventTail: [], tunnel: { state: 'stopped', source: 'desktop', message: null, instanceIds: [], requestIds: [], loopbackHealth: { healthy: false, message: 'unavailable' } }, mcpCalls: [], tunnelLogTail: [], processTree: { available: false, entries: [], error: 'unavailable' }, tcpListeners: { available: false, entries: [], error: 'unavailable' } }),
 };
+
+const updaterEventTail: string[] = [];
+function recordUpdaterEvent(message: string): void { updaterEventTail.push(message.slice(0, 512)); while (updaterEventTail.length > 100) updaterEventTail.shift(); }
 
 export function isTrustedIpcSender(event: IpcMainInvokeEvent, window: BrowserWindow | null): boolean {
   void window;
@@ -254,6 +260,11 @@ export function registerIpcHandlers(
     assertTrustedSender(event, getMainWindow());
     return exportLogsToFile(getMainWindow(), services, parseExportLogsRequest(payload));
   });
+  ipcMain.handle(ipcChannels.captureIncident, async (event, payload: unknown) => {
+    assertTrustedSender(event, getMainWindow());
+    assertNoPayload(payload);
+    return exportIncidentToFile(getMainWindow(), services);
+  });
   ipcMain.handle(ipcChannels.openLogViewer, async (event, payload: unknown) => {
     assertTrustedSender(event, getMainWindow());
     assertNoPayload(payload);
@@ -327,8 +338,17 @@ async function exportLogsToFile(
     .filter((line) => line.source === request.source)
     .map((line) => `[${line.timestamp}] [${line.level.toUpperCase()}] ${line.text}`)
     .join('\r\n');
-  await writeFile(result.filePath, content.length === 0 ? '' : `${content}\r\n`, 'utf8');
+  await atomicWrite(result.filePath, content.length === 0 ? '' : `${content}\r\n`);
   return { exported: true };
+}
+
+async function exportIncidentToFile(window: BrowserWindow | null, services: DesktopIpcServices): Promise<IncidentExportResult> {
+  const report = await services.captureIncident(updaterEventTail);
+  if (window === null) return { exported: false, cancelled: true, classification: report.classification };
+  const result = await dialog.showSaveDialog(window, { title: 'Capture lnwjud incident evidence', defaultPath: 'lnwjud-incident.json', filters: [{ name: 'JSON', extensions: ['json'] }] });
+  if (result.canceled || result.filePath === undefined || result.filePath.length === 0) return { exported: false, cancelled: true, classification: report.classification };
+  await atomicWrite(result.filePath, JSON.stringify(report, null, 2) + '\n');
+  return { exported: true, cancelled: false, classification: report.classification };
 }
 
 function broadcastToAllWindows(channel: string, payload: unknown): void {
@@ -573,6 +593,7 @@ function initAutoUpdater(runtime: DesktopRuntime): void {
       requestInstall: (): void => updateInstallCoordinator?.requestInstall(),
       hasPendingInstall: (): boolean => updateInstallCoordinator?.hasPendingInstall() ?? false,
       onShow: (version): void => {
+        recordUpdaterEvent(`update-downloaded:${version}`);
         console.log(`[AutoUpdater] Downloaded update: v${version}`);
         broadcastToAllWindows(pushChannels.logEvent, {
           id: Date.now(),
@@ -588,10 +609,12 @@ function initAutoUpdater(runtime: DesktopRuntime): void {
     });
 
     autoUpdater.on('checking-for-update', () => {
+      recordUpdaterEvent('checking-for-update');
       console.log('[AutoUpdater] Checking for updates on GitHub...');
     });
 
     autoUpdater.on('update-available', (info) => {
+      recordUpdaterEvent(`update-available:${info.version}`);
       const requestedFromTray = manualUpdateCheckPending;
       manualUpdateCheckPending = false;
       console.log(`[AutoUpdater] Update available: v${info.version}`);
@@ -613,6 +636,7 @@ function initAutoUpdater(runtime: DesktopRuntime): void {
     });
 
     autoUpdater.on('update-not-available', (info) => {
+      recordUpdaterEvent(`update-not-available:${info.version}`);
       if (!manualUpdateCheckPending) return;
       manualUpdateCheckPending = false;
       void dialog.showMessageBox({
@@ -624,10 +648,12 @@ function initAutoUpdater(runtime: DesktopRuntime): void {
     });
 
     autoUpdater.on('update-downloaded', (info) => {
+      recordUpdaterEvent(`update-downloaded:${info.version}`);
       void updateDownloadedDialogController?.handle(info.version);
     });
 
     autoUpdater.on('error', (err) => {
+      recordUpdaterEvent(`error:${err.message}`);
       console.error('[AutoUpdater] error:', err.message);
       if (!manualUpdateCheckPending) return;
       manualUpdateCheckPending = false;

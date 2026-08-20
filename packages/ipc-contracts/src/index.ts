@@ -26,6 +26,7 @@ export const ipcChannels = {
   getLogSnapshot: 'lnwjud:get-log-snapshot',
   clearLogBuffer: 'lnwjud:clear-log-buffer',
   exportLogs: 'lnwjud:export-logs',
+  captureIncident: 'lnwjud:capture-incident',
   openLogViewer: 'lnwjud:open-log-viewer',
 } as const;
 
@@ -118,6 +119,13 @@ export interface ClearLogBufferRequest {
 export interface ExportLogsRequest {
   readonly source: LogSource;
   readonly filePath: string;
+}
+
+export type IncidentClassification = 'local_tool_failed' | 'tunnel_disconnected' | 'remote_turn_stopped' | 'healthy_or_inconclusive';
+export interface IncidentExportResult {
+  readonly exported: boolean;
+  readonly cancelled: boolean;
+  readonly classification: IncidentClassification;
 }
 
 export interface GitStatusEntrySummary {
@@ -273,6 +281,7 @@ export interface IpcRequestMap {
   readonly [ipcChannels.getLogSnapshot]: undefined;
   readonly [ipcChannels.clearLogBuffer]: ClearLogBufferRequest;
   readonly [ipcChannels.exportLogs]: ExportLogsRequest;
+  readonly [ipcChannels.captureIncident]: undefined;
   readonly [ipcChannels.openLogViewer]: undefined;
 }
 
@@ -301,6 +310,7 @@ export interface IpcResponseMap {
   readonly [ipcChannels.getLogSnapshot]: LogSnapshot;
   readonly [ipcChannels.clearLogBuffer]: { readonly cleared: boolean };
   readonly [ipcChannels.exportLogs]: { readonly exported: boolean };
+  readonly [ipcChannels.captureIncident]: IncidentExportResult;
   readonly [ipcChannels.openLogViewer]: { readonly opened: boolean };
 }
 
@@ -329,6 +339,7 @@ export interface LnwjudApi {
   getLogSnapshot(): Promise<IpcResponseMap[typeof ipcChannels.getLogSnapshot]>;
   clearLogBuffer(request: ClearLogBufferRequest): Promise<IpcResponseMap[typeof ipcChannels.clearLogBuffer]>;
   exportLogs(request: ExportLogsRequest): Promise<IpcResponseMap[typeof ipcChannels.exportLogs]>;
+  captureIncident(): Promise<IpcResponseMap[typeof ipcChannels.captureIncident]>;
   openLogViewer(): Promise<IpcResponseMap[typeof ipcChannels.openLogViewer]>;
   onLogEvent(callback: (line: LogLine) => void): () => void;
 }

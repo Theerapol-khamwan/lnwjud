@@ -9,6 +9,7 @@ import {
   type DoctorCheck,
   type DoctorReport,
   type ExportLogsRequest,
+  type IncidentExportResult,
   type InFlightWorkItem,
   type LnwjudApi,
   type LogLine,
@@ -438,6 +439,15 @@ function exportLogs(request: ExportLogsRequest): Promise<{ readonly exported: bo
   });
 }
 
+function captureIncident(): Promise<IncidentExportResult> {
+  return invoke(ipcChannels.captureIncident).then((value: unknown) => {
+    if (!isRecord(value)) throw new Error('Invalid IPC response');
+    const classification = value.classification;
+    if (classification !== 'local_tool_failed' && classification !== 'tunnel_disconnected' && classification !== 'remote_turn_stopped' && classification !== 'healthy_or_inconclusive') throw new Error('Invalid IPC response');
+    return { exported: booleanField(value, 'exported'), cancelled: booleanField(value, 'cancelled'), classification };
+  });
+}
+
 function onLogEvent(callback: (line: LogLine) => void): () => void {
   const listener = (_event: unknown, payload: unknown): void => {
     try {
@@ -477,6 +487,7 @@ const api: LnwjudApi = {
   getLogSnapshot: () => invoke(ipcChannels.getLogSnapshot).then(logSnapshot),
   clearLogBuffer,
   exportLogs,
+  captureIncident,
   openLogViewer: () => invoke(ipcChannels.openLogViewer).then((value: unknown) => {
     if (!isRecord(value)) throw new Error('Invalid IPC response');
     return { opened: booleanField(value, 'opened') };

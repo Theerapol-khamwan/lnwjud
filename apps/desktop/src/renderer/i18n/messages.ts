@@ -70,6 +70,11 @@ export type MessageKey =
   | 'live.follow'
   | 'live.filter'
   | 'live.export'
+  | 'live.captureIncident'
+  | 'live.incident.localToolFailed'
+  | 'live.incident.tunnelDisconnected'
+  | 'live.incident.remoteTurnStopped'
+  | 'live.incident.healthyOrInconclusive'
   | 'live.waiting'
   | 'live.waitingTunnel'
   | 'live.popOut'
@@ -176,6 +181,11 @@ export const th: Messages = {
   'live.follow': 'ตามต่อ (follow)',
   'live.filter': 'กรองข้อความ...',
   'live.export': 'ส่งออกไฟล์',
+  'live.captureIncident': 'บันทึกหลักฐานปัญหา',
+  'live.incident.localToolFailed': 'เครื่องมือในเครื่องล้มเหลว',
+  'live.incident.tunnelDisconnected': 'Tunnel หลุดการเชื่อมต่อ',
+  'live.incident.remoteTurnStopped': 'Remote turn หยุดทำงาน',
+  'live.incident.healthyOrInconclusive': 'ปกติหรือหลักฐานยังไม่ชัดเจน',
   'live.waiting': 'ยังไม่มีข้อมูล',
   'live.waitingTunnel': 'ยังไม่มีไฟล์ tunnel log — รัน tunnel ด้วยสคริปต์ start-lnwjud-tunnel.ps1 หรือกด Start Tunnel',
   'live.popOut': 'เปิดหน้าต่างแยก',
@@ -281,6 +291,11 @@ export const en: Messages = {
   'live.follow': 'Follow',
   'live.filter': 'Filter text...',
   'live.export': 'Export file',
+  'live.captureIncident': 'Capture incident evidence',
+  'live.incident.localToolFailed': 'Local tool failed',
+  'live.incident.tunnelDisconnected': 'Tunnel disconnected',
+  'live.incident.remoteTurnStopped': 'Remote turn stopped',
+  'live.incident.healthyOrInconclusive': 'Healthy or inconclusive',
   'live.waiting': 'No data yet',
   'live.waitingTunnel': 'No tunnel log file yet — run start-lnwjud-tunnel.ps1 or press Start Tunnel',
   'live.popOut': 'Pop out viewer',

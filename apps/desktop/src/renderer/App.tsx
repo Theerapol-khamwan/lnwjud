@@ -6,6 +6,7 @@ import type {
   LogSource,
   PermissionProfileName,
   UiLocale,
+  IncidentClassification,
   WorkspaceSummary,
 } from '@lnwjud/ipc-contracts';
 import { AppShell, type Screen } from './features/shell/AppShell.js';
@@ -33,6 +34,7 @@ export function App(): ReactElement {
   const [logLines, setLogLines] = useState<readonly LogLine[]>([]);
   const [tunnelLogPath, setTunnelLogPath] = useState<string | null>(null);
   const [tunnelLogExists, setTunnelLogExists] = useState(false);
+  const [incidentClassification, setIncidentClassification] = useState<IncidentClassification | null>(null);
   const logIds = useRef<Set<number>>(new Set());
 
   const t = createTranslator(locale);
@@ -87,6 +89,15 @@ export function App(): ReactElement {
       await window.lnwjud.openLogViewer();
     } catch (cause: unknown) {
       setError(errorMessage(cause, t('error.logViewerOpen')));
+    }
+  }
+
+  async function captureIncident(): Promise<void> {
+    try {
+      const result = await window.lnwjud.captureIncident();
+      setIncidentClassification(result.classification);
+    } catch (cause: unknown) {
+      setError(errorMessage(cause, t('error.logExport')));
     }
   }
 
@@ -295,6 +306,8 @@ export function App(): ReactElement {
           onClear={clearLogSource}
           onExport={exportLogSource}
           onPopOut={popOutLogViewer}
+          onCaptureIncident={captureIncident}
+          incidentClassification={incidentClassification}
         />
       ) : null}
       {screen === 'settings' ? (
