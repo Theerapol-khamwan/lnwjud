@@ -82,7 +82,6 @@ $profileDir = Join-Path $env:APPDATA 'tunnel-client'
 $secretPath = Join-Path $profileDir 'lnwjud.runtime.secret'
 $logPath = Join-Path $profileDir 'lnwjud-tunnel.log'
 $stopFile = Join-Path $profileDir 'lnwjud.tunnel.stop'
-$lockPath = Join-Path $profileDir 'lnwjud.tunnel.lock'
 $mcpTtl = '168h0m0s'
 $maxRapidRestarts = 5
 $rapidRestartCount = 0
@@ -102,104 +101,6 @@ function Get-LnwjudTunnelProcessStart {
   $ownerProcess = Get-CimInstance Win32_Process -Filter "ProcessId = $OwnerPid" -ErrorAction SilentlyContinue
   if ($null -eq $ownerProcess) { return $null }
   return $ownerProcess.CreationDate.ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ss.fffZ', [Globalization.CultureInfo]::InvariantCulture)
-}
-
-function Read-LnwjudTunnelLock {
-  if (-not (Test-Path -LiteralPath $lockPath)) { return $null }
-  try {
-    $record = Get-Content -LiteralPath $lockPath -Raw | ConvertFrom-Json -ErrorAction Stop
-    if ($null -eq $record -or $record.version -ne 1 -or ([string]$record.pid -notmatch '^[1-9]\d*$') -or ([string]$record.processStartedAt -notmatch '^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$') -or ([string]$record.acquiredAt -notmatch '^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$')) { return $null }
-    return $record
-  } catch {
-    return $null
-  }
-}
-
-function Test-LnwjudTunnelLockOwner {
-  param(
-    [Parameter(Mandatory = $true)]$Left,
-    [Parameter(Mandatory = $true)]$Right
-  )
-  return ([int]$Left.pid -eq [int]$Right.pid) -and ([string]$Left.processStartedAt -eq [string]$Right.processStartedAt) -and ([string]$Left.acquiredAt -eq [string]$Right.acquiredAt)
-}
-
-function Enter-LnwjudTunnelLock {
-  New-Item -ItemType Directory -Path $profileDir -Force | Out-Null
-  $owner = [pscustomobject]@{
-    version = 1
-    pid = $PID
-    processStartedAt = Get-LnwjudTunnelProcessStart -OwnerPid $PID
-    acquiredAt = [DateTime]::UtcNow.ToString('yyyy-MM-ddTHH:mm:ss.fffZ', [Globalization.CultureInfo]::InvariantCulture)
-  }
-  if ([string]::IsNullOrWhiteSpace([string]$owner.processStartedAt)) { throw 'Could not determine this PowerShell process start time for the tunnel lock.' }
-
-  for ($attempt = 0; $attempt -lt 8; $attempt += 1) {
-    try {
-      $publishPath = "$lockPath.publish.$PID.$([Guid]::NewGuid().ToString('N'))"
-      $stream = [System.IO.File]::Open($publishPath, [System.IO.FileMode]::CreateNew, [System.IO.FileAccess]::Write, [System.IO.FileShare]::None)
-      try {
-        $payload = ($owner | ConvertTo-Json -Compress)
-        $bytes = [System.Text.Encoding]::UTF8.GetBytes($payload)
-        $stream.Write($bytes, 0, $bytes.Length)
-        $stream.Flush($true)
-      } finally {
-        $stream.Dispose()
-      }
-      # File.Move refuses an existing destination, so it never replaces another owner.
-      [System.IO.File]::Move($publishPath, $lockPath)
-      return $owner
-    } catch [System.IO.IOException] {
-      if ($publishPath) { Remove-Item -LiteralPath $publishPath -Force -ErrorAction SilentlyContinue }
-      $existing = Read-LnwjudTunnelLock
-      if ($null -eq $existing) {
-        throw "Tunnel lock has invalid owner metadata: $lockPath"
-      }
-      $actualStartedAt = Get-LnwjudTunnelProcessStart -OwnerPid ([int]$existing.pid)
-      if ($actualStartedAt -eq [string]$existing.processStartedAt) {
-        Write-Host ("lnwjud tunnel is already owned by PID {0} (started {1})." -f $existing.pid, $existing.processStartedAt)
-        return $null
-      }
-
-      $quarantinePath = "$lockPath.stale.$PID.$([Guid]::NewGuid().ToString('N'))"
-      try {
-        [System.IO.File]::Move($lockPath, $quarantinePath)
-      } catch [System.IO.FileNotFoundException] {
-        continue
-      } catch [System.IO.IOException] {
-        continue
-      }
-      try {
-        $verifiedStale = $false
-        $moved = $null
-        try { $moved = Get-Content -LiteralPath $quarantinePath -Raw | ConvertFrom-Json -ErrorAction Stop } catch { throw "Tunnel lock changed while stale recovery was in progress: $lockPath" }
-        if (-not (Test-LnwjudTunnelLockOwner -Left $moved -Right $existing)) { throw "Tunnel lock changed while stale recovery was in progress: $lockPath" }
-        $verifiedStale = $true
-      } finally {
-        # Only the verified stale quarantine path is removed; never remove an
-        # unverified replacement or the active lock path here.
-        if ($verifiedStale) { Remove-Item -LiteralPath $quarantinePath -Force -ErrorAction SilentlyContinue }
-      }
-    }
-  }
-  throw "Unable to acquire tunnel lock: $lockPath"
-}
-
-function Release-LnwjudTunnelLock {
-  param([Parameter(Mandatory = $true)]$Owner)
-  $current = Read-LnwjudTunnelLock
-  if ($null -eq $current -or -not (Test-LnwjudTunnelLockOwner -Left $current -Right $Owner)) { return $false }
-  $confirmed = Read-LnwjudTunnelLock
-  if ($null -eq $confirmed -or -not (Test-LnwjudTunnelLockOwner -Left $confirmed -Right $Owner)) { return $false }
-  $releasePath = "$lockPath.released.$PID.$([Guid]::NewGuid().ToString('N'))"
-  [System.IO.File]::Move($lockPath, $releasePath)
-  try {
-    $moved = Get-Content -LiteralPath $releasePath -Raw | ConvertFrom-Json -ErrorAction Stop
-    if (-not (Test-LnwjudTunnelLockOwner -Left $moved -Right $Owner)) { return $false }
-    Remove-Item -LiteralPath $releasePath -Force -ErrorAction Stop
-  } catch {
-    return $false
-  }
-  return $true
 }
 
 function Test-LnwjudTunnelStopRequested {
@@ -231,11 +132,15 @@ if (-not $env:LNWJUD_DATA_PATH) { $env:LNWJUD_DATA_PATH = Join-Path $env:APPDATA
 $env:MCP_CONNECTION_MAX_TTL = $mcpTtl
 
 . (Join-Path $PSScriptRoot 'lib\lnwjud-tunnel-lock.ps1')
- $lockOwner = $null
- $keyPointer = $null
+$lockOwner = $null
+$keyPointer = $null
 try {
-  $lockOwner = Enter-LnwjudTunnelLock -ProfileDir $profileDir -OwnerPid $PID -OwnerStartedAt (Get-LnwjudTunnelProcessStart -OwnerPid $PID) -ProcessStartProvider { param($ownerPid) Get-LnwjudTunnelProcessStart -OwnerPid $ownerPid }
-  if ($null -eq $lockOwner) { exit 0 }
+  $lockClaim = Enter-LnwjudTunnelLock -ProfileDir $profileDir -OwnerPid $PID -OwnerStartedAt (Get-LnwjudTunnelProcessStart -OwnerPid $PID) -ProcessStartProvider { param($ownerPid) Get-LnwjudTunnelProcessStart -OwnerPid $ownerPid }
+  if (-not $lockClaim.acquired) {
+    Write-Host ("lnwjud tunnel is already owned by PID {0} (started {1})." -f $lockClaim.owner.pid, $lockClaim.owner.processStartedAt)
+    exit 0
+  }
+  $lockOwner = $lockClaim.owner
   if ($ForceRestart) { Write-Host 'lnwjud tunnel: -ForceRestart cannot bypass the ownership lock.' }
   if (Test-LnwjudTunnelRunning) { Write-Host 'lnwjud tunnel: existing tunnel-client process detected as status evidence; the lock remains authoritative.' }
 
@@ -298,5 +203,5 @@ try {
 finally {
   if ($null -ne $keyPointer) { [Runtime.InteropServices.Marshal]::ZeroFreeBSTR($keyPointer) }
   Remove-Item Env:CONTROL_PLANE_API_KEY -ErrorAction SilentlyContinue
-  if ($null -ne $lockOwner) { [void](Release-LnwjudTunnelLock -ProfileDir $profileDir -Owner $lockOwner.owner) }
+  if ($null -ne $lockOwner) { [void](Release-LnwjudTunnelLock -ProfileDir $profileDir -Owner $lockOwner) }
 }

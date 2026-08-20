@@ -32,12 +32,18 @@ export interface TunnelLockOptions {
   readonly profileDirectory: string;
   readonly owner?: TunnelLockOwner;
   readonly inspectProcess?: (pid: number) => Promise<string | null>;
+  readonly hooks?: {
+    readonly beforePublish?: (temporaryPath: string) => Promise<void>;
+    readonly beforeStaleQuarantine?: () => Promise<void>;
+    readonly beforeReleaseQuarantine?: () => Promise<void>;
+  };
 }
 
 export async function acquireTunnelLock(options: TunnelLockOptions): Promise<TunnelLockAcquisition | TunnelLockAlreadyOwned> {
   const lockPath = tunnelLockPath(options.profileDirectory);
   const owner = options.owner ?? await currentProcessOwner();
   const inspectProcess = options.inspectProcess ?? processStartedAt;
+  if (!isValidOwner(owner)) throw new Error('Tunnel lock owner metadata is invalid');
   await mkdir(options.profileDirectory, { recursive: true });
 
   for (let attempt = 0; attempt < 8; attempt += 1) {
@@ -50,13 +56,14 @@ export async function acquireTunnelLock(options: TunnelLockOptions): Promise<Tun
       } finally {
         await lock.close();
       }
+      await options.hooks?.beforePublish?.(temporaryPath);
       // link fails with EEXIST and never replaces the current owner record.
       await link(temporaryPath, lockPath);
       await rm(temporaryPath, { force: false });
       return {
         acquired: true,
         owner,
-        release: async (): Promise<boolean> => releaseTunnelLock(lockPath, owner),
+        release: async (): Promise<boolean> => releaseTunnelLock(lockPath, owner, options.hooks),
       };
     } catch (error: unknown) {
       await rm(temporaryPath, { force: true });
@@ -69,7 +76,7 @@ export async function acquireTunnelLock(options: TunnelLockOptions): Promise<Tun
     }
     const actualStartedAt = await inspectProcess(existing.pid);
     if (actualStartedAt === existing.processStartedAt) return { acquired: false, owner: existing };
-    await reclaimVerifiedStaleLock(lockPath, existing);
+    await reclaimVerifiedStaleLock(lockPath, existing, options.hooks);
   }
   throw new Error(`Unable to acquire tunnel lock: ${lockPath}`);
 }
@@ -87,31 +94,26 @@ export function tunnelLockPath(profileDirectory: string): string {
   return path.join(profileDirectory, LOCK_FILE);
 }
 
-async function reclaimVerifiedStaleLock(lockPath: string, staleOwner: TunnelLockOwner): Promise<void> {
+async function reclaimVerifiedStaleLock(lockPath: string, staleOwner: TunnelLockOwner, hooks: TunnelLockOptions['hooks']): Promise<void> {
   // Renaming, rather than deleting the live path, keeps the stale record available
   // for validation and makes a competing fresh create visible to the next loop.
   const quarantinePath = `${lockPath}.stale.${process.pid}.${Date.now()}.${Math.random().toString(16).slice(2)}`;
+  await hooks?.beforeStaleQuarantine?.();
   try {
     await rename(lockPath, quarantinePath);
   } catch (error: unknown) {
     if (isNotFound(error)) return;
     throw error;
   }
-  let verifiedStale = false;
-  try {
-    const movedOwner = parseOwner(await readFile(quarantinePath, 'utf8'));
-    if (!sameOwner(movedOwner, staleOwner)) {
-      throw new Error(`Tunnel lock changed while stale recovery was in progress: ${lockPath}`);
-    }
-    verifiedStale = true;
-  } finally {
-    // Only a verified stale quarantine path is removed; never delete an
-    // unverified replacement or the active lock path.
-    if (verifiedStale) await rm(quarantinePath, { force: true });
+  const movedOwner = parseOwner(await readFile(quarantinePath, 'utf8'));
+  if (!sameOwner(movedOwner, staleOwner)) {
+    await restoreQuarantinedRecord(lockPath, quarantinePath);
+    throw new Error(`Tunnel lock changed while stale recovery was in progress: ${lockPath}`);
   }
+  await rm(quarantinePath, { force: false });
 }
 
-async function releaseTunnelLock(lockPath: string, owner: TunnelLockOwner): Promise<boolean> {
+async function releaseTunnelLock(lockPath: string, owner: TunnelLockOwner, hooks: TunnelLockOptions['hooks']): Promise<boolean> {
   let current: TunnelLockOwner | null;
   try {
     current = parseOwner(await readFile(lockPath, 'utf8'));
@@ -119,20 +121,31 @@ async function releaseTunnelLock(lockPath: string, owner: TunnelLockOwner): Prom
     return false;
   }
   if (!sameOwner(current, owner)) return false;
-  // The lock payload is immutable for its lifetime. Re-read, then move the
-  // exact record aside before deletion so a replaced active pathname is never
-  // removed by a previous owner.
+  const releasePath = `${lockPath}.released.${owner.pid}.${Date.now()}.${Math.random().toString(16).slice(2)}`;
   try {
-    const confirmed = parseOwner(await readFile(lockPath, 'utf8'));
-    if (!sameOwner(confirmed, owner)) return false;
-    const releasePath = `${lockPath}.released.${process.pid}.${Date.now()}.${Math.random().toString(16).slice(2)}`;
+    await hooks?.beforeReleaseQuarantine?.();
     await rename(lockPath, releasePath);
     const moved = parseOwner(await readFile(releasePath, 'utf8'));
-    if (!sameOwner(moved, owner)) return false;
+    if (!sameOwner(moved, owner)) {
+      await restoreQuarantinedRecord(lockPath, releasePath);
+      return false;
+    }
     await rm(releasePath, { force: false });
     return true;
   } catch {
     return false;
+  }
+}
+
+async function restoreQuarantinedRecord(lockPath: string, quarantinePath: string): Promise<void> {
+  try {
+    // Linking restores only into an empty fixed path and never overwrites a
+    // concurrently published owner. The quarantine remains if restoration is
+    // blocked, preserving the valid record for recovery instead of losing it.
+    await link(quarantinePath, lockPath);
+    await rm(quarantinePath, { force: false });
+  } catch (error: unknown) {
+    if (!isAlreadyExists(error) && !isNotFound(error)) throw error;
   }
 }
 
@@ -142,11 +155,25 @@ function parseOwner(raw: string): TunnelLockOwner | null {
     if (typeof value !== 'object' || value === null || Array.isArray(value)) return null;
     const record = value as Record<string, unknown>;
     if (record.version !== LOCK_VERSION || !Number.isInteger(record.pid) || typeof record.processStartedAt !== 'string' || typeof record.acquiredAt !== 'string') return null;
-    if ((record.pid as number) <= 0 || !ISO_UTC_MILLISECONDS.test(record.processStartedAt) || !ISO_UTC_MILLISECONDS.test(record.acquiredAt)) return null;
+    if ((record.pid as number) <= 0 || (record.pid as number) > 2_147_483_647 || !isUtcMillisecondTimestamp(record.processStartedAt) || !isUtcMillisecondTimestamp(record.acquiredAt)) return null;
     return { pid: record.pid as number, processStartedAt: record.processStartedAt, acquiredAt: record.acquiredAt };
   } catch {
     return null;
   }
+}
+
+function isValidOwner(owner: TunnelLockOwner): boolean {
+  return Number.isInteger(owner.pid)
+    && owner.pid > 0
+    && owner.pid <= 2_147_483_647
+    && isUtcMillisecondTimestamp(owner.processStartedAt)
+    && isUtcMillisecondTimestamp(owner.acquiredAt);
+}
+
+function isUtcMillisecondTimestamp(value: string): boolean {
+  if (!ISO_UTC_MILLISECONDS.test(value) || value.startsWith('0000-')) return false;
+  const parsed = new Date(value);
+  return !Number.isNaN(parsed.getTime()) && parsed.toISOString() === value;
 }
 
 function serializeOwner(owner: TunnelLockOwner): string {

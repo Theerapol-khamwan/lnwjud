@@ -1,25 +1,226 @@
-import { execFile } from 'node:child_process';
-import { mkdtemp, rm } from 'node:fs/promises';
+import { spawn, type ChildProcess } from 'node:child_process';
+import { access, mkdir, mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import { promisify } from 'node:util';
 import { afterEach, describe, expect, it } from 'vitest';
 
-const exec = promisify(execFile); const roots: string[] = [];
-afterEach(async () => { await Promise.all(roots.splice(0).map((root) => rm(root, { recursive: true, force: true }))); });
+const temporaryRoots: string[] = [];
+const helperPath = path.resolve('scripts/lib/lnwjud-tunnel-lock.ps1');
+const starterPath = path.resolve('scripts/start-lnwjud-tunnel.ps1');
+
+afterEach(async () => {
+  await Promise.all(temporaryRoots.splice(0).map((root) => rm(root, { recursive: true, force: true })));
+});
 
 describe('PowerShell tunnel lock helper', () => {
-  it('acquires once, reports concurrent owner, rejects invalid schema, and releases only its owner', async () => {
-    const root = await mkdtemp(path.join(os.tmpdir(), 'lnwjud-ps-lock-')); roots.push(root);
-    const helper = path.resolve('scripts/lib/lnwjud-tunnel-lock.ps1').replace(/'/g, "''");
-    const script = `. '${helper}'; $p='${root.replace(/'/g, "''")}'; $f={param($id) if($id -eq 7){'2026-08-20T00:00:00.000Z'}}; $a=Enter-LnwjudTunnelLock $p 7 '2026-08-20T00:00:00.000Z' $f; $b=Enter-LnwjudTunnelLock $p 8 '2026-08-20T00:01:00.000Z' $f; if(-not $a.acquired -or $b.acquired -or $b.owner.pid -ne 7){exit 2}; if(-not (Release-LnwjudTunnelLock $p $a.owner)){exit 3}`;
-    await expect(exec('powershell.exe', ['-NoProfile', '-Command', script], { windowsHide: true })).resolves.toBeDefined();
+  it('acquires a complete record and removes every publish temporary file', async () => {
+    const root = await temporaryDirectory();
+    const result = await runPowerShell(`
+      . '${quote(helperPath)}'
+      $claim = Enter-LnwjudTunnelLock -ProfileDir '${quote(root)}' -OwnerPid 7 -OwnerStartedAt '2026-08-20T00:00:00.000Z' -ProcessStartProvider { param($id) $null }
+      $claim | ConvertTo-Json -Compress
+    `);
+
+    expect(JSON.parse(result.stdout)).toMatchObject({ acquired: true, owner: { pid: 7 } });
+    expect(JSON.parse(await readFile(path.join(root, 'lnwjud.tunnel.lock'), 'utf8'))).toMatchObject({ version: 1, pid: 7 });
+    expect((await readdir(root)).filter((name) => name.includes('.publish.'))).toEqual([]);
   });
 
-  it('recovers a stale PID/start mismatch without starting tunnel-client', async () => {
-    const root = await mkdtemp(path.join(os.tmpdir(), 'lnwjud-ps-lock-')); roots.push(root);
-    const helper = path.resolve('scripts/lib/lnwjud-tunnel-lock.ps1').replace(/'/g, "''");
-    const script = `. '${helper}'; $p='${root.replace(/'/g, "''")}'; New-Item -ItemType Directory -Path $p|Out-Null; '{"version":1,"pid":7,"processStartedAt":"2026-08-20T00:00:00.000Z","acquiredAt":"2026-08-20T00:00:00.000Z"}'|Set-Content (Join-Path $p 'lnwjud.tunnel.lock'); $f={param($id) '2026-08-20T00:01:00.000Z'}; $a=Enter-LnwjudTunnelLock $p 8 '2026-08-20T00:02:00.000Z' $f; if(-not $a.acquired){exit 2}`;
-    await expect(exec('powershell.exe', ['-NoProfile', '-Command', script], { windowsHide: true })).resolves.toBeDefined();
+  it('rejects a real concurrent second process, reports the owner, and cleans its publish file', async () => {
+    const root = await temporaryDirectory();
+    const releaseSignal = path.join(root, 'release');
+    const holder = await startHolder(root, releaseSignal);
+    try {
+      const result = await runPowerShell(`
+        . '${quote(helperPath)}'
+        $started = (Get-CimInstance Win32_Process -Filter "ProcessId = $PID").CreationDate.ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ss.fffZ', [Globalization.CultureInfo]::InvariantCulture)
+        $claim = Enter-LnwjudTunnelLock -ProfileDir '${quote(root)}' -OwnerPid $PID -OwnerStartedAt $started -ProcessStartProvider { param($id) $p=Get-CimInstance Win32_Process -Filter "ProcessId = $id" -ErrorAction SilentlyContinue; if($null -ne $p){$p.CreationDate.ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ss.fffZ',[Globalization.CultureInfo]::InvariantCulture)} }
+        $claim | ConvertTo-Json -Compress
+      `);
+
+      expect(JSON.parse(result.stdout)).toMatchObject({ acquired: false, owner: { pid: holder.pid } });
+      expect((await readdir(root)).filter((name) => name.includes('.publish.'))).toEqual([]);
+    } finally {
+      await writeFile(releaseSignal, '', 'utf8');
+      await waitForExit(holder.child);
+    }
+  });
+
+  it.each([
+    ['owner process is gone', null],
+    ['PID start time changed', '2026-08-20T00:01:00.000Z'],
+  ])('recovers a stale lock when %s', async (_name, actualStart) => {
+    const root = await temporaryDirectory();
+    await writeLock(root, { version: 1, pid: 7, processStartedAt: '2026-08-20T00:00:00.000Z', acquiredAt: '2026-08-20T00:00:00.000Z' });
+    const provider = actualStart === null ? '$null' : `'${actualStart}'`;
+
+    const result = await runPowerShell(`
+      . '${quote(helperPath)}'
+      $claim = Enter-LnwjudTunnelLock -ProfileDir '${quote(root)}' -OwnerPid 8 -OwnerStartedAt '2026-08-20T00:02:00.000Z' -ProcessStartProvider { param($id) ${provider} }
+      $claim | ConvertTo-Json -Compress
+    `);
+
+    expect(JSON.parse(result.stdout)).toMatchObject({ acquired: true, owner: { pid: 8 } });
+    expect((await readdir(root)).filter((name) => name.includes('.stale.') || name.includes('.publish.'))).toEqual([]);
+  });
+
+  it('leaves the lock intact for a wrong owner and releases it for the exact owner', async () => {
+    const root = await temporaryDirectory();
+    const result = await runPowerShell(`
+      . '${quote(helperPath)}'
+      $claim = Enter-LnwjudTunnelLock -ProfileDir '${quote(root)}' -OwnerPid 7 -OwnerStartedAt '2026-08-20T00:00:00.000Z' -ProcessStartProvider { param($id) $null }
+      $wrong = [pscustomobject]@{ pid=7; processStartedAt='2026-08-20T00:00:00.000Z'; acquiredAt='2026-08-20T00:00:00.001Z' }
+      $wrongReleased = Release-LnwjudTunnelLock -ProfileDir '${quote(root)}' -Owner $wrong
+      $stillThere = Test-Path -LiteralPath (Join-Path '${quote(root)}' 'lnwjud.tunnel.lock')
+      $rightReleased = Release-LnwjudTunnelLock -ProfileDir '${quote(root)}' -Owner $claim.owner
+      [pscustomobject]@{ wrongReleased=$wrongReleased; stillThere=$stillThere; rightReleased=$rightReleased; existsAfter=(Test-Path -LiteralPath (Join-Path '${quote(root)}' 'lnwjud.tunnel.lock')) } | ConvertTo-Json -Compress
+    `);
+
+    expect(JSON.parse(result.stdout)).toEqual({ wrongReleased: false, stillThere: true, rightReleased: true, existsAfter: false });
+    expect((await readdir(root)).filter((name) => name.includes('.released.') || name.includes('.publish.'))).toEqual([]);
+  });
+
+  it.each([
+    ['string version', { version: '1', pid: 7, processStartedAt: '2026-08-20T00:00:00.000Z', acquiredAt: '2026-08-20T00:00:00.000Z' }],
+    ['nonpositive version', { version: 0, pid: 7, processStartedAt: '2026-08-20T00:00:00.000Z', acquiredAt: '2026-08-20T00:00:00.000Z' }],
+    ['string PID', { version: 1, pid: '7', processStartedAt: '2026-08-20T00:00:00.000Z', acquiredAt: '2026-08-20T00:00:00.000Z' }],
+    ['zero PID', { version: 1, pid: 0, processStartedAt: '2026-08-20T00:00:00.000Z', acquiredAt: '2026-08-20T00:00:00.000Z' }],
+    ['negative PID', { version: 1, pid: -1, processStartedAt: '2026-08-20T00:00:00.000Z', acquiredAt: '2026-08-20T00:00:00.000Z' }],
+    ['overflow PID', { version: 1, pid: 2_147_483_648, processStartedAt: '2026-08-20T00:00:00.000Z', acquiredAt: '2026-08-20T00:00:00.000Z' }],
+    ['missing milliseconds', { version: 1, pid: 7, processStartedAt: '2026-08-20T00:00:00Z', acquiredAt: '2026-08-20T00:00:00.000Z' }],
+    ['non-UTC timestamp', { version: 1, pid: 7, processStartedAt: '2026-08-20T00:00:00.000+00:00', acquiredAt: '2026-08-20T00:00:00.000Z' }],
+    ['impossible date', { version: 1, pid: 7, processStartedAt: '2026-02-30T00:00:00.000Z', acquiredAt: '2026-08-20T00:00:00.000Z' }],
+  ])('rejects invalid schema: %s', async (_name, record) => {
+    const root = await temporaryDirectory();
+    await writeLock(root, record);
+
+    const result = await runPowerShell(`
+      . '${quote(helperPath)}'
+      $record = Read-LnwjudTunnelLockRecord -LockPath (Join-Path '${quote(root)}' 'lnwjud.tunnel.lock')
+      if($null -eq $record){'INVALID'}else{'VALID'}
+    `);
+
+    expect(result.stdout).toBe('INVALID');
+    expect(JSON.parse(await readFile(path.join(root, 'lnwjud.tunnel.lock'), 'utf8'))).toEqual(record);
+  });
+
+  it('cleans its publish file when invalid fixed metadata rejects acquisition', async () => {
+    const root = await temporaryDirectory();
+    await writeFile(path.join(root, 'lnwjud.tunnel.lock'), '{broken', 'utf8');
+
+    const result = await runPowerShell(`
+      . '${quote(helperPath)}'
+      try { Enter-LnwjudTunnelLock -ProfileDir '${quote(root)}' -OwnerPid 7 -OwnerStartedAt '2026-08-20T00:00:00.000Z' -ProcessStartProvider { param($id) $null }; exit 2 } catch { Write-Output $_.Exception.Message }
+    `);
+
+    expect(result.stdout).toContain('invalid owner metadata');
+    expect((await readdir(root)).filter((name) => name.includes('.publish.'))).toEqual([]);
   });
 });
+
+describe('production PowerShell tunnel starter integration', () => {
+  it('loads the helper, reports its real concurrent owner, and never invokes the configured client', async () => {
+    const root = await temporaryDirectory();
+    const profileDir = path.join(root, 'tunnel-client');
+    const releaseSignal = path.join(root, 'release');
+    const sentinel = path.join(root, 'client-invoked');
+    const fakeClient = path.join(root, 'fake-tunnel-client.cmd');
+    await mkdir(profileDir, { recursive: true });
+    await writeFile(path.join(profileDir, 'lnwjud.runtime.secret'), 'not-read-while-lock-is-owned', 'utf8');
+    await writeFile(fakeClient, `@echo invoked>"${sentinel}"\r\n@exit /b 99\r\n`, 'utf8');
+    const holder = await startHolder(profileDir, releaseSignal);
+    try {
+      const result = await runPowerShellFile(starterPath, [
+        '-TunnelClientPath', fakeClient,
+        '-NoViewer',
+        '-Once',
+      ], { APPDATA: root, USERPROFILE: root, LOCALAPPDATA: root });
+
+      expect(result.stdout).toContain(`already owned by PID ${holder.pid}`);
+      await expect(access(sentinel)).rejects.toThrow();
+    } finally {
+      await writeFile(releaseSignal, '', 'utf8');
+      await waitForExit(holder.child);
+    }
+  });
+});
+
+async function temporaryDirectory(): Promise<string> {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'lnwjud-ps-lock-'));
+  temporaryRoots.push(root);
+  return root;
+}
+
+async function writeLock(root: string, record: unknown): Promise<void> {
+  await mkdir(root, { recursive: true });
+  await writeFile(path.join(root, 'lnwjud.tunnel.lock'), JSON.stringify(record), 'utf8');
+}
+
+async function runPowerShell(script: string): Promise<{ stdout: string; stderr: string }> {
+  return runPowerShellProcess(['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-Command', script]);
+}
+
+async function runPowerShellFile(file: string, args: readonly string[], env: NodeJS.ProcessEnv): Promise<{ stdout: string; stderr: string }> {
+  return runPowerShellProcess(['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', file, ...args], env);
+}
+
+async function runPowerShellProcess(args: readonly string[], env?: NodeJS.ProcessEnv): Promise<{ stdout: string; stderr: string }> {
+  return new Promise((resolve, reject) => {
+    const child = spawn('powershell.exe', args, { env: { ...process.env, ...env }, windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'] });
+    let stdout = '';
+    let stderr = '';
+    child.stdout.setEncoding('utf8');
+    child.stderr.setEncoding('utf8');
+    child.stdout.on('data', (chunk: string) => { stdout += chunk; });
+    child.stderr.on('data', (chunk: string) => { stderr += chunk; });
+    child.once('error', reject);
+    child.once('exit', (code) => {
+      const result = { stdout: stdout.trim(), stderr: stderr.trim() };
+      if (code === 0) resolve(result);
+      else reject(new Error(`PowerShell exited ${code ?? 'unknown'}: ${result.stderr || result.stdout}`));
+    });
+  });
+}
+
+async function startHolder(profileDir: string, releaseSignal: string): Promise<{ child: ChildProcess; pid: number }> {
+  const script = `
+    . '${quote(helperPath)}'
+    $started = (Get-CimInstance Win32_Process -Filter "ProcessId = $PID").CreationDate.ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ss.fffZ', [Globalization.CultureInfo]::InvariantCulture)
+    $claim = Enter-LnwjudTunnelLock -ProfileDir '${quote(profileDir)}' -OwnerPid $PID -OwnerStartedAt $started -ProcessStartProvider { param($id) $null }
+    Write-Output "READY:$PID"
+    [Console]::Out.Flush()
+    while(-not (Test-Path -LiteralPath '${quote(releaseSignal)}')) { Start-Sleep -Milliseconds 20 }
+    [void](Release-LnwjudTunnelLock -ProfileDir '${quote(profileDir)}' -Owner $claim.owner)
+  `;
+  const child = spawn('powershell.exe', ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-Command', script], { windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'] });
+  child.stdout.setEncoding('utf8');
+  child.stderr.setEncoding('utf8');
+  const pid = await new Promise<number>((resolve, reject) => {
+    let output = '';
+    let errors = '';
+    child.stdout?.on('data', (chunk: string) => {
+      output += chunk;
+      const match = /READY:(\d+)/.exec(output);
+      if (match?.[1] !== undefined) resolve(Number(match[1]));
+    });
+    child.stderr?.on('data', (chunk: string) => { errors += chunk; });
+    child.once('error', reject);
+    child.once('exit', (code) => reject(new Error(`Lock holder exited early (${code ?? 'unknown'}): ${errors}`)));
+  });
+  return { child, pid };
+}
+
+async function waitForExit(child: ChildProcess): Promise<void> {
+  if (child.exitCode !== null) return;
+  await new Promise<void>((resolve, reject) => {
+    const timer = setTimeout(() => {
+      child.kill();
+      reject(new Error('PowerShell lock holder did not exit'));
+    }, 3_000);
+    child.once('exit', () => { clearTimeout(timer); resolve(); });
+  });
+}
+
+function quote(value: string): string {
+  return value.replace(/'/g, "''");
+}

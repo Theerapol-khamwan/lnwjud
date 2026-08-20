@@ -15,6 +15,14 @@ export interface UpdateInstallCoordinatorOptions {
   readonly pollIntervalMs?: number;
 }
 
+export interface UpdateDownloadedDialogControllerOptions {
+  readonly showDialog: (options: UpdateReadyDialogOptions) => Promise<{ readonly response: number }>;
+  readonly requestInstall: () => void;
+  readonly hasPendingInstall: () => boolean;
+  readonly onShow?: (version: string) => void;
+  readonly onError?: (error: unknown) => void;
+}
+
 const DEFAULT_QUIET_PERIOD_MS = 1_500;
 const DEFAULT_POLL_INTERVAL_MS = 250;
 
@@ -27,6 +35,28 @@ export function updateReadyDialogOptions(version: string): UpdateReadyDialogOpti
     defaultId: 1,
     cancelId: 1,
   };
+}
+
+export class UpdateDownloadedDialogController {
+  private dialogPending = false;
+
+  public constructor(private readonly options: UpdateDownloadedDialogControllerOptions) {}
+
+  public async handle(version: string): Promise<boolean> {
+    if (this.dialogPending || this.options.hasPendingInstall()) return false;
+    this.dialogPending = true;
+    try {
+      this.options.onShow?.(version);
+      const result = await this.options.showDialog(updateReadyDialogOptions(version));
+      if (result.response === 0) this.options.requestInstall();
+      return true;
+    } catch (error: unknown) {
+      this.options.onError?.(error);
+      return true;
+    } finally {
+      this.dialogPending = false;
+    }
+  }
 }
 
 export class UpdateInstallCoordinator {

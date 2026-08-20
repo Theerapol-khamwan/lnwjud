@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { UpdateInstallCoordinator, updateReadyDialogOptions } from '../src/main/update-install.js';
+import { UpdateDownloadedDialogController, UpdateInstallCoordinator, updateReadyDialogOptions } from '../src/main/update-install.js';
 
 afterEach(() => {
   vi.useRealTimers();
@@ -110,4 +110,61 @@ describe('downloaded update installation', () => {
 
     expect(install).not.toHaveBeenCalled();
   });
+
+  it('suppresses duplicate downloaded events while the dialog is open', async () => {
+    const dialogResult = deferred<{ response: number }>();
+    const showDialog = vi.fn(() => dialogResult.promise);
+    const requestInstall = vi.fn();
+    const lifecycle = new UpdateDownloadedDialogController({
+      showDialog,
+      requestInstall,
+      hasPendingInstall: (): boolean => false,
+    });
+
+    const first = lifecycle.handle('4.0.2');
+    await expect(lifecycle.handle('4.0.2')).resolves.toBe(false);
+    expect(showDialog).toHaveBeenCalledOnce();
+    dialogResult.resolve({ response: 1 });
+    await first;
+    expect(requestInstall).not.toHaveBeenCalled();
+  });
+
+  it('suppresses downloaded events while an idle install request is pending', async () => {
+    const showDialog = vi.fn(async () => ({ response: 1 }));
+    const lifecycle = new UpdateDownloadedDialogController({
+      showDialog,
+      requestInstall: vi.fn(),
+      hasPendingInstall: (): boolean => true,
+    });
+
+    await expect(lifecycle.handle('4.0.2')).resolves.toBe(false);
+    expect(showDialog).not.toHaveBeenCalled();
+  });
+
+  it('clears the dialog guard in finally after rejection so a later event can show', async () => {
+    const onError = vi.fn();
+    const showDialog = vi.fn()
+      .mockRejectedValueOnce(new Error('dialog unavailable'))
+      .mockResolvedValueOnce({ response: 0 });
+    const requestInstall = vi.fn();
+    const lifecycle = new UpdateDownloadedDialogController({
+      showDialog,
+      requestInstall,
+      hasPendingInstall: (): boolean => false,
+      onError,
+    });
+
+    await expect(lifecycle.handle('4.0.2')).resolves.toBe(true);
+    await expect(lifecycle.handle('4.0.2')).resolves.toBe(true);
+
+    expect(showDialog).toHaveBeenCalledTimes(2);
+    expect(onError).toHaveBeenCalledWith(expect.objectContaining({ message: 'dialog unavailable' }));
+    expect(requestInstall).toHaveBeenCalledOnce();
+  });
 });
+
+function deferred<T>(): { promise: Promise<T>; resolve: (value: T | PromiseLike<T>) => void } {
+  let resolve!: (value: T | PromiseLike<T>) => void;
+  const promise = new Promise<T>((resolver) => { resolve = resolver; });
+  return { promise, resolve };
+}

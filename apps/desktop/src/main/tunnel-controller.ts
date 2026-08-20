@@ -29,6 +29,7 @@ export interface TunnelControllerOptions {
   readonly isExternalTunnelRunning?: () => Promise<boolean>;
   readonly currentLockOwner?: () => Promise<TunnelLockOwner>;
   readonly inspectLockProcess?: (pid: number) => Promise<string | null>;
+  readonly stopTimeoutMs?: number;
 }
 
 export class TunnelController {
@@ -221,9 +222,9 @@ export class TunnelController {
     this.clearRestartTimer();
     if (this.child !== null) {
       const child = this.child;
-      this.child = null;
       if (!child.kill()) throw new Error('Tunnel child did not accept stop signal; ownership retained');
-      await waitForTunnelChildExit(child);
+      await waitForTunnelChildExit(child, this.options.stopTimeoutMs ?? 5_000);
+      if (this.child === child) this.child = null;
     }
   }
 

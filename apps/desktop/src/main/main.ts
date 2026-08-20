@@ -35,7 +35,7 @@ import { createDesktopRuntime, type DesktopRuntime } from './desktop-services.js
 import { shouldHoldSingleInstanceLock, wantsMcpStdio } from './instance-lock.js';
 import { createLogViewerWindow, createMainWindow, getRendererEntryPath, getWindowIconPath, isAllowedRendererUrl } from './window.js';
 import { createTrayMenuTemplate, shouldHideMainWindowOnClose } from './tray.js';
-import { UpdateInstallCoordinator, updateReadyDialogOptions } from './update-install.js';
+import { UpdateDownloadedDialogController, UpdateInstallCoordinator } from './update-install.js';
 
 export interface DesktopIpcServices {
   listWorkspaces(): Promise<IpcResponseMap[typeof ipcChannels.listWorkspaces]>;
@@ -396,7 +396,7 @@ let manualUpdateCheckPending = false;
 let quitRequested = false;
 let shutdownStarted = false;
 let updateInstallCoordinator: UpdateInstallCoordinator | null = null;
-let updateReadyDialogPending = false;
+let updateDownloadedDialogController: UpdateDownloadedDialogController | null = null;
 
 function openLogViewerWindow(): BrowserWindow | null {
   if (logViewerWindow !== null && !logViewerWindow.isDestroyed()) {
@@ -568,6 +568,24 @@ function initAutoUpdater(runtime: DesktopRuntime): void {
       activityRevision: (): number => runtime.activityTracker.revision(),
       install: (): void => autoUpdater.quitAndInstall(),
     });
+    updateDownloadedDialogController = new UpdateDownloadedDialogController({
+      showDialog: (options): Promise<{ readonly response: number }> => dialog.showMessageBox(options),
+      requestInstall: (): void => updateInstallCoordinator?.requestInstall(),
+      hasPendingInstall: (): boolean => updateInstallCoordinator?.hasPendingInstall() ?? false,
+      onShow: (version): void => {
+        console.log(`[AutoUpdater] Downloaded update: v${version}`);
+        broadcastToAllWindows(pushChannels.logEvent, {
+          id: Date.now(),
+          timestamp: new Date().toISOString(),
+          level: 'info',
+          source: 'process',
+          text: `[AutoUpdater] Update v${version} downloaded! Ready to install.`,
+        });
+      },
+      onError: (error): void => {
+        console.error('[AutoUpdater] update dialog error:', error instanceof Error ? error.message : String(error));
+      },
+    });
 
     autoUpdater.on('checking-for-update', () => {
       console.log('[AutoUpdater] Checking for updates on GitHub...');
@@ -606,22 +624,7 @@ function initAutoUpdater(runtime: DesktopRuntime): void {
     });
 
     autoUpdater.on('update-downloaded', (info) => {
-      if (updateReadyDialogPending || updateInstallCoordinator?.hasPendingInstall()) return;
-      updateReadyDialogPending = true;
-      console.log(`[AutoUpdater] Downloaded update: v${info.version}`);
-      broadcastToAllWindows(pushChannels.logEvent, {
-        id: Date.now(),
-        timestamp: new Date().toISOString(),
-        level: 'info',
-        source: 'process',
-        text: `[AutoUpdater] Update v${info.version} downloaded! Ready to install.`,
-      });
-      void dialog.showMessageBox(updateReadyDialogOptions(info.version)).then((result) => {
-        updateReadyDialogPending = false;
-        if (result.response === 0) {
-          updateInstallCoordinator?.requestInstall();
-        }
-      });
+      void updateDownloadedDialogController?.handle(info.version);
     });
 
     autoUpdater.on('error', (err) => {

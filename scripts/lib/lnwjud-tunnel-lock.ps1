@@ -1,32 +1,173 @@
-Set-StrictMode -Version Latest
+function Test-LnwjudTunnelLockInteger {
+  param(
+    [Parameter(Mandatory = $true)]$Value,
+    [Parameter(Mandatory = $true)][long]$Minimum,
+    [Parameter(Mandatory = $true)][long]$Maximum
+  )
+
+  if ($null -eq $Value) { return $false }
+  $numericTypes = @(
+    [TypeCode]::Byte, [TypeCode]::SByte, [TypeCode]::Int16, [TypeCode]::UInt16,
+    [TypeCode]::Int32, [TypeCode]::UInt32, [TypeCode]::Int64, [TypeCode]::UInt64,
+    [TypeCode]::Single, [TypeCode]::Double, [TypeCode]::Decimal
+  )
+  if ($numericTypes -notcontains [Type]::GetTypeCode($Value.GetType())) {
+    return $false
+  }
+  try {
+    $numeric = [decimal]$Value
+    return $numeric -eq [decimal]::Truncate($numeric) -and $numeric -ge $Minimum -and $numeric -le $Maximum
+  } catch {
+    return $false
+  }
+}
+
+function Test-LnwjudTunnelLockTimestamp {
+  param([Parameter(Mandatory = $true)]$Value)
+
+  if ($Value -isnot [string] -or $Value -notmatch '^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$') { return $false }
+  $parsed = [DateTimeOffset]::MinValue
+  $styles = [Globalization.DateTimeStyles]::AssumeUniversal -bor [Globalization.DateTimeStyles]::AdjustToUniversal
+  if (-not [DateTimeOffset]::TryParseExact($Value, "yyyy-MM-dd'T'HH:mm:ss.fff'Z'", [Globalization.CultureInfo]::InvariantCulture, $styles, [ref]$parsed)) { return $false }
+  return $parsed.ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ss.fffZ', [Globalization.CultureInfo]::InvariantCulture) -ceq $Value
+}
 
 function Test-LnwjudTunnelLockRecord {
-  param([Parameter(Mandatory=$true)]$Record)
-  return $null -ne $Record -and $Record.version -is [ValueType] -and [long]$Record.version -eq 1 -and $Record.pid -is [ValueType] -and [long]$Record.pid -gt 0 -and [long]$Record.pid -le 2147483647 -and ([string]$Record.processStartedAt -match '^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$') -and ([string]$Record.acquiredAt -match '^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$')
+  param([Parameter(Mandatory = $true)]$Record)
+
+  return $null -ne $Record `
+    -and (Test-LnwjudTunnelLockInteger -Value $Record.version -Minimum 1 -Maximum 1) `
+    -and (Test-LnwjudTunnelLockInteger -Value $Record.pid -Minimum 1 -Maximum 2147483647) `
+    -and (Test-LnwjudTunnelLockTimestamp -Value $Record.processStartedAt) `
+    -and (Test-LnwjudTunnelLockTimestamp -Value $Record.acquiredAt)
 }
 
 function Read-LnwjudTunnelLockRecord {
-  param([Parameter(Mandatory=$true)][string]$LockPath)
-  try { $r = Get-Content -LiteralPath $LockPath -Raw | ConvertFrom-Json -ErrorAction Stop; if (Test-LnwjudTunnelLockRecord $r) { return $r } } catch { }
+  param([Parameter(Mandatory = $true)][string]$LockPath)
+
+  try {
+    $record = Get-Content -LiteralPath $LockPath -Raw -ErrorAction Stop | ConvertFrom-Json -ErrorAction Stop
+    if (Test-LnwjudTunnelLockRecord -Record $record) { return $record }
+  } catch { }
   return $null
 }
 
+function Test-LnwjudTunnelLockOwner {
+  param(
+    [Parameter(Mandatory = $true)]$Left,
+    [Parameter(Mandatory = $true)]$Right
+  )
+
+  if ($null -eq $Left -or $null -eq $Right) { return $false }
+  return ([long]$Left.pid -eq [long]$Right.pid) `
+    -and (([string]$Left.processStartedAt) -ceq ([string]$Right.processStartedAt)) `
+    -and (([string]$Left.acquiredAt) -ceq ([string]$Right.acquiredAt))
+}
+
+function Restore-LnwjudTunnelLockQuarantine {
+  param(
+    [Parameter(Mandatory = $true)][string]$QuarantinePath,
+    [Parameter(Mandatory = $true)][string]$LockPath
+  )
+
+  if (-not (Test-Path -LiteralPath $QuarantinePath)) { return }
+  try {
+    # The two-argument move never overwrites a new owner. If another owner has
+    # already published, retain the quarantined record rather than losing it.
+    [IO.File]::Move($QuarantinePath, $LockPath)
+  } catch [IO.IOException] { }
+}
+
 function Enter-LnwjudTunnelLock {
-  param([Parameter(Mandatory=$true)][string]$ProfileDir,[Parameter(Mandatory=$true)][int]$OwnerPid,[Parameter(Mandatory=$true)][string]$OwnerStartedAt,[scriptblock]$ProcessStartProvider)
+  param(
+    [Parameter(Mandatory = $true)][string]$ProfileDir,
+    [Parameter(Mandatory = $true)][int]$OwnerPid,
+    [Parameter(Mandatory = $true)][string]$OwnerStartedAt,
+    [Parameter(Mandatory = $true)][scriptblock]$ProcessStartProvider
+  )
+
   New-Item -ItemType Directory -Path $ProfileDir -Force | Out-Null
   $lockPath = Join-Path $ProfileDir 'lnwjud.tunnel.lock'
-  $owner = [pscustomobject][ordered]@{ version = 1; pid = $OwnerPid; processStartedAt = $OwnerStartedAt; acquiredAt = [DateTime]::UtcNow.ToString('yyyy-MM-ddTHH:mm:ss.fffZ',[Globalization.CultureInfo]::InvariantCulture) }
-  for($i=0;$i -lt 4;$i++) {
-    $temp = "$lockPath.publish.$OwnerPid.$([Guid]::NewGuid().ToString('N'))"
-    try { [IO.File]::WriteAllText($temp,($owner|ConvertTo-Json -Compress),[Text.Encoding]::UTF8); [IO.File]::Move($temp,$lockPath); return [pscustomobject]@{ acquired=$true; owner=$owner } }
-    catch [IO.IOException] { Remove-Item -LiteralPath $temp -Force -ErrorAction SilentlyContinue; $existing=Read-LnwjudTunnelLockRecord $lockPath; if($null -eq $existing){ throw "Tunnel lock has invalid owner metadata: $lockPath" }; $actual=& $ProcessStartProvider ([int]$existing.pid); if($actual -eq [string]$existing.processStartedAt){return [pscustomobject]@{ acquired=$false; owner=$existing }}; $stale="$lockPath.stale.$([Guid]::NewGuid().ToString('N'))"; try{[IO.File]::Move($lockPath,$stale);$moved=Read-LnwjudTunnelLockRecord $stale;if($null -eq $moved){throw 'invalid stale lock'};Remove-Item -LiteralPath $stale -Force}catch{throw} }
+  $owner = [pscustomobject][ordered]@{
+    version = 1
+    pid = $OwnerPid
+    processStartedAt = $OwnerStartedAt
+    acquiredAt = [DateTime]::UtcNow.ToString('yyyy-MM-ddTHH:mm:ss.fffZ', [Globalization.CultureInfo]::InvariantCulture)
   }
-  throw 'Unable to acquire tunnel lock'
+  if (-not (Test-LnwjudTunnelLockRecord -Record $owner)) { throw 'Tunnel lock owner metadata is invalid' }
+
+  for ($attempt = 0; $attempt -lt 8; $attempt += 1) {
+    $publishPath = "$lockPath.publish.$OwnerPid.$([Guid]::NewGuid().ToString('N'))"
+    try {
+      $stream = [IO.File]::Open($publishPath, [IO.FileMode]::CreateNew, [IO.FileAccess]::Write, [IO.FileShare]::None)
+      try {
+        $payload = $owner | ConvertTo-Json -Compress
+        $bytes = ([Text.UTF8Encoding]::new($false)).GetBytes($payload)
+        $stream.Write($bytes, 0, $bytes.Length)
+        $stream.Flush($true)
+      } finally {
+        $stream.Dispose()
+      }
+      # The two-argument move refuses an existing destination, so a completed
+      # record appears at the fixed path atomically and never replaces an owner.
+      [IO.File]::Move($publishPath, $lockPath)
+      return [pscustomobject]@{ acquired = $true; owner = $owner }
+    } catch [IO.IOException] {
+      $publishError = $_
+      if (-not (Test-Path -LiteralPath $lockPath)) { throw $publishError }
+    } finally {
+      Remove-Item -LiteralPath $publishPath -Force -ErrorAction SilentlyContinue
+    }
+
+    $existing = Read-LnwjudTunnelLockRecord -LockPath $lockPath
+    if ($null -eq $existing) { throw "Tunnel lock has invalid owner metadata: $lockPath" }
+    $actualStartedAt = & $ProcessStartProvider ([int]$existing.pid)
+    if ($actualStartedAt -ceq [string]$existing.processStartedAt) {
+      return [pscustomobject]@{ acquired = $false; owner = $existing }
+    }
+
+    $quarantinePath = "$lockPath.stale.$OwnerPid.$([Guid]::NewGuid().ToString('N'))"
+    try {
+      [IO.File]::Move($lockPath, $quarantinePath)
+    } catch [IO.FileNotFoundException] {
+      continue
+    } catch [IO.IOException] {
+      continue
+    }
+    $moved = Read-LnwjudTunnelLockRecord -LockPath $quarantinePath
+    if (-not (Test-LnwjudTunnelLockOwner -Left $moved -Right $existing)) {
+      Restore-LnwjudTunnelLockQuarantine -QuarantinePath $quarantinePath -LockPath $lockPath
+      throw "Tunnel lock changed while stale recovery was in progress: $lockPath"
+    }
+    Remove-Item -LiteralPath $quarantinePath -Force -ErrorAction Stop
+  }
+  throw "Unable to acquire tunnel lock: $lockPath"
 }
 
 function Release-LnwjudTunnelLock {
-  param([Parameter(Mandatory=$true)][string]$ProfileDir,[Parameter(Mandatory=$true)]$Owner)
-  $path=Join-Path $ProfileDir 'lnwjud.tunnel.lock'; $current=Read-LnwjudTunnelLockRecord $path
-  if($null -eq $current -or $current.pid -ne $Owner.pid -or $current.processStartedAt -ne $Owner.processStartedAt -or $current.acquiredAt -ne $Owner.acquiredAt){return $false}
-  Remove-Item -LiteralPath $path -Force -ErrorAction Stop; return $true
+  param(
+    [Parameter(Mandatory = $true)][string]$ProfileDir,
+    [Parameter(Mandatory = $true)]$Owner
+  )
+
+  $lockPath = Join-Path $ProfileDir 'lnwjud.tunnel.lock'
+  $current = Read-LnwjudTunnelLockRecord -LockPath $lockPath
+  if (-not (Test-LnwjudTunnelLockOwner -Left $current -Right $Owner)) { return $false }
+
+  $releasePath = "$lockPath.released.$($Owner.pid).$([Guid]::NewGuid().ToString('N'))"
+  try {
+    [IO.File]::Move($lockPath, $releasePath)
+  } catch [IO.FileNotFoundException] {
+    return $false
+  } catch [IO.IOException] {
+    return $false
+  }
+
+  $moved = Read-LnwjudTunnelLockRecord -LockPath $releasePath
+  if (-not (Test-LnwjudTunnelLockOwner -Left $moved -Right $Owner)) {
+    Restore-LnwjudTunnelLockQuarantine -QuarantinePath $releasePath -LockPath $lockPath
+    return $false
+  }
+  Remove-Item -LiteralPath $releasePath -Force -ErrorAction Stop
+  return $true
 }
