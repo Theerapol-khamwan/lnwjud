@@ -2,7 +2,7 @@ Set-StrictMode -Version Latest
 
 function Test-LnwjudTunnelLockRecord {
   param([Parameter(Mandatory=$true)]$Record)
-  return $null -ne $Record -and $Record.version -is [long] -and $Record.version -eq 1 -and $Record.pid -is [long] -and $Record.pid -gt 0 -and $Record.pid -le 2147483647 -and ([string]$Record.processStartedAt -match '^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$') -and ([string]$Record.acquiredAt -match '^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$')
+  return $null -ne $Record -and $Record.version -is [ValueType] -and [long]$Record.version -eq 1 -and $Record.pid -is [ValueType] -and [long]$Record.pid -gt 0 -and [long]$Record.pid -le 2147483647 -and ([string]$Record.processStartedAt -match '^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$') -and ([string]$Record.acquiredAt -match '^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$')
 }
 
 function Read-LnwjudTunnelLockRecord {
