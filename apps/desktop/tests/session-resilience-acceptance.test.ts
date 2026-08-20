@@ -59,10 +59,12 @@ describe('session resilience acceptance', () => {
   });
 
   it('returns PROCESS_TIMEOUT before the simulated remote deadline, terminates abort-aware work, and immediately accepts the next call', async () => {
+    vi.useFakeTimers();
     const localBudgetMs = 20;
     const remoteDeadlineMs = 60;
     const simulatedWorkMs = 100;
     let terminated = false;
+    let remoteDeadlineFired = false;
     let calls = 0;
     const registry = new ToolRegistry({
       search: {
@@ -82,13 +84,17 @@ describe('session resilience acceptance', () => {
       },
     } satisfies McpApplicationServices, { clientId: 'acceptance', clientName: 'acceptance' }, { maxToolDurationMs: localBudgetMs });
 
-    const started = Date.now();
-    const timedOut = await registry.invoke('search_text', { workspaceId: 'workspace-1', query: 'needle' });
-    expect(Date.now() - started).toBeLessThan(remoteDeadlineMs);
+    setTimeout(() => { remoteDeadlineFired = true; }, remoteDeadlineMs);
+    const pending = registry.invoke('search_text', { workspaceId: 'workspace-1', query: 'needle' });
+    await vi.advanceTimersByTimeAsync(localBudgetMs);
+    const timedOut = await pending;
     expect(timedOut).toMatchObject({ isError: true, structuredContent: { error: { code: 'PROCESS_TIMEOUT', recoverable: true } } });
     expect(terminated).toBe(true);
+    expect(remoteDeadlineFired).toBe(false);
     await expect(registry.invoke('search_text', { workspaceId: 'workspace-1', query: 'needle' }))
       .resolves.toMatchObject({ structuredContent: { matches: [] } });
+    await vi.advanceTimersByTimeAsync(remoteDeadlineMs - localBudgetMs);
+    expect(remoteDeadlineFired).toBe(true);
   });
 
   it('defers exactly one update through real activity transitions and cancels it on shutdown', async () => {
@@ -124,6 +130,8 @@ describe('session resilience acceptance', () => {
   it('captures lifecycle-precedence classifications and a bounded, redacted incident export through the production correlator', async () => {
     const failed = await incidentReport({ resultCode: 'FAILED', triggeredByUser: true, health: 'live' });
     expect(failed.classification).toBe('local_tool_failed');
+    const failedWithTunnelDisconnect = await incidentReport({ resultCode: 'FAILED', triggeredByUser: true, health: 'live', tunnelLine: 'stdio MCP command exited.' });
+    expect(failedWithTunnelDisconnect.classification).toBe('local_tool_failed');
     const disconnected = await incidentReport({ resultCode: 'SUCCESS', triggeredByUser: true, health: 'live', tunnelLine: 'stdio MCP command exited.' });
     expect(disconnected.classification).toBe('tunnel_disconnected');
     const remote = await incidentReport({ resultCode: 'SUCCESS', triggeredByUser: true, health: 'live' });
@@ -151,14 +159,24 @@ describe('session resilience acceptance', () => {
     expect(parsed.updaterEventTail.every((line) => line.length <= 512)).toBe(true);
   });
 
-  it('keeps newly added acceptance code and its command free of fixed listener bindings', async () => {
-    const [testSource, packageJson] = await Promise.all([
+  it('keeps the acceptance, operator, and composed resilience surfaces free of fixed nonzero listener ports', async () => {
+    const [testSource, packageJson, readme, tunnelController, powerShellHelper, tunnelLauncher] = await Promise.all([
       readFile(import.meta.filename, 'utf8'),
       readFile(path.join(repositoryRoot, 'package.json'), 'utf8'),
+      readFile(path.join(repositoryRoot, 'README.md'), 'utf8'),
+      readFile(path.join(repositoryRoot, 'apps', 'desktop', 'src', 'main', 'tunnel-controller.ts'), 'utf8'),
+      readFile(lockHelper, 'utf8'),
+      readFile(tunnelStarter, 'utf8'),
     ]);
-    const newSurface = `${testSource}\n${packageJson}`;
-    expect(newSurface).not.toMatch(/\.listen\s*\(\s*[1-9]\d*/);
-    expect(newSurface).not.toMatch(/(?:port|listenPort)\s*[:=]\s*[1-9]\d{2,}/i);
+    const operatorGuidance = section(readme, '### Session resilience /', '## Security and operational model');
+    expect(findFixedListenerBindings([testSource, packageJson, operatorGuidance, tunnelController, powerShellHelper, tunnelLauncher])).toEqual([]);
+    expect(findFixedListenerBindings([
+      ['server.', 'listen(', 6789, ')'].join(''),
+      ['http://', '127.0.0.1', ':', 7654, '/healthz'].join(''),
+      ['listen_addr: "', 'localhost', ':', 4321, '"'].join(''),
+    ])).toHaveLength(3);
+    expect(findFixedListenerBindings(['server.listen(0)', 'http://$address/healthz', 'listen_addr: "127.0.0.1:0"'])).toEqual([]);
+    expect(operatorGuidance).toContain("$tc = if ($env:LNWJUD_TUNNEL_CLIENT_PATH)");
   });
 });
 
@@ -243,3 +261,20 @@ async function waitForExit(child: ChildProcess): Promise<void> {
 }
 
 function quote(value: string): string { return value.replace(/'/g, "''"); }
+
+function section(source: string, start: string, end: string): string {
+  const from = source.indexOf(start);
+  const to = source.indexOf(end, from);
+  if (from < 0 || to < 0) throw new Error(`Missing documentation section: ${start}`);
+  return source.slice(from, to);
+}
+
+function findFixedListenerBindings(sources: readonly string[]): string[] {
+  const findings: string[] = [];
+  for (const source of sources) {
+    if (/\.listen\s*\(\s*[1-9]\d*/.test(source)) findings.push('listen');
+    if (/https?:\/\/(?:127\.0\.0\.1|localhost):[1-9]\d*/i.test(source)) findings.push('loopback-url');
+    if (/listen_addr\s*:\s*["']?(?:127\.0\.0\.1|localhost):[1-9]\d*/i.test(source)) findings.push('health-listen-addr');
+  }
+  return findings;
+}
