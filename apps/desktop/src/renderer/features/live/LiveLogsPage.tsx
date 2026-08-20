@@ -13,6 +13,8 @@ interface LiveLogsPageProps {
   readonly onPopOut: () => Promise<void>;
   readonly onCaptureIncident: () => Promise<void>;
   readonly incidentClassification: IncidentClassification | null;
+  readonly incidentCapturedAt: string | null;
+  readonly incidentNotice: string | null;
 }
 
 type LogTab = LogSource;
@@ -34,7 +36,7 @@ export function LiveLogsPage(props: LiveLogsPageProps): ReactElement {
           <button type="button" onClick={() => { void props.onPopOut(); }}>{t('live.popOut')}</button>
         </div>
       </div>
-      {props.incidentClassification === null ? null : <p className="hint" role="status">{incidentSummary(t, props.incidentClassification)}</p>}
+      {props.incidentNotice === null && props.incidentClassification === null ? null : <p className="hint" role="status">{props.incidentNotice ?? `${incidentSummary(t, props.incidentClassification!)} · ${props.incidentCapturedAt ?? ''}`}</p>}
       <div className="log-tabs" role="tablist" aria-label={t('live.title')}>
         {sources.map((source) => (
           <button

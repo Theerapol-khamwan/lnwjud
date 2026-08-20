@@ -1,6 +1,6 @@
 import { closeSync, existsSync, openSync, readSync, statSync } from 'node:fs';
 import { StringDecoder } from 'node:string_decoder';
-import { type LogLevel, type LogLine, type LogSnapshot, type LogSource } from '@lnwjud/ipc-contracts';
+import { type LogCorrelation, type LogLevel, type LogLine, type LogSnapshot, type LogSource } from '@lnwjud/ipc-contracts';
 
 const MAX_LINES_PER_SOURCE = 2_000;
 const MAX_SEEN_KEYS_PER_SOURCE = 4_000;
@@ -62,15 +62,15 @@ export class LogHub {
     this.closeFd(this.mcpFile);
   }
 
-  public feed(source: LogSource, level: LogLevel, text: string): void {
+  public feed(source: LogSource, level: LogLevel, text: string, correlation?: LogCorrelation): void {
     const trimmed = text.replace(/\r?\n$/, '');
     if (trimmed.length === 0) return;
-    this.append(source, { level, text: trimmed });
+    this.append(source, { level, text: trimmed, ...(correlation === undefined ? {} : { correlation }) });
   }
 
-  public feedIfNew(source: LogSource, key: string, level: LogLevel, text: string): void {
+  public feedIfNew(source: LogSource, key: string, level: LogLevel, text: string, correlation?: LogCorrelation): void {
     if (key.length === 0) {
-      this.feed(source, level, text);
+      this.feed(source, level, text, correlation);
       return;
     }
     const seen = this.seenKeys.get(source) ?? new Set<string>();
@@ -82,7 +82,7 @@ export class LogHub {
       seen.delete(oldest);
     }
     this.seenKeys.set(source, seen);
-    this.feed(source, level, text);
+    this.feed(source, level, text, correlation);
   }
 
   public syncWorkLog(entries: readonly WorkLogFeedEntry[], inFlight: readonly InFlightFeedEntry[]): void {
@@ -92,6 +92,7 @@ export class LogHub {
         mcpActivityKey(entry.callId, 'started'),
         'info',
         formatInFlightLine(entry),
+        { kind: 'mcp', phase: 'started', callId: entry.callId, toolName: entry.toolName, resultCode: null },
       );
     }
     for (const entry of entries) {
@@ -100,6 +101,7 @@ export class LogHub {
         mcpActivityKey(entry.callId ?? entry.id, entry.kind === 'task' ? 'started' : 'completed'),
         entry.kind === 'error' ? 'error' : 'info',
         formatWorkLogLine(entry),
+        { kind: 'mcp', phase: entry.kind === 'task' ? 'started' : 'completed', callId: entry.callId ?? entry.id, toolName: entry.toolName, resultCode: entry.kind === 'task' ? null : normalizeMcpResultCode(entry.resultCode) },
       );
     }
   }
@@ -129,13 +131,14 @@ export class LogHub {
     this.seenKeys.set(source, new Set());
   }
 
-  private append(source: LogSource, entry: { readonly level: LogLevel; readonly text: string }): void {
+  private append(source: LogSource, entry: { readonly level: LogLevel; readonly text: string; readonly correlation?: LogCorrelation }): void {
     const line: LogLine = {
       id: this.nextId,
       source,
       timestamp: new Date().toISOString(),
       level: entry.level,
       text: entry.text,
+      ...(entry.correlation === undefined ? {} : { correlation: entry.correlation }),
     };
     this.nextId += 1;
     const buffer = this.lines.get(source) ?? [];
@@ -158,7 +161,7 @@ export class LogHub {
     this.tailPath(activityPath, this.mcpFile, 'mcp', (raw) => {
       const parsed = parseMcpActivityLine(raw);
       if (parsed === null) return;
-      this.feedIfNew('mcp', parsed.key, parsed.level, parsed.text);
+      this.feedIfNew('mcp', parsed.key, parsed.level, parsed.text, parsed.correlation);
     });
   }
 
@@ -257,7 +260,7 @@ function formatWorkLogLine(entry: WorkLogFeedEntry): string {
   return `${entry.kind === 'task' ? '[TASK]' : entry.kind === 'error' ? '[ERROR]' : '[RESULT]'} ${entry.toolName} ${entry.resultCode}${entry.callId === undefined || entry.callId.length === 0 ? '' : ` callId=${entry.callId}`}${entry.errorMessage === null || entry.errorMessage === undefined || entry.errorMessage.length === 0 ? '' : ` — ${entry.errorMessage}`}${entry.targetSummary === null ? '' : ` — ${entry.targetSummary}`}`;
 }
 
-function parseTunnelLine(raw: string): { readonly level: LogLevel; readonly text: string } {
+function parseTunnelLine(raw: string): { readonly level: LogLevel; readonly text: string; readonly correlation?: LogCorrelation } {
   const json = tryParseJson(raw);
   if (json !== null && typeof json === 'object') {
     const record = json as Record<string, unknown>;
@@ -267,7 +270,10 @@ function parseTunnelLine(raw: string): { readonly level: LogLevel; readonly text
       : typeof record.message === 'string'
         ? record.message
         : raw;
-    return { level: level.includes('error') ? 'error' : level.includes('warn') ? 'warn' : 'info', text: message.slice(0, MAX_LINE_BYTES) };
+    const instanceId = stringRecordField(record, ['instance_id', 'instanceId']);
+    const requestId = stringRecordField(record, ['request_id', 'requestId']);
+    const pid = typeof record.pid === 'number' && Number.isInteger(record.pid) ? record.pid : undefined;
+    return { level: level.includes('error') ? 'error' : level.includes('warn') ? 'warn' : 'info', text: message.slice(0, MAX_LINE_BYTES), ...(instanceId === undefined && requestId === undefined && pid === undefined ? {} : { correlation: { kind: 'tunnel', ...(instanceId === undefined ? {} : { instanceId }), ...(requestId === undefined ? {} : { requestId }), ...(pid === undefined ? {} : { pid }) } }) };
   }
   const lowered = raw.toLowerCase();
   return {
@@ -276,7 +282,7 @@ function parseTunnelLine(raw: string): { readonly level: LogLevel; readonly text
   };
 }
 
-function parseMcpActivityLine(raw: string): { readonly key: string; readonly level: LogLevel; readonly text: string } | null {
+function parseMcpActivityLine(raw: string): { readonly key: string; readonly level: LogLevel; readonly text: string; readonly correlation: LogCorrelation } | null {
   const json = tryParseJson(raw);
   if (json === null || typeof json !== 'object') return null;
   const record = json as Record<string, unknown>;
@@ -299,7 +305,18 @@ function parseMcpActivityLine(raw: string): { readonly key: string; readonly lev
       targetSummary,
       callId,
     }),
+    correlation: { kind: 'mcp', phase, callId, toolName, resultCode: phase === 'started' ? null : normalizeMcpResultCode(resultCode) },
   };
+}
+
+function normalizeMcpResultCode(value: string): 'SUCCESS' | 'FAILED' | 'FATAL' {
+  const normalized = value.toUpperCase();
+  return normalized === 'SUCCESS' ? 'SUCCESS' : normalized === 'FATAL' ? 'FATAL' : 'FAILED';
+}
+
+function stringRecordField(record: Record<string, unknown>, keys: readonly string[]): string | undefined {
+  for (const key of keys) if (typeof record[key] === 'string' && (record[key] as string).length <= 128) return record[key] as string;
+  return undefined;
 }
 
 function isMissingFileError(error: unknown): boolean {

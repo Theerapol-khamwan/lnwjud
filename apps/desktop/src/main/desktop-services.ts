@@ -424,14 +424,14 @@ export function createDesktopRuntime(dataPath: string, options: DesktopRuntimeOp
       return { cleared: true };
     },
     captureIncident: async (updaterEvents: readonly string[] = []): Promise<IncidentReport> => {
-      const mcp = mcpLifecycle.status();
       const tunnel = await tunnelController.status();
-      const loopback = mcp.url !== null && /^http:\/\/(127\.0\.0\.1|localhost)(?::\d+)?\//.test(mcp.url);
+      const tunnelClientVersion = await tunnelController.clientVersion();
       return buildIncidentReport({
         triggeredByUser: true,
         appVersion: APP_VERSION,
-        tunnelClientVersion: null,
-        tunnel: { state: tunnel.state, source: tunnel.source, message: tunnel.message, health: { healthy: mcp.running && loopback, message: mcp.running && loopback ? 'local MCP loopback is live' : 'local MCP loopback is unavailable' } },
+        tunnelClientVersion: tunnelClientVersion.value,
+        tunnelClientVersionReason: tunnelClientVersion.reason,
+        tunnel: { state: tunnel.state, source: tunnel.source, message: tunnel.message, health: await tunnelController.incidentHealth() },
         updaterEvents,
         logLines: logHub.snapshot().lines,
         collectProcessTree: collectRelevantProcessTree,

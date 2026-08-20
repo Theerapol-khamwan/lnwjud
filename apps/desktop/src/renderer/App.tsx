@@ -35,6 +35,8 @@ export function App(): ReactElement {
   const [tunnelLogPath, setTunnelLogPath] = useState<string | null>(null);
   const [tunnelLogExists, setTunnelLogExists] = useState(false);
   const [incidentClassification, setIncidentClassification] = useState<IncidentClassification | null>(null);
+  const [incidentCapturedAt, setIncidentCapturedAt] = useState<string | null>(null);
+  const [incidentNotice, setIncidentNotice] = useState<string | null>(null);
   const logIds = useRef<Set<number>>(new Set());
 
   const t = createTranslator(locale);
@@ -95,7 +97,13 @@ export function App(): ReactElement {
   async function captureIncident(): Promise<void> {
     try {
       const result = await window.lnwjud.captureIncident();
-      setIncidentClassification(result.classification);
+      if (result.exported && !result.cancelled) {
+        setIncidentClassification(result.classification);
+        setIncidentCapturedAt(new Date().toISOString());
+        setIncidentNotice(null);
+      } else {
+        setIncidentNotice(t('live.incident.cancelled'));
+      }
     } catch (cause: unknown) {
       setError(errorMessage(cause, t('error.logExport')));
     }
@@ -273,6 +281,10 @@ export function App(): ReactElement {
           onStartTunnel={startTunnel}
           onStopTunnel={stopTunnel}
           onClearWorkLog={clearWorkLog}
+          onCaptureIncident={captureIncident}
+          incidentClassification={incidentClassification}
+          incidentCapturedAt={incidentCapturedAt}
+          incidentNotice={incidentNotice}
         />
       ) : null}
       {screen === 'projects' ? (
@@ -308,6 +320,8 @@ export function App(): ReactElement {
           onPopOut={popOutLogViewer}
           onCaptureIncident={captureIncident}
           incidentClassification={incidentClassification}
+          incidentCapturedAt={incidentCapturedAt}
+          incidentNotice={incidentNotice}
         />
       ) : null}
       {screen === 'settings' ? (

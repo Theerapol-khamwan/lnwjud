@@ -5,6 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
+import { createConnection } from 'node:net';
 import type { TunnelRunState, TunnelStatus } from '@lnwjud/ipc-contracts';
 import { formatTunnelExitMessage, tunnelExitHintFromLog } from './tunnel-exit.js';
 import { acquireTunnelLock, type TunnelLockAcquisition, type TunnelLockOwner } from './tunnel-lock.js';
@@ -30,6 +31,8 @@ export interface TunnelControllerOptions {
   readonly currentLockOwner?: () => Promise<TunnelLockOwner>;
   readonly inspectLockProcess?: (pid: number) => Promise<string | null>;
   readonly stopTimeoutMs?: number;
+  readonly probeHealthEndpoint?: (host: string, port: number) => Promise<boolean>;
+  readonly inspectFileVersion?: (filePath: string) => Promise<string | null>;
 }
 
 export class TunnelController {
@@ -226,6 +229,40 @@ export class TunnelController {
       await waitForTunnelChildExit(child, this.options.stopTimeoutMs ?? 5_000);
       if (this.child === child) this.child = null;
     }
+  }
+
+  public async incidentHealth(): Promise<{ readonly state: 'live' | 'unhealthy' | 'unavailable' | 'unknown'; readonly message: string | null }> {
+    const address = await this.resolveHealthAddress();
+    if (address === null) return { state: 'unavailable', message: 'tunnel health endpoint is unavailable from configured profile/log metadata' };
+    try {
+      const live = await (this.options.probeHealthEndpoint?.(address.host, address.port) ?? probeLoopbackHealth(address.host, address.port));
+      return live ? { state: 'live', message: 'configured tunnel health endpoint is live' } : { state: 'unhealthy', message: 'configured tunnel health endpoint is unreachable' };
+    } catch {
+      return { state: 'unhealthy', message: 'configured tunnel health endpoint probe failed' };
+    }
+  }
+
+  public async clientVersion(): Promise<{ readonly value: string | null; readonly reason: string | null }> {
+    const clientPath = this.resolveClientPath();
+    if (clientPath === null || !existsSync(clientPath)) return { value: null, reason: 'configured_tunnel_client_not_found' };
+    try {
+      const value = await (this.options.inspectFileVersion?.(clientPath) ?? inspectWindowsFileVersion(clientPath));
+      return value === null || value.trim().length === 0 ? { value: null, reason: 'file_version_metadata_unavailable' } : { value: value.trim().slice(0, 128), reason: null };
+    } catch { return { value: null, reason: 'file_version_metadata_unavailable' }; }
+  }
+
+  private async resolveHealthAddress(): Promise<{ readonly host: string; readonly port: number } | null> {
+    try {
+      const profile = await readFile(this.profilePath(), 'utf8');
+      const configured = /health:\s*[\s\S]{0,300}?listen_addr:\s*["']?((?:127\.0\.0\.1|localhost):(\d+))/i.exec(profile);
+      const fromProfile = configured === null ? null : { host: configured[1]!.split(':')[0]!, port: Number(configured[2]) };
+      if (fromProfile !== null && fromProfile.port > 0) return fromProfile;
+      const tail = (await readFile(this.logPath(), 'utf8')).slice(-64 * 1024);
+      const runtime = /health(?: server)?[^\r\n]{0,120}?(?:listening|listen_addr)[^\r\n]{0,120}?((?:127\.0\.0\.1|localhost):(\d{2,5}))/i.exec(tail);
+      if (runtime === null) return null;
+      const [host, port] = runtime[1]!.split(':');
+      return host === undefined || port === undefined ? null : { host, port: Number(port) };
+    } catch { return null; }
   }
 
   private async ensureTunnelLock(): Promise<boolean> {
@@ -492,4 +529,19 @@ export function waitForTunnelChildExit(child: Pick<ChildProcess, 'exitCode' | 'o
     const timer = setTimeout(() => reject(new Error('Tunnel child exit was not observed; ownership retained')), timeoutMs);
     child.once('exit', () => { clearTimeout(timer); resolve(); });
   });
+}
+
+function probeLoopbackHealth(host: string, port: number): Promise<boolean> {
+  return new Promise((resolve) => {
+    const socket = createConnection({ host, port });
+    const timer = setTimeout(() => { socket.destroy(); resolve(false); }, 1_500);
+    socket.once('connect', () => { clearTimeout(timer); socket.destroy(); resolve(true); });
+    socket.once('error', () => { clearTimeout(timer); resolve(false); });
+  });
+}
+
+async function inspectWindowsFileVersion(filePath: string): Promise<string | null> {
+  const { stdout } = await execFileAsync('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', '$item = Get-Item -LiteralPath $args[0]; $item.VersionInfo.ProductVersion', filePath], { windowsHide: true, timeout: 3_000, encoding: 'utf8' });
+  const value = stdout.trim().split(/\r?\n/)[0] ?? '';
+  return value.length === 0 ? null : value;
 }

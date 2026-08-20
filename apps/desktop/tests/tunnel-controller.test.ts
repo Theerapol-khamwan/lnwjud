@@ -1,4 +1,4 @@
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -128,6 +128,28 @@ describe('TunnelController lifecycle', () => {
 
     expect(status).toMatchObject({ state: 'running', source: 'external' });
     expect(probeCalls).toBe(1);
+  });
+
+  it('probes only the health endpoint configured in the tunnel profile', async () => {
+    const dataPath = await mkdtemp(path.join(os.tmpdir(), 'lnwjud-tunnel-controller-'));
+    temporaryRoots.push(dataPath);
+    vi.stubEnv('APPDATA', path.join(dataPath, 'appdata'));
+    const profileDir = path.join(dataPath, 'appdata', 'tunnel-client');
+    await (await import('node:fs/promises')).mkdir(profileDir, { recursive: true });
+    await writeFile(path.join(profileDir, 'lnwjud.yaml'), 'health:\n  listen_addr: "127.0.0.1:18444"\n', 'utf8');
+    let endpoint = '';
+    const controller = new TunnelController({ getClientPath: (): string | null => null, setClientPath: (): void => {}, getDataPath: (): string => dataPath, probeHealthEndpoint: async (host, port): Promise<boolean> => { endpoint = `${host}:${port}`; return true; } });
+    await expect(controller.incidentHealth()).resolves.toEqual({ state: 'live', message: 'configured tunnel health endpoint is live' });
+    expect(endpoint).toBe('127.0.0.1:18444');
+  });
+
+  it('reads tunnel-client version from injected file metadata without executing it', async () => {
+    const dataPath = await mkdtemp(path.join(os.tmpdir(), 'lnwjud-tunnel-controller-'));
+    temporaryRoots.push(dataPath);
+    const executable = path.join(dataPath, 'tunnel-client.exe');
+    await writeFile(executable, 'not executed', 'utf8');
+    const controller = new TunnelController({ getClientPath: (): string => executable, setClientPath: (): void => {}, getDataPath: (): string => dataPath, inspectFileVersion: async (): Promise<string> => '1.2.3' });
+    await expect(controller.clientVersion()).resolves.toEqual({ value: '1.2.3', reason: null });
   });
 });
 

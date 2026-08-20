@@ -1,5 +1,5 @@
 import { useState, type ReactElement } from 'react';
-import type { DashboardSnapshot, UiLocale, WorkspaceSummary } from '@lnwjud/ipc-contracts';
+import type { DashboardSnapshot, IncidentClassification, UiLocale, WorkspaceSummary } from '@lnwjud/ipc-contracts';
 import { createTranslator } from '../../i18n/index.js';
 import { WorkLogPanel, type WorkLogFilter } from '../worklog/WorkLogPanel.js';
 
@@ -17,6 +17,10 @@ interface ControlCenterPageProps {
   readonly onStartTunnel: () => Promise<void>;
   readonly onStopTunnel: () => Promise<void>;
   readonly onClearWorkLog: () => Promise<void>;
+  readonly onCaptureIncident: () => Promise<void>;
+  readonly incidentClassification: IncidentClassification | null;
+  readonly incidentCapturedAt: string | null;
+  readonly incidentNotice: string | null;
 }
 
 export function ControlCenterPage(props: ControlCenterPageProps): ReactElement {
@@ -57,6 +61,7 @@ export function ControlCenterPage(props: ControlCenterPageProps): ReactElement {
         </div>
         <div className="heading-actions">
           <button type="button" onClick={() => { void props.onRefresh(); }}>{t('action.refresh')}</button>
+          <button type="button" onClick={() => { void props.onCaptureIncident(); }}>{t('live.captureIncident')}</button>
           <button type="button" disabled={props.mcpBusy || !dashboard.mcp.running} onClick={() => { void props.onStopMcp(); }}>
             {t('action.stop')}
           </button>
@@ -65,6 +70,7 @@ export function ControlCenterPage(props: ControlCenterPageProps): ReactElement {
           </button>
         </div>
       </div>
+      {props.incidentNotice === null && props.incidentClassification === null ? null : <p role="status" className="hint">{props.incidentNotice ?? `${incidentLabel(t, props.incidentClassification!)} · ${props.incidentCapturedAt ?? ''}`}</p>}
 
       <section className="panel agent-status-panel" aria-label={agentLabel}>
         <div className={`agent-orb ${dashboard.agentState}`} data-testid="agent-state" />
@@ -199,4 +205,11 @@ export function ControlCenterPage(props: ControlCenterPageProps): ReactElement {
       />
     </div>
   );
+}
+
+function incidentLabel(t: ReturnType<typeof createTranslator>, classification: IncidentClassification): string {
+  if (classification === 'local_tool_failed') return t('live.incident.localToolFailed');
+  if (classification === 'tunnel_disconnected') return t('live.incident.tunnelDisconnected');
+  if (classification === 'remote_turn_stopped') return t('live.incident.remoteTurnStopped');
+  return t('live.incident.healthyOrInconclusive');
 }

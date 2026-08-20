@@ -395,13 +395,22 @@ function launchManagedBrowser(): Promise<ManagedBrowserStatus> {
 
 function logLine(value: unknown): LogLine {
   if (!isRecord(value) || !isLogSource(value.source) || !isLogLevel(value.level)) throw new Error('Invalid IPC response');
+  const correlation = parseLogCorrelation(value.correlation);
   return {
     id: numberField(value, 'id'),
     source: value.source,
     timestamp: stringField(value, 'timestamp'),
     level: value.level,
     text: stringField(value, 'text'),
+    ...(correlation === undefined ? {} : { correlation }),
   };
+}
+
+function parseLogCorrelation(value: unknown): LogLine['correlation'] | undefined {
+  if (!isRecord(value) || typeof value.kind !== 'string') return undefined;
+  if (value.kind === 'mcp' && (value.phase === 'started' || value.phase === 'completed') && typeof value.callId === 'string' && typeof value.toolName === 'string' && (value.resultCode === null || value.resultCode === 'SUCCESS' || value.resultCode === 'FAILED' || value.resultCode === 'FATAL')) return { kind: 'mcp', phase: value.phase, callId: value.callId, toolName: value.toolName, resultCode: value.resultCode };
+  if (value.kind === 'tunnel' && (value.instanceId === undefined || typeof value.instanceId === 'string') && (value.requestId === undefined || typeof value.requestId === 'string') && (value.pid === undefined || (typeof value.pid === 'number' && Number.isInteger(value.pid)))) return { kind: 'tunnel', ...(typeof value.instanceId === 'string' ? { instanceId: value.instanceId } : {}), ...(typeof value.requestId === 'string' ? { requestId: value.requestId } : {}), ...(typeof value.pid === 'number' ? { pid: value.pid } : {}) };
+  return undefined;
 }
 
 function logSnapshot(value: unknown): LogSnapshot {

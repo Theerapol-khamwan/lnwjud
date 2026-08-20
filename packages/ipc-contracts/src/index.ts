@@ -104,7 +104,13 @@ export interface LogLine {
   readonly timestamp: string;
   readonly level: LogLevel;
   readonly text: string;
+  readonly correlation?: LogCorrelation;
 }
+
+export type McpResultCode = 'SUCCESS' | 'FAILED' | 'FATAL';
+export type LogCorrelation =
+  | { readonly kind: 'mcp'; readonly phase: 'started' | 'completed'; readonly callId: string; readonly toolName: string; readonly resultCode: McpResultCode | null }
+  | { readonly kind: 'tunnel'; readonly instanceId?: string; readonly requestId?: string; readonly pid?: number };
 
 export interface LogSnapshot {
   readonly lines: readonly LogLine[];

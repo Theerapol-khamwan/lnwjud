@@ -8,7 +8,9 @@ import {
   type IncidentEvidence,
 } from '../src/main/incident-report.js';
 
-const healthyTunnel = { state: 'running' as const, source: 'desktop' as const, message: null, health: { healthy: true, message: 'ok' } };
+const healthyTunnel = { state: 'running' as const, source: 'desktop' as const, message: null, health: { state: 'live' as const, message: 'tunnel health endpoint live' } };
+const started = (callId: string, toolName = 'read_file'): { source: 'mcp'; text: string; timestamp: string; correlation: { kind: 'mcp'; phase: 'started'; callId: string; toolName: string; resultCode: null } } => ({ source: 'mcp', text: 'display text only', timestamp: '2026-08-20T00:00:00.000Z', correlation: { kind: 'mcp', phase: 'started', callId, toolName, resultCode: null } });
+const completed = (callId: string, resultCode: 'SUCCESS' | 'FAILED' = 'SUCCESS', toolName = 'read_file'): { source: 'mcp'; text: string; timestamp: string; correlation: { kind: 'mcp'; phase: 'completed'; callId: string; toolName: string; resultCode: 'SUCCESS' | 'FAILED' } } => ({ source: 'mcp', text: 'display text only', timestamp: '2026-08-20T00:00:01.000Z', correlation: { kind: 'mcp', phase: 'completed', callId, toolName, resultCode } });
 
 function evidence(overrides: Partial<IncidentEvidence> = {}): IncidentEvidence {
   return {
@@ -24,10 +26,10 @@ function evidence(overrides: Partial<IncidentEvidence> = {}): IncidentEvidence {
 
 describe('incident classification', () => {
   it.each([
-    ['local_tool_failed', evidence({ logLines: [{ source: 'mcp', text: '[ERROR] read_file FAILED — access denied', timestamp: '2026-08-20T00:00:00.000Z' }] })],
+    ['local_tool_failed', evidence({ logLines: [started('a'), completed('a', 'FAILED')] })],
     ['tunnel_disconnected', evidence({ logLines: [{ source: 'tunnel', text: 'stdio command exited', timestamp: '2026-08-20T00:00:00.000Z' }] })],
-    ['remote_turn_stopped', evidence({ logLines: [{ source: 'mcp', text: '[RESULT] read_file SUCCESS', timestamp: '2026-08-20T00:00:00.000Z' }] })],
-    ['healthy_or_inconclusive', evidence({ triggeredByUser: false, logLines: [{ source: 'mcp', text: '[RESULT] read_file SUCCESS', timestamp: '2026-08-20T00:00:00.000Z' }] })],
+    ['remote_turn_stopped', evidence({ logLines: [started('a'), completed('a')] })],
+    ['healthy_or_inconclusive', evidence({ triggeredByUser: false, logLines: [started('a'), completed('a')] })],
   ] as const)('returns %s only from supported evidence', (classification, input) => {
     expect(classifyIncident(input).classification).toBe(classification);
   });
@@ -35,7 +37,7 @@ describe('incident classification', () => {
   it('gives local failure precedence over a conflicting tunnel disconnect', () => {
     const result = classifyIncident(evidence({ logLines: [
       { source: 'tunnel', text: 'connection max TTL reached', timestamp: '2026-08-20T00:00:00.000Z' },
-      { source: 'mcp', text: '[ERROR] write_file FAILED — denied', timestamp: '2026-08-20T00:01:00.000Z' },
+      started('a', 'write_file'), completed('a', 'FAILED', 'write_file'),
     ] }));
     expect(result).toMatchObject({ classification: 'local_tool_failed' });
   });
@@ -44,15 +46,18 @@ describe('incident classification', () => {
     expect(classifyIncident(evidence({ logLines: [{ source: 'tunnel', text: 'periodic status: connected', timestamp: '2026-08-20T00:00:00.000Z' }] })).classification)
       .toBe('healthy_or_inconclusive');
   });
+
+  it('requires an explicitly live tunnel, not local MCP or text keywords', () => {
+    expect(classifyIncident(evidence({ logLines: [started('a', 'success_error_tool'), completed('a', 'SUCCESS', 'success_error_tool')], tunnel: { ...healthyTunnel, health: { state: 'unavailable', message: 'local MCP is live' } } })).classification).toBe('healthy_or_inconclusive');
+    expect(classifyIncident(evidence({ logLines: [started('a'), completed('a')], tunnel: { ...healthyTunnel, state: 'starting', health: { state: 'live', message: 'live' } } })).classification).toBe('healthy_or_inconclusive');
+    expect(classifyIncident(evidence({ logLines: [started('a'), completed('a')], tunnel: { ...healthyTunnel, state: 'stopped', health: { state: 'live', message: 'live' } } })).classification).toBe('tunnel_disconnected');
+  });
 });
 
 describe('incident correlation and privacy', () => {
   it('pairs interleaved MCP calls and retains orphan starts and completions', () => {
     expect(pairMcpCalls([
-      { source: 'mcp', text: '[TASK] read_file callId=a — in flight', timestamp: '2026-08-20T00:00:00.000Z' },
-      { source: 'mcp', text: '[RESULT] list_files SUCCESS callId=b', timestamp: '2026-08-20T00:00:01.000Z' },
-      { source: 'mcp', text: '[RESULT] read_file SUCCESS callId=a', timestamp: '2026-08-20T00:00:02.000Z' },
-      { source: 'mcp', text: '[TASK] write_file callId=c — in flight', timestamp: '2026-08-20T00:00:03.000Z' },
+      started('a'), completed('b'), completed('a'), started('c'),
     ])).toEqual(expect.arrayContaining([
       expect.objectContaining({ callId: 'a', incomplete: false, resultCode: 'SUCCESS' }),
       expect.objectContaining({ callId: 'b', incomplete: true, completionWithoutStart: true }),
@@ -60,16 +65,22 @@ describe('incident correlation and privacy', () => {
     ]));
   });
 
+  it('keeps repeated callId occurrences separate in chronological queues', () => {
+    const calls = pairMcpCalls([started('same'), started('same', 'write_file'), completed('same'), completed('same', 'SUCCESS', 'write_file'), completed('orphan')]);
+    expect(calls.filter((call) => call.callId === 'same')).toHaveLength(2);
+    expect(calls.at(-1)).toMatchObject({ callId: 'orphan', completionWithoutStart: true });
+  });
+
   it('parses bounded tunnel instance and request ids despite malformed lines', () => {
     expect(parseTunnelCorrelations([
       { source: 'tunnel', text: 'bad { json', timestamp: '2026-08-20T00:00:00.000Z' },
-      { source: 'tunnel', text: 'instance_id=inst-123 request_id=req-456', timestamp: '2026-08-20T00:00:01.000Z' },
+      { source: 'tunnel', text: 'structured only', timestamp: '2026-08-20T00:00:01.000Z', correlation: { kind: 'tunnel' as const, instanceId: 'inst-123', requestId: 'req-456' } },
     ])).toEqual({ instanceIds: ['inst-123'], requestIds: ['req-456'] });
   });
 
   it('bounds and redacts report text including representative secrets', async () => {
     const report = await buildIncidentReport(evidence({
-      logLines: Array.from({ length: 260 }, (_, index) => ({ source: 'tunnel' as const, timestamp: '2026-08-20T00:00:00.000Z', text: `api_key=sk-live-secret-${index} Authorization: Bearer abc.def.ghi ${'x'.repeat(900)}` })),
+      logLines: Array.from({ length: 260 }, (_, index) => ({ source: 'tunnel' as const, timestamp: '2026-08-20T00:00:00.000Z', text: `api_key=sk-live-secret-${index} Authorization: Bearer abc.def.ghi\nAuthorization: Basic dXNlcjpwYXNz https://x/?token=very-secret {"apiKey":"json-secret"} X-Api-Key: newline-secret ${'x'.repeat(900)}` })),
       collectProcessTree: async () => [{ pid: 20, parentPid: 10, executable: 'tunnel-client.exe', commandLine: 'tunnel-client.exe --api-key sk-nope --profile lnwjud' }],
       collectListeners: async () => [{ pid: 20, address: '127.0.0.1', port: 7777, owner: 'tunnel-client.exe --token leaked' }],
     }));
@@ -80,6 +91,7 @@ describe('incident correlation and privacy', () => {
     expect(serialized).not.toContain('sk-nope');
     expect(serialized).not.toContain('--api-key');
     expect(serialized).not.toContain('--token');
+    for (const secret of ['Basic dXNlcjpwYXNz', 'Bearer abc.def.ghi', 'token=very-secret', '"apiKey":"json-secret"', 'X-Api-Key: newline-secret']) expect(serialized).not.toContain(secret);
   });
 
   it('keeps a usable report when read-only collectors fail', async () => {

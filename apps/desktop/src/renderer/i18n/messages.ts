@@ -75,6 +75,7 @@ export type MessageKey =
   | 'live.incident.tunnelDisconnected'
   | 'live.incident.remoteTurnStopped'
   | 'live.incident.healthyOrInconclusive'
+  | 'live.incident.cancelled'
   | 'live.waiting'
   | 'live.waitingTunnel'
   | 'live.popOut'
@@ -186,6 +187,7 @@ export const th: Messages = {
   'live.incident.tunnelDisconnected': 'Tunnel หลุดการเชื่อมต่อ',
   'live.incident.remoteTurnStopped': 'Remote turn หยุดทำงาน',
   'live.incident.healthyOrInconclusive': 'ปกติหรือหลักฐานยังไม่ชัดเจน',
+  'live.incident.cancelled': 'ยกเลิกการบันทึกหลักฐานแล้ว',
   'live.waiting': 'ยังไม่มีข้อมูล',
   'live.waitingTunnel': 'ยังไม่มีไฟล์ tunnel log — รัน tunnel ด้วยสคริปต์ start-lnwjud-tunnel.ps1 หรือกด Start Tunnel',
   'live.popOut': 'เปิดหน้าต่างแยก',
@@ -296,6 +298,7 @@ export const en: Messages = {
   'live.incident.tunnelDisconnected': 'Tunnel disconnected',
   'live.incident.remoteTurnStopped': 'Remote turn stopped',
   'live.incident.healthyOrInconclusive': 'Healthy or inconclusive',
+  'live.incident.cancelled': 'Incident capture cancelled',
   'live.waiting': 'No data yet',
   'live.waitingTunnel': 'No tunnel log file yet — run start-lnwjud-tunnel.ps1 or press Start Tunnel',
   'live.popOut': 'Pop out viewer',

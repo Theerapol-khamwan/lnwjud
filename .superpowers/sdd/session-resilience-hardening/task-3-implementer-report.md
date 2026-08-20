@@ -27,3 +27,11 @@
 - The collectors are injectable and relevant-PID scoped; they only run read-only PowerShell queries and report structured unavailability/error without failing export. No environment, arbitrary command line, full logs, file content, headers, or secret values are exported.
 - Health reuses the active local MCP loopback endpoint and adds no port. Tunnel-client version intentionally remains unavailable (`null`) rather than spawning a configured external executable during capture.
 - No live tunnel process, network mutation, or external state was touched. Desktop-UI behavior is build/typechecked; no live Electron session was launched.
+
+## Review-fix addendum
+
+- RED: strengthened structured-correlation and tunnel-health tests first. The focused run had 14 incident tests with 11 expected failures because the old classifier used display text and loopback MCP state rather than structured lifecycle/tunnel evidence.
+- GREEN: 14 incident-report tests and 9 tunnel-controller tests now pass (83 Desktop tests total). The report reads only structured MCP start/completion metadata, handles repeated `callId` queues, preserves structured tunnel IDs, uses a profile/log-resolved health endpoint, and scopes listener queries before enumeration.
+- Tunnel health uses the existing `health.listen_addr` in `lnwjud.yaml`, or the runtime health listener recorded by tunnel-client when the configured address is dynamic; it never uses the Desktop local MCP listener or invents a port. Missing/dynamic-unresolved health is explicit `unavailable`, so it cannot yield `remote_turn_stopped`.
+- Client version discovery uses file-version metadata from the configured existing executable (read-only PowerShell metadata query, never executing the binary), with a bounded structured unavailability reason.
+- Dashboard Control Center and Live Logs share the manual capture action/status. Only a successful write updates classification and timestamp; cancel leaves the previous capture intact and reports neutral cancellation status.
