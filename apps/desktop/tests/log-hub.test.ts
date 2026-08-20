@@ -80,6 +80,7 @@ describe('LogHub', () => {
       { status: 'STDIO.MCP-CLOSED', message: 'display text is neutral' },
       { reason: 'control-plane connection disconnected', msg: 'display text is neutral' },
       { status: 'DISCONNECTED', msg: 'display text is neutral' },
+      { status: 'CONNECTED', msg: 'display text is neutral' },
       { event: 'documentation_loaded', msg: 'shutdown documentation loaded' },
     ].map((entry) => JSON.stringify(entry)).join('\n') + '\n', 'utf8');
 
@@ -93,6 +94,7 @@ describe('LogHub', () => {
       expect.objectContaining({ kind: 'tunnel', lifecycle: 'stdio_stopped' }),
       expect.objectContaining({ kind: 'tunnel', lifecycle: 'transport_stopped' }),
       expect.objectContaining({ kind: 'tunnel', lifecycle: 'transport_stopped' }),
+      expect.objectContaining({ kind: 'tunnel', lifecycle: 'transport_live' }),
       expect.objectContaining({ kind: 'tunnel', lifecycle: 'other' }),
     ]);
   });

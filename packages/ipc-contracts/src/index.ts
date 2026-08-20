@@ -108,7 +108,7 @@ export interface LogLine {
 }
 
 export type McpResultCode = 'SUCCESS' | 'FAILED' | 'FATAL' | 'UNKNOWN';
-export type TunnelLifecycleCategory = 'ttl_expired' | 'stdio_stopped' | 'transport_stopped' | 'other';
+export type TunnelLifecycleCategory = 'ttl_expired' | 'stdio_stopped' | 'transport_stopped' | 'transport_live' | 'other';
 export type LogCorrelation =
   | { readonly kind: 'mcp'; readonly phase: 'started' | 'completed'; readonly callId: string; readonly toolName: string; readonly resultCode: McpResultCode | null }
   | { readonly kind: 'tunnel'; readonly lifecycle?: TunnelLifecycleCategory; readonly instanceId?: string; readonly requestId?: string; readonly pid?: number };

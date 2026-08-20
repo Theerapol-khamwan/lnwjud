@@ -10,10 +10,16 @@ export interface UpdateReadyDialogOptions {
 export interface UpdateInstallCoordinatorOptions {
   readonly activeCallCount: () => number;
   readonly activityRevision?: () => number;
+  readonly tunnelRunning?: () => Promise<boolean | 'unverifiable'>;
+  readonly sharedActivitySnapshot?: () => Promise<UpdateSharedActivitySnapshot>;
   readonly install: () => void;
   readonly quietPeriodMs?: number;
   readonly pollIntervalMs?: number;
 }
+
+export type UpdateSharedActivitySnapshot =
+  | { readonly state: 'available'; readonly activeCallCount: number; readonly revision: number; readonly ownerKey?: string }
+  | { readonly state: 'missing' | 'stale' | 'unverifiable'; readonly reason?: string };
 
 export interface UpdateDownloadedDialogControllerOptions {
   readonly showDialog: (options: UpdateReadyDialogOptions) => Promise<{ readonly response: number }>;
@@ -39,15 +45,22 @@ export function updateReadyDialogOptions(version: string): UpdateReadyDialogOpti
 
 export class UpdateDownloadedDialogController {
   private dialogPending = false;
+  private readonly handledVersions = new Set<string>();
 
   public constructor(private readonly options: UpdateDownloadedDialogControllerOptions) {}
 
   public async handle(version: string): Promise<boolean> {
-    if (this.dialogPending || this.options.hasPendingInstall()) return false;
+    if (this.dialogPending || this.options.hasPendingInstall() || this.handledVersions.has(version)) return false;
     this.dialogPending = true;
     try {
       this.options.onShow?.(version);
       const result = await this.options.showDialog(updateReadyDialogOptions(version));
+      this.handledVersions.add(version);
+      while (this.handledVersions.size > 20) {
+        const oldest = this.handledVersions.values().next().value;
+        if (oldest === undefined) break;
+        this.handledVersions.delete(oldest);
+      }
       if (result.response === 0) this.options.requestInstall();
       return true;
     } catch (error: unknown) {
@@ -66,7 +79,8 @@ export class UpdateInstallCoordinator {
   private shutdown = false;
   private timer: ReturnType<typeof setTimeout> | null = null;
   private quietUntil = 0;
-  private quietRevision = 0;
+  private quietRevision = '';
+  private evaluating = false;
 
   public constructor(private readonly options: UpdateInstallCoordinatorOptions) {
     this.quietPeriodMs = options.quietPeriodMs ?? DEFAULT_QUIET_PERIOD_MS;
@@ -76,7 +90,7 @@ export class UpdateInstallCoordinator {
   public requestInstall(): void {
     if (this.shutdown || this.pending) return;
     this.pending = true;
-    this.evaluate();
+    void this.evaluate();
   }
 
   public cancel(): void {
@@ -89,24 +103,34 @@ export class UpdateInstallCoordinator {
     return this.pending;
   }
 
-  private evaluate(): void {
+  private async evaluate(): Promise<void> {
+    if (!this.pending || this.shutdown || this.evaluating) return;
+    this.evaluating = true;
+    let activity: { readonly trustworthy: boolean; readonly activeCount: number; readonly revision: string };
+    try {
+      activity = await this.observeActivity(this.options.activeCallCount(), this.options.activityRevision?.() ?? 0);
+    } finally {
+      this.evaluating = false;
+    }
     if (!this.pending || this.shutdown) return;
-    if (this.options.activeCallCount() > 0) {
+    if (!activity.trustworthy || activity.activeCount > 0) {
       this.quietUntil = 0;
-      this.schedule(this.pollIntervalMs, () => this.evaluate());
+      this.schedule(this.pollIntervalMs, () => { void this.evaluate(); });
       return;
     }
     this.quietUntil = Date.now() + this.quietPeriodMs;
-    this.quietRevision = this.options.activityRevision?.() ?? 0;
-    this.waitForQuietPeriod();
+    this.quietRevision = activity.revision;
+    void this.waitForQuietPeriod();
   }
 
-  private waitForQuietPeriod(): void {
+  private async waitForQuietPeriod(): Promise<void> {
     if (!this.pending || this.shutdown) return;
     // Poll the existing tracker throughout the quiet period so a short call
     // that starts and ends inside the interval restarts the quiet clock.
-    if (this.options.activeCallCount() > 0 || (this.options.activityRevision?.() ?? this.quietRevision) !== this.quietRevision) {
-      this.evaluate();
+    const activity = await this.observeActivity(this.options.activeCallCount(), this.options.activityRevision?.() ?? 0);
+    if (!this.pending || this.shutdown) return;
+    if (!activity.trustworthy || activity.activeCount > 0 || activity.revision !== this.quietRevision) {
+      void this.evaluate();
       return;
     }
     const remaining = this.quietUntil - Date.now();
@@ -115,7 +139,27 @@ export class UpdateInstallCoordinator {
       this.options.install();
       return;
     }
-    this.schedule(Math.min(this.pollIntervalMs, remaining), () => this.waitForQuietPeriod());
+    this.schedule(Math.min(this.pollIntervalMs, remaining), () => { void this.waitForQuietPeriod(); });
+  }
+
+  private async observeActivity(localCount: number, localRevision: number): Promise<{ readonly trustworthy: boolean; readonly activeCount: number; readonly revision: string }> {
+    let tunnelState: boolean | 'unverifiable' = false;
+    try {
+      tunnelState = this.options.tunnelRunning === undefined ? false : await this.options.tunnelRunning();
+    } catch {
+      tunnelState = 'unverifiable';
+    }
+    if (tunnelState === false) {
+      return { trustworthy: true, activeCount: localCount, revision: `local:${localRevision}` };
+    }
+    if (this.options.sharedActivitySnapshot === undefined) return { trustworthy: false, activeCount: localCount, revision: `local:${localRevision}:shared:missing` };
+    try {
+      const shared = await this.options.sharedActivitySnapshot();
+      if (shared.state !== 'available') return { trustworthy: false, activeCount: localCount, revision: `local:${localRevision}:shared:${shared.state}` };
+      return { trustworthy: true, activeCount: localCount + shared.activeCallCount, revision: `local:${localRevision}:shared:${shared.ownerKey ?? ''}:${shared.revision}` };
+    } catch {
+      return { trustworthy: false, activeCount: localCount, revision: `local:${localRevision}:shared:unverifiable` };
+    }
   }
 
   private schedule(delayMs: number, action: () => void): void {

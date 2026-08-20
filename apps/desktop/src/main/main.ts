@@ -1,4 +1,6 @@
 import { app, BrowserWindow, dialog, ipcMain, Menu, nativeImage, Tray, type IpcMainInvokeEvent } from 'electron';
+import path from 'node:path';
+import { access } from 'node:fs/promises';
 import { autoUpdater } from 'electron-updater';
 import {
   APP_NAME,
@@ -10,7 +12,6 @@ import {
   type DashboardSnapshot,
   type DoctorReport,
   type ExportLogsRequest,
-  type IncidentExportResult,
   type IpcResponseMap,
   type LogSnapshot,
   type ManagedBrowserStatus,
@@ -30,13 +31,15 @@ import {
   type UiLocale,
   type WorkspaceSummary,
 } from '@lnwjud/ipc-contracts';
-import { startMcpStdio } from '@lnwjud/mcp-server';
+import { readSharedActivitySnapshot, startMcpStdio } from '@lnwjud/mcp-server';
 import { createDesktopRuntime, type DesktopRuntime } from './desktop-services.js';
+import { DesktopShutdownCoordinator } from './desktop-shutdown.js';
 import { shouldHoldSingleInstanceLock, wantsMcpStdio } from './instance-lock.js';
 import { createLogViewerWindow, createMainWindow, getRendererEntryPath, getWindowIconPath, isAllowedRendererUrl } from './window.js';
 import { createTrayMenuTemplate, shouldHideMainWindowOnClose } from './tray.js';
-import { UpdateDownloadedDialogController, UpdateInstallCoordinator } from './update-install.js';
+import { UpdateDownloadedDialogController, UpdateInstallCoordinator, type UpdateSharedActivitySnapshot } from './update-install.js';
 import { atomicWrite, type IncidentReport } from './incident-report.js';
+import { IncidentSaveCoordinator } from './incident-save.js';
 
 export interface DesktopIpcServices {
   listWorkspaces(): Promise<IpcResponseMap[typeof ipcChannels.listWorkspaces]>;
@@ -141,6 +144,12 @@ const defaultDesktopServices: DesktopIpcServices = {
 
 const updaterEventTail: string[] = [];
 function recordUpdaterEvent(message: string): void { updaterEventTail.push(message.slice(0, 512)); while (updaterEventTail.length > 100) updaterEventTail.shift(); }
+const recordedUpdaterDownloads = new Set<string>();
+function recordUpdaterDownload(version: string): void {
+  if (recordedUpdaterDownloads.has(version)) return;
+  recordedUpdaterDownloads.add(version);
+  recordUpdaterEvent(`update-downloaded:${version}`);
+}
 
 export function isTrustedIpcSender(event: IpcMainInvokeEvent, window: BrowserWindow | null): boolean {
   void window;
@@ -152,6 +161,16 @@ export function registerIpcHandlers(
   getMainWindow: MainWindowProvider,
   services: DesktopIpcServices = defaultDesktopServices,
 ): void {
+  const incidentSaver = new IncidentSaveCoordinator({
+    capture: (): Promise<IncidentReport> => services.captureIncident(updaterEventTail),
+    choosePath: async (): Promise<string | null> => {
+      const window = getMainWindow();
+      if (window === null) return null;
+      const result = await dialog.showSaveDialog(window, { title: 'Capture lnwjud incident evidence', defaultPath: 'lnwjud-incident.json', filters: [{ name: 'JSON', extensions: ['json'] }] });
+      return result.canceled || result.filePath === undefined || result.filePath.length === 0 ? null : result.filePath;
+    },
+    write: atomicWrite,
+  });
   ipcMain.handle(ipcChannels.listWorkspaces, async (event, payload: unknown) => {
     assertTrustedSender(event, getMainWindow());
     assertNoPayload(payload);
@@ -263,7 +282,7 @@ export function registerIpcHandlers(
   ipcMain.handle(ipcChannels.captureIncident, async (event, payload: unknown) => {
     assertTrustedSender(event, getMainWindow());
     assertNoPayload(payload);
-    return exportIncidentToFile(getMainWindow(), services);
+    return incidentSaver.captureAndSave();
   });
   ipcMain.handle(ipcChannels.openLogViewer, async (event, payload: unknown) => {
     assertTrustedSender(event, getMainWindow());
@@ -342,15 +361,6 @@ async function exportLogsToFile(
   return { exported: true };
 }
 
-async function exportIncidentToFile(window: BrowserWindow | null, services: DesktopIpcServices): Promise<IncidentExportResult> {
-  const report = await services.captureIncident(updaterEventTail);
-  if (window === null) return { exported: false, cancelled: true, classification: report.classification, capturedAt: null };
-  const result = await dialog.showSaveDialog(window, { title: 'Capture lnwjud incident evidence', defaultPath: 'lnwjud-incident.json', filters: [{ name: 'JSON', extensions: ['json'] }] });
-  if (result.canceled || result.filePath === undefined || result.filePath.length === 0) return { exported: false, cancelled: true, classification: report.classification, capturedAt: null };
-  await atomicWrite(result.filePath, JSON.stringify(report, null, 2) + '\n');
-  return { exported: true, cancelled: false, classification: report.classification, capturedAt: report.capturedAt };
-}
-
 function broadcastToAllWindows(channel: string, payload: unknown): void {
   for (const window of BrowserWindow.getAllWindows()) {
     if (!window.isDestroyed()) {
@@ -414,7 +424,7 @@ let desktopRuntime: DesktopRuntime | null = null;
 let tray: Tray | null = null;
 let manualUpdateCheckPending = false;
 let quitRequested = false;
-let shutdownStarted = false;
+let desktopShutdownCoordinator: DesktopShutdownCoordinator | null = null;
 let updateInstallCoordinator: UpdateInstallCoordinator | null = null;
 let updateDownloadedDialogController: UpdateDownloadedDialogController | null = null;
 
@@ -586,14 +596,34 @@ function initAutoUpdater(runtime: DesktopRuntime): void {
     updateInstallCoordinator = new UpdateInstallCoordinator({
       activeCallCount: (): number => runtime.activityTracker.listInFlight().length,
       activityRevision: (): number => runtime.activityTracker.revision(),
-      install: (): void => autoUpdater.quitAndInstall(),
+      tunnelRunning: async (): Promise<boolean | 'unverifiable'> => {
+        try {
+          if ((await runtime.services.getTunnelStatus()).state === 'running') return true;
+          try {
+            await access(path.join(process.env.APPDATA ?? app.getPath('appData'), 'tunnel-client', 'lnwjud.tunnel.lock'));
+            return true;
+          } catch (error: unknown) {
+            return typeof error === 'object' && error !== null && (error as NodeJS.ErrnoException).code === 'ENOENT' ? false : 'unverifiable';
+          }
+        } catch {
+          return 'unverifiable';
+        }
+      },
+      sharedActivitySnapshot: async (): Promise<UpdateSharedActivitySnapshot> => {
+        const snapshot = await readSharedActivitySnapshot({ profileDirectory: path.join(process.env.APPDATA ?? app.getPath('appData'), 'tunnel-client') });
+        return snapshot.state === 'available'
+          ? { state: 'available', activeCallCount: snapshot.activeCount, revision: snapshot.revision, ownerKey: `${snapshot.owner.pid}:${snapshot.owner.processStartedAt}` }
+          : { state: snapshot.state, reason: snapshot.reason };
+      },
+      install: (): void => {
+        void desktopShutdownCoordinator?.requestQuit(() => autoUpdater.quitAndInstall());
+      },
     });
     updateDownloadedDialogController = new UpdateDownloadedDialogController({
       showDialog: (options): Promise<{ readonly response: number }> => dialog.showMessageBox(options),
       requestInstall: (): void => updateInstallCoordinator?.requestInstall(),
       hasPendingInstall: (): boolean => updateInstallCoordinator?.hasPendingInstall() ?? false,
       onShow: (version): void => {
-        recordUpdaterEvent(`update-downloaded:${version}`);
         console.log(`[AutoUpdater] Downloaded update: v${version}`);
         broadcastToAllWindows(pushChannels.logEvent, {
           id: Date.now(),
@@ -648,7 +678,7 @@ function initAutoUpdater(runtime: DesktopRuntime): void {
     });
 
     autoUpdater.on('update-downloaded', (info) => {
-      recordUpdaterEvent(`update-downloaded:${info.version}`);
+      recordUpdaterDownload(info.version);
       void updateDownloadedDialogController?.handle(info.version);
     });
 
@@ -679,6 +709,7 @@ function bootstrapDesktop(): void {
     app.setAppUserModelId('com.lnwjud.desktop');
     const runtime = createDesktopRuntime(dataPath);
     desktopRuntime = runtime;
+    configureDesktopShutdown(runtime);
     runtime.logHub.setOnLine((line) => broadcastToAllWindows(pushChannels.logEvent, line));
     runtime.logHub.start();
     registerIpcHandlers(() => mainWindow, runtime.services);
@@ -694,19 +725,9 @@ function bootstrapDesktop(): void {
       if (BrowserWindow.getAllWindows().length === 0) createDesktopWindow();
     });
   });
-  app.on('before-quit', () => {
-    quitRequested = true;
-    updateInstallCoordinator?.cancel();
-    destroyDesktopTray();
-  });
+  app.on('before-quit', handleDesktopBeforeQuit);
   app.on('window-all-closed', () => {
     if (process.platform !== 'darwin') app.quit();
-  });
-  app.on('will-quit', (event) => {
-    if (shutdownStarted) return;
-    event.preventDefault();
-    shutdownStarted = true;
-    void closeDesktopRuntimeAndQuit();
   });
 }
 
@@ -716,6 +737,7 @@ function bootstrapLogViewerOnly(): void {
     app.setAppUserModelId('com.lnwjud.desktop');
     const runtime = createDesktopRuntime(dataPath);
     desktopRuntime = runtime;
+    configureDesktopShutdown(runtime);
     runtime.logHub.setOnLine((line) => broadcastToAllWindows(pushChannels.logEvent, line));
     runtime.logHub.start();
     registerIpcHandlers(() => mainWindow, runtime.services);
@@ -730,24 +752,49 @@ function bootstrapLogViewerOnly(): void {
   app.on('window-all-closed', () => {
     if (process.platform !== 'darwin') app.quit();
   });
-  app.on('will-quit', (event) => {
-    if (shutdownStarted) return;
-    event.preventDefault();
-    shutdownStarted = true;
-    void closeDesktopRuntimeAndQuit();
+  app.on('before-quit', handleDesktopBeforeQuit);
+}
+
+function configureDesktopShutdown(runtime: DesktopRuntime): void {
+  desktopShutdownCoordinator = new DesktopShutdownCoordinator({
+    closeRuntime: async (): Promise<void> => {
+      await runtime.close();
+      if (desktopRuntime === runtime) desktopRuntime = null;
+    },
+    onDeferred: (error): void => {
+      quitRequested = false;
+      console.error(`Desktop shutdown deferred: ${error.message}`);
+      broadcastToAllWindows(pushChannels.logEvent, {
+        id: Date.now(),
+        timestamp: new Date().toISOString(),
+        level: 'error',
+        source: 'process',
+        text: `Desktop shutdown deferred: ${error.message}`,
+      });
+      void dialog.showMessageBox({
+        type: 'error',
+        title: 'lnwjud is still running',
+        message: 'The owned tunnel could not be confirmed stopped. lnwjud will remain open; retry Quit after checking the tunnel status.',
+        detail: error.message,
+        buttons: ['OK'],
+      });
+    },
   });
 }
 
-async function closeDesktopRuntimeAndQuit(): Promise<void> {
-  try {
+function handleDesktopBeforeQuit(event: Electron.Event): void {
+  const coordinator = desktopShutdownCoordinator;
+  if (coordinator === null || coordinator.canQuit()) {
+    quitRequested = true;
     updateInstallCoordinator?.cancel();
-    await desktopRuntime?.close();
-  } catch (error: unknown) {
-    console.error(`Desktop shutdown failed: ${error instanceof Error ? error.message : 'unknown error'}`);
-  } finally {
-    desktopRuntime = null;
-    app.quit();
+    destroyDesktopTray();
+    return;
   }
+  event.preventDefault();
+  quitRequested = true;
+  void coordinator.requestQuit(() => app.quit()).then((result) => {
+    if (result === 'deferred') quitRequested = false;
+  });
 }
 
 function configureDataPath(): string {

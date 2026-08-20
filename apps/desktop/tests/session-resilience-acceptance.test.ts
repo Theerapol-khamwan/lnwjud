@@ -1,22 +1,33 @@
 import { spawn, type ChildProcess } from 'node:child_process';
 import { access, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { createServer as createHttpServer } from 'node:http';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { build } from 'esbuild';
 import { appError, err, ok, type Result } from '@lnwjud/domain';
-import { ActivityTracker, ToolRegistry, type McpApplicationServices } from '@lnwjud/mcp-server';
-import { UpdateInstallCoordinator } from '../src/main/update-install.js';
-import { buildIncidentReport, exportIncidentReport } from '../src/main/incident-report.js';
+import { ToolRegistry, readSharedActivitySnapshot, sharedActivitySnapshotPath, type McpApplicationServices } from '@lnwjud/mcp-server';
+import { UpdateInstallCoordinator, type UpdateSharedActivitySnapshot } from '../src/main/update-install.js';
+import { atomicWrite, buildIncidentReport, exportIncidentReport } from '../src/main/incident-report.js';
+import { IncidentSaveCoordinator } from '../src/main/incident-save.js';
 import { LogHub } from '../src/main/log-hub.js';
 import { acquireTunnelLock, type TunnelLockOwner } from '../src/main/tunnel-lock.js';
+import { TunnelController } from '../src/main/tunnel-controller.js';
 
 const repositoryRoot = path.resolve(import.meta.dirname, '..', '..', '..');
 const lockHelper = path.join(repositoryRoot, 'scripts', 'lib', 'lnwjud-tunnel-lock.ps1');
 const tunnelStarter = path.join(repositoryRoot, 'scripts', 'start-lnwjud-tunnel.ps1');
 const temporaryRoots: string[] = [];
+const fixtureProcesses = new Set<ChildProcess>();
 
 afterEach(async () => {
   vi.useRealTimers();
+  vi.unstubAllEnvs();
+  await Promise.all([...fixtureProcesses].map(async (child) => {
+    if (child.exitCode === null && child.signalCode === null) child.kill();
+    await waitForExit(child).catch(() => undefined);
+  }));
+  fixtureProcesses.clear();
   await Promise.all(temporaryRoots.splice(0).map((root) => rm(root, { recursive: true, force: true })));
 });
 
@@ -56,13 +67,44 @@ describe('session resilience acceptance', () => {
     const afterRelease = await acquireTunnelLock({ profileDirectory, owner: await currentOwner() });
     expect(afterRelease.acquired).toBe(true);
     if (afterRelease.acquired) expect(await afterRelease.release()).toBe(true);
+  }, 15_000);
+
+  it('uses the same critical section across a TypeScript stale reclaim and PowerShell publisher', async () => {
+    const root = await temporaryDirectory();
+    const profileDirectory = path.join(root, 'tunnel-client');
+    await mkdir(profileDirectory, { recursive: true });
+    const stale = { version: 1, pid: 9001, processStartedAt: '2026-08-20T00:00:00.000Z', acquiredAt: '2026-08-20T00:00:00.000Z' };
+    await writeFile(path.join(profileDirectory, 'lnwjud.tunnel.lock'), JSON.stringify(stale), 'utf8');
+    const quarantined = deferred<void>();
+    const allowPublish = deferred<void>();
+    const winner: TunnelLockOwner = { pid: 9002, processStartedAt: '2026-08-20T00:01:00.000Z', acquiredAt: '2026-08-20T00:01:00.000Z' };
+    const reclaim = acquireTunnelLock({
+      profileDirectory,
+      owner: winner,
+      inspectProcess: async () => ({ state: 'gone' }),
+      hooks: { afterStaleQuarantine: async () => { quarantined.resolve(); await allowPublish.promise; } },
+    });
+    await quarantined.promise;
+    let publisherSettled = false;
+    const publisher = runPowerShell(`
+      . '${quote(lockHelper)}'
+      $claim = Enter-LnwjudTunnelLock -ProfileDir '${quote(profileDirectory)}' -OwnerPid 9003 -OwnerStartedAt '2026-08-20T00:02:00.000Z' -ProcessStartProvider { param($id) if($id -eq 9002){[pscustomobject]@{state='live';processStartedAt='2026-08-20T00:01:00.000Z'}}else{[pscustomobject]@{state='gone'}} }
+      $claim | ConvertTo-Json -Compress
+    `).finally(() => { publisherSettled = true; });
+    await delay(150);
+    expect(publisherSettled).toBe(false);
+    allowPublish.resolve();
+    const winnerClaim = await reclaim;
+    expect(winnerClaim.acquired).toBe(true);
+    expect(JSON.parse((await publisher).stdout)).toMatchObject({ acquired: false, owner: { pid: winner.pid } });
+    if (winnerClaim.acquired) expect(await winnerClaim.release()).toBe(true);
   });
 
-  it('returns PROCESS_TIMEOUT before the simulated remote deadline, terminates abort-aware work, and immediately accepts the next call', async () => {
-    vi.useFakeTimers();
-    const localBudgetMs = 20;
-    const remoteDeadlineMs = 60;
-    const simulatedWorkMs = 100;
+  it('returns PROCESS_TIMEOUT before the remote deadline, terminates a real fixture process, and immediately accepts the next call', async () => {
+    const localBudgetMs = 80;
+    const remoteDeadlineMs = 500;
+    const child = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], { windowsHide: true, stdio: 'ignore' });
+    fixtureProcesses.add(child);
     let terminated = false;
     let remoteDeadlineFired = false;
     let calls = 0;
@@ -73,58 +115,81 @@ describe('session resilience acceptance', () => {
           calls += 1;
           if (calls === 2) return ok({ matches: [], truncated: false });
           return new Promise((resolve) => {
-            const child = setTimeout(() => resolve(ok({ matches: [], truncated: false })), simulatedWorkMs);
             signal?.addEventListener('abort', () => {
-              clearTimeout(child);
-              terminated = true;
-              resolve(err(appError('PROCESS_TIMEOUT', 'simulated child terminated', true)));
+              if (child.exitCode === null) child.kill();
+              void waitForExit(child).then(() => {
+                terminated = true;
+                resolve(err(appError('PROCESS_TIMEOUT', 'fixture child terminated', true)));
+              });
             }, { once: true });
           });
         },
       },
     } satisfies McpApplicationServices, { clientId: 'acceptance', clientName: 'acceptance' }, { maxToolDurationMs: localBudgetMs });
 
-    setTimeout(() => { remoteDeadlineFired = true; }, remoteDeadlineMs);
+    const remoteTimer = setTimeout(() => { remoteDeadlineFired = true; }, remoteDeadlineMs);
     const pending = registry.invoke('search_text', { workspaceId: 'workspace-1', query: 'needle' });
-    await vi.advanceTimersByTimeAsync(localBudgetMs);
     const timedOut = await pending;
     expect(timedOut).toMatchObject({ isError: true, structuredContent: { error: { code: 'PROCESS_TIMEOUT', recoverable: true } } });
+    await waitUntil(() => terminated, 300);
     expect(terminated).toBe(true);
     expect(remoteDeadlineFired).toBe(false);
     await expect(registry.invoke('search_text', { workspaceId: 'workspace-1', query: 'needle' }))
       .resolves.toMatchObject({ structuredContent: { matches: [] } });
-    await vi.advanceTimersByTimeAsync(remoteDeadlineMs - localBudgetMs);
-    expect(remoteDeadlineFired).toBe(true);
+    clearTimeout(remoteTimer);
+    expect(remoteDeadlineFired).toBe(false);
   });
 
-  it('defers exactly one update through real activity transitions and cancels it on shutdown', async () => {
-    vi.useFakeTimers();
-    const activity = new ActivityTracker();
+  it('defers exactly one update through a separate process activity lease, including a short begin/end transition', async () => {
+    const root = await temporaryDirectory();
+    const profileDirectory = path.join(root, 'tunnel-client');
+    await mkdir(profileDirectory, { recursive: true });
+    const activity = await startActivityFixture(root, profileDirectory);
     const install = vi.fn();
-    const coordinator = new UpdateInstallCoordinator({
-      activeCallCount: (): number => activity.listInFlight().length,
-      activityRevision: (): number => activity.revision(),
-      install,
-      quietPeriodMs: 30,
-      pollIntervalMs: 5,
-    });
-    const firstCall = await activity.begin('search_text', { workspaceId: 'workspace-1' });
-    coordinator.requestInstall();
-    await vi.advanceTimersByTimeAsync(100);
-    expect(install).not.toHaveBeenCalled();
-    await activity.end(firstCall, 'SUCCESS', 1);
-    await vi.advanceTimersByTimeAsync(10);
-    const transient = await activity.begin('read_file', { workspaceId: 'workspace-1' });
-    await activity.end(transient, 'SUCCESS', 1);
-    await vi.advanceTimersByTimeAsync(5);
-    await vi.advanceTimersByTimeAsync(29);
-    expect(install).not.toHaveBeenCalled();
-    await vi.advanceTimersByTimeAsync(1);
-    expect(install).toHaveBeenCalledOnce();
-    coordinator.requestInstall();
-    coordinator.cancel();
-    await vi.advanceTimersByTimeAsync(100);
-    expect(install).toHaveBeenCalledOnce();
+    try {
+      const initialized = JSON.parse(await readFile(sharedActivitySnapshotPath(profileDirectory), 'utf8')) as { owner: { pid: number; processStartedAt: string } };
+      expect(initialized.owner.pid).toBe(activity.child.pid);
+      const sharedActivitySnapshot = async (): Promise<UpdateSharedActivitySnapshot> => {
+        const observation = await readSharedActivitySnapshot({ profileDirectory, inspectProcess: async (pid) => pid === activity.child.pid ? { state: 'live', processStartedAt: initialized.owner.processStartedAt } : { state: 'gone' } });
+        return observation.state === 'available'
+          ? { state: 'available' as const, activeCallCount: observation.activeCount, revision: observation.revision, ownerKey: `${observation.owner.pid}:${observation.owner.processStartedAt}` }
+          : observation;
+      };
+      const coordinator = new UpdateInstallCoordinator({ activeCallCount: (): number => 0, tunnelRunning: async (): Promise<boolean> => true, sharedActivitySnapshot, install, quietPeriodMs: 60, pollIntervalMs: 10 });
+      await activity.command('BEGIN');
+      coordinator.requestInstall();
+      await delay(120);
+      expect(install).not.toHaveBeenCalled();
+      await activity.command('END');
+      await delay(25);
+      await activity.command('BEGIN');
+      await activity.command('END');
+      await delay(45);
+      expect(install).not.toHaveBeenCalled();
+      await waitUntil(() => install.mock.calls.length === 1, 500);
+      expect(install).toHaveBeenCalledOnce();
+    } finally {
+      await activity.close();
+    }
+  });
+
+  it('probes TunnelController against a real ephemeral HTTP /healthz endpoint', async () => {
+    const root = await temporaryDirectory();
+    vi.stubEnv('APPDATA', path.join(root, 'appdata'));
+    const profile = path.join(root, 'appdata', 'tunnel-client');
+    await mkdir(profile, { recursive: true });
+    let requested = '';
+    const server = createHttpServer((request, response) => { requested = request.url ?? ''; response.writeHead(200, { 'content-type': 'application/json' }); response.end('{"status":"live"}'); });
+    await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+    const address = server.address();
+    if (address === null || typeof address === 'string') throw new Error('ephemeral health server did not bind');
+    await writeFile(path.join(profile, 'lnwjud.yaml'), 'health:\n  listen_addr: "127.0.0.1:0"\n', 'utf8');
+    await writeFile(path.join(profile, 'lnwjud-tunnel.log'), `health server listening at 127.0.0.1:${address.port}\n`, 'utf8');
+    try {
+      const controller = new TunnelController({ getClientPath: (): null => null, setClientPath: (): void => undefined, getDataPath: (): string => root });
+      await expect(controller.incidentHealth()).resolves.toMatchObject({ state: 'live' });
+      expect(requested).toBe('/healthz');
+    } finally { await new Promise<void>((resolve, reject) => server.close((error) => error === undefined ? resolve() : reject(error))); }
   });
 
   it('captures lifecycle-precedence classifications and a bounded, redacted incident export through the production correlator', async () => {
@@ -144,8 +209,8 @@ describe('session resilience acceptance', () => {
       triggeredByUser: true,
       appVersion: 'password=acceptance-secret',
       tunnelClientVersion: null,
-      tunnel: { state: 'running', source: 'acceptance', message: 'Authorization: Bearer acceptance-token', health: { state: 'live', message: null } },
-      updaterEvents: Array.from({ length: 250 }, () => `token=acceptance-token ${'x'.repeat(600)}`),
+      tunnel: { state: 'running', source: 'desktop', message: 'Authorization: Bearer acceptance-token', health: { state: 'live', message: null } },
+      updaterEvents: Array.from({ length: 250 }, (_, index) => `update-downloaded:4.0.${index}`),
       logLines: remote.__lines,
     }, {
       choosePath: async () => path.join(await temporaryDirectory(), 'incident.json'),
@@ -154,9 +219,22 @@ describe('session resilience acceptance', () => {
     expect(outcome).toMatchObject({ exported: true, cancelled: false, classification: 'remote_turn_stopped' });
     expect(exported).not.toContain('acceptance-secret');
     expect(exported).not.toContain('acceptance-token');
-    const parsed = JSON.parse(exported) as { updaterEventTail: string[] };
+    const parsed = JSON.parse(exported) as { updaterEventTail: Array<{ category: string; version?: string }> };
     expect(parsed.updaterEventTail).toHaveLength(200);
-    expect(parsed.updaterEventTail.every((line) => line.length <= 512)).toBe(true);
+    expect(parsed.updaterEventTail.every((event) => event.category === 'update-downloaded' && event.version !== undefined)).toBe(true);
+  });
+
+  it('runs the production incident save workflow through cancel, error, and atomic success', async () => {
+    const root = await temporaryDirectory();
+    const report = await incidentReport({ resultCode: 'SUCCESS', triggeredByUser: true, health: 'live' });
+    const cancelled = new IncidentSaveCoordinator({ capture: async (): Promise<typeof report> => report, choosePath: async (): Promise<null> => null, write: atomicWrite });
+    await expect(cancelled.captureAndSave()).resolves.toMatchObject({ exported: false, cancelled: true });
+    const failed = new IncidentSaveCoordinator({ capture: async (): Promise<typeof report> => report, choosePath: async (): Promise<string> => path.join(root, 'missing', 'incident.json'), write: atomicWrite });
+    await expect(failed.captureAndSave()).rejects.toThrow();
+    const destination = path.join(root, 'incident.json');
+    const saved = new IncidentSaveCoordinator({ capture: async (): Promise<typeof report> => report, choosePath: async (): Promise<string> => destination, write: atomicWrite });
+    await expect(saved.captureAndSave()).resolves.toMatchObject({ exported: true, cancelled: false });
+    expect(JSON.parse(await readFile(destination, 'utf8'))).toMatchObject({ schemaVersion: 1, classification: 'remote_turn_stopped' });
   });
 
   it('keeps the acceptance, operator, and composed resilience surfaces free of fixed nonzero listener ports', async () => {
@@ -193,7 +271,7 @@ async function incidentReport(options: { resultCode: 'SUCCESS' | 'FAILED'; trigg
     triggeredByUser: options.triggeredByUser,
     appVersion: 'acceptance',
     tunnelClientVersion: null,
-    tunnel: { state: 'running', source: 'acceptance', message: null, health: { state: options.health, message: null } },
+    tunnel: { state: 'running', source: 'desktop', message: null, health: { state: options.health, message: null } },
     updaterEvents: [],
     logLines: lines,
   });
@@ -236,7 +314,7 @@ async function startPowerShellHolder(profileDirectory: string, releaseSignal: st
   const script = `
     . '${quote(lockHelper)}'
     $started = (Get-CimInstance Win32_Process -Filter "ProcessId = $PID").CreationDate.ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ss.fffZ', [Globalization.CultureInfo]::InvariantCulture)
-    $claim = Enter-LnwjudTunnelLock -ProfileDir '${quote(profileDirectory)}' -OwnerPid $PID -OwnerStartedAt $started -ProcessStartProvider { param($id) $p=Get-CimInstance Win32_Process -Filter "ProcessId = $id" -ErrorAction SilentlyContinue; if($null -ne $p){$p.CreationDate.ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ss.fffZ',[Globalization.CultureInfo]::InvariantCulture)} }
+    $claim = Enter-LnwjudTunnelLock -ProfileDir '${quote(profileDirectory)}' -OwnerPid $PID -OwnerStartedAt $started -ProcessStartProvider { param($id) try { $p=Get-CimInstance Win32_Process -Filter "ProcessId = $id" -ErrorAction Stop; if($null -eq $p){[pscustomobject]@{state='gone'}}else{[pscustomobject]@{state='live';processStartedAt=$p.CreationDate.ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ss.fffZ',[Globalization.CultureInfo]::InvariantCulture)}} } catch {[pscustomobject]@{state='unverifiable';reason='process_probe_failed'}} }
     Write-Output "READY:\${PID}:$($claim.acquired)"
     [Console]::Out.Flush()
     while(-not (Test-Path -LiteralPath '${quote(releaseSignal)}')) { Start-Sleep -Milliseconds 10 }
@@ -254,10 +332,14 @@ async function startPowerShellHolder(profileDirectory: string, releaseSignal: st
 }
 
 async function waitForExit(child: ChildProcess): Promise<void> {
-  if (child.exitCode !== null) return;
+  if (child.exitCode !== null || child.signalCode !== null) return;
   await new Promise<void>((resolve, reject) => {
-    const timer = setTimeout(() => { reject(new Error('PowerShell lock holder did not exit')); }, 3_000);
-    child.once('exit', () => { clearTimeout(timer); resolve(); });
+    const onExit = (): void => { clearTimeout(timer); resolve(); };
+    const timer = setTimeout(() => {
+      child.off('exit', onExit);
+      reject(new Error('Fixture process did not exit'));
+    }, 3_000);
+    child.once('exit', onExit);
   });
 }
 
@@ -278,4 +360,77 @@ function findFixedListenerBindings(sources: readonly string[]): string[] {
     if (/listen_addr\s*:\s*["']?(?:127\.0\.0\.1|localhost):[1-9]\d*/i.test(source)) findings.push('health-listen-addr');
   }
   return findings;
+}
+
+interface ActivityFixture {
+  readonly child: ChildProcess;
+  command(command: 'BEGIN' | 'END'): Promise<void>;
+  close(): Promise<void>;
+}
+
+async function startActivityFixture(root: string, profileDirectory: string): Promise<ActivityFixture> {
+  const entryPath = path.join(root, 'activity-fixture.ts');
+  const bundlePath = path.join(root, 'activity-fixture.mjs');
+  const trackerPath = path.join(repositoryRoot, 'packages', 'mcp-server', 'src', 'activity-tracker.ts').replace(/\\/g, '/');
+  const snapshotPath = path.join(repositoryRoot, 'packages', 'mcp-server', 'src', 'shared-activity-snapshot.ts').replace(/\\/g, '/');
+  await writeFile(entryPath, `
+    import { createInterface } from 'node:readline';
+    import { ActivityTracker } from '${trackerPath}';
+    import { SharedActivitySnapshotLease, currentSharedActivityOwner } from '${snapshotPath}';
+    const profileDirectory = process.argv[2];
+    const lease = new SharedActivitySnapshotLease({ profileDirectory, owner: await currentSharedActivityOwner(), heartbeatMs: 25 });
+    const tracker = new ActivityTracker(lease);
+    await lease.initialize();
+    let callId = null;
+    console.log('READY');
+    const lines = createInterface({ input: process.stdin });
+    lines.on('line', async (line) => {
+      if (line === 'BEGIN') callId = await tracker.begin('fixture_tool', { workspaceId: 'fixture' });
+      if (line === 'END' && callId !== null) { await tracker.end(callId, 'SUCCESS', 1); callId = null; }
+      if (line === 'CLOSE') { await lease.close(); console.log('DONE:CLOSE'); process.exit(0); return; }
+      console.log('DONE:' + line);
+    });
+  `, 'utf8');
+  await build({ entryPoints: [entryPath], outfile: bundlePath, bundle: true, platform: 'node', format: 'esm', target: 'node24', logLevel: 'silent' });
+  const child = spawn(process.execPath, [bundlePath, profileDirectory], { windowsHide: true, stdio: ['pipe', 'pipe', 'pipe'] });
+  fixtureProcesses.add(child);
+  child.stdout!.setEncoding('utf8');
+  child.stderr!.setEncoding('utf8');
+  let output = '';
+  let errors = '';
+  child.stdout!.on('data', (chunk: string) => { output += chunk; });
+  child.stderr!.on('data', (chunk: string) => { errors += chunk; });
+  await waitUntil(() => output.includes('READY') || child.exitCode !== null, 5_000);
+  if (child.exitCode !== null) throw new Error(`activity fixture exited early: ${errors || output}`);
+  return {
+    child,
+    command: async (command): Promise<void> => {
+      const priorDone = (output.match(/DONE:/g) ?? []).length;
+      child.stdin!.write(`${command}\n`);
+      await waitUntil(() => (output.match(/DONE:/g) ?? []).length > priorDone, 2_000);
+    },
+    close: async (): Promise<void> => {
+      if (child.exitCode !== null) return;
+      child.stdin!.write('CLOSE\n');
+      await waitForExit(child);
+    },
+  };
+}
+
+function deferred<T>(): { readonly promise: Promise<T>; readonly resolve: (value: T | PromiseLike<T>) => void } {
+  let resolve!: (value: T | PromiseLike<T>) => void;
+  const promise = new Promise<T>((resolver) => { resolve = resolver; });
+  return { promise, resolve };
+}
+
+function delay(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function waitUntil(predicate: () => boolean, timeoutMs: number): Promise<void> {
+  const started = Date.now();
+  while (!predicate()) {
+    if (Date.now() - started > timeoutMs) throw new Error('Timed out waiting for fixture state');
+    await delay(10);
+  }
 }

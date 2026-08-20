@@ -96,13 +96,6 @@ function Test-LnwjudTunnelRunning {
   return [bool]$probe
 }
 
-function Get-LnwjudTunnelProcessStart {
-  param([Parameter(Mandatory = $true)][int]$OwnerPid)
-  $ownerProcess = Get-CimInstance Win32_Process -Filter "ProcessId = $OwnerPid" -ErrorAction SilentlyContinue
-  if ($null -eq $ownerProcess) { return $null }
-  return $ownerProcess.CreationDate.ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ss.fffZ', [Globalization.CultureInfo]::InvariantCulture)
-}
-
 function Test-LnwjudTunnelStopRequested {
   if ($env:LNWJUD_TUNNEL_STOP -eq '1' -or $env:LNWJUD_TUNNEL_STOP -eq 'true') { return $true }
   return Test-Path -LiteralPath $stopFile
@@ -119,28 +112,30 @@ function Get-LnwjudTunnelExitHint {
   return (' -- ' + $compact)
 }
 
-# A leftover stop file from a previous session must not block the next start.
-if (Test-Path -LiteralPath $stopFile) {
-  Remove-Item -LiteralPath $stopFile -Force -ErrorAction SilentlyContinue
-}
-
 # Full-access mode: all fixed drives, cmd/powershell/npm.cmd allowed (delete commands stay blocked).
 $env:LNWJUD_UNRESTRICTED = '1'
 # Align with the desktop app data path so tool activity appears in the Work Log / Live Logs.
 if (-not $env:LNWJUD_DATA_PATH) { $env:LNWJUD_DATA_PATH = Join-Path $env:APPDATA 'lnwjud' }
 # Long connection ceiling so ChatGPT does not drop every 10 minutes (tunnel-client default).
 $env:MCP_CONNECTION_MAX_TTL = $mcpTtl
+$env:TUNNEL_CLIENT_PROFILE_DIR = $profileDir
 
 . (Join-Path $PSScriptRoot 'lib\lnwjud-tunnel-lock.ps1')
 $lockOwner = $null
 $keyPointer = $null
 try {
-  $lockClaim = Enter-LnwjudTunnelLock -ProfileDir $profileDir -OwnerPid $PID -OwnerStartedAt (Get-LnwjudTunnelProcessStart -OwnerPid $PID) -ProcessStartProvider { param($ownerPid) Get-LnwjudTunnelProcessStart -OwnerPid $ownerPid }
+  $selfProbe = Get-LnwjudTunnelProcessProbe -OwnerPid $PID
+  if ($selfProbe.state -ne 'live') { throw "Could not verify launcher process ownership: $($selfProbe.reason)" }
+  $lockClaim = Enter-LnwjudTunnelLock -ProfileDir $profileDir -OwnerPid $PID -OwnerStartedAt $selfProbe.processStartedAt -ProcessStartProvider { param($ownerPid) Get-LnwjudTunnelProcessProbe -OwnerPid $ownerPid }
   if (-not $lockClaim.acquired) {
     Write-Host ("lnwjud tunnel is already owned by PID {0} (started {1})." -f $lockClaim.owner.pid, $lockClaim.owner.processStartedAt)
     exit 0
   }
   $lockOwner = $lockClaim.owner
+  # Only the winning owner may clear a previous session's stop marker.
+  if ((Test-LnwjudTunnelLockOwner -Left $lockOwner -Right $lockClaim.owner) -and (Test-Path -LiteralPath $stopFile)) {
+    Remove-Item -LiteralPath $stopFile -Force -ErrorAction Stop
+  }
   if ($ForceRestart) { Write-Host 'lnwjud tunnel: -ForceRestart cannot bypass the ownership lock.' }
   if (Test-LnwjudTunnelRunning) { Write-Host 'lnwjud tunnel: existing tunnel-client process detected as status evidence; the lock remains authoritative.' }
 
@@ -203,5 +198,9 @@ try {
 finally {
   if ($null -ne $keyPointer) { [Runtime.InteropServices.Marshal]::ZeroFreeBSTR($keyPointer) }
   Remove-Item Env:CONTROL_PLANE_API_KEY -ErrorAction SilentlyContinue
-  if ($null -ne $lockOwner) { [void](Release-LnwjudTunnelLock -ProfileDir $profileDir -Owner $lockOwner) }
+  Remove-Item Env:TUNNEL_CLIENT_PROFILE_DIR -ErrorAction SilentlyContinue
+  if ($null -ne $lockOwner) {
+    $released = Release-LnwjudTunnelLock -ProfileDir $profileDir -Owner $lockOwner
+    if (-not $released) { throw 'Tunnel ownership release could not be confirmed; the lock was retained for retry' }
+  }
 }

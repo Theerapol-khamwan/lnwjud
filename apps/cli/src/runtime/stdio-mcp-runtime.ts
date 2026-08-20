@@ -39,7 +39,7 @@ import {
   createLocalExtensionsService,
   type ExtensionsService,
 } from '@lnwjud/extensions';
-import { ActivityTracker, composeActivitySinks, createFileActivitySink, mcpActivityLogPath, type ActivitySinkEvent, type McpApplicationServices } from '@lnwjud/mcp-server';
+import { ActivityTracker, SharedActivitySnapshotLease, composeActivitySinks, createFileActivitySink, currentSharedActivityOwner, mcpActivityLogPath, type ActivitySink, type ActivitySinkEvent, type McpApplicationServices } from '@lnwjud/mcp-server';
 import { permissionProfiles } from '@lnwjud/permissions';
 import {
   SqliteAuditRepository,
@@ -55,6 +55,7 @@ export interface StdioMcpRuntime {
   readonly actor: FileActor;
   readonly extensions: ExtensionsService;
   readonly activityTracker: ActivityTracker;
+  readonly activityReady: Promise<void>;
   close(): Promise<void>;
 }
 
@@ -105,7 +106,14 @@ export function createStdioMcpRuntime(dataPath: string, workspace: Workspace, un
     return roots;
   }, unrestricted);
   const actor: FileActor = { clientId: 'cli-mcp-stdio', clientName: 'lnwjud cli MCP' };
-  const activityTracker = new ActivityTracker(composeActivitySinks([
+  const sharedActivityLease = createSharedActivityLease(process.env.TUNNEL_CLIENT_PROFILE_DIR);
+  const activityReady = sharedActivityLease.then(async (lease) => lease?.initialize());
+  const sharedActivitySink: ActivitySink = {
+    async record(event: ActivitySinkEvent): Promise<void> {
+      await (await sharedActivityLease)?.record(event);
+    },
+  };
+  const durableActivitySink = composeActivitySinks([
     createFileActivitySink(mcpActivityLogPath(dataPath)),
     {
       async record(event: ActivitySinkEvent): Promise<void> {
@@ -126,7 +134,16 @@ export function createStdioMcpRuntime(dataPath: string, workspace: Workspace, un
         });
       },
     },
-  ]));
+  ]);
+  const activityTracker = new ActivityTracker({
+    async record(event: ActivitySinkEvent): Promise<void> {
+      // Publish starts before slower durable evidence so updater quiet-time
+      // cannot overlap a newly accepted remote call. Publish completion last.
+      await composeActivitySinks(event.phase === 'started'
+        ? [sharedActivitySink, durableActivitySink]
+        : [durableActivitySink, sharedActivitySink]).record(event);
+    },
+  });
   const services: McpApplicationServices = {
     runtimeStatePath: path.join(dataPath, 'upgrade-runtime.json'),
     capabilities: capabilityService,
@@ -153,12 +170,19 @@ export function createStdioMcpRuntime(dataPath: string, workspace: Workspace, un
     actor,
     extensions,
     activityTracker,
+    activityReady,
     close: async (): Promise<void> => {
+      await (await sharedActivityLease)?.close();
       await extensions.close().catch(() => undefined);
       await workspaceIndex.close().catch(() => undefined);
       database.close();
     },
   };
+}
+
+async function createSharedActivityLease(profileDirectory: string | undefined): Promise<SharedActivitySnapshotLease | null> {
+  if (profileDirectory === undefined || profileDirectory.trim().length === 0) return null;
+  return new SharedActivitySnapshotLease({ profileDirectory: path.resolve(profileDirectory), owner: await currentSharedActivityOwner() });
 }
 
 function createStdioCapabilityService(

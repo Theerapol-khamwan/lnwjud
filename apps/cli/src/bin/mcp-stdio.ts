@@ -96,6 +96,7 @@ async function main(): Promise<void> {
 
   const primary = workspace;
   const runtime = createStdioMcpRuntime(dataPath, primary, unrestricted);
+  await runtime.activityReady;
   process.stderr.write(`lnwjud MCP stdio ready primary=${primary.id} root=${primary.realRootPath}${unrestricted ? ' unrestricted=1' : ''}\n`);
 
   let shuttingDown = false;

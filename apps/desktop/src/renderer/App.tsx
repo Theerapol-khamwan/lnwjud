@@ -37,6 +37,8 @@ export function App(): ReactElement {
   const [incidentClassification, setIncidentClassification] = useState<IncidentClassification | null>(null);
   const [incidentCapturedAt, setIncidentCapturedAt] = useState<string | null>(null);
   const [incidentNotice, setIncidentNotice] = useState<string | null>(null);
+  const [incidentBusy, setIncidentBusy] = useState(false);
+  const incidentBusyRef = useRef(false);
   const logIds = useRef<Set<number>>(new Set());
 
   const t = createTranslator(locale);
@@ -95,6 +97,9 @@ export function App(): ReactElement {
   }
 
   async function captureIncident(): Promise<void> {
+    if (incidentBusyRef.current) return;
+    incidentBusyRef.current = true;
+    setIncidentBusy(true);
     try {
       const result = await window.lnwjud.captureIncident();
       if (result.exported && !result.cancelled) {
@@ -106,6 +111,9 @@ export function App(): ReactElement {
       }
     } catch (cause: unknown) {
       setError(errorMessage(cause, t('error.logExport')));
+    } finally {
+      incidentBusyRef.current = false;
+      setIncidentBusy(false);
     }
   }
 
@@ -282,6 +290,7 @@ export function App(): ReactElement {
           onStopTunnel={stopTunnel}
           onClearWorkLog={clearWorkLog}
           onCaptureIncident={captureIncident}
+          incidentBusy={incidentBusy}
           incidentClassification={incidentClassification}
           incidentCapturedAt={incidentCapturedAt}
           incidentNotice={incidentNotice}
@@ -319,6 +328,7 @@ export function App(): ReactElement {
           onExport={exportLogSource}
           onPopOut={popOutLogViewer}
           onCaptureIncident={captureIncident}
+          incidentBusy={incidentBusy}
           incidentClassification={incidentClassification}
           incidentCapturedAt={incidentCapturedAt}
           incidentNotice={incidentNotice}

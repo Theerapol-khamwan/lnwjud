@@ -6,6 +6,7 @@ export * from './parallel-tool-executor.js';
 export * from './progress-heartbeat.js';
 export * from './result-mapper.js';
 export * from './server.js';
+export * from './shared-activity-snapshot.js';
 export * from './stdio.js';
 export * from './tool-registry.js';
 export * from './plugin-sdk.js';

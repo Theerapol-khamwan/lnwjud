@@ -140,6 +140,32 @@ describe('incident classification', () => {
     ]);
     expect(classifyIncident(evidence({ logLines })).classification).toBe('local_tool_failed');
   });
+
+  it('does not let an old disconnect win after explicit reconnect, later success, and current live health', () => {
+    const logLines: IncidentEvidence['logLines'] = [
+      { id: 1, source: 'tunnel', text: 'transport stopped', timestamp: timestamp(1), correlation: { kind: 'tunnel', lifecycle: 'transport_stopped' } },
+      { id: 2, source: 'tunnel', text: 'transport connected', timestamp: timestamp(2), correlation: { kind: 'tunnel', lifecycle: 'transport_live' } },
+      started('recovered', 'read_file', 3),
+      completed('recovered', 'SUCCESS', 'read_file', 4),
+    ];
+    expect(classifyIncident(evidence({ logLines }))).toMatchObject({ classification: 'remote_turn_stopped' });
+  });
+
+  it('keeps a current disconnect after a later successful call ahead of remote attribution', () => {
+    const logLines: IncidentEvidence['logLines'] = [
+      started('successful', 'read_file', 1), completed('successful', 'SUCCESS', 'read_file', 2),
+      { id: 3, source: 'tunnel', text: 'transport stopped', timestamp: timestamp(3), correlation: { kind: 'tunnel', lifecycle: 'transport_stopped' } },
+    ];
+    expect(classifyIncident(evidence({ logLines }))).toMatchObject({ classification: 'tunnel_disconnected' });
+  });
+
+  it('remains conservative when recovery lacks a later successful terminal call', () => {
+    const logLines: IncidentEvidence['logLines'] = [
+      { id: 1, source: 'tunnel', text: 'ttl expired', timestamp: timestamp(1), correlation: { kind: 'tunnel', lifecycle: 'ttl_expired' } },
+      { id: 2, source: 'tunnel', text: 'transport connected', timestamp: timestamp(2), correlation: { kind: 'tunnel', lifecycle: 'transport_live' } },
+    ];
+    expect(classifyIncident(evidence({ logLines }))).toMatchObject({ classification: 'tunnel_disconnected' });
+  });
 });
 
 describe('incident correlation and privacy', () => {
@@ -258,6 +284,7 @@ describe('incident correlation and privacy', () => {
     expect(report.tunnelLogTail).toEqual([
       expect.objectContaining({ lifecycle: 'stdio_stopped' }),
     ]);
+    expect(report.tunnelLogTail[0]).not.toHaveProperty('text');
   });
 
   it('parses bounded tunnel instance and request ids despite malformed lines', () => {
@@ -281,6 +308,59 @@ describe('incident correlation and privacy', () => {
     expect(serialized).not.toContain('--api-key');
     expect(serialized).not.toContain('--token');
     for (const secret of ['Basic dXNlcjpwYXNz', 'Bearer abc.def.ghi', 'token=very-secret', '"apiKey":"json-secret"', 'X-Api-Key: newline-secret', 'newline-secret']) expect(serialized).not.toContain(secret);
+  });
+
+  it('uses only explicitly trusted PIDs and reports a reason when none are available', async () => {
+    let collectedWith: readonly number[] = [];
+    const report = await buildIncidentReport(evidence({
+      relevantPids: [21, 22, 21],
+      logLines: [{ source: 'tunnel', text: 'untrusted pid', timestamp: timestamp(1), correlation: { kind: 'tunnel', lifecycle: 'other', pid: 9999 } }],
+      collectProcessTree: async (pids) => { collectedWith = pids; return [{ pid: 21, parentPid: null, executable: 'tunnel-client.exe' }, { pid: 23, parentPid: 21, executable: 'node.exe' }]; },
+      collectListeners: async (pids) => pids.map((pid) => ({ pid, address: '127.0.0.1', port: 0, owner: 'must-never-export --token marker_owner' })),
+    }));
+    expect(collectedWith).toEqual([21, 22]);
+    expect(report.processTree).toMatchObject({ available: true, entries: [{ pid: 21 }, { pid: 23 }] });
+    expect(report.tcpListeners.entries.map((entry) => entry.pid)).toEqual([21, 22, 23]);
+    expect(JSON.stringify(report)).not.toContain('marker_owner');
+    expect(report.tcpListeners.entries[0]).not.toHaveProperty('owner');
+
+    const unavailable = await buildIncidentReport(evidence({ relevantPids: [], relevantPidUnavailableReason: 'no_verified_tunnel_pid', collectProcessTree: async () => { throw new Error('must not collect'); }, collectListeners: async () => { throw new Error('must not collect'); } }));
+    expect(unavailable.processTree).toEqual({ available: false, entries: [], error: 'no_verified_tunnel_pid' });
+    expect(unavailable.tcpListeners).toEqual({ available: false, entries: [], error: 'no_verified_tunnel_pid' });
+  });
+
+  it('structurally excludes raw command, environment, owner, and tunnel text fields', async () => {
+    const marker = 'unique_structural_secret_marker';
+    const report = await buildIncidentReport(evidence({
+      relevantPids: [20],
+      updaterEvents: [`error:${marker}`, `update-downloaded:1.2.3`],
+      logLines: [{ source: 'tunnel', timestamp: timestamp(1), text: `commandLine --api-key ${marker}`, correlation: { kind: 'tunnel', lifecycle: 'other', instanceId: 'safe-instance' } }],
+      collectProcessTree: async () => [{ pid: 20, parentPid: null, executable: 'tunnel-client.exe', commandLine: `--token=${marker}`, environment: { CONTROL_PLANE_API_KEY: marker } } as never],
+      collectListeners: async () => [{ pid: 20, address: '127.0.0.1', port: 18444, owner: `Bearer ${marker}` }],
+    }));
+    const serialized = JSON.stringify(report);
+    expect(serialized).not.toContain(marker);
+    expect(serialized).not.toMatch(/"(?:commandLine|environment|owner|text)"/);
+    expect(report.updaterEventTail).toEqual([{ category: 'error' }, { category: 'update-downloaded', version: '1.2.3' }]);
+  });
+
+  it('redacts CLI, prefixed environment, quoted, and arbitrary authorization credential forms', async () => {
+    const markers = Array.from({ length: 10 }, (_, index) => `unique_cli_marker_${index}`);
+    const credentialForms = [
+      `--api-key ${markers[0]}`,
+      `--token=${markers[1]}`,
+      `--client-secret "${markers[2]}"`,
+      `CONTROL_PLANE_API_KEY=${markers[3]}`,
+      `MY_REFRESH_TOKEN='${markers[4]}'`,
+      `UPSTREAM_ACCESS_TOKEN=${markers[5]}`,
+      `OIDC_ID_TOKEN=${markers[6]}`,
+      `SERVICE_CLIENT_SECRET=${markers[7]}`,
+      `Authorization: Digest ${markers[8]}`,
+      `Authorization=Custom-Scheme ${markers[9]}`,
+    ];
+    const report = await buildIncidentReport(evidence({ updaterEvents: credentialForms, tunnel: { ...healthyTunnel, message: credentialForms.join('; ') } }));
+    const serialized = JSON.stringify(report);
+    for (const marker of markers) expect(serialized).not.toContain(marker);
   });
 
   it('redacts every supported credential spelling and serialization context', async () => {
@@ -342,6 +422,7 @@ describe('incident correlation and privacy', () => {
 
   it('keeps a usable report when read-only collectors fail', async () => {
     const report = await buildIncidentReport(evidence({
+      relevantPids: [20],
       collectProcessTree: async () => { throw new Error('access denied'); },
       collectListeners: async () => { throw new Error('netstat denied'); },
     }));

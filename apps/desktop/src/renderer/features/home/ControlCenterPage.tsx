@@ -18,6 +18,7 @@ interface ControlCenterPageProps {
   readonly onStopTunnel: () => Promise<void>;
   readonly onClearWorkLog: () => Promise<void>;
   readonly onCaptureIncident: () => Promise<void>;
+  readonly incidentBusy: boolean;
   readonly incidentClassification: IncidentClassification | null;
   readonly incidentCapturedAt: string | null;
   readonly incidentNotice: string | null;
@@ -61,7 +62,7 @@ export function ControlCenterPage(props: ControlCenterPageProps): ReactElement {
         </div>
         <div className="heading-actions">
           <button type="button" onClick={() => { void props.onRefresh(); }}>{t('action.refresh')}</button>
-          <button type="button" onClick={() => { void props.onCaptureIncident(); }}>{t('live.captureIncident')}</button>
+          <button type="button" disabled={props.incidentBusy} onClick={() => { void props.onCaptureIncident(); }}>{t('live.captureIncident')}</button>
           <button type="button" disabled={props.mcpBusy || !dashboard.mcp.running} onClick={() => { void props.onStopMcp(); }}>
             {t('action.stop')}
           </button>
@@ -70,7 +71,7 @@ export function ControlCenterPage(props: ControlCenterPageProps): ReactElement {
           </button>
         </div>
       </div>
-      {props.incidentNotice === null && props.incidentClassification === null ? null : <p role="status" className="hint">{props.incidentNotice ?? `${incidentLabel(t, props.incidentClassification!)} · ${props.incidentCapturedAt ?? ''}`}</p>}
+      {!props.incidentBusy && props.incidentNotice === null && props.incidentClassification === null ? null : <p role="status" className="hint">{props.incidentBusy ? t('live.incident.capturing') : props.incidentNotice ?? `${incidentLabel(t, props.incidentClassification!)} · ${props.incidentCapturedAt ?? ''}`}</p>}
 
       <section className="panel agent-status-panel" aria-label={agentLabel}>
         <div className={`agent-orb ${dashboard.agentState}`} data-testid="agent-state" />

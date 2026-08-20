@@ -426,6 +426,7 @@ export function createDesktopRuntime(dataPath: string, options: DesktopRuntimeOp
     captureIncident: async (updaterEvents: readonly string[] = []): Promise<IncidentReport> => {
       const tunnel = await tunnelController.status();
       const tunnelClientVersion = await tunnelController.clientVersion();
+      const relevantPids = await tunnelController.incidentRelevantPids();
       return buildIncidentReport({
         triggeredByUser: true,
         appVersion: APP_VERSION,
@@ -434,6 +435,8 @@ export function createDesktopRuntime(dataPath: string, options: DesktopRuntimeOp
         tunnel: { state: tunnel.state, source: tunnel.source, message: tunnel.message, health: await tunnelController.incidentHealth() },
         updaterEvents,
         logLines: logHub.snapshot().lines,
+        relevantPids: relevantPids.pids,
+        ...(relevantPids.unavailableReason === null ? {} : { relevantPidUnavailableReason: relevantPids.unavailableReason }),
         collectProcessTree: collectRelevantProcessTree,
         collectListeners: collectRelevantListeners,
       });
@@ -507,15 +510,14 @@ export function createDesktopRuntime(dataPath: string, options: DesktopRuntimeOp
       return mcpLifecycle.start(selected.id);
     },
     close: async (): Promise<void> => {
-      try {
-        logHub.stop();
-        await mcpLifecycle.close();
-        await tunnelController.stopOwned().catch(() => undefined);
-      } finally {
-        await extensionsService.close().catch(() => undefined);
-        await workspaceIndex.close().catch(() => undefined);
-        database.close();
-      }
+      // Keep the rest of the runtime usable when the owned tunnel cannot be
+      // proven stopped. The caller may surface the failure and retry safely.
+      await tunnelController.stopOwned();
+      logHub.stop();
+      await mcpLifecycle.close();
+      await extensionsService.close().catch(() => undefined);
+      await workspaceIndex.close().catch(() => undefined);
+      database.close();
     },
   };
 }

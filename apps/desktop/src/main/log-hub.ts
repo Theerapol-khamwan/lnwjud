@@ -385,6 +385,7 @@ export function normalizeTunnelLifecycle(value: string): TunnelLifecycleCategory
   if (/\bttl\b(?:\s+\w+){0,3}\s+(?:reached|expired|exceeded)\b/.test(normalized)) return 'ttl_expired';
   if (/\bstdio\s+(?:mcp(?:\s+(?:command|process))?|command|process)\s+(?:(?:is|was|has been)\s+)?(?:exited|closed|terminated|stopped)\b/.test(normalized)) return 'stdio_stopped';
   if (/\b(?:requesting\s+)?(?:tunnel(?:\s+client)?|control\s+plane|websocket\s+connection)(?:\s+connection)?\s+(?:(?:is|was|has been)\s+)?(?:shutdown|shutting\s+down|stopping|stopped|disconnected|disconnecting)\b/.test(normalized)) return 'transport_stopped';
+  if (/\b(?:tunnel(?:\s+client)?|control\s+plane|websocket\s+connection)(?:\s+connection)?\s+(?:(?:is|was|has been)\s+)?(?:connected|reconnected|running|live)\b/.test(normalized)) return 'transport_live';
   return 'other';
 }
 
@@ -394,6 +395,7 @@ function normalizeStructuredTunnelLifecycle(values: readonly string[]): TunnelLi
     if (category !== 'other') return category;
     const normalized = value.toLowerCase().replace(/[_./:-]+/g, ' ').replace(/\s+/g, ' ').trim();
     if (/^(?:shutdown|shutting down|stopping|stopped|disconnected|disconnecting)$/.test(normalized)) return 'transport_stopped';
+    if (/^(?:connected|reconnected|running|live)$/.test(normalized)) return 'transport_live';
   }
   return 'other';
 }

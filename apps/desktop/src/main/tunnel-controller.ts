@@ -1,12 +1,13 @@
 import { spawn, type ChildProcess } from 'node:child_process';
 import { existsSync } from 'node:fs';
-import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import { mkdir, open as openFile, readFile, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
-import { createConnection } from 'node:net';
+import { request as httpRequest } from 'node:http';
 import type { TunnelRunState, TunnelStatus } from '@lnwjud/ipc-contracts';
+import { probeProcessStart, type ProcessProbeResult } from '@lnwjud/mcp-server';
 import { formatTunnelExitMessage, tunnelExitHintFromLog } from './tunnel-exit.js';
 import { acquireTunnelLock, type TunnelLockAcquisition, type TunnelLockOwner } from './tunnel-lock.js';
 import { rewriteTunnelYamlMcpCommand } from './tunnel-profile.js';
@@ -21,6 +22,7 @@ const EXTERNAL_PROBE_TTL_MS = 4_000;
 const RESTART_DELAY_MS = 3_000;
 const MAX_AUTO_RESTARTS = 5;
 const RESTART_WINDOW_MS = 30_000;
+const MAX_HEALTH_METADATA_BYTES = 64 * 1024;
 
 export interface TunnelControllerOptions {
   readonly getClientPath: () => string | null;
@@ -28,15 +30,22 @@ export interface TunnelControllerOptions {
   readonly getDataPath: () => string;
   readonly getStdioLauncherPath?: () => string | null;
   readonly isExternalTunnelRunning?: () => Promise<boolean>;
+  readonly verifiedExternalTunnelPids?: () => Promise<readonly number[]>;
   readonly currentLockOwner?: () => Promise<TunnelLockOwner>;
-  readonly inspectLockProcess?: (pid: number) => Promise<string | null>;
+  readonly inspectLockProcess?: (pid: number) => Promise<ProcessProbeResult>;
   readonly stopTimeoutMs?: number;
+  readonly escalationTimeoutMs?: number;
+  readonly terminateOwnedProcessTree?: (pid: number) => Promise<void>;
+  readonly inspectOwnedProcess?: (pid: number) => Promise<ProcessProbeResult>;
+  readonly decryptSecret?: (encrypted: string) => Promise<string>;
   readonly probeHealthEndpoint?: (host: string, port: number) => Promise<boolean>;
+  readonly healthProbeTimeoutMs?: number;
   readonly inspectFileVersion?: (filePath: string) => Promise<string | null>;
 }
 
 export class TunnelController {
   private child: ChildProcess | null = null;
+  private ownedChildStartedAt: string | null = null;
   private state: TunnelRunState = 'stopped';
   private message: string | null = null;
   private externalProbeAt = 0;
@@ -150,52 +159,32 @@ export class TunnelController {
     if (this.child !== null && this.child.exitCode === null) return this.status();
     if (!(await this.ensureTunnelLock())) return this.status();
 
-    const clientPath = this.resolveClientPath();
-    if (clientPath === null || !existsSync(clientPath)) {
-      this.state = 'error';
-      this.message = 'tunnel-client.exe was not found';
-      await this.releaseTunnelLock();
-      return this.status();
-    }
-    if (!(await this.hasApiKey())) {
-      this.state = 'error';
-      this.message = 'Save a Runtime API key first';
-      await this.releaseTunnelLock();
-      return this.status();
-    }
-    if (!existsSync(this.profilePath())) {
-      this.state = 'error';
-      this.message = 'Missing tunnel profile lnwjud.yaml';
-      await this.releaseTunnelLock();
-      return this.status();
-    }
-
-    const apiKey = (await decryptWithDpapi(await readFile(this.secretPath(), 'utf8'))).trim();
-    if (apiKey.length === 0) {
-      this.state = 'error';
-      this.message = 'Saved Runtime API key is empty; save it again in Settings';
-      await this.releaseTunnelLock();
-      return this.status();
-    }
-    this.lastApiKey = apiKey;
-    this.state = 'starting';
-    this.message = null;
-    await mkdir(this.profileDirectory(), { recursive: true });
-    await this.preferPackagedStdioCommand();
-
     try {
+      const clientPath = this.resolveClientPath();
+      if (clientPath === null || !existsSync(clientPath)) throw new Error('tunnel-client.exe was not found');
+      if (!(await this.hasApiKey())) throw new Error('Save a Runtime API key first');
+      if (!existsSync(this.profilePath())) throw new Error('Missing tunnel profile lnwjud.yaml');
+
+      const encryptedSecret = await readFile(this.secretPath(), 'utf8');
+      const apiKey = (await (this.options.decryptSecret?.(encryptedSecret) ?? decryptWithDpapi(encryptedSecret))).trim();
+      if (apiKey.length === 0) throw new Error('Saved Runtime API key is empty; save it again in Settings');
+      this.lastApiKey = apiKey;
+      this.state = 'starting';
+      this.message = null;
+      await mkdir(this.profileDirectory(), { recursive: true });
+      await this.preferPackagedStdioCommand();
       await runTunnelDoctor(clientPath, apiKey, this.profileDirectory(), this.options.getDataPath());
+      this.spawnRun(clientPath, apiKey);
+      this.state = 'running';
+      this.scheduleStableReset();
+      return this.status();
     } catch (error: unknown) {
       this.state = 'error';
-      this.message = error instanceof Error ? error.message : 'tunnel-client doctor failed';
+      this.message = error instanceof Error ? error.message : 'Tunnel setup failed';
+      this.lastApiKey = null;
       await this.releaseTunnelLock();
       return this.status();
     }
-
-    this.spawnRun(clientPath, apiKey);
-    this.state = 'running';
-    this.scheduleStableReset();
-    return this.status();
   }
 
   public async stop(): Promise<TunnelStatus> {
@@ -225,9 +214,51 @@ export class TunnelController {
     this.clearRestartTimer();
     if (this.child !== null) {
       const child = this.child;
+      if (child.exitCode !== null) {
+        if (this.child === child) {
+          this.child = null;
+          this.ownedChildStartedAt = null;
+        }
+        return;
+      }
       if (!child.kill()) throw new Error('Tunnel child did not accept stop signal; ownership retained');
-      await waitForTunnelChildExit(child, this.options.stopTimeoutMs ?? 5_000);
-      if (this.child === child) this.child = null;
+      try {
+        await waitForTunnelChildExit(child, this.options.stopTimeoutMs ?? 5_000);
+      } catch (gracefulError: unknown) {
+        const pid = child.pid;
+        if (!Number.isInteger(pid) || (pid ?? 0) <= 0) throw gracefulError;
+        const inspect = this.options.inspectOwnedProcess ?? probeProcessStart;
+        if (this.ownedChildStartedAt === null) {
+          const identityProbe = await inspect(pid as number);
+          if (identityProbe.state === 'gone') {
+            if (this.child === child) this.child = null;
+            return;
+          }
+          if (identityProbe.state === 'unverifiable') throw new Error(`Tunnel child liveness is unverifiable (${identityProbe.reason}); ownership retained`);
+          throw new Error('Tunnel child process identity was not recorded before shutdown; targeted escalation refused and ownership retained');
+        }
+        const beforeEscalation = await inspect(pid as number);
+        if (beforeEscalation.state === 'gone') {
+          if (this.child === child) this.child = null;
+          return;
+        }
+        if (beforeEscalation.state === 'unverifiable') throw new Error(`Tunnel child liveness is unverifiable (${beforeEscalation.reason}); ownership retained`);
+        if (beforeEscalation.processStartedAt !== this.ownedChildStartedAt) throw new Error('Tunnel child process identity changed; targeted escalation refused and ownership retained');
+        await (this.options.terminateOwnedProcessTree?.(pid as number) ?? terminateWindowsProcessTree(pid as number));
+        try {
+          await waitForTunnelChildExit(child, this.options.escalationTimeoutMs ?? 2_000);
+        } catch {
+          const probe = await inspect(pid as number);
+          if (probe.state === 'unverifiable') {
+            throw new Error(`Tunnel child liveness is unverifiable (${probe.reason}); ownership retained`);
+          }
+          if (probe.state === 'live' && probe.processStartedAt === this.ownedChildStartedAt) throw new Error('Tunnel child remained live after targeted escalation; ownership retained');
+        }
+      }
+      if (this.child === child) {
+        this.child = null;
+        this.ownedChildStartedAt = null;
+      }
     }
   }
 
@@ -235,8 +266,8 @@ export class TunnelController {
     const address = await this.resolveHealthAddress();
     if (address === null) return { state: 'unavailable', message: 'tunnel health endpoint is unavailable from configured profile/log metadata' };
     try {
-      const live = await (this.options.probeHealthEndpoint?.(address.host, address.port) ?? probeLoopbackHealth(address.host, address.port));
-      return live ? { state: 'live', message: 'configured tunnel health endpoint is live' } : { state: 'unhealthy', message: 'configured tunnel health endpoint is unreachable' };
+      const live = await (this.options.probeHealthEndpoint?.(address.host, address.port) ?? probeLoopbackHealth(address.host, address.port, this.options.healthProbeTimeoutMs ?? 1_500));
+      return live ? { state: 'live', message: 'configured tunnel health endpoint is live' } : { state: 'unhealthy', message: 'configured tunnel health endpoint did not return live' };
     } catch {
       return { state: 'unhealthy', message: 'configured tunnel health endpoint probe failed' };
     }
@@ -251,17 +282,30 @@ export class TunnelController {
     } catch { return { value: null, reason: 'file_version_metadata_unavailable' }; }
   }
 
+  public async incidentRelevantPids(): Promise<{ readonly pids: readonly number[]; readonly unavailableReason: string | null }> {
+    const pids = new Set<number>();
+    if (this.child !== null && this.child.exitCode === null && Number.isInteger(this.child.pid) && (this.child.pid ?? 0) > 0) pids.add(this.child.pid as number);
+    if (this.tunnelLock !== null) pids.add(this.tunnelLock.owner.pid);
+    try {
+      const external = await (this.options.verifiedExternalTunnelPids?.() ?? findLnwjudTunnelProcessPids());
+      for (const pid of external) if (Number.isInteger(pid) && pid > 0 && pid <= 2_147_483_647) pids.add(pid);
+    } catch (error: unknown) {
+      if (pids.size === 0) return { pids: [], unavailableReason: error instanceof Error ? `external_tunnel_pid_probe_failed:${error.message}` : 'external_tunnel_pid_probe_failed' };
+    }
+    return pids.size === 0 ? { pids: [], unavailableReason: 'no_verified_tunnel_pid' } : { pids: [...pids], unavailableReason: null };
+  }
+
   private async resolveHealthAddress(): Promise<{ readonly host: string; readonly port: number } | null> {
     try {
-      const profile = await readFile(this.profilePath(), 'utf8');
-      const configured = /health:\s*[\s\S]{0,300}?listen_addr:\s*["']?((?:127\.0\.0\.1|localhost):(\d+))/i.exec(profile);
-      const fromProfile = configured === null ? null : { host: configured[1]!.split(':')[0]!, port: Number(configured[2]) };
-      if (fromProfile !== null && fromProfile.port > 0) return fromProfile;
-      const tail = (await readFile(this.logPath(), 'utf8')).slice(-64 * 1024);
-      const runtime = /health(?: server)?[^\r\n]{0,120}?(?:listening|listen_addr)[^\r\n]{0,120}?((?:127\.0\.0\.1|localhost):(\d{2,5}))/i.exec(tail);
-      if (runtime === null) return null;
-      const [host, port] = runtime[1]!.split(':');
-      return host === undefined || port === undefined ? null : { host, port: Number(port) };
+      const profile = await readBoundedPrefix(this.profilePath(), MAX_HEALTH_METADATA_BYTES);
+      const tail = await readBoundedTail(this.logPath(), MAX_HEALTH_METADATA_BYTES).catch(() => '');
+      const runtimeAddresses = [...tail.matchAll(/health(?: server)?[^\r\n]{0,120}?(?:listening|listen_addr)[^\r\n]{0,120}?((?:127\.0\.0\.1|localhost):(\d{1,5}))/ig)]
+        .map((match) => toHealthAddress(match[1], match[2]))
+        .filter((entry): entry is { readonly host: string; readonly port: number } => entry !== null);
+      const newestRuntime = runtimeAddresses.at(-1);
+      if (newestRuntime !== undefined) return newestRuntime;
+      const configured = /health:\s*[\s\S]{0,300}?listen_addr:\s*["']?((?:127\.0\.0\.1|localhost):(\d{1,5}))/i.exec(profile);
+      return configured === null ? null : toHealthAddress(configured[1], configured[2]);
     } catch { return null; }
   }
 
@@ -289,8 +333,9 @@ export class TunnelController {
 
   private async releaseTunnelLock(): Promise<void> {
     const claim = this.tunnelLock;
-    this.tunnelLock = null;
-    if (claim !== null) await claim.release();
+    if (claim === null) return;
+    if (!(await claim.release())) throw new Error('Tunnel ownership lock release could not be confirmed; ownership retained');
+    if (this.tunnelLock === claim) this.tunnelLock = null;
   }
 
   private spawnRun(clientPath: string, apiKey: string): void {
@@ -312,14 +357,21 @@ export class TunnelController {
       },
     );
     this.child = child;
+    this.ownedChildStartedAt = null;
+    if (Number.isInteger(child.pid) && (child.pid ?? 0) > 0) {
+      const childPid = child.pid as number;
+      void (this.options.inspectOwnedProcess?.(childPid) ?? probeProcessStart(childPid)).then((probe) => {
+        if (this.child === child && probe.state === 'live') this.ownedChildStartedAt = probe.processStartedAt;
+      }).catch(() => undefined);
+    }
     child.on('error', (error) => {
-      if (this.child === child) this.child = null;
+      if (this.child === child) { this.child = null; this.ownedChildStartedAt = null; }
       this.state = 'error';
       this.message = error.message;
       this.scheduleRestart(clientPath);
     });
     child.on('exit', (code) => {
-      if (this.child === child) this.child = null;
+      if (this.child === child) { this.child = null; this.ownedChildStartedAt = null; }
       if (this.intentionalStop) {
         this.state = 'stopped';
         this.message = null;
@@ -506,38 +558,116 @@ function extractExecDetail(error: unknown): string {
 
 async function isLnwjudTunnelProcessRunning(): Promise<boolean> {
   try {
-    const result = await Promise.race([
-      execFileAsync('powershell.exe', [
-        '-NoProfile',
-        '-NonInteractive',
-        '-Command',
-        "@(Get-CimInstance Win32_Process -Filter \"Name = 'tunnel-client.exe'\" -ErrorAction SilentlyContinue | Where-Object { $_.CommandLine -match '(?i)(--profile\\s+lnwjud|lnwjud\\.yaml)' }).Count",
-      ], { windowsHide: true, encoding: 'utf8', timeout: 3_000 }),
-      new Promise<never>((_, reject) => {
-        setTimeout(() => reject(new Error('tunnel process probe timed out')), 3_500);
-      }),
-    ]);
-    return Number(result.stdout.trim()) > 0;
+    return (await findLnwjudTunnelProcessPids()).length > 0;
   } catch {
     return false;
   }
 }
 
-export function waitForTunnelChildExit(child: Pick<ChildProcess, 'exitCode' | 'once'>, timeoutMs = 5_000): Promise<void> {
+async function findLnwjudTunnelProcessPids(): Promise<readonly number[]> {
+  const result = await Promise.race([
+    execFileAsync('powershell.exe', [
+      '-NoProfile',
+      '-NonInteractive',
+      '-Command',
+      "@(Get-CimInstance Win32_Process -Filter \"Name = 'tunnel-client.exe'\" -ErrorAction Stop | Where-Object { $_.CommandLine -match '(?i)(--profile\\s+lnwjud|lnwjud\\.yaml)' } | Select-Object -ExpandProperty ProcessId) -join ','",
+    ], { windowsHide: true, encoding: 'utf8', timeout: 3_000 }),
+    new Promise<never>((_, reject) => {
+      setTimeout(() => reject(new Error('tunnel process probe timed out')), 3_500);
+    }),
+  ]);
+  return result.stdout.trim().split(',').map((value) => Number(value.trim())).filter((pid) => Number.isInteger(pid) && pid > 0 && pid <= 2_147_483_647);
+}
+
+export function waitForTunnelChildExit(child: Pick<ChildProcess, 'exitCode' | 'once' | 'removeListener'>, timeoutMs = 5_000): Promise<void> {
   if (child.exitCode !== null) return Promise.resolve();
   return new Promise((resolve, reject) => {
-    const timer = setTimeout(() => reject(new Error('Tunnel child exit was not observed; ownership retained')), timeoutMs);
-    child.once('exit', () => { clearTimeout(timer); resolve(); });
+    const onExit = (): void => { clearTimeout(timer); resolve(); };
+    const timer = setTimeout(() => {
+      child.removeListener('exit', onExit);
+      reject(new Error('Tunnel child exit was not observed; ownership retained'));
+    }, timeoutMs);
+    child.once('exit', onExit);
   });
 }
 
-function probeLoopbackHealth(host: string, port: number): Promise<boolean> {
-  return new Promise((resolve) => {
-    const socket = createConnection({ host, port });
-    const timer = setTimeout(() => { socket.destroy(); resolve(false); }, 1_500);
-    socket.once('connect', () => { clearTimeout(timer); socket.destroy(); resolve(true); });
-    socket.once('error', () => { clearTimeout(timer); resolve(false); });
+async function terminateWindowsProcessTree(pid: number): Promise<void> {
+  await execFileAsync('taskkill.exe', ['/PID', String(pid), '/T', '/F'], {
+    windowsHide: true,
+    timeout: 5_000,
+    encoding: 'utf8',
   });
+}
+
+function probeLoopbackHealth(host: string, port: number, timeoutMs: number): Promise<boolean> {
+  return new Promise((resolve) => {
+    let settled = false;
+    const finish = (live: boolean): void => {
+      if (settled) return;
+      settled = true;
+      resolve(live);
+    };
+    const healthRequest = httpRequest({ host, port, path: '/healthz', method: 'GET', headers: { accept: 'application/json' } }, (response) => {
+      let body = '';
+      response.setEncoding('utf8');
+      response.on('data', (chunk: string) => {
+        body += chunk;
+        if (body.length > 4_096) healthRequest.destroy(new Error('health response exceeded bound'));
+      });
+      response.once('end', () => finish(response.statusCode === 200 && isLiveHealthBody(body)));
+      response.once('error', () => finish(false));
+    });
+    healthRequest.setTimeout(timeoutMs, () => healthRequest.destroy(new Error('health request timed out')));
+    healthRequest.once('error', () => finish(false));
+    healthRequest.end();
+  });
+}
+
+async function readBoundedTail(filePath: string, maxBytes: number): Promise<string> {
+  const handle = await openFile(filePath, 'r');
+  try {
+    const stats = await handle.stat();
+    const length = Math.min(maxBytes, stats.size);
+    const buffer = Buffer.alloc(length);
+    const { bytesRead } = await handle.read(buffer, 0, length, Math.max(0, stats.size - length));
+    return buffer.subarray(0, bytesRead).toString('utf8');
+  } finally {
+    await handle.close();
+  }
+}
+
+async function readBoundedPrefix(filePath: string, maxBytes: number): Promise<string> {
+  const handle = await openFile(filePath, 'r');
+  try {
+    const stats = await handle.stat();
+    const length = Math.min(maxBytes, stats.size);
+    const buffer = Buffer.alloc(length);
+    const { bytesRead } = await handle.read(buffer, 0, length, 0);
+    return buffer.subarray(0, bytesRead).toString('utf8');
+  } finally {
+    await handle.close();
+  }
+}
+
+function toHealthAddress(address: string | undefined, portValue: string | undefined): { readonly host: string; readonly port: number } | null {
+  if (address === undefined || portValue === undefined) return null;
+  const [host] = address.split(':');
+  const port = Number(portValue);
+  if ((host !== '127.0.0.1' && host !== 'localhost') || !Number.isInteger(port) || port <= 0 || port > 65_535) return null;
+  return { host, port };
+}
+
+function isLiveHealthBody(body: string): boolean {
+  const trimmed = body.trim();
+  if (trimmed.toLowerCase() === 'live') return true;
+  try {
+    const parsed: unknown = JSON.parse(trimmed);
+    return typeof parsed === 'object' && parsed !== null && !Array.isArray(parsed)
+      && typeof (parsed as Record<string, unknown>).status === 'string'
+      && ((parsed as Record<string, unknown>).status as string).toLowerCase() === 'live';
+  } catch {
+    return false;
+  }
 }
 
 async function inspectWindowsFileVersion(filePath: string): Promise<string | null> {

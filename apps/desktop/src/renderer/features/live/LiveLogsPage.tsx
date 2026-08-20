@@ -12,6 +12,7 @@ interface LiveLogsPageProps {
   readonly onExport: (source: LogSource) => Promise<void>;
   readonly onPopOut: () => Promise<void>;
   readonly onCaptureIncident: () => Promise<void>;
+  readonly incidentBusy: boolean;
   readonly incidentClassification: IncidentClassification | null;
   readonly incidentCapturedAt: string | null;
   readonly incidentNotice: string | null;
@@ -32,11 +33,11 @@ export function LiveLogsPage(props: LiveLogsPageProps): ReactElement {
           <p className="page-subtitle">{t('live.subtitle')}</p>
         </div>
         <div className="heading-actions">
-          <button type="button" onClick={() => { void props.onCaptureIncident(); }}>{t('live.captureIncident')}</button>
+          <button type="button" disabled={props.incidentBusy} onClick={() => { void props.onCaptureIncident(); }}>{t('live.captureIncident')}</button>
           <button type="button" onClick={() => { void props.onPopOut(); }}>{t('live.popOut')}</button>
         </div>
       </div>
-      {props.incidentNotice === null && props.incidentClassification === null ? null : <p className="hint" role="status">{props.incidentNotice ?? `${incidentSummary(t, props.incidentClassification!)} · ${props.incidentCapturedAt ?? ''}`}</p>}
+      {!props.incidentBusy && props.incidentNotice === null && props.incidentClassification === null ? null : <p className="hint" role="status">{props.incidentBusy ? t('live.incident.capturing') : props.incidentNotice ?? `${incidentSummary(t, props.incidentClassification!)} · ${props.incidentCapturedAt ?? ''}`}</p>}
       <div className="log-tabs" role="tablist" aria-label={t('live.title')}>
         {sources.map((source) => (
           <button

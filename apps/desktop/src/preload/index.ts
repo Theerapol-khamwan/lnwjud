@@ -32,6 +32,7 @@ import {
   type WorkLogEntry,
   type WorkspaceSummary,
 } from '@lnwjud/ipc-contracts';
+import { parseLogCorrelation } from './log-parser.js';
 
 function invoke(channel: string, payload?: unknown): Promise<unknown> {
   return payload === undefined ? ipcRenderer.invoke(channel) : ipcRenderer.invoke(channel, payload);
@@ -404,13 +405,6 @@ function logLine(value: unknown): LogLine {
     text: stringField(value, 'text'),
     ...(correlation === undefined ? {} : { correlation }),
   };
-}
-
-function parseLogCorrelation(value: unknown): LogLine['correlation'] | undefined {
-  if (!isRecord(value) || typeof value.kind !== 'string') return undefined;
-  if (value.kind === 'mcp' && (value.phase === 'started' || value.phase === 'completed') && typeof value.callId === 'string' && typeof value.toolName === 'string' && (value.resultCode === null || value.resultCode === 'SUCCESS' || value.resultCode === 'FAILED' || value.resultCode === 'FATAL' || value.resultCode === 'UNKNOWN')) return { kind: 'mcp', phase: value.phase, callId: value.callId, toolName: value.toolName, resultCode: value.resultCode };
-  if (value.kind === 'tunnel' && (value.instanceId === undefined || typeof value.instanceId === 'string') && (value.requestId === undefined || typeof value.requestId === 'string') && (value.pid === undefined || (typeof value.pid === 'number' && Number.isInteger(value.pid)))) return { kind: 'tunnel', ...(typeof value.instanceId === 'string' ? { instanceId: value.instanceId } : {}), ...(typeof value.requestId === 'string' ? { requestId: value.requestId } : {}), ...(typeof value.pid === 'number' ? { pid: value.pid } : {}) };
-  return undefined;
 }
 
 function logSnapshot(value: unknown): LogSnapshot {
