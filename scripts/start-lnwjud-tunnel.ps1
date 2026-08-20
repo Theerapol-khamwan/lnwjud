@@ -230,10 +230,11 @@ if (-not $env:LNWJUD_DATA_PATH) { $env:LNWJUD_DATA_PATH = Join-Path $env:APPDATA
 # Long connection ceiling so ChatGPT does not drop every 10 minutes (tunnel-client default).
 $env:MCP_CONNECTION_MAX_TTL = $mcpTtl
 
+. (Join-Path $PSScriptRoot 'lib\lnwjud-tunnel-lock.ps1')
  $lockOwner = $null
  $keyPointer = $null
 try {
-  $lockOwner = Enter-LnwjudTunnelLock
+  $lockOwner = Enter-LnwjudTunnelLock -ProfileDir $profileDir -OwnerPid $PID -OwnerStartedAt (Get-LnwjudTunnelProcessStart -OwnerPid $PID) -ProcessStartProvider { param($ownerPid) Get-LnwjudTunnelProcessStart -OwnerPid $ownerPid }
   if ($null -eq $lockOwner) { exit 0 }
   if ($ForceRestart) { Write-Host 'lnwjud tunnel: -ForceRestart cannot bypass the ownership lock.' }
   if (Test-LnwjudTunnelRunning) { Write-Host 'lnwjud tunnel: existing tunnel-client process detected as status evidence; the lock remains authoritative.' }
@@ -297,5 +298,5 @@ try {
 finally {
   if ($null -ne $keyPointer) { [Runtime.InteropServices.Marshal]::ZeroFreeBSTR($keyPointer) }
   Remove-Item Env:CONTROL_PLANE_API_KEY -ErrorAction SilentlyContinue
-  if ($null -ne $lockOwner) { [void](Release-LnwjudTunnelLock -Owner $lockOwner) }
+  if ($null -ne $lockOwner) { [void](Release-LnwjudTunnelLock -ProfileDir $profileDir -Owner $lockOwner.owner) }
 }
