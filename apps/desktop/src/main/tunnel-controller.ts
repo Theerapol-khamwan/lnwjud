@@ -7,6 +7,7 @@ import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import type { TunnelRunState, TunnelStatus } from '@lnwjud/ipc-contracts';
 import { formatTunnelExitMessage, tunnelExitHintFromLog } from './tunnel-exit.js';
+import { acquireTunnelLock, type TunnelLockAcquisition, type TunnelLockOwner } from './tunnel-lock.js';
 import { rewriteTunnelYamlMcpCommand } from './tunnel-profile.js';
 
 const execFileAsync = promisify(execFile);
@@ -26,6 +27,8 @@ export interface TunnelControllerOptions {
   readonly getDataPath: () => string;
   readonly getStdioLauncherPath?: () => string | null;
   readonly isExternalTunnelRunning?: () => Promise<boolean>;
+  readonly currentLockOwner?: () => Promise<TunnelLockOwner>;
+  readonly inspectLockProcess?: (pid: number) => Promise<string | null>;
 }
 
 export class TunnelController {
@@ -40,6 +43,7 @@ export class TunnelController {
   private restartAttempts = 0;
   private restartWindowStartedAt = 0;
   private lastApiKey: string | null = null;
+  private tunnelLock: TunnelLockAcquisition | null = null;
 
   public constructor(private readonly options: TunnelControllerOptions) {}
 
@@ -103,7 +107,7 @@ export class TunnelController {
     } else if (this.child !== null && this.child.exitCode !== null) {
       this.child = null;
       if (this.state === 'running') this.state = 'stopped';
-    } else if (this.state !== 'starting') {
+    } else if (this.state !== 'starting' && this.tunnelLock === null) {
       // No desktop-owned child: reflect a tunnel started externally (e.g. start-lnwjud-tunnel.ps1).
       if (await this.probeExternalRunning()) {
         this.state = 'running';
@@ -140,26 +144,25 @@ export class TunnelController {
     this.restartWindowStartedAt = 0;
     if (this.state === 'running' || this.state === 'starting') return this.status();
     if (this.child !== null && this.child.exitCode === null) return this.status();
-    if (await this.probeExternalRunning(true)) {
-      this.state = 'running';
-      this.message = null;
-      return this.status();
-    }
+    if (!(await this.ensureTunnelLock())) return this.status();
 
     const clientPath = this.resolveClientPath();
     if (clientPath === null || !existsSync(clientPath)) {
       this.state = 'error';
       this.message = 'tunnel-client.exe was not found';
+      await this.releaseTunnelLock();
       return this.status();
     }
     if (!(await this.hasApiKey())) {
       this.state = 'error';
       this.message = 'Save a Runtime API key first';
+      await this.releaseTunnelLock();
       return this.status();
     }
     if (!existsSync(this.profilePath())) {
       this.state = 'error';
       this.message = 'Missing tunnel profile lnwjud.yaml';
+      await this.releaseTunnelLock();
       return this.status();
     }
 
@@ -167,6 +170,7 @@ export class TunnelController {
     if (apiKey.length === 0) {
       this.state = 'error';
       this.message = 'Saved Runtime API key is empty; save it again in Settings';
+      await this.releaseTunnelLock();
       return this.status();
     }
     this.lastApiKey = apiKey;
@@ -180,6 +184,7 @@ export class TunnelController {
     } catch (error: unknown) {
       this.state = 'error';
       this.message = error instanceof Error ? error.message : 'tunnel-client doctor failed';
+      await this.releaseTunnelLock();
       return this.status();
     }
 
@@ -191,7 +196,7 @@ export class TunnelController {
 
   public async stop(): Promise<TunnelStatus> {
     await this.killOwnedChild();
-    await stopExternalLnwjudTunnelProcesses();
+    await this.releaseTunnelLock();
     this.state = 'stopped';
     this.message = null;
     this.lastApiKey = null;
@@ -202,6 +207,7 @@ export class TunnelController {
 
   public async stopOwned(): Promise<TunnelStatus> {
     await this.killOwnedChild();
+    await this.releaseTunnelLock();
     this.state = 'stopped';
     this.message = null;
     this.lastApiKey = null;
@@ -218,6 +224,34 @@ export class TunnelController {
       this.child = null;
       child.kill();
     }
+  }
+
+  private async ensureTunnelLock(): Promise<boolean> {
+    if (this.tunnelLock !== null) return true;
+    try {
+      const claim = await acquireTunnelLock({
+        profileDirectory: this.profileDirectory(),
+        ...(this.options.currentLockOwner === undefined ? {} : { owner: await this.options.currentLockOwner() }),
+        ...(this.options.inspectLockProcess === undefined ? {} : { inspectProcess: this.options.inspectLockProcess }),
+      });
+      if (!claim.acquired) {
+        this.state = 'error';
+        this.message = `Tunnel is already owned by PID ${claim.owner.pid}`;
+        return false;
+      }
+      this.tunnelLock = claim;
+      return true;
+    } catch (error: unknown) {
+      this.state = 'error';
+      this.message = error instanceof Error ? error.message : 'Could not acquire tunnel ownership lock';
+      return false;
+    }
+  }
+
+  private async releaseTunnelLock(): Promise<void> {
+    const claim = this.tunnelLock;
+    this.tunnelLock = null;
+    if (claim !== null) await claim.release();
   }
 
   private spawnRun(clientPath: string, apiKey: string): void {
@@ -447,17 +481,5 @@ async function isLnwjudTunnelProcessRunning(): Promise<boolean> {
     return Number(result.stdout.trim()) > 0;
   } catch {
     return false;
-  }
-}
-
-async function stopExternalLnwjudTunnelProcesses(): Promise<void> {
-  try {
-    await execFileAsync('powershell.exe', [
-      '-NoProfile',
-      '-Command',
-      "Get-CimInstance Win32_Process -Filter \"Name = 'tunnel-client.exe'\" | Where-Object { $_.CommandLine -match '(?i)(--profile\\s+lnwjud|lnwjud\\.yaml)' } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }",
-    ], { windowsHide: true });
-  } catch {
-    // Best-effort stop.
   }
 }

@@ -35,6 +35,7 @@ import { createDesktopRuntime, type DesktopRuntime } from './desktop-services.js
 import { shouldHoldSingleInstanceLock, wantsMcpStdio } from './instance-lock.js';
 import { createLogViewerWindow, createMainWindow, getRendererEntryPath, getWindowIconPath, isAllowedRendererUrl } from './window.js';
 import { createTrayMenuTemplate, shouldHideMainWindowOnClose } from './tray.js';
+import { UpdateInstallCoordinator, updateReadyDialogOptions } from './update-install.js';
 
 export interface DesktopIpcServices {
   listWorkspaces(): Promise<IpcResponseMap[typeof ipcChannels.listWorkspaces]>;
@@ -394,6 +395,7 @@ let tray: Tray | null = null;
 let manualUpdateCheckPending = false;
 let quitRequested = false;
 let shutdownStarted = false;
+let updateInstallCoordinator: UpdateInstallCoordinator | null = null;
 
 function openLogViewerWindow(): BrowserWindow | null {
   if (logViewerWindow !== null && !logViewerWindow.isDestroyed()) {
@@ -555,11 +557,15 @@ function bootstrapMcpStdio(): void {
   });
 }
 
-function initAutoUpdater(): void {
+function initAutoUpdater(runtime: DesktopRuntime): void {
   if (!app.isPackaged) return;
   try {
     autoUpdater.autoDownload = true;
-    autoUpdater.autoInstallOnAppQuit = true;
+    autoUpdater.autoInstallOnAppQuit = false;
+    updateInstallCoordinator = new UpdateInstallCoordinator({
+      activeCallCount: (): number => runtime.activityTracker.listInFlight().length,
+      install: (): void => autoUpdater.quitAndInstall(),
+    });
 
     autoUpdater.on('checking-for-update', () => {
       console.log('[AutoUpdater] Checking for updates on GitHub...');
@@ -606,16 +612,9 @@ function initAutoUpdater(): void {
         source: 'process',
         text: `[AutoUpdater] Update v${info.version} downloaded! Ready to install.`,
       });
-      void dialog.showMessageBox({
-        type: 'info',
-        title: 'Update Ready - lnwjud',
-        message: `Version v${info.version} has been downloaded. Restart lnwjud now to install?`,
-        buttons: ['Restart Now', 'Later'],
-        defaultId: 0,
-        cancelId: 1,
-      }).then((result) => {
+      void dialog.showMessageBox(updateReadyDialogOptions(info.version)).then((result) => {
         if (result.response === 0) {
-          autoUpdater.quitAndInstall();
+          updateInstallCoordinator?.requestInstall();
         }
       });
     });
@@ -656,13 +655,14 @@ function bootstrapDesktop(): void {
     }
     createDesktopWindow();
     createDesktopTray();
-    initAutoUpdater();
+    initAutoUpdater(runtime);
     app.on('activate', () => {
       if (BrowserWindow.getAllWindows().length === 0) createDesktopWindow();
     });
   });
   app.on('before-quit', () => {
     quitRequested = true;
+    updateInstallCoordinator?.cancel();
     destroyDesktopTray();
   });
   app.on('window-all-closed', () => {
@@ -706,6 +706,7 @@ function bootstrapLogViewerOnly(): void {
 
 async function closeDesktopRuntimeAndQuit(): Promise<void> {
   try {
+    updateInstallCoordinator?.cancel();
     await desktopRuntime?.close();
   } catch (error: unknown) {
     console.error(`Desktop shutdown failed: ${error instanceof Error ? error.message : 'unknown error'}`);
