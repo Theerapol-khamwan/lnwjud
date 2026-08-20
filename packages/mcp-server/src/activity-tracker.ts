@@ -37,6 +37,7 @@ export interface InFlightToolCall {
 
 export class ActivityTracker {
   private readonly inflight = new Map<string, InFlightToolCall>();
+  private activityRevision = 0;
 
   public constructor(
     private readonly sink?: ActivitySink,
@@ -45,6 +46,10 @@ export class ActivityTracker {
 
   public listInFlight(): readonly InFlightToolCall[] {
     return [...this.inflight.values()];
+  }
+
+  public revision(): number {
+    return this.activityRevision;
   }
 
   public async begin(toolName: string, input: unknown, traceContext?: TraceContext): Promise<string> {
@@ -63,6 +68,7 @@ export class ActivityTracker {
       ...(trace.traceParent === undefined ? {} : { traceParent: trace.traceParent }),
     };
     this.inflight.set(callId, entry);
+    this.activityRevision += 1;
     await this.safeRecord({
       callId,
       toolName,
@@ -81,6 +87,7 @@ export class ActivityTracker {
   public async end(callId: string, resultCode: string, durationMs: number, resultMessage?: string): Promise<void> {
     const existing = this.inflight.get(callId);
     this.inflight.delete(callId);
+    this.activityRevision += 1;
     const timestamp = new Date().toISOString();
     await this.safeRecord({
       callId,

@@ -1,10 +1,13 @@
 import { execFile } from 'node:child_process';
-import { mkdir, open, readFile, rename, rm } from 'node:fs/promises';
+import { mkdir, open, readFile, rename, rm, stat } from 'node:fs/promises';
 import path from 'node:path';
 import { promisify } from 'node:util';
 
 const execFileAsync = promisify(execFile);
 const LOCK_FILE = 'lnwjud.tunnel.lock';
+const LOCK_VERSION = 1;
+const DEFAULT_INCOMPLETE_LOCK_MAX_AGE_MS = 2_000;
+const ISO_UTC_MILLISECONDS = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/;
 
 export interface TunnelLockOwner {
   readonly pid: number;
@@ -30,6 +33,7 @@ export interface TunnelLockOptions {
   readonly profileDirectory: string;
   readonly owner?: TunnelLockOwner;
   readonly inspectProcess?: (pid: number) => Promise<string | null>;
+  readonly incompleteLockMaxAgeMs?: number;
 }
 
 export async function acquireTunnelLock(options: TunnelLockOptions): Promise<TunnelLockAcquisition | TunnelLockAlreadyOwned> {
@@ -42,7 +46,7 @@ export async function acquireTunnelLock(options: TunnelLockOptions): Promise<Tun
     try {
       const lock = await open(lockPath, 'wx');
       try {
-        await lock.writeFile(JSON.stringify(owner), 'utf8');
+        await lock.writeFile(serializeOwner(owner), 'utf8');
       } finally {
         await lock.close();
       }
@@ -59,6 +63,10 @@ export async function acquireTunnelLock(options: TunnelLockOptions): Promise<Tun
     if (existing === null) {
       // A concurrent CreateNew owner can be between opening and writing its
       // immutable payload. Wait rather than treating that owner as stale.
+      if (await incompleteLockIsOld(lockPath, options.incompleteLockMaxAgeMs ?? DEFAULT_INCOMPLETE_LOCK_MAX_AGE_MS)) {
+        await reclaimIncompleteLock(lockPath);
+        continue;
+      }
       await new Promise<void>((resolve) => setTimeout(resolve, 25));
       continue;
     }
@@ -67,6 +75,17 @@ export async function acquireTunnelLock(options: TunnelLockOptions): Promise<Tun
     await reclaimVerifiedStaleLock(lockPath, existing);
   }
   throw new Error(`Unable to acquire tunnel lock: ${lockPath}`);
+}
+
+async function incompleteLockIsOld(lockPath: string, maxAgeMs: number): Promise<boolean> {
+  try { return Date.now() - (await stat(lockPath)).mtimeMs > maxAgeMs; } catch { return false; }
+}
+
+async function reclaimIncompleteLock(lockPath: string): Promise<void> {
+  const quarantinePath = `${lockPath}.incomplete.${process.pid}.${Date.now()}`;
+  try { await rename(lockPath, quarantinePath); } catch (error: unknown) { if (isNotFound(error)) return; throw error; }
+  // The mtime age was bounded before the move; retain unexpected valid content.
+  if (parseOwner(await readFile(quarantinePath, 'utf8')) === null) await rm(quarantinePath, { force: true });
 }
 
 export async function readTunnelLock(profileDirectory: string): Promise<TunnelLockOwner | null> {
@@ -135,12 +154,16 @@ function parseOwner(raw: string): TunnelLockOwner | null {
     const value: unknown = JSON.parse(raw);
     if (typeof value !== 'object' || value === null || Array.isArray(value)) return null;
     const record = value as Record<string, unknown>;
-    if (!Number.isInteger(record.pid) || typeof record.processStartedAt !== 'string' || typeof record.acquiredAt !== 'string') return null;
-    if ((record.pid as number) <= 0 || record.processStartedAt.length === 0 || record.acquiredAt.length === 0) return null;
+    if (record.version !== LOCK_VERSION || !Number.isInteger(record.pid) || typeof record.processStartedAt !== 'string' || typeof record.acquiredAt !== 'string') return null;
+    if ((record.pid as number) <= 0 || !ISO_UTC_MILLISECONDS.test(record.processStartedAt) || !ISO_UTC_MILLISECONDS.test(record.acquiredAt)) return null;
     return { pid: record.pid as number, processStartedAt: record.processStartedAt, acquiredAt: record.acquiredAt };
   } catch {
     return null;
   }
+}
+
+function serializeOwner(owner: TunnelLockOwner): string {
+  return JSON.stringify({ version: LOCK_VERSION, pid: owner.pid, processStartedAt: owner.processStartedAt, acquiredAt: owner.acquiredAt });
 }
 
 function sameOwner(left: TunnelLockOwner | null, right: TunnelLockOwner): boolean {
@@ -170,7 +193,7 @@ async function processStartedAt(pid: number): Promise<string | null> {
       '-NoProfile',
       '-NonInteractive',
       '-Command',
-      `$process = Get-CimInstance Win32_Process -Filter "ProcessId = ${pid}" -ErrorAction SilentlyContinue; if ($null -ne $process) { $process.CreationDate.ToUniversalTime().ToString('o') }`,
+      `$process = Get-CimInstance Win32_Process -Filter "ProcessId = ${pid}" -ErrorAction SilentlyContinue; if ($null -ne $process) { $process.CreationDate.ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ss.fffZ', [Globalization.CultureInfo]::InvariantCulture) }`,
     ], { windowsHide: true, encoding: 'utf8', timeout: 3_000 });
     const value = result.stdout.trim();
     return value.length > 0 ? value : null;

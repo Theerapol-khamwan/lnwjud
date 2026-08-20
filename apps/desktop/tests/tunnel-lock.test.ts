@@ -33,7 +33,7 @@ describe('lnwjud tunnel ownership lock', () => {
   it('reclaims a lock only after the recorded owner is gone or has a mismatched start time', async () => {
     const directory = await temporaryDirectory();
     const staleOwner = owner(303, '2026-08-20T00:00:00.000Z');
-    await writeFile(path.join(directory, 'lnwjud.tunnel.lock'), JSON.stringify(staleOwner), 'utf8');
+    await writeFile(path.join(directory, 'lnwjud.tunnel.lock'), JSON.stringify({ version: 1, ...staleOwner }), 'utf8');
 
     const claim = await acquireTunnelLock({
       profileDirectory: directory,
@@ -48,7 +48,7 @@ describe('lnwjud tunnel ownership lock', () => {
 
   it('reclaims a lock when the recorded owner process is gone', async () => {
     const directory = await temporaryDirectory();
-    await writeFile(path.join(directory, 'lnwjud.tunnel.lock'), JSON.stringify(owner(707, '2026-08-20T00:00:00.000Z')), 'utf8');
+    await writeFile(path.join(directory, 'lnwjud.tunnel.lock'), JSON.stringify({ version: 1, ...owner(707, '2026-08-20T00:00:00.000Z') }), 'utf8');
 
     const claim = await acquireTunnelLock({
       profileDirectory: directory,
@@ -65,10 +65,22 @@ describe('lnwjud tunnel ownership lock', () => {
     const firstOwner = owner(505, '2026-08-20T00:00:00.000Z');
     const claim = await acquireTunnelLock({ profileDirectory: directory, owner: firstOwner, inspectProcess: async () => firstOwner.processStartedAt });
     const replacement = owner(606, '2026-08-20T00:04:00.000Z');
-    await writeFile(path.join(directory, 'lnwjud.tunnel.lock'), JSON.stringify(replacement), 'utf8');
+    await writeFile(path.join(directory, 'lnwjud.tunnel.lock'), JSON.stringify({ version: 1, ...replacement }), 'utf8');
 
     await expect(claim.release()).resolves.toBe(false);
     expect(await readTunnelLock(directory)).toEqual(replacement);
+  });
+
+  it('protects a fresh incomplete record but reclaims an old orphan record', async () => {
+    const directory = await temporaryDirectory();
+    const lockPath = path.join(directory, 'lnwjud.tunnel.lock');
+    await writeFile(lockPath, '', 'utf8');
+    await expect(acquireTunnelLock({ profileDirectory: directory, owner: owner(909, '2026-08-20T00:00:00.000Z'), incompleteLockMaxAgeMs: 1_000 })).rejects.toThrow('Unable to acquire tunnel lock');
+    const old = new Date(Date.now() - 61_000);
+    await (await import('node:fs/promises')).utimes(lockPath, old, old);
+    const claim = await acquireTunnelLock({ profileDirectory: directory, owner: owner(910, '2026-08-20T00:01:00.000Z'), incompleteLockMaxAgeMs: 1_000 });
+    expect(claim.acquired).toBe(true);
+    if (claim.acquired) await claim.release();
   });
 });
 

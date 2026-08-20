@@ -9,6 +9,7 @@ export interface UpdateReadyDialogOptions {
 
 export interface UpdateInstallCoordinatorOptions {
   readonly activeCallCount: () => number;
+  readonly activityRevision?: () => number;
   readonly install: () => void;
   readonly quietPeriodMs?: number;
   readonly pollIntervalMs?: number;
@@ -35,6 +36,7 @@ export class UpdateInstallCoordinator {
   private shutdown = false;
   private timer: ReturnType<typeof setTimeout> | null = null;
   private quietUntil = 0;
+  private quietRevision = 0;
 
   public constructor(private readonly options: UpdateInstallCoordinatorOptions) {
     this.quietPeriodMs = options.quietPeriodMs ?? DEFAULT_QUIET_PERIOD_MS;
@@ -53,6 +55,10 @@ export class UpdateInstallCoordinator {
     this.clearTimer();
   }
 
+  public hasPendingInstall(): boolean {
+    return this.pending;
+  }
+
   private evaluate(): void {
     if (!this.pending || this.shutdown) return;
     if (this.options.activeCallCount() > 0) {
@@ -61,6 +67,7 @@ export class UpdateInstallCoordinator {
       return;
     }
     this.quietUntil = Date.now() + this.quietPeriodMs;
+    this.quietRevision = this.options.activityRevision?.() ?? 0;
     this.waitForQuietPeriod();
   }
 
@@ -68,7 +75,7 @@ export class UpdateInstallCoordinator {
     if (!this.pending || this.shutdown) return;
     // Poll the existing tracker throughout the quiet period so a short call
     // that starts and ends inside the interval restarts the quiet clock.
-    if (this.options.activeCallCount() > 0) {
+    if (this.options.activeCallCount() > 0 || (this.options.activityRevision?.() ?? this.quietRevision) !== this.quietRevision) {
       this.evaluate();
       return;
     }

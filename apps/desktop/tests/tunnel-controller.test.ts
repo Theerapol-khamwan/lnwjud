@@ -3,6 +3,8 @@ import os from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { TunnelController } from '../src/main/tunnel-controller.js';
+import { waitForTunnelChildExit } from '../src/main/tunnel-controller.js';
+import { EventEmitter } from 'node:events';
 
 const temporaryRoots: string[] = [];
 
@@ -12,6 +14,19 @@ afterEach(async () => {
 });
 
 describe('TunnelController lifecycle', () => {
+  it('holds shutdown completion until a delayed tunnel child exits', async () => {
+    const child = new EventEmitter() as EventEmitter & { exitCode: number | null };
+    child.exitCode = null;
+    let settled = false;
+    const waiting = waitForTunnelChildExit(child as never).then((): void => { settled = true; });
+    await Promise.resolve();
+    expect(settled).toBe(false);
+    child.exitCode = 0;
+    child.emit('exit', 0);
+    await waiting;
+    expect(settled).toBe(true);
+  });
+
   it('does not start a second tunnel when the shared lock belongs to another owner', async () => {
     const dataPath = await mkdtemp(path.join(os.tmpdir(), 'lnwjud-tunnel-controller-'));
     temporaryRoots.push(dataPath);
@@ -19,6 +34,7 @@ describe('TunnelController lifecycle', () => {
     const profileDir = path.join(dataPath, 'appdata', 'tunnel-client');
     await (await import('node:fs/promises')).mkdir(profileDir, { recursive: true });
     await (await import('node:fs/promises')).writeFile(path.join(profileDir, 'lnwjud.tunnel.lock'), JSON.stringify({
+      version: 1,
       pid: 7123,
       processStartedAt: '2026-08-20T00:00:00.000Z',
       acquiredAt: '2026-08-20T00:00:00.000Z',

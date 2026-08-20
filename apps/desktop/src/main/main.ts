@@ -396,6 +396,7 @@ let manualUpdateCheckPending = false;
 let quitRequested = false;
 let shutdownStarted = false;
 let updateInstallCoordinator: UpdateInstallCoordinator | null = null;
+let updateReadyDialogPending = false;
 
 function openLogViewerWindow(): BrowserWindow | null {
   if (logViewerWindow !== null && !logViewerWindow.isDestroyed()) {
@@ -564,6 +565,7 @@ function initAutoUpdater(runtime: DesktopRuntime): void {
     autoUpdater.autoInstallOnAppQuit = false;
     updateInstallCoordinator = new UpdateInstallCoordinator({
       activeCallCount: (): number => runtime.activityTracker.listInFlight().length,
+      activityRevision: (): number => runtime.activityTracker.revision(),
       install: (): void => autoUpdater.quitAndInstall(),
     });
 
@@ -604,6 +606,8 @@ function initAutoUpdater(runtime: DesktopRuntime): void {
     });
 
     autoUpdater.on('update-downloaded', (info) => {
+      if (updateReadyDialogPending || updateInstallCoordinator?.hasPendingInstall()) return;
+      updateReadyDialogPending = true;
       console.log(`[AutoUpdater] Downloaded update: v${info.version}`);
       broadcastToAllWindows(pushChannels.logEvent, {
         id: Date.now(),
@@ -613,6 +617,7 @@ function initAutoUpdater(runtime: DesktopRuntime): void {
         text: `[AutoUpdater] Update v${info.version} downloaded! Ready to install.`,
       });
       void dialog.showMessageBox(updateReadyDialogOptions(info.version)).then((result) => {
+        updateReadyDialogPending = false;
         if (result.response === 0) {
           updateInstallCoordinator?.requestInstall();
         }

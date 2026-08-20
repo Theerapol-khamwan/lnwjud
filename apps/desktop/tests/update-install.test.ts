@@ -75,6 +75,25 @@ describe('downloaded update installation', () => {
     expect(install).toHaveBeenCalledOnce();
   });
 
+  it('resets quiet time for a short call completed between polling samples', async () => {
+    vi.useFakeTimers();
+    let revision = 0;
+    const install = vi.fn();
+    const coordinator = new UpdateInstallCoordinator({
+      activeCallCount: (): number => 0,
+      activityRevision: (): number => revision,
+      install,
+      pollIntervalMs: 10,
+      quietPeriodMs: 30,
+    });
+    coordinator.requestInstall();
+    revision += 2;
+    await vi.advanceTimersByTimeAsync(39);
+    expect(install).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(1);
+    expect(install).toHaveBeenCalledOnce();
+  });
+
   it('cancels a pending idle wait during shutdown', async () => {
     vi.useFakeTimers();
     const install = vi.fn();

@@ -223,6 +223,7 @@ export class TunnelController {
       const child = this.child;
       this.child = null;
       child.kill();
+      await waitForTunnelChildExit(child);
     }
   }
 
@@ -482,4 +483,9 @@ async function isLnwjudTunnelProcessRunning(): Promise<boolean> {
   } catch {
     return false;
   }
+}
+
+export function waitForTunnelChildExit(child: Pick<ChildProcess, 'exitCode' | 'once'>): Promise<void> {
+  if (child.exitCode !== null) return Promise.resolve();
+  return new Promise((resolve) => child.once('exit', () => resolve()));
 }

@@ -84,6 +84,7 @@ $logPath = Join-Path $profileDir 'lnwjud-tunnel.log'
 $stopFile = Join-Path $profileDir 'lnwjud.tunnel.stop'
 $lockPath = Join-Path $profileDir 'lnwjud.tunnel.lock'
 $mcpTtl = '168h0m0s'
+$incompleteLockMaxAgeMs = 2000
 $maxRapidRestarts = 5
 $rapidRestartCount = 0
 $rapidRestartWindowStarted = Get-Date
@@ -101,14 +102,14 @@ function Get-LnwjudTunnelProcessStart {
   param([Parameter(Mandatory = $true)][int]$OwnerPid)
   $ownerProcess = Get-CimInstance Win32_Process -Filter "ProcessId = $OwnerPid" -ErrorAction SilentlyContinue
   if ($null -eq $ownerProcess) { return $null }
-  return $ownerProcess.CreationDate.ToUniversalTime().ToString('o')
+  return $ownerProcess.CreationDate.ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ss.fffZ', [Globalization.CultureInfo]::InvariantCulture)
 }
 
 function Read-LnwjudTunnelLock {
   if (-not (Test-Path -LiteralPath $lockPath)) { return $null }
   try {
     $record = Get-Content -LiteralPath $lockPath -Raw | ConvertFrom-Json -ErrorAction Stop
-    if ($null -eq $record -or $null -eq $record.pid -or [string]::IsNullOrWhiteSpace([string]$record.processStartedAt) -or [string]::IsNullOrWhiteSpace([string]$record.acquiredAt)) { return $null }
+    if ($null -eq $record -or $record.version -ne 1 -or ([string]$record.pid -notmatch '^[1-9]\d*$') -or ([string]$record.processStartedAt -notmatch '^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$') -or ([string]$record.acquiredAt -notmatch '^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$')) { return $null }
     return $record
   } catch {
     return $null
@@ -126,9 +127,10 @@ function Test-LnwjudTunnelLockOwner {
 function Enter-LnwjudTunnelLock {
   New-Item -ItemType Directory -Path $profileDir -Force | Out-Null
   $owner = [pscustomobject]@{
+    version = 1
     pid = $PID
     processStartedAt = Get-LnwjudTunnelProcessStart -OwnerPid $PID
-    acquiredAt = [DateTime]::UtcNow.ToString('o')
+    acquiredAt = [DateTime]::UtcNow.ToString('yyyy-MM-ddTHH:mm:ss.fffZ', [Globalization.CultureInfo]::InvariantCulture)
   }
   if ([string]::IsNullOrWhiteSpace([string]$owner.processStartedAt)) { throw 'Could not determine this PowerShell process start time for the tunnel lock.' }
 
@@ -149,6 +151,11 @@ function Enter-LnwjudTunnelLock {
       if ($null -eq $existing) {
         # A concurrent CreateNew owner can be between opening and writing its
         # immutable payload. Wait rather than treating that owner as stale.
+        if ((([DateTime]::UtcNow - (Get-Item -LiteralPath $lockPath).LastWriteTimeUtc).TotalMilliseconds -gt $incompleteLockMaxAgeMs) {
+          $incompletePath = "$lockPath.incomplete.$PID.$([Guid]::NewGuid().ToString('N'))"
+          try { [System.IO.File]::Move($lockPath, $incompletePath); Remove-Item -LiteralPath $incompletePath -Force -ErrorAction SilentlyContinue } catch { }
+          continue
+        }
         Start-Sleep -Milliseconds 25
         continue
       }
