@@ -29,8 +29,8 @@ test('desktop serves the real MCP client development workflow', async () => {
     const devToolsPort = await findEphemeralPort();
     const launchExecutable = packagedExecutable ?? electronExecutable;
     const launchArguments = packagedExecutable === undefined
-      ? [`--remote-debugging-port=${devToolsPort}`, mainEntry]
-      : [`--remote-debugging-port=${devToolsPort}`];
+      ? [`--remote-debugging-port=${devToolsPort}`, `--user-data-dir=${dataRoot}`, mainEntry]
+      : [`--remote-debugging-port=${devToolsPort}`, `--user-data-dir=${dataRoot}`];
     electronProcess = spawn(launchExecutable, launchArguments, {
       cwd: desktopRoot,
       shell: false,

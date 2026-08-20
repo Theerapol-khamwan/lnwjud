@@ -1,6 +1,6 @@
 {
   "name": "@lnwjud/project",
-  "version": "4.0.1",
+  "version": "4.5.0",
   "private": true,
   "type": "module",
   "exports": {

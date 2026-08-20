@@ -19,8 +19,8 @@ test('control center auto-starts MCP and supports project + doctor journey', asy
   const devToolsPort = await findEphemeralPort();
   const launchExecutable = packagedExecutable ?? electronExecutable;
   const launchArguments = packagedExecutable === undefined
-    ? [`--remote-debugging-port=${devToolsPort}`, mainEntry]
-    : [`--remote-debugging-port=${devToolsPort}`];
+    ? [`--remote-debugging-port=${devToolsPort}`, `--user-data-dir=${dataRoot}`, mainEntry]
+    : [`--remote-debugging-port=${devToolsPort}`, `--user-data-dir=${dataRoot}`];
   const electronProcess = spawn(launchExecutable, launchArguments, {
     cwd: desktopRoot,
     shell: false,

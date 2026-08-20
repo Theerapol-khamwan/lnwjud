@@ -1,5 +1,7 @@
 import { spawn, type ChildProcess } from 'node:child_process';
+import { mkdtemp, rm } from 'node:fs/promises';
 import { createServer } from 'node:net';
+import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { chromium, expect, test } from '@playwright/test';
@@ -11,7 +13,8 @@ const electronExecutable = path.join(electronDistPath, 'electron.exe');
 
 test('renderer cannot access Node globals', async () => {
   const devToolsPort = await findEphemeralPort();
-  const electronProcess = spawn(electronExecutable, [`--remote-debugging-port=${devToolsPort}`, mainEntry], {
+  const dataRoot = await mkdtemp(path.join(os.tmpdir(), 'lnwjud-security-data-'));
+  const electronProcess = spawn(electronExecutable, [`--remote-debugging-port=${devToolsPort}`, `--user-data-dir=${dataRoot}`, mainEntry], {
     cwd: desktopRoot,
     shell: false,
     windowsHide: true,
@@ -36,6 +39,7 @@ test('renderer cannot access Node globals', async () => {
     await browser.close();
   } finally {
     await terminateProcessTree(electronProcess);
+    await removeTemporaryRoot(dataRoot);
   }
 });
 
@@ -72,4 +76,15 @@ async function terminateProcessTree(process: ChildProcess): Promise<void> {
     killer.once('error', () => resolve());
     killer.once('close', () => resolve());
   });
+}
+
+async function removeTemporaryRoot(root: string): Promise<void> {
+  await expect.poll(async () => {
+    try {
+      await rm(root, { recursive: true, force: true });
+      return true;
+    } catch {
+      return false;
+    }
+  }, { timeout: 10_000, intervals: [50, 100, 250] }).toBe(true);
 }

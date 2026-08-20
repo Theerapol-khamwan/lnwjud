@@ -40,12 +40,27 @@ The tunnel is outbound-only: `tunnel-client` runs beside lnwjud, reaches OpenAI
 over outbound HTTPS, forwards MCP work to the local stdio server, and returns the
 response without opening a public inbound port on the Windows machine.
 
-## Current release: v4.0.1
+## Current release: v4.5.0
 
-The current published installer and runtime contract are `v4.0.1`. The runtime
+The current published installer and runtime contract are `v4.5.0`. The runtime
 advertises **208 MCP tools**. The earlier 184-tool snapshot remains only as the
 compatibility baseline used by the v4 architecture; new v4 gateway capabilities
 are additive.
+
+### What's new in v4.5.0
+
+- Stronger MCP session resilience: timed-out tool work is cancelled instead of
+  lingering after the client request has ended.
+- Hardened Secure MCP Tunnel ownership and reconnect behavior, including
+  serialized ownership/idle updates and atomic publication of tunnel state.
+- More robust tunnel lock handling, including round-trip lock records and stale
+  lock recovery coverage.
+- Updater/session hardening to avoid local activity races while keeping update
+  decisions conservative during active work.
+- Correlated incident evidence export with stricter classification, preservation
+  of unknown evidence, and safer edge-case handling.
+- Deterministic session-resilience acceptance coverage plus configured tunnel
+  health validation and portability hardening for Windows installations.
 
 Current v4 highlights include:
 
@@ -135,7 +150,7 @@ stops the current local HTTP listener.
 
 1. Download the latest published installer from
    [GitHub Releases](https://github.com/engasnm111/lnwjud/releases/latest).
-   The current release is `lnwjud-Setup-4.0.1.exe`.
+   The current release is `lnwjud-Setup-4.5.0.exe`.
 2. Run the NSIS installer and launch **lnwjud Agent Control Center**.
 3. Add or select the project/workspace you want lnwjud to operate on.
 4. Review **Settings** before attaching an AI client, especially Permission
@@ -371,7 +386,7 @@ corepack pnpm@10.15.0 package:windows
 The x64 NSIS installer is written to:
 
 ```text
-apps/desktop/dist/installers/lnwjud-Setup-4.0.1.exe
+apps/desktop/dist/installers/lnwjud-Setup-4.5.0.exe
 ```
 
 The installer is per-user by default. A common installed executable path is:
@@ -720,7 +735,7 @@ start a new chat.
 
 ## Complete MCP tool catalog (208 runtime tools)
 
-This index is generated from the current v4.0.1 `ToolRegistry`, not copied from an older release document. Optional/planned tools still appear in the advertised contract and report their availability/requirements at runtime where applicable.
+This index is generated from the current v4.5.0 `ToolRegistry`, not copied from an older release document. Optional/planned tools still appear in the advertised contract and report their availability/requirements at runtime where applicable.
 
 | # | Tool | Permission | Runtime description |
 | ---: | --- | --- | --- |
