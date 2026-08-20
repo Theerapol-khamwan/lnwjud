@@ -107,7 +107,7 @@ export interface LogLine {
   readonly correlation?: LogCorrelation;
 }
 
-export type McpResultCode = 'SUCCESS' | 'FAILED' | 'FATAL';
+export type McpResultCode = 'SUCCESS' | 'FAILED' | 'FATAL' | 'UNKNOWN';
 export type LogCorrelation =
   | { readonly kind: 'mcp'; readonly phase: 'started' | 'completed'; readonly callId: string; readonly toolName: string; readonly resultCode: McpResultCode | null }
   | { readonly kind: 'tunnel'; readonly instanceId?: string; readonly requestId?: string; readonly pid?: number };
@@ -132,6 +132,7 @@ export interface IncidentExportResult {
   readonly exported: boolean;
   readonly cancelled: boolean;
   readonly classification: IncidentClassification;
+  readonly capturedAt: string | null;
 }
 
 export interface GitStatusEntrySummary {

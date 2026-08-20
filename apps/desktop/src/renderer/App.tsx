@@ -99,7 +99,7 @@ export function App(): ReactElement {
       const result = await window.lnwjud.captureIncident();
       if (result.exported && !result.cancelled) {
         setIncidentClassification(result.classification);
-        setIncidentCapturedAt(new Date().toISOString());
+        setIncidentCapturedAt(result.capturedAt);
         setIncidentNotice(null);
       } else {
         setIncidentNotice(t('live.incident.cancelled'));

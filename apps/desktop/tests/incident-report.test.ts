@@ -52,6 +52,17 @@ describe('incident classification', () => {
     expect(classifyIncident(evidence({ logLines: [started('a'), completed('a')], tunnel: { ...healthyTunnel, state: 'starting', health: { state: 'live', message: 'live' } } })).classification).toBe('healthy_or_inconclusive');
     expect(classifyIncident(evidence({ logLines: [started('a'), completed('a')], tunnel: { ...healthyTunnel, state: 'stopped', health: { state: 'live', message: 'live' } } })).classification).toBe('tunnel_disconnected');
   });
+
+  it('treats missing, new, or conflicting terminal result codes as unknown', () => {
+    const unknown = completed('a', 'SUCCESS');
+    unknown.correlation.resultCode = 'UNKNOWN_CODE' as never;
+    expect(classifyIncident(evidence({ logLines: [started('a', 'tool_success_error'), unknown] })).classification).toBe('healthy_or_inconclusive');
+    expect(classifyIncident(evidence({ logLines: [started('b'), { ...completed('b'), correlation: { ...completed('b').correlation, resultCode: null } }] })).classification).toBe('healthy_or_inconclusive');
+  });
+
+  it.each(['TTL reached!', 'stdio process terminated.', 'Tunnel is shutting down', 'DISCONNECTING now'])('recognizes tunnel lifecycle failure %s', (text) => {
+    expect(classifyIncident(evidence({ logLines: [{ source: 'tunnel', text, timestamp: '2026-08-20T00:00:00.000Z' }] })).classification).toBe('tunnel_disconnected');
+  });
 });
 
 describe('incident correlation and privacy', () => {
@@ -110,7 +121,7 @@ describe('incident export workflow', () => {
       choosePath: async () => null,
       writeAtomically: async () => { throw new Error('must not write'); },
     });
-    expect(result).toEqual({ exported: false, cancelled: true, classification: 'healthy_or_inconclusive' });
+    expect(result).toEqual({ exported: false, cancelled: true, classification: 'healthy_or_inconclusive', capturedAt: null });
   });
 
   it('writes bounded JSON after a user chooses a path', async () => {
@@ -119,7 +130,7 @@ describe('incident export workflow', () => {
       choosePath: async () => 'C:/tmp/incident.json',
       writeAtomically: async (_path, content) => { saved = content; },
     });
-    expect(result).toEqual({ exported: true, cancelled: false, classification: 'healthy_or_inconclusive' });
+    expect(result).toMatchObject({ exported: true, cancelled: false, classification: 'healthy_or_inconclusive', capturedAt: expect.any(String) });
     expect(JSON.parse(saved)).toMatchObject({ schemaVersion: 1, classification: 'healthy_or_inconclusive' });
   });
 });

@@ -344,11 +344,11 @@ async function exportLogsToFile(
 
 async function exportIncidentToFile(window: BrowserWindow | null, services: DesktopIpcServices): Promise<IncidentExportResult> {
   const report = await services.captureIncident(updaterEventTail);
-  if (window === null) return { exported: false, cancelled: true, classification: report.classification };
+  if (window === null) return { exported: false, cancelled: true, classification: report.classification, capturedAt: null };
   const result = await dialog.showSaveDialog(window, { title: 'Capture lnwjud incident evidence', defaultPath: 'lnwjud-incident.json', filters: [{ name: 'JSON', extensions: ['json'] }] });
-  if (result.canceled || result.filePath === undefined || result.filePath.length === 0) return { exported: false, cancelled: true, classification: report.classification };
+  if (result.canceled || result.filePath === undefined || result.filePath.length === 0) return { exported: false, cancelled: true, classification: report.classification, capturedAt: null };
   await atomicWrite(result.filePath, JSON.stringify(report, null, 2) + '\n');
-  return { exported: true, cancelled: false, classification: report.classification };
+  return { exported: true, cancelled: false, classification: report.classification, capturedAt: report.capturedAt };
 }
 
 function broadcastToAllWindows(channel: string, payload: unknown): void {

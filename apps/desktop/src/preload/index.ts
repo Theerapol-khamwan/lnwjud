@@ -408,7 +408,7 @@ function logLine(value: unknown): LogLine {
 
 function parseLogCorrelation(value: unknown): LogLine['correlation'] | undefined {
   if (!isRecord(value) || typeof value.kind !== 'string') return undefined;
-  if (value.kind === 'mcp' && (value.phase === 'started' || value.phase === 'completed') && typeof value.callId === 'string' && typeof value.toolName === 'string' && (value.resultCode === null || value.resultCode === 'SUCCESS' || value.resultCode === 'FAILED' || value.resultCode === 'FATAL')) return { kind: 'mcp', phase: value.phase, callId: value.callId, toolName: value.toolName, resultCode: value.resultCode };
+  if (value.kind === 'mcp' && (value.phase === 'started' || value.phase === 'completed') && typeof value.callId === 'string' && typeof value.toolName === 'string' && (value.resultCode === null || value.resultCode === 'SUCCESS' || value.resultCode === 'FAILED' || value.resultCode === 'FATAL' || value.resultCode === 'UNKNOWN')) return { kind: 'mcp', phase: value.phase, callId: value.callId, toolName: value.toolName, resultCode: value.resultCode };
   if (value.kind === 'tunnel' && (value.instanceId === undefined || typeof value.instanceId === 'string') && (value.requestId === undefined || typeof value.requestId === 'string') && (value.pid === undefined || (typeof value.pid === 'number' && Number.isInteger(value.pid)))) return { kind: 'tunnel', ...(typeof value.instanceId === 'string' ? { instanceId: value.instanceId } : {}), ...(typeof value.requestId === 'string' ? { requestId: value.requestId } : {}), ...(typeof value.pid === 'number' ? { pid: value.pid } : {}) };
   return undefined;
 }
@@ -453,7 +453,7 @@ function captureIncident(): Promise<IncidentExportResult> {
     if (!isRecord(value)) throw new Error('Invalid IPC response');
     const classification = value.classification;
     if (classification !== 'local_tool_failed' && classification !== 'tunnel_disconnected' && classification !== 'remote_turn_stopped' && classification !== 'healthy_or_inconclusive') throw new Error('Invalid IPC response');
-    return { exported: booleanField(value, 'exported'), cancelled: booleanField(value, 'cancelled'), classification };
+    return { exported: booleanField(value, 'exported'), cancelled: booleanField(value, 'cancelled'), classification, capturedAt: nullableString(value.capturedAt) };
   });
 }
 

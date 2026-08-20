@@ -98,7 +98,7 @@ export class LogHub {
     for (const entry of entries) {
       this.feedIfNew(
         'mcp',
-        mcpActivityKey(entry.callId ?? entry.id, entry.kind === 'task' ? 'started' : 'completed'),
+        mcpActivityKey(entry.id, entry.kind === 'task' ? 'started' : 'completed'),
         entry.kind === 'error' ? 'error' : 'info',
         formatWorkLogLine(entry),
         { kind: 'mcp', phase: entry.kind === 'task' ? 'started' : 'completed', callId: entry.callId ?? entry.id, toolName: entry.toolName, resultCode: entry.kind === 'task' ? null : normalizeMcpResultCode(entry.resultCode) },
@@ -289,12 +289,12 @@ function parseMcpActivityLine(raw: string): { readonly key: string; readonly lev
   const callId = typeof record.callId === 'string' ? record.callId : '';
   const toolName = typeof record.toolName === 'string' ? record.toolName : 'unknown';
   const phase = record.phase === 'completed' ? 'completed' : 'started';
-  const resultCode = typeof record.resultCode === 'string' ? record.resultCode : phase === 'started' ? 'STARTED' : 'SUCCESS';
+  const resultCode = typeof record.resultCode === 'string' ? record.resultCode : phase === 'started' ? 'STARTED' : 'UNKNOWN';
   const targetSummary = typeof record.targetSummary === 'string' ? record.targetSummary : null;
   const resultMessage = typeof record.resultMessage === 'string' ? record.resultMessage : null;
   const kind = phase === 'started' ? 'task' : resultCode === 'SUCCESS' || resultCode === 'STARTED' ? 'result' : 'error';
   return {
-    key: mcpActivityKey(callId.length > 0 ? callId : raw.slice(0, 40), phase),
+    key: mcpActivityKey(`${callId.length > 0 ? callId : 'unknown'}:${typeof record.timestamp === 'string' ? record.timestamp : raw.slice(0, 160)}`, phase),
     level: kind === 'error' ? 'error' : 'info',
     text: formatWorkLogLine({
       id: callId,
@@ -309,9 +309,12 @@ function parseMcpActivityLine(raw: string): { readonly key: string; readonly lev
   };
 }
 
-function normalizeMcpResultCode(value: string): 'SUCCESS' | 'FAILED' | 'FATAL' {
+function normalizeMcpResultCode(value: string): 'SUCCESS' | 'FAILED' | 'FATAL' | 'UNKNOWN' {
   const normalized = value.toUpperCase();
-  return normalized === 'SUCCESS' ? 'SUCCESS' : normalized === 'FATAL' ? 'FATAL' : 'FAILED';
+  if (normalized === 'SUCCESS') return 'SUCCESS';
+  if (normalized === 'FATAL') return 'FATAL';
+  if (['FAILED', 'FILE_NOT_FOUND', 'CHILD_FAILED', 'DEPENDENCY_FAILED', 'PERMISSION_DENIED'].includes(normalized)) return 'FAILED';
+  return 'UNKNOWN';
 }
 
 function stringRecordField(record: Record<string, unknown>, keys: readonly string[]): string | undefined {

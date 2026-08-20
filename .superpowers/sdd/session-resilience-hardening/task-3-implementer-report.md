@@ -35,3 +35,9 @@
 - Tunnel health uses the existing `health.listen_addr` in `lnwjud.yaml`, or the runtime health listener recorded by tunnel-client when the configured address is dynamic; it never uses the Desktop local MCP listener or invents a port. Missing/dynamic-unresolved health is explicit `unavailable`, so it cannot yield `remote_turn_stopped`.
 - Client version discovery uses file-version metadata from the configured existing executable (read-only PowerShell metadata query, never executing the binary), with a bounded structured unavailability reason.
 - Dashboard Control Center and Live Logs share the manual capture action/status. Only a successful write updates classification and timestamp; cancel leaves the previous capture intact and reports neutral cancellation status.
+
+## Second review-fix addendum
+
+- RED: 19 focused incident cases produced four expected failures for unrecognized tunnel lifecycle variants and the missing exported capture timestamp.
+- GREEN: structured completion status is now allowlisted (`SUCCESS`, known failure codes, `FATAL`, otherwise `UNKNOWN`); unknown or malformed completion evidence cannot produce local/remote classification. Tunnel failure normalization covers TTL, stdio process/command termination, shutdown, and disconnect variants. The typed export result carries the report's exact `capturedAt` only on success.
+- Exact duplicate MCP delivery remains deduped, while timestamp/fingerprint-based activity identities retain repeated call IDs as separate lifecycle occurrences.
