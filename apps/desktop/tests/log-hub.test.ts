@@ -70,6 +70,33 @@ describe('LogHub', () => {
     expect(hub.snapshot().lines.find((line) => line.text === 'boom')?.level).toBe('error');
   });
 
+  it('normalizes structured tunnel lifecycle fields into bounded categories', async () => {
+    vi.useFakeTimers();
+    const root = await mkdtemp(path.join(os.tmpdir(), 'lnwjud-loghub-lifecycle-'));
+    temporaryRoots.push(root);
+    const logPath = path.join(root, 'lnwjud-tunnel.log');
+    await writeFile(logPath, [
+      { level: 'warn', event: 'ttl_limit_exceeded', msg: 'retrying later' },
+      { status: 'STDIO.MCP-CLOSED', message: 'display text is neutral' },
+      { reason: 'control-plane connection disconnected', msg: 'display text is neutral' },
+      { status: 'DISCONNECTED', msg: 'display text is neutral' },
+      { event: 'documentation_loaded', msg: 'shutdown documentation loaded' },
+    ].map((entry) => JSON.stringify(entry)).join('\n') + '\n', 'utf8');
+
+    const hub = new LogHub({ tunnelLogPath: logPath });
+    hub.start();
+    await vi.advanceTimersByTimeAsync(700);
+    hub.stop();
+
+    expect(hub.snapshot().lines.map((line) => line.correlation)).toEqual([
+      expect.objectContaining({ kind: 'tunnel', lifecycle: 'ttl_expired' }),
+      expect.objectContaining({ kind: 'tunnel', lifecycle: 'stdio_stopped' }),
+      expect.objectContaining({ kind: 'tunnel', lifecycle: 'transport_stopped' }),
+      expect.objectContaining({ kind: 'tunnel', lifecycle: 'transport_stopped' }),
+      expect.objectContaining({ kind: 'tunnel', lifecycle: 'other' }),
+    ]);
+  });
+
   it('keeps a tunnel log line intact when it crosses a read chunk boundary', async () => {
     vi.useFakeTimers();
     const root = await mkdtemp(path.join(os.tmpdir(), 'lnwjud-loghub-boundary-'));
