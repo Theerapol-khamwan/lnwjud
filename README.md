@@ -1271,7 +1271,7 @@ $tc = if ($env:LNWJUD_TUNNEL_CLIENT_PATH) { $env:LNWJUD_TUNNEL_CLIENT_PATH } els
 if (-not (Test-Path -LiteralPath $tc -PathType Leaf)) { throw "Missing tunnel-client executable: $tc" }
 if (-not (Test-Path -LiteralPath (Join-Path $profile 'lnwjud.yaml') -PathType Leaf)) { throw "Missing configured profile: $(Join-Path $profile 'lnwjud.yaml')" }
 Get-Content (Join-Path $profile 'lnwjud.tunnel.lock') -ErrorAction SilentlyContinue
-& $tc doctor --profile lnwjud --explain
+& $tc doctor --profile lnwjud --profile-dir $profile --explain
 if ($LASTEXITCODE -ne 0) { throw 'tunnel-client doctor failed' }
 $match = Select-String -LiteralPath (Join-Path $profile 'lnwjud-tunnel.log') -Pattern 'health.*(?:listening|listen_addr).*?(127\.0\.0\.1|localhost):(\d{2,5})' | Select-Object -Last 1
 if ($null -eq $match) { throw 'No runtime health address was reported by the configured tunnel' }
