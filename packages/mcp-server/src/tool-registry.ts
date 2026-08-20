@@ -31,7 +31,10 @@ export interface ToolRegistryOptions {
   readonly activity?: ActivitySink;
   readonly activityTracker?: ActivityTracker;
   readonly profileProvider?: () => PermissionProfile;
+  readonly maxToolDurationMs?: number;
 }
+
+const DEFAULT_MCP_TOOL_RESPONSE_BUDGET_MS = 90_000;
 
 export class ToolRegistry {
   private readonly tools: readonly McpToolDefinition[];
@@ -40,11 +43,13 @@ export class ToolRegistry {
   private readonly schemaRegistry: ToolSchemaRegistry;
   private readonly permissionEngine = new DefaultPermissionEngine();
   private readonly profileProvider: () => PermissionProfile;
+  private readonly maxToolDurationMs: number;
 
   public constructor(services: McpApplicationServices, actor: FileActor, options: ToolRegistryOptions = {}) {
     this.diagnostic = options.diagnostic;
     this.activity = options.activityTracker ?? new ActivityTracker(options.activity);
     this.profileProvider = options.profileProvider ?? ((): PermissionProfile => permissionProfiles.full);
+    this.maxToolDurationMs = normalizeToolResponseBudget(options.maxToolDurationMs);
     const contextEconomy = new ContextEconomyRuntime();
     const context: McpToolContext = { services, actor, contextEconomy };
     const contextEngine = new ContextEngine(services, actor, contextEconomy);
@@ -133,7 +138,7 @@ export class ToolRegistry {
         await this.activity.end(callId, code, Date.now() - started, message);
         return response;
       }
-      const response = mapResult(await tool.execute(parsed.value));
+      const response = await this.executeWithinResponseBudget(tool, parsed.value);
       const resultCode = response.isError === true
         ? readErrorCode(response) ?? 'ERROR'
         : 'SUCCESS';
@@ -145,6 +150,30 @@ export class ToolRegistry {
       return response;
     }
   }
+
+  private async executeWithinResponseBudget(tool: McpToolDefinition, input: unknown): Promise<McpToolResponse> {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const timeoutResponse = new Promise<McpToolResponse>((resolve) => {
+      timer = setTimeout(() => {
+        resolve(mapError(appError(
+          'PROCESS_TIMEOUT',
+          `MCP tool ${tool.name} exceeded the ${Math.ceil(this.maxToolDurationMs / 1000)}s response budget; the underlying operation may still be finishing. Check task/process status before retrying.`,
+          true,
+        )));
+      }, this.maxToolDurationMs);
+    });
+    try {
+      return await Promise.race([tool.execute(input).then(mapResult), timeoutResponse]);
+    } finally {
+      if (timer !== undefined) clearTimeout(timer);
+    }
+  }
+}
+
+function normalizeToolResponseBudget(value: number | undefined): number {
+  return typeof value === 'number' && Number.isFinite(value) && value > 0
+    ? value
+    : DEFAULT_MCP_TOOL_RESPONSE_BUDGET_MS;
 }
 
 function readWorkspaceId(input: unknown): string {

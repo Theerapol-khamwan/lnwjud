@@ -17,6 +17,11 @@ async function trackedFiles(): Promise<string[]> {
 }
 
 describe('public repository hygiene', () => {
+  it('ignores exported lnwjud diagnostic text logs at the repository root', async () => {
+    const ignore = await readFile(path.join(repositoryRoot, '.gitignore'), 'utf8');
+    expect(ignore).toContain('lnwjud-*-logs.txt');
+  });
+
   it('does not track generated stdio bundles', async () => {
     const tracked = await trackedFiles();
     const generated = [
@@ -52,10 +57,13 @@ describe('public repository hygiene', () => {
     expect(leaks, `developer-specific content found in: ${leaks.join(', ')}`).toEqual([]);
   });
 
-  it('documents the current v4 runtime rather than stale catalog counts', async () => {
+  it('documents the package version as the current v4 runtime rather than a stale release', async () => {
     const readme = await readFile(path.join(repositoryRoot, 'README.md'), 'utf8');
+    const rootPackage = JSON.parse(await readFile(path.join(repositoryRoot, 'package.json'), 'utf8')) as { version?: unknown };
+    expect(typeof rootPackage.version).toBe('string');
 
-    expect(readme).toContain('v4.0.0');
+    expect(readme).toContain(`## Current release: v${rootPackage.version as string}`);
+    expect(readme).toContain(`current published installer and runtime contract are \`v${rootPackage.version as string}\``);
     expect(readme).toContain('208 tools');
     expect(readme).not.toContain(['Verify the ', '184-tool catalog'].join(''));
     expect(readme).not.toContain(['current v3.0.0 catalog contains ', '184 tools'].join(''));

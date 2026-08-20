@@ -1,9 +1,24 @@
 import { describe, expect, it } from 'vitest';
 import type { Result } from '@lnwjud/domain';
 import type { ExecutableResolver } from './executable-resolver.js';
-import { RipgrepAdapter, type ProcessRunResult, type ProcessRunner } from './ripgrep-adapter.js';
+import { DirectProcessRunner, RipgrepAdapter, type ProcessRunResult, type ProcessRunner } from './ripgrep-adapter.js';
 
 describe('RipgrepAdapter', () => {
+  it('terminates an over-budget ripgrep process and reports a timed-out partial result', async () => {
+    const runner = new DirectProcessRunner();
+    const startedAt = Date.now();
+
+    const result = await runner.run(
+      process.execPath,
+      ['-e', "setTimeout(() => process.stdout.write('late'), 250)"],
+      process.cwd(),
+      { timeoutMs: 40 },
+    );
+
+    expect(Date.now() - startedAt).toBeLessThan(200);
+    expect(result.timedOut).toBe(true);
+  });
+
   it('passes query metacharacters as one literal argument without shell side effects', async () => {
     let executable = '';
     let receivedArgs: readonly string[] = [];

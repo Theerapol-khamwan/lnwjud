@@ -39,6 +39,7 @@ credentials.json
 
 # Logs & Diagnostics
 *.log
+lnwjud-*-logs.txt
 logs/
 diagnostics/
 

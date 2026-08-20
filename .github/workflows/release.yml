@@ -17,6 +17,15 @@ jobs:
       - name: Checkout Code
         uses: actions/checkout@v4
 
+      - name: Verify release tag matches package version
+        shell: pwsh
+        run: |
+          $package = Get-Content package.json -Raw | ConvertFrom-Json
+          $expectedTag = "v$($package.version)"
+          if ("${{ github.ref_name }}" -ne $expectedTag) {
+            throw "Release tag must match package.json version. Expected $expectedTag but got ${{ github.ref_name }}"
+          }
+
       - name: Setup Node.js 24
         uses: actions/setup-node@v4
         with:

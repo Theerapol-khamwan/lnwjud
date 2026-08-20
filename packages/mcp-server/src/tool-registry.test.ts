@@ -107,6 +107,30 @@ describe('MCP tool registry', () => {
     expect(response.content[0]?.text).not.toContain('stack');
   });
 
+  it('returns a recoverable timeout before a slow tool can outlive the MCP response budget', async () => {
+    const services: McpApplicationServices = {
+      search: {
+        async searchText() {
+          await new Promise((resolve) => setTimeout(resolve, 80));
+          return ok({ matches: [], truncated: false });
+        },
+        async searchFiles() {
+          return ok({ paths: [], truncated: false });
+        },
+      },
+    };
+    const registry = new ToolRegistry(services, actor, { maxToolDurationMs: 10 });
+
+    const started = Date.now();
+    const response = await registry.invoke('search_text', { workspaceId: 'workspace-1', query: 'slow' });
+
+    expect(Date.now() - started).toBeLessThan(70);
+    expect(response).toMatchObject({
+      isError: true,
+      structuredContent: { error: { code: 'PROCESS_TIMEOUT', recoverable: true } },
+    });
+  });
+
   it('maps thrown application exceptions to INTERNAL_ERROR and sends redacted diagnostics', async () => {
     const diagnostics: unknown[] = [];
     const services: McpApplicationServices = {

@@ -391,6 +391,7 @@ let mainWindow: BrowserWindow | null = null;
 let logViewerWindow: BrowserWindow | null = null;
 let desktopRuntime: DesktopRuntime | null = null;
 let tray: Tray | null = null;
+let manualUpdateCheckPending = false;
 let quitRequested = false;
 let shutdownStarted = false;
 
@@ -441,7 +442,19 @@ function checkForUpdatesFromTray(): void {
     });
     return;
   }
+  if (manualUpdateCheckPending) {
+    void dialog.showMessageBox({
+      type: 'info',
+      title: 'ตรวจอัปเดต',
+      message: 'กำลังตรวจอัปเดตอยู่ กรุณารอผลการตรวจสอบ',
+      buttons: ['ตกลง'],
+    });
+    return;
+  }
+  manualUpdateCheckPending = true;
   void autoUpdater.checkForUpdates().catch((error: unknown) => {
+    if (!manualUpdateCheckPending) return;
+    manualUpdateCheckPending = false;
     const message = error instanceof Error ? error.message : 'ไม่สามารถตรวจอัปเดตได้';
     console.error('[AutoUpdater] tray check failed: ' + message);
     void dialog.showMessageBox({
@@ -553,13 +566,34 @@ function initAutoUpdater(): void {
     });
 
     autoUpdater.on('update-available', (info) => {
+      const requestedFromTray = manualUpdateCheckPending;
+      manualUpdateCheckPending = false;
       console.log(`[AutoUpdater] Update available: v${info.version}`);
+      if (requestedFromTray) {
+        void dialog.showMessageBox({
+          type: 'info',
+          title: 'พบอัปเดต - lnwjud',
+          message: `พบ lnwjud v${info.version} กำลังดาวน์โหลดอัปเดตในเบื้องหลัง`,
+          buttons: ['ตกลง'],
+        });
+      }
       broadcastToAllWindows(pushChannels.logEvent, {
         id: Date.now(),
         timestamp: new Date().toISOString(),
         level: 'info',
         source: 'process',
         text: `[AutoUpdater] Version v${info.version} is available and downloading in background...`,
+      });
+    });
+
+    autoUpdater.on('update-not-available', (info) => {
+      if (!manualUpdateCheckPending) return;
+      manualUpdateCheckPending = false;
+      void dialog.showMessageBox({
+        type: 'info',
+        title: 'ตรวจอัปเดต - lnwjud',
+        message: `lnwjud v${info.version} เป็นเวอร์ชันล่าสุดแล้ว`,
+        buttons: ['ตกลง'],
       });
     });
 
@@ -588,6 +622,14 @@ function initAutoUpdater(): void {
 
     autoUpdater.on('error', (err) => {
       console.error('[AutoUpdater] error:', err.message);
+      if (!manualUpdateCheckPending) return;
+      manualUpdateCheckPending = false;
+      void dialog.showMessageBox({
+        type: 'error',
+        title: 'ตรวจอัปเดต - lnwjud',
+        message: err.message || 'ไม่สามารถตรวจอัปเดตได้',
+        buttons: ['ตกลง'],
+      });
     });
 
     setTimeout(() => {

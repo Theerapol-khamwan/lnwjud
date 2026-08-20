@@ -67,6 +67,49 @@ describe('ShellCapabilityBackend', () => {
     expect(result).toMatchObject({ ok: true, value: { state: 'completed', exit_code: 0, stdout: 'done' } });
   });
 
+  it('returns a running task instead of blocking an MCP call past the synchronous wait budget', async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), 'lnwjud-shell-'));
+    temporaryRoots.push(root);
+    const backend = new ShellCapabilityBackend({ allowedRoots: [root], maxSynchronousWaitSeconds: 0.05 });
+
+    const startedAt = Date.now();
+    const result = await backend.execute({
+      operation: 'run',
+      executable: process.execPath,
+      arguments: ['-e', "setTimeout(() => process.stdout.write('late'), 250)"],
+      cwd: root,
+      execution: 'foreground',
+      timeout_seconds: 5,
+    });
+
+    expect(Date.now() - startedAt).toBeLessThan(200);
+    expect(result).toMatchObject({ ok: true, value: { state: 'running', task_id: expect.any(String) } });
+    if (result.ok) await backend.execute({ operation: 'cancel', task_id: result.value.task_id });
+  });
+
+  it('caps shell wait calls so polling cannot hold the MCP connection open indefinitely', async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), 'lnwjud-shell-'));
+    temporaryRoots.push(root);
+    const backend = new ShellCapabilityBackend({ allowedRoots: [root], maxSynchronousWaitSeconds: 0.05 });
+    const started = await backend.execute({
+      operation: 'run',
+      executable: process.execPath,
+      arguments: ['-e', "setTimeout(() => process.stdout.write('late'), 250)"],
+      cwd: root,
+      execution: 'background',
+      timeout_seconds: 5,
+    });
+    expect(started.ok).toBe(true);
+    if (!started.ok) return;
+
+    const waitStartedAt = Date.now();
+    const waited = await backend.execute({ operation: 'wait', task_id: started.value.task_id, timeout_seconds: 5 });
+
+    expect(Date.now() - waitStartedAt).toBeLessThan(200);
+    expect(waited).toMatchObject({ ok: true, value: { state: 'running' } });
+    await backend.execute({ operation: 'cancel', task_id: started.value.task_id });
+  });
+
   it('runs a Windows .cmd shim whose path contains spaces', async () => {
     if (process.platform !== 'win32') return;
     const root = await mkdtemp(path.join(os.tmpdir(), 'lnwjud shell shim-'));

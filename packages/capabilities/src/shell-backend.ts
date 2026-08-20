@@ -35,6 +35,7 @@ export interface ShellCapabilityOptions {
   readonly terminator?: ProcessTreeTerminator;
   readonly defaultTimeoutSeconds?: number;
   readonly autoWaitSeconds?: number;
+  readonly maxSynchronousWaitSeconds?: number;
   readonly maxOutputBytes?: number;
   /**
    * Full-access mode: cwd may be any existing directory, the full environment is
@@ -65,6 +66,7 @@ interface ShellTaskRecord {
 const SHELL_OPERATIONS: readonly ShellOperation[] = ['run', 'status', 'wait', 'logs', 'result', 'cancel', 'resume', 'approve', 'deny'];
 const DEFAULT_TIMEOUT_SECONDS = 3600;
 const DEFAULT_AUTO_WAIT_SECONDS = 1;
+const DEFAULT_MAX_SYNCHRONOUS_WAIT_SECONDS = 60;
 const DEFAULT_MAX_OUTPUT_BYTES = 2 * 1024 * 1024;
 const MAX_TIMEOUT_SECONDS = 14_400;
 const MAX_OUTPUT_BYTES = 8 * 1024 * 1024;
@@ -77,6 +79,7 @@ export class ShellCapabilityBackend implements CapabilityBackend {
   private readonly allowedRootsProvider: (() => Promise<readonly string[]>) | undefined;
   private readonly defaultTimeoutSeconds: number;
   private readonly autoWaitSeconds: number;
+  private readonly maxSynchronousWaitSeconds: number;
   private readonly maxOutputBytes: number;
   private readonly unrestricted: boolean;
 
@@ -88,6 +91,7 @@ export class ShellCapabilityBackend implements CapabilityBackend {
     this.terminator = options.terminator ?? new WindowsProcessTree();
     this.defaultTimeoutSeconds = clampNumber(options.defaultTimeoutSeconds ?? DEFAULT_TIMEOUT_SECONDS, 0.1, MAX_TIMEOUT_SECONDS);
     this.autoWaitSeconds = clampNumber(options.autoWaitSeconds ?? DEFAULT_AUTO_WAIT_SECONDS, 0, DEFAULT_TIMEOUT_SECONDS);
+    this.maxSynchronousWaitSeconds = clampNumber(options.maxSynchronousWaitSeconds ?? DEFAULT_MAX_SYNCHRONOUS_WAIT_SECONDS, 0.01, 90);
     this.maxOutputBytes = Math.floor(clampNumber(options.maxOutputBytes ?? DEFAULT_MAX_OUTPUT_BYTES, 1, MAX_OUTPUT_BYTES));
     this.unrestricted = options.unrestricted === true;
   }
@@ -173,14 +177,17 @@ export class ShellCapabilityBackend implements CapabilityBackend {
     record.timer = setTimeout(() => { void this.timeout(record); }, request.timeoutSeconds * 1000);
 
     if (request.execution === 'background') return ok(this.snapshot(record));
-    await this.waitFor(record, request.execution === 'auto' ? this.autoWaitSeconds : request.timeoutSeconds);
+    const synchronousWait = request.execution === 'auto'
+      ? Math.min(this.autoWaitSeconds, this.maxSynchronousWaitSeconds)
+      : Math.min(request.timeoutSeconds, this.maxSynchronousWaitSeconds);
+    await this.waitFor(record, synchronousWait);
     return ok(this.snapshot(record));
   }
 
   private async wait(request: ShellRequest): Promise<Result<unknown>> {
     const record = this.getTask(request.taskId);
     if (!record.ok) return record;
-    await this.waitFor(record.value, request.timeoutSeconds);
+    await this.waitFor(record.value, Math.min(request.timeoutSeconds, this.maxSynchronousWaitSeconds));
     return ok(this.snapshot(record.value, request.tailLines));
   }
 

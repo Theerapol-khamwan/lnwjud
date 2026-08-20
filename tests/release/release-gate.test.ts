@@ -45,4 +45,11 @@ describe('MVP release verification gate', () => {
       expect(checklist.toLowerCase()).toContain(evidence.toLowerCase());
     }
   });
+  it('rejects release tags that do not match the packaged application version', async () => {
+    const workflow = await readFile(path.join(repositoryRoot, '.github', 'workflows', 'release.yml'), 'utf8');
+    expect(workflow).toContain('github.ref_name');
+    expect(workflow).toContain('package.json');
+    expect(workflow).toMatch(/tag.*match|match.*tag/i);
+  });
+
 });

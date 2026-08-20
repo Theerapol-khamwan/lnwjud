@@ -11,23 +11,46 @@ export interface ProcessRunResult {
   readonly exitCode: number;
   readonly stdout: string;
   readonly stderr: string;
+  readonly timedOut?: boolean;
+}
+
+export interface ProcessRunOptions {
+  readonly timeoutMs?: number;
 }
 
 export interface ProcessRunner {
-  run(command: string, args: readonly string[], cwd: string): Promise<ProcessRunResult>;
+  run(command: string, args: readonly string[], cwd: string, options?: ProcessRunOptions): Promise<ProcessRunResult>;
 }
 
 export class DirectProcessRunner implements ProcessRunner {
-  public run(command: string, args: readonly string[], cwd: string): Promise<ProcessRunResult> {
+  public run(command: string, args: readonly string[], cwd: string, options: ProcessRunOptions = {}): Promise<ProcessRunResult> {
     return new Promise((resolve) => {
       const child = spawn(command, [...args], { cwd, shell: false, windowsHide: true });
       let stdout = '';
       let stderr = '';
+      let timedOut = false;
+      let settled = false;
       const append = (current: string, chunk: Buffer): string => Buffer.from(`${current}${chunk.toString('utf8')}`, 'utf8').subarray(-MAX_PROCESS_LOG_BYTES).toString('utf8');
+      const finish = (exitCode: number): void => {
+        if (settled) return;
+        settled = true;
+        if (timer !== undefined) clearTimeout(timer);
+        resolve({ exitCode, stdout, stderr, ...(timedOut ? { timedOut: true } : {}) });
+      };
+      const timeoutMs = options.timeoutMs;
+      const timer = typeof timeoutMs === 'number' && Number.isFinite(timeoutMs) && timeoutMs > 0
+        ? setTimeout(() => {
+          timedOut = true;
+          child.kill();
+        }, timeoutMs)
+        : undefined;
       child.stdout?.on('data', (chunk: Buffer) => { stdout = append(stdout, chunk); });
       child.stderr?.on('data', (chunk: Buffer) => { stderr = append(stderr, chunk); });
-      child.on('error', (error: Error) => resolve({ exitCode: -1, stdout, stderr: `${stderr}${error.message}` }));
-      child.on('close', (exitCode) => resolve({ exitCode: exitCode ?? -1, stdout, stderr }));
+      child.on('error', (error: Error) => {
+        stderr = `${stderr}${error.message}`;
+        finish(-1);
+      });
+      child.on('close', (exitCode) => finish(exitCode ?? -1));
     });
   }
 }
@@ -63,6 +86,8 @@ export interface SearchFilesResult {
   readonly truncated: boolean;
 }
 
+const SEARCH_PROCESS_TIMEOUT_MS = 45_000;
+
 export class RipgrepAdapter {
   public constructor(
     private readonly resolver: ExecutableResolver = new PathExecutableResolver(),
@@ -81,8 +106,8 @@ export class RipgrepAdapter {
     if (discovery === 'automatic') this.appendDefaultGlobs(args);
     if (request.glob !== undefined) args.push('--glob', request.glob);
     args.push('--', request.query, '.');
-    const processResult = await this.runner.run(executable.value, args, request.rootPath);
-    if (processResult.exitCode !== 0 && processResult.exitCode !== 1) {
+    const processResult = await this.runner.run(executable.value, args, request.rootPath, { timeoutMs: SEARCH_PROCESS_TIMEOUT_MS });
+    if (!processResult.timedOut && processResult.exitCode !== 0 && processResult.exitCode !== 1) {
       return err({ code: 'INTERNAL_ERROR', message: 'Search process failed', recoverable: true });
     }
     const matches: SearchMatch[] = [];
@@ -93,7 +118,7 @@ export class RipgrepAdapter {
       matches.push(match);
       if (matches.length >= maxResults) break;
     }
-    return ok({ matches, truncated: matches.length >= maxResults && processResult.stdout.includes('"type":"match"') });
+    return ok({ matches, truncated: processResult.timedOut === true || matches.length >= maxResults && processResult.stdout.includes('"type":"match"') });
   }
 
   public async searchFiles(request: SearchFilesRequest): Promise<Result<SearchFilesResult>> {
@@ -108,8 +133,8 @@ export class RipgrepAdapter {
     if (discovery === 'automatic') this.appendDefaultGlobs(args);
     if (request.glob !== undefined) args.push('--glob', request.glob);
     args.push('--');
-    const processResult = await this.runner.run(executable.value, args, request.rootPath);
-    if (processResult.exitCode !== 0 && processResult.exitCode !== 1) {
+    const processResult = await this.runner.run(executable.value, args, request.rootPath, { timeoutMs: SEARCH_PROCESS_TIMEOUT_MS });
+    if (!processResult.timedOut && processResult.exitCode !== 0 && processResult.exitCode !== 1) {
       return err({ code: 'INTERNAL_ERROR', message: 'Search process failed', recoverable: true });
     }
     const discoveredPaths = processResult.stdout
@@ -117,7 +142,7 @@ export class RipgrepAdapter {
       .filter((entry) => entry.length > 0)
       .filter((entry) => discovery === 'explicit' || classifyContextPath(entry, discovery).discoverable);
     const paths = discoveredPaths.slice(0, maxResults);
-    return ok({ paths, truncated: discoveredPaths.length > maxResults });
+    return ok({ paths, truncated: processResult.timedOut === true || discoveredPaths.length > maxResults });
   }
 
   private parseMatch(line: string): SearchMatch | null {

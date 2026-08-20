@@ -92,6 +92,9 @@ async function syncAllVersions() {
     let readmeContent = await readFile(readmePath, 'utf8');
     readmeContent = readmeContent
       .replace(/lnwjud-Setup-[0-9.]+\.exe/g, `lnwjud-Setup-${version}.exe`)
+      .replace(/## Current release: v[0-9.]+/g, `## Current release: v${version}`)
+      .replace(/current published installer and runtime contract are `v[0-9.]+`/g, 'current published installer and runtime contract are `v' + version + '`')
+      .replace(/current v[0-9.]+ `ToolRegistry`/g, 'current v' + version + ' `ToolRegistry`')
       .replace(/## v[0-9.]+ release status/g, `## v${version} release status`)
       .replace(/Release `v[0-9.]+`/g, `Release \`v${version}\``);
     await writeFile(readmePath, readmeContent, 'utf8');
