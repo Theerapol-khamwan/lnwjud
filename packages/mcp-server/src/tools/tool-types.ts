@@ -65,7 +65,7 @@ export interface McpToolDefinition {
   readonly annotations: McpToolAnnotations;
   readonly inputSchema: z.ZodType;
   parse(input: unknown): Result<unknown>;
-  execute(input: unknown): Promise<Result<unknown>>;
+  execute(input: unknown, signal: AbortSignal): Promise<Result<unknown>>;
 }
 
 export interface McpToolContext {
@@ -80,7 +80,7 @@ export interface ToolConfig<T extends z.ZodType> {
   readonly permission: McpPermissionLevel;
   readonly annotations: McpToolAnnotations;
   readonly inputSchema: T;
-  handler(input: z.infer<T>): Promise<Result<unknown>>;
+  handler(input: z.infer<T>, signal: AbortSignal): Promise<Result<unknown>>;
 }
 
 export function defineTool<T extends z.ZodType>(config: ToolConfig<T>): McpToolDefinition {
@@ -94,8 +94,8 @@ export function defineTool<T extends z.ZodType>(config: ToolConfig<T>): McpToolD
       const parsed = config.inputSchema.safeParse(input);
       return parsed.success ? ok(parsed.data) : err({ code: 'INVALID_INPUT', message: 'Tool input is invalid', recoverable: false });
     },
-    execute(input: unknown): Promise<Result<unknown>> {
-      return config.handler(input as z.infer<T>);
+    execute(input: unknown, signal: AbortSignal): Promise<Result<unknown>> {
+      return config.handler(input as z.infer<T>, signal);
     },
   };
 }

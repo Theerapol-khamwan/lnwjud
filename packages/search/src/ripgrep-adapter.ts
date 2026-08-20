@@ -16,6 +16,7 @@ export interface ProcessRunResult {
 
 export interface ProcessRunOptions {
   readonly timeoutMs?: number;
+  readonly signal?: AbortSignal;
 }
 
 export interface ProcessRunner {
@@ -30,20 +31,26 @@ export class DirectProcessRunner implements ProcessRunner {
       let stderr = '';
       let timedOut = false;
       let settled = false;
+      const abort = (): void => {
+        timedOut = true;
+        child.kill();
+      };
       const append = (current: string, chunk: Buffer): string => Buffer.from(`${current}${chunk.toString('utf8')}`, 'utf8').subarray(-MAX_PROCESS_LOG_BYTES).toString('utf8');
       const finish = (exitCode: number): void => {
         if (settled) return;
         settled = true;
         if (timer !== undefined) clearTimeout(timer);
+        options.signal?.removeEventListener('abort', abort);
         resolve({ exitCode, stdout, stderr, ...(timedOut ? { timedOut: true } : {}) });
       };
       const timeoutMs = options.timeoutMs;
       const timer = typeof timeoutMs === 'number' && Number.isFinite(timeoutMs) && timeoutMs > 0
         ? setTimeout(() => {
-          timedOut = true;
-          child.kill();
+          abort();
         }, timeoutMs)
         : undefined;
+      if (options.signal?.aborted) abort();
+      else options.signal?.addEventListener('abort', abort, { once: true });
       child.stdout?.on('data', (chunk: Buffer) => { stdout = append(stdout, chunk); });
       child.stderr?.on('data', (chunk: Buffer) => { stderr = append(stderr, chunk); });
       child.on('error', (error: Error) => {
@@ -61,6 +68,7 @@ export interface SearchTextRequest {
   readonly glob?: string;
   readonly maxResults?: number;
   readonly discovery?: ContextDiscoveryMode;
+  readonly signal?: AbortSignal;
 }
 
 export interface SearchMatch {
@@ -79,6 +87,7 @@ export interface SearchFilesRequest {
   readonly glob?: string;
   readonly maxResults?: number;
   readonly discovery?: ContextDiscoveryMode;
+  readonly signal?: AbortSignal;
 }
 
 export interface SearchFilesResult {
@@ -106,7 +115,7 @@ export class RipgrepAdapter {
     if (discovery === 'automatic') this.appendDefaultGlobs(args);
     if (request.glob !== undefined) args.push('--glob', request.glob);
     args.push('--', request.query, '.');
-    const processResult = await this.runner.run(executable.value, args, request.rootPath, { timeoutMs: SEARCH_PROCESS_TIMEOUT_MS });
+    const processResult = await this.runner.run(executable.value, args, request.rootPath, { timeoutMs: SEARCH_PROCESS_TIMEOUT_MS, ...(request.signal === undefined ? {} : { signal: request.signal }) });
     if (!processResult.timedOut && processResult.exitCode !== 0 && processResult.exitCode !== 1) {
       return err({ code: 'INTERNAL_ERROR', message: 'Search process failed', recoverable: true });
     }
@@ -133,7 +142,7 @@ export class RipgrepAdapter {
     if (discovery === 'automatic') this.appendDefaultGlobs(args);
     if (request.glob !== undefined) args.push('--glob', request.glob);
     args.push('--');
-    const processResult = await this.runner.run(executable.value, args, request.rootPath, { timeoutMs: SEARCH_PROCESS_TIMEOUT_MS });
+    const processResult = await this.runner.run(executable.value, args, request.rootPath, { timeoutMs: SEARCH_PROCESS_TIMEOUT_MS, ...(request.signal === undefined ? {} : { signal: request.signal }) });
     if (!processResult.timedOut && processResult.exitCode !== 0 && processResult.exitCode !== 1) {
       return err({ code: 'INTERNAL_ERROR', message: 'Search process failed', recoverable: true });
     }

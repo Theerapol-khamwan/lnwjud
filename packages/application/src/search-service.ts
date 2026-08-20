@@ -30,7 +30,7 @@ export class SearchService {
     private readonly adapter: SearchAdapter = new RipgrepAdapter(),
   ) {}
 
-  public async searchText(actor: FileActor, workspaceId: string | undefined, request: SearchTextRequest): Promise<Result<SearchTextResult>> {
+  public async searchText(actor: FileActor, workspaceId: string | undefined, request: SearchTextRequest, signal?: AbortSignal): Promise<Result<SearchTextResult>> {
     void actor;
     const validation = this.validateLimit(request.maxResults);
     if (!validation.ok) return validation;
@@ -43,10 +43,11 @@ export class SearchService {
       ...(request.glob === undefined ? {} : { glob: request.glob }),
       ...(request.maxResults === undefined ? {} : { maxResults: request.maxResults }),
       ...(request.discovery === undefined ? {} : { discovery: request.discovery }),
+      ...(signal === undefined ? {} : { signal }),
     });
   }
 
-  public async searchFiles(actor: FileActor, workspaceId: string | undefined, request: SearchFilesRequest): Promise<Result<SearchFilesResult>> {
+  public async searchFiles(actor: FileActor, workspaceId: string | undefined, request: SearchFilesRequest, signal?: AbortSignal): Promise<Result<SearchFilesResult>> {
     void actor;
     const validation = this.validateLimit(request.maxResults);
     if (!validation.ok) return validation;
@@ -57,6 +58,7 @@ export class SearchService {
       ...(request.glob === undefined ? {} : { glob: request.glob }),
       ...(request.maxResults === undefined ? {} : { maxResults: request.maxResults }),
       ...(request.discovery === undefined ? {} : { discovery: request.discovery }),
+      ...(signal === undefined ? {} : { signal }),
     });
   }
 

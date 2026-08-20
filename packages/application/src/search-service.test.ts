@@ -48,6 +48,29 @@ describe('SearchService', () => {
     expect(discoveryModes).toEqual(['automatic', 'explicit']);
   });
 
+  it('forwards the MCP invocation abort signal to process-backed text search', async () => {
+    const workspace: Workspace = { id: 'workspace-1', displayName: 'Fixture', rootPath: 'C:\\workspace', realRootPath: 'C:\\workspace', createdAt: new Date(0).toISOString() };
+    const repository: WorkspaceRepository = {
+      async list(): Promise<Workspace[]> { return [workspace]; },
+      async get(id: string): Promise<Workspace | null> { return id === workspace.id ? workspace : null; },
+      async insert(): Promise<void> {},
+      async delete(): Promise<void> {},
+    };
+    const adapter: SearchAdapter = {
+      async searchText(request) { return { ok: true, value: { matches: [], truncated: request.signal?.aborted === true } }; },
+      async searchFiles() { return { ok: true, value: { paths: [], truncated: false } }; },
+    };
+    const controller = new AbortController();
+    controller.abort();
+
+    await expect(new SearchService(repository, adapter).searchText(
+      { clientId: 'test', clientName: 'test' },
+      workspace.id,
+      { query: 'needle' },
+      controller.signal,
+    )).resolves.toEqual({ ok: true, value: { matches: [], truncated: true } });
+  });
+
   it('rejects an oversized result limit at the application boundary', async () => {
     const repository: WorkspaceRepository = {
       async list(): Promise<Workspace[]> { return []; },

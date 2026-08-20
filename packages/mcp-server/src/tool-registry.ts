@@ -152,18 +152,25 @@ export class ToolRegistry {
   }
 
   private async executeWithinResponseBudget(tool: McpToolDefinition, input: unknown): Promise<McpToolResponse> {
+    const controller = new AbortController();
     let timer: ReturnType<typeof setTimeout> | undefined;
-    const timeoutResponse = new Promise<McpToolResponse>((resolve) => {
-      timer = setTimeout(() => {
-        resolve(mapError(appError(
-          'PROCESS_TIMEOUT',
-          `MCP tool ${tool.name} exceeded the ${Math.ceil(this.maxToolDurationMs / 1000)}s response budget; the underlying operation may still be finishing. Check task/process status before retrying.`,
-          true,
-        )));
-      }, this.maxToolDurationMs);
-    });
+    let timedOut = false;
     try {
-      return await Promise.race([tool.execute(input).then(mapResult), timeoutResponse]);
+      return await new Promise<McpToolResponse>((resolve, reject) => {
+        timer = setTimeout(() => {
+          timedOut = true;
+          resolve(mapError(appError(
+            'PROCESS_TIMEOUT',
+            `MCP tool ${tool.name} exceeded the ${Math.ceil(this.maxToolDurationMs / 1000)}s response budget; the underlying operation may still be finishing. Check task/process status before retrying.`,
+            true,
+          )));
+          controller.abort();
+        }, this.maxToolDurationMs);
+        void tool.execute(input, controller.signal).then(
+          (result) => { if (!timedOut) resolve(mapResult(result)); },
+          reject,
+        );
+      });
     } finally {
       if (timer !== undefined) clearTimeout(timer);
     }

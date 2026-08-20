@@ -131,6 +131,37 @@ describe('MCP tool registry', () => {
     });
   });
 
+  it('aborts a timed-out invocation before allowing the next MCP call to succeed', async () => {
+    let firstInvocationAborted = false;
+    const services: McpApplicationServices = {
+      search: {
+        async searchText(_actor, _workspaceId, request, signal) {
+          if (request.query === 'fast') return ok({ matches: [], truncated: false });
+          return new Promise<ReturnType<typeof ok>>((resolve) => {
+            signal?.addEventListener('abort', () => {
+              firstInvocationAborted = true;
+              resolve(ok({ matches: [], truncated: true }));
+            }, { once: true });
+          });
+        },
+        async searchFiles() {
+          return ok({ paths: [], truncated: false });
+        },
+      },
+    };
+    const registry = new ToolRegistry(services, actor, { maxToolDurationMs: 15 });
+
+    await expect(registry.invoke('search_text', { workspaceId: 'workspace-1', query: 'slow' })).resolves.toMatchObject({
+      isError: true,
+      structuredContent: { error: { code: 'PROCESS_TIMEOUT', recoverable: true } },
+    });
+    expect(firstInvocationAborted).toBe(true);
+
+    const followUp = await registry.invoke('search_text', { workspaceId: 'workspace-1', query: 'fast' });
+    expect(followUp.isError).not.toBe(true);
+    expect(followUp.structuredContent).toMatchObject({ matches: [], truncated: false });
+  });
+
   it('maps thrown application exceptions to INTERNAL_ERROR and sends redacted diagnostics', async () => {
     const diagnostics: unknown[] = [];
     const services: McpApplicationServices = {

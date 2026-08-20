@@ -19,6 +19,49 @@ describe('RipgrepAdapter', () => {
     expect(result.timedOut).toBe(true);
   });
 
+  it('terminates a ripgrep child when the MCP invocation is aborted', async () => {
+    const runner = new DirectProcessRunner();
+    const controller = new AbortController();
+    const startedAt = Date.now();
+    const abortTimer = setTimeout(() => controller.abort(), 30);
+
+    const result = await runner.run(
+      process.execPath,
+      ['-e', "setTimeout(() => process.stdout.write('late'), 250)"],
+      process.cwd(),
+      { timeoutMs: 1_000, signal: controller.signal },
+    );
+    clearTimeout(abortTimer);
+
+    expect(Date.now() - startedAt).toBeLessThan(200);
+    expect(result.timedOut).toBe(true);
+    expect(result.stdout).not.toContain('late');
+  });
+
+  it('passes the invocation abort signal to process-backed text search', async () => {
+    const controller = new AbortController();
+    let childWasAborted = false;
+    const runner: ProcessRunner = {
+      async run(_command, _args, _cwd, options): Promise<ProcessRunResult> {
+        return new Promise((resolve) => {
+          options?.signal?.addEventListener('abort', () => {
+            childWasAborted = true;
+            resolve({ exitCode: -1, stdout: '', stderr: '', timedOut: true });
+          }, { once: true });
+          controller.abort();
+        });
+      },
+    };
+    const resolver: ExecutableResolver = { resolve: async (): Promise<Result<string>> => ({ ok: true, value: 'rg.exe' }) };
+    const adapter = new RipgrepAdapter(resolver, runner);
+
+    await expect(adapter.searchText({ rootPath: 'C:\\workspace', query: 'needle', signal: controller.signal })).resolves.toEqual({
+      ok: true,
+      value: { matches: [], truncated: true },
+    });
+    expect(childWasAborted).toBe(true);
+  });
+
   it('passes query metacharacters as one literal argument without shell side effects', async () => {
     let executable = '';
     let receivedArgs: readonly string[] = [];
