@@ -222,7 +222,7 @@ export class TunnelController {
     if (this.child !== null) {
       const child = this.child;
       this.child = null;
-      child.kill();
+      if (!child.kill()) throw new Error('Tunnel child did not accept stop signal; ownership retained');
       await waitForTunnelChildExit(child);
     }
   }
@@ -485,7 +485,10 @@ async function isLnwjudTunnelProcessRunning(): Promise<boolean> {
   }
 }
 
-export function waitForTunnelChildExit(child: Pick<ChildProcess, 'exitCode' | 'once'>): Promise<void> {
+export function waitForTunnelChildExit(child: Pick<ChildProcess, 'exitCode' | 'once'>, timeoutMs = 5_000): Promise<void> {
   if (child.exitCode !== null) return Promise.resolve();
-  return new Promise((resolve) => child.once('exit', () => resolve()));
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error('Tunnel child exit was not observed; ownership retained')), timeoutMs);
+    child.once('exit', () => { clearTimeout(timer); resolve(); });
+  });
 }

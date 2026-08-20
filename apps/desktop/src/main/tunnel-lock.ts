@@ -1,12 +1,11 @@
 import { execFile } from 'node:child_process';
-import { mkdir, open, readFile, rename, rm, stat } from 'node:fs/promises';
+import { link, mkdir, open, readFile, rename, rm } from 'node:fs/promises';
 import path from 'node:path';
 import { promisify } from 'node:util';
 
 const execFileAsync = promisify(execFile);
 const LOCK_FILE = 'lnwjud.tunnel.lock';
 const LOCK_VERSION = 1;
-const DEFAULT_INCOMPLETE_LOCK_MAX_AGE_MS = 2_000;
 const ISO_UTC_MILLISECONDS = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/;
 
 export interface TunnelLockOwner {
@@ -33,7 +32,6 @@ export interface TunnelLockOptions {
   readonly profileDirectory: string;
   readonly owner?: TunnelLockOwner;
   readonly inspectProcess?: (pid: number) => Promise<string | null>;
-  readonly incompleteLockMaxAgeMs?: number;
 }
 
 export async function acquireTunnelLock(options: TunnelLockOptions): Promise<TunnelLockAcquisition | TunnelLockAlreadyOwned> {
@@ -43,32 +41,31 @@ export async function acquireTunnelLock(options: TunnelLockOptions): Promise<Tun
   await mkdir(options.profileDirectory, { recursive: true });
 
   for (let attempt = 0; attempt < 8; attempt += 1) {
+    const temporaryPath = `${lockPath}.publish.${process.pid}.${Date.now()}.${Math.random().toString(16).slice(2)}`;
     try {
-      const lock = await open(lockPath, 'wx');
+      const lock = await open(temporaryPath, 'wx');
       try {
         await lock.writeFile(serializeOwner(owner), 'utf8');
+        await lock.sync();
       } finally {
         await lock.close();
       }
+      // link fails with EEXIST and never replaces the current owner record.
+      await link(temporaryPath, lockPath);
+      await rm(temporaryPath, { force: false });
       return {
         acquired: true,
         owner,
         release: async (): Promise<boolean> => releaseTunnelLock(lockPath, owner),
       };
     } catch (error: unknown) {
+      await rm(temporaryPath, { force: true });
       if (!isAlreadyExists(error)) throw error;
     }
 
     const existing = await readTunnelLock(options.profileDirectory);
     if (existing === null) {
-      // A concurrent CreateNew owner can be between opening and writing its
-      // immutable payload. Wait rather than treating that owner as stale.
-      if (await incompleteLockIsOld(lockPath, options.incompleteLockMaxAgeMs ?? DEFAULT_INCOMPLETE_LOCK_MAX_AGE_MS)) {
-        await reclaimIncompleteLock(lockPath);
-        continue;
-      }
-      await new Promise<void>((resolve) => setTimeout(resolve, 25));
-      continue;
+      throw new Error(`Tunnel lock has invalid owner metadata: ${lockPath}`);
     }
     const actualStartedAt = await inspectProcess(existing.pid);
     if (actualStartedAt === existing.processStartedAt) return { acquired: false, owner: existing };
@@ -77,16 +74,6 @@ export async function acquireTunnelLock(options: TunnelLockOptions): Promise<Tun
   throw new Error(`Unable to acquire tunnel lock: ${lockPath}`);
 }
 
-async function incompleteLockIsOld(lockPath: string, maxAgeMs: number): Promise<boolean> {
-  try { return Date.now() - (await stat(lockPath)).mtimeMs > maxAgeMs; } catch { return false; }
-}
-
-async function reclaimIncompleteLock(lockPath: string): Promise<void> {
-  const quarantinePath = `${lockPath}.incomplete.${process.pid}.${Date.now()}`;
-  try { await rename(lockPath, quarantinePath); } catch (error: unknown) { if (isNotFound(error)) return; throw error; }
-  // The mtime age was bounded before the move; retain unexpected valid content.
-  if (parseOwner(await readFile(quarantinePath, 'utf8')) === null) await rm(quarantinePath, { force: true });
-}
 
 export async function readTunnelLock(profileDirectory: string): Promise<TunnelLockOwner | null> {
   try {

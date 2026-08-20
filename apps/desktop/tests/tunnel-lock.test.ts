@@ -71,16 +71,11 @@ describe('lnwjud tunnel ownership lock', () => {
     expect(await readTunnelLock(directory)).toEqual(replacement);
   });
 
-  it('protects a fresh incomplete record but reclaims an old orphan record', async () => {
+  it('never guesses ownership from an invalid fixed lock record', async () => {
     const directory = await temporaryDirectory();
     const lockPath = path.join(directory, 'lnwjud.tunnel.lock');
     await writeFile(lockPath, '', 'utf8');
-    await expect(acquireTunnelLock({ profileDirectory: directory, owner: owner(909, '2026-08-20T00:00:00.000Z'), incompleteLockMaxAgeMs: 1_000 })).rejects.toThrow('Unable to acquire tunnel lock');
-    const old = new Date(Date.now() - 61_000);
-    await (await import('node:fs/promises')).utimes(lockPath, old, old);
-    const claim = await acquireTunnelLock({ profileDirectory: directory, owner: owner(910, '2026-08-20T00:01:00.000Z'), incompleteLockMaxAgeMs: 1_000 });
-    expect(claim.acquired).toBe(true);
-    if (claim.acquired) await claim.release();
+    await expect(acquireTunnelLock({ profileDirectory: directory, owner: owner(909, '2026-08-20T00:00:00.000Z') })).rejects.toThrow('invalid owner metadata');
   });
 });
 

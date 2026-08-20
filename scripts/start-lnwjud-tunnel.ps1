@@ -84,7 +84,6 @@ $logPath = Join-Path $profileDir 'lnwjud-tunnel.log'
 $stopFile = Join-Path $profileDir 'lnwjud.tunnel.stop'
 $lockPath = Join-Path $profileDir 'lnwjud.tunnel.lock'
 $mcpTtl = '168h0m0s'
-$incompleteLockMaxAgeMs = 2000
 $maxRapidRestarts = 5
 $rapidRestartCount = 0
 $rapidRestartWindowStarted = Get-Date
@@ -136,7 +135,8 @@ function Enter-LnwjudTunnelLock {
 
   for ($attempt = 0; $attempt -lt 8; $attempt += 1) {
     try {
-      $stream = [System.IO.File]::Open($lockPath, [System.IO.FileMode]::CreateNew, [System.IO.FileAccess]::Write, [System.IO.FileShare]::None)
+      $publishPath = "$lockPath.publish.$PID.$([Guid]::NewGuid().ToString('N'))"
+      $stream = [System.IO.File]::Open($publishPath, [System.IO.FileMode]::CreateNew, [System.IO.FileAccess]::Write, [System.IO.FileShare]::None)
       try {
         $payload = ($owner | ConvertTo-Json -Compress)
         $bytes = [System.Text.Encoding]::UTF8.GetBytes($payload)
@@ -145,19 +145,14 @@ function Enter-LnwjudTunnelLock {
       } finally {
         $stream.Dispose()
       }
+      # File.Move refuses an existing destination, so it never replaces another owner.
+      [System.IO.File]::Move($publishPath, $lockPath)
       return $owner
     } catch [System.IO.IOException] {
+      if ($publishPath) { Remove-Item -LiteralPath $publishPath -Force -ErrorAction SilentlyContinue }
       $existing = Read-LnwjudTunnelLock
       if ($null -eq $existing) {
-        # A concurrent CreateNew owner can be between opening and writing its
-        # immutable payload. Wait rather than treating that owner as stale.
-        if ((([DateTime]::UtcNow - (Get-Item -LiteralPath $lockPath).LastWriteTimeUtc).TotalMilliseconds -gt $incompleteLockMaxAgeMs) {
-          $incompletePath = "$lockPath.incomplete.$PID.$([Guid]::NewGuid().ToString('N'))"
-          try { [System.IO.File]::Move($lockPath, $incompletePath); Remove-Item -LiteralPath $incompletePath -Force -ErrorAction SilentlyContinue } catch { }
-          continue
-        }
-        Start-Sleep -Milliseconds 25
-        continue
+        throw "Tunnel lock has invalid owner metadata: $lockPath"
       }
       $actualStartedAt = Get-LnwjudTunnelProcessStart -OwnerPid ([int]$existing.pid)
       if ($actualStartedAt -eq [string]$existing.processStartedAt) {
