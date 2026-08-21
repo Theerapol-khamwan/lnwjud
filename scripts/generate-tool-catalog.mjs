@@ -13,6 +13,8 @@ const checkOnly = process.argv.includes('--check');
 const { ToolRegistry } = await import(pathToFileURL(registryModulePath).href);
 const registry = new ToolRegistry({}, { clientId: 'catalog-generator', clientName: 'catalog-generator' });
 const tools = registry.list();
+const current = await readFile(contractPath, 'utf8');
+const newline = current.includes('\r\n') ? '\r\n' : '\n';
 const rows = tools.map((tool, index) => {
   const readOnly = tool.annotations.readOnlyHint === true ? 'yes' : 'no';
   const destructive = tool.annotations.destructiveHint === true ? 'yes' : 'no';
@@ -29,9 +31,7 @@ const block = [
   '| ---: | --- | --- | :---: | :---: |',
   ...rows,
   endMarker,
-].join('\n');
-
-const current = await readFile(contractPath, 'utf8');
+].join(newline);
 const start = current.indexOf(startMarker);
 const end = current.indexOf(endMarker);
 let expected;
@@ -40,14 +40,19 @@ if (start >= 0 && end >= start) {
 } else {
   const insertionPoint = current.indexOf('## Protocol and result rules');
   if (insertionPoint < 0) throw new Error('Tool contract insertion point was not found');
-  expected = current.slice(0, insertionPoint) + block + '\n\n' + current.slice(insertionPoint);
+  expected = current.slice(0, insertionPoint) + block + newline + newline + current.slice(insertionPoint);
 }
 
+const normalizeLineEndings = (value) => value.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+
 if (checkOnly) {
-  if (current !== expected) {    process.stderr.write(`Tool catalog drift detected: runtime advertises ${tools.length} tools. Run: corepack pnpm@10.15.0 docs:tools\n`);
+  if (normalizeLineEndings(current) !== normalizeLineEndings(expected)) {
+    process.stderr.write(`Tool catalog drift detected: runtime advertises ${tools.length} tools. Run: corepack pnpm@10.15.0 docs:tools\n`);
     process.exitCode = 1;
-  } else {    process.stdout.write(`Tool catalog is synchronized with ${tools.length} runtime tools.\n`);
+  } else {
+    process.stdout.write(`Tool catalog is synchronized with ${tools.length} runtime tools.\n`);
   }
 } else {
-  await writeFile(contractPath, expected, 'utf8');  process.stdout.write(`Generated ToolRegistry catalog with ${tools.length} tools.\n`);
+  await writeFile(contractPath, expected, 'utf8');
+  process.stdout.write(`Generated ToolRegistry catalog with ${tools.length} tools.\n`);
 }
