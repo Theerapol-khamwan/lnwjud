@@ -28,7 +28,7 @@ const dashboard: DashboardSnapshot = {
   workLog: [],
   inFlight: [],
   tunnel: { state: 'stopped', source: 'desktop', hasApiKey: false, clientPath: null, profileExists: false, message: null, logPath: null },
-  appVersion: '4.5.0',
+  appVersion: '4.6.0',
 };
 
 describe('Backup settings UI', () => {

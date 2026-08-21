@@ -76,9 +76,9 @@ test('desktop serves the real MCP client development workflow', async () => {
     const expectedCoreTools = [
       'workspace_list', 'workspace_register', 'workspace_info', 'workspace_tree', 'project_snapshot', 'read_file', 'read_files',
       'search_files', 'search_text', 'git_status', 'git_diff', 'git_log', 'git', 'write_file',
-      'apply_patch', 'move_file', 'copy_file', 'delete_file', 'process_start', 'process_status',
+      'apply_patch', 'move_file', 'copy_file', 'delete_file', 'process_start', 'process_list', 'process_status',
       'process_logs', 'process_stop', 'project_dev', 'project_test', 'project_lint',
-      'project_typecheck', 'project_build', 'codex_status', 'codex_run',
+      'project_typecheck', 'project_build', 'codex_status', 'codex_run', 'codex_task_list',
       'codex_task_status', 'codex_task_logs', 'codex_stop',
       'shell', 'dom_cdp', 'accessibility', 'input_event', 'vision', 'vision_annotated_capture', 'ui_target_action', 'window', 'health',
       'system_info', 'notification', 'file_dialog', 'clipboard', 'web_fetch',
@@ -122,8 +122,8 @@ test('desktop serves the real MCP client development workflow', async () => {
     const safeWrite = await callTool(client, 'write_file', { workspaceId, path: 'src\\safe-blocked.ts', content: 'blocked\n' });
     expect(toolRecord(safeWrite)).toMatchObject({ path: 'src\\safe-blocked.ts' });
     await page.getByRole('button', { name: 'ตั้งค่า', exact: true }).click();
-    await page.getByLabel('Permission profile').selectOption('balanced');
-    await expect(page.getByLabel('Permission profile')).toHaveValue('balanced');
+    await page.getByLabel('Permission profile', { exact: true }).selectOption('balanced');
+    await expect(page.getByLabel('Permission profile', { exact: true })).toHaveValue('balanced');
     await page.getByRole('button', { name: 'หน้าหลัก', exact: true }).click();
 
     const write = await callTool(client, 'write_file', { workspaceId, path: 'src\\created.ts', content: 'export const created = true;\n' });

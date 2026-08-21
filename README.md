@@ -40,27 +40,37 @@ The tunnel is outbound-only: `tunnel-client` runs beside lnwjud, reaches OpenAI
 over outbound HTTPS, forwards MCP work to the local stdio server, and returns the
 response without opening a public inbound port on the Windows machine.
 
-## Current release: v4.5.0
+## Current release: v4.6.0
 
-The current published installer and runtime contract are `v4.5.0`. The runtime
+The current published installer and runtime contract are `v4.6.0`. The runtime
 advertises **210 MCP tools**. The earlier 184-tool snapshot remains only as the
 compatibility baseline used by the v4 architecture; new v4 gateway capabilities
 are additive.
 
-### What's new in v4.5.0
+### What's new in v4.6.0
 
-- Stronger MCP session resilience: timed-out tool work is cancelled instead of
-  lingering after the client request has ended.
-- Hardened Secure MCP Tunnel ownership and reconnect behavior, including
-  serialized ownership/idle updates and atomic publication of tunnel state.
-- More robust tunnel lock handling, including round-trip lock records and stale
-  lock recovery coverage.
-- Updater/session hardening to avoid local activity races while keeping update
-  decisions conservative during active work.
-- Correlated incident evidence export with stricter classification, preservation
-  of unknown evidence, and safer edge-case handling.
-- Deterministic session-resilience acceptance coverage plus configured tunnel
-  health validation and portability hardening for Windows installations.
+- Durable background command tasks decouple long-running Windows work from a
+  single MCP tool-call lifetime. Background tasks can survive MCP/stdio runtime
+  replacement and are recovered by task ID for status, logs, result, or cancel.
+- Selectable stdio/Secure-Tunnel permission profiles (`safe`, `balanced`,
+  `full`, or `custom`) plus opt-in **Strict Roots**. The compatibility default
+  remains `full` with existing machine roots until Strict Roots is enabled.
+- A scoped **Allow AI file deletion** setting can permit the `delete_file` tool
+  inside the active workspace boundary without broadly enabling destructive
+  shell commands.
+- Checkpoint file payloads are encrypted at rest with AES-256-GCM. The local
+  encryption key is protected with Windows DPAPI, and legacy plaintext
+  checkpoint rows are upgraded to ciphertext as the encrypted repository starts.
+- SQLite-consistent automatic backup/restore with daily and weekly retention,
+  pre-migration/pre-update snapshots, cross-process backup coordination, and
+  restart-safe restore handling.
+- PowerShell hardening adds `-NonInteractive` to internal launches and verifies
+  the packaged Windows capability bridge SHA-256 before every execution.
+- Live Logs and Work Log now use newest-first bounded tables, filtering/search,
+  full-entry copy actions, clear-all handling, improved pop-out behavior, and
+  clearer MCP TASK/RESULT/ERROR presentation.
+- Desktop dependencies were refreshed within compatible release lines to
+  Electron 43.4.1 and Vite 7.3.6 without migrating to electron-vite.
 
 Current v4 highlights include:
 
@@ -105,8 +115,13 @@ trust, not as a sandbox for unknown code.
   registered as machine roots and inspected by the local-agent runtime.
 - Desktop MCP applies the selected permission profile (`safe`, `balanced`,
   `full`, or `custom`) to tool calls.
-- The packaged stdio/Secure-Tunnel runtime intentionally uses the **full**
-  profile so an AI client can operate across the configured local boundary.
+- The packaged stdio/Secure-Tunnel runtime supports selectable `safe`,
+  `balanced`, `full`, or `custom` profiles. For backward compatibility the
+  default remains **full** with the existing machine-root behavior until Strict
+  Roots is enabled.
+- **Strict Roots** is opt-in and limits stdio/Secure-Tunnel workspace visibility
+  to explicitly allowed roots. It is a filesystem/capability boundary, not an
+  operating-system sandbox.
 - Explicit file reads can include sensitive files such as `.env` when the active
   policy permits them. Do not register or expose a machine to an AI client you
   do not trust.
@@ -150,7 +165,7 @@ stops the current local HTTP listener.
 
 1. Download the latest published installer from
    [GitHub Releases](https://github.com/engasnm111/lnwjud/releases/latest).
-   The current release is `lnwjud-Setup-4.5.0.exe`.
+   The current release is `lnwjud-Setup-4.6.0.exe`.
 2. Run the NSIS installer and launch **lnwjud Agent Control Center**.
 3. Add or select the project/workspace you want lnwjud to operate on.
 4. Review **Settings** before attaching an AI client, especially Permission
@@ -398,7 +413,7 @@ corepack pnpm@10.15.0 package:windows
 The x64 NSIS installer is written to:
 
 ```text
-apps/desktop/dist/installers/lnwjud-Setup-4.5.0.exe
+apps/desktop/dist/installers/lnwjud-Setup-4.6.0.exe
 ```
 
 The installer is per-user by default. A common installed executable path is:
@@ -747,7 +762,7 @@ start a new chat.
 
 ## Complete MCP tool catalog (210 runtime tools)
 
-This index is generated from the current v4.5.0 `ToolRegistry`, not copied from an older release document. Optional/planned tools still appear in the advertised contract and report their availability/requirements at runtime where applicable.
+This index is generated from the current v4.6.0 `ToolRegistry`, not copied from an older release document. Optional/planned tools still appear in the advertised contract and report their availability/requirements at runtime where applicable.
 
 | # | Tool | Permission | Runtime description |
 | ---: | --- | --- | --- |

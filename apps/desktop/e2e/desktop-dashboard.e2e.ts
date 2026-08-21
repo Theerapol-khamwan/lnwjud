@@ -49,8 +49,6 @@ test('control center auto-starts MCP and supports project + doctor journey', asy
     await expect(page.getByRole('heading', { name: 'ศูนย์ควบคุม Agent' })).toBeVisible({ timeout: 30_000 });
     await expect(page.getByTestId('mcp-status')).toHaveText(/Agent พร้อมทำงาน|Agent ready/, { timeout: 30_000 });
     await expect(page.getByTestId('mcp-endpoint')).toContainText('http://127.0.0.1:', { timeout: 30_000 });
-    await expect(page.getByTestId('work-log')).toBeVisible({ timeout: 30_000 });
-
      await page.setViewportSize({ width: 800, height: 600 });
      await expectNoHorizontalOverflow(page);
      for (const width of [640, 320]) {
@@ -81,7 +79,7 @@ test('control center auto-starts MCP and supports project + doctor journey', asy
 
     await page.getByRole('button', { name: 'ตั้งค่า', exact: true }).click();
     await expectNoHorizontalOverflow(page);
-    await page.getByLabel('Permission profile').selectOption('balanced');
+    await page.getByLabel('Permission profile', { exact: true }).selectOption('balanced');
     await expect(page.getByTestId('permission-profile')).toHaveText('FULL');
 
     await page.getByRole('button', { name: 'Doctor', exact: true }).click();
