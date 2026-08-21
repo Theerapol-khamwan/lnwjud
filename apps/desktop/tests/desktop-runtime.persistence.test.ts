@@ -138,18 +138,27 @@ describe('DesktopRuntime persistence', () => {
         expect(shellResponse.isError).not.toBe(true);
         expect(shellResponse.structuredContent).toMatchObject({ state: 'completed', exit_code: 0, stdout: 'local-shell' });
         if (process.platform === 'win32') {
-          const windows = await client.callTool({ name: 'window', arguments: { operation: 'list' } });
-          expect(windows.isError).not.toBe(true);
-          expect(windows.structuredContent).toMatchObject({ windows: expect.any(Array) });
-          const accessibility = await client.callTool({ name: 'accessibility', arguments: { action: 'status' } });
-          expect(accessibility.isError).not.toBe(true);
-          expect(accessibility.structuredContent).toMatchObject({ available: true });
+          const windowHealth = await client.callTool({ name: 'health', arguments: { operation: 'check_tool', tool: 'window' } });
+          expect(windowHealth.isError).not.toBe(true);
+          expect(windowHealth.structuredContent).toMatchObject({ tool: 'window', availability: 'windows', available: true });
+
           const input = await client.callTool({ name: 'input_event', arguments: { operation: 'click', parameters: { x: 0, y: 0 }, dry_run: true } });
           expect(input.isError).not.toBe(true);
           expect(input.structuredContent).toMatchObject({ dry_run: true, capability: 'input_event' });
-          const vision = await client.callTool({ name: 'vision', arguments: { action: 'capture_region', region: { x: 0, y: 0, width: 64, height: 64 } } });
-          if (!vision.isError) {
-            expect(vision.structuredContent).toMatchObject({ format: 'png', width: 64, height: 64 });
+
+          const windows = await client.callTool({ name: 'window', arguments: { operation: 'list' } });
+          if (windows.isError) {
+            // Hosted Windows runners can be headless even though the capability is valid for win32.
+            expect(windows.structuredContent).toMatchObject({ error: { code: 'INTERNAL_ERROR', message: 'Operation failed' } });
+          } else {
+            expect(windows.structuredContent).toMatchObject({ windows: expect.any(Array) });
+            const accessibility = await client.callTool({ name: 'accessibility', arguments: { action: 'status' } });
+            expect(accessibility.isError).not.toBe(true);
+            expect(accessibility.structuredContent).toMatchObject({ available: true });
+            const vision = await client.callTool({ name: 'vision', arguments: { action: 'capture_region', region: { x: 0, y: 0, width: 64, height: 64 } } });
+            if (!vision.isError) {
+              expect(vision.structuredContent).toMatchObject({ format: 'png', width: 64, height: 64 });
+            }
           }
         }
       } finally {

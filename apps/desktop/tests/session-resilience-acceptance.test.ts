@@ -1,5 +1,5 @@
 import { spawn, type ChildProcess } from 'node:child_process';
-import { access, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { access, mkdir, mkdtemp, readFile, realpath, rm, writeFile } from 'node:fs/promises';
 import { createServer as createHttpServer } from 'node:http';
 import os from 'node:os';
 import path from 'node:path';
@@ -75,7 +75,7 @@ describe('session resilience acceptance', () => {
       const recovered = await client.callTool({ name: 'workspace_list', arguments: {} });
       expect(recovered.isError).not.toBe(true);
       expect(diagnostics).toContain('lnwjud MCP stdio ready');
-      expect(diagnostics).toContain(path.resolve(workspace));
+      expect(diagnostics).toContain(await realpath(workspace));
       expect(diagnostics).not.toContain('E:\\ drive is required');
     } finally {
       await client.close();
