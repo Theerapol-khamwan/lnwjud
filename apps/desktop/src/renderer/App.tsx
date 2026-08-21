@@ -6,6 +6,7 @@ import type {
   LogSource,
   PermissionProfileName,
   UiLocale,
+  UpdateStatus,
   IncidentClassification,
   WorkspaceSummary,
 } from '@lnwjud/ipc-contracts';
@@ -38,6 +39,7 @@ export function App(): ReactElement {
   const [incidentCapturedAt, setIncidentCapturedAt] = useState<string | null>(null);
   const [incidentNotice, setIncidentNotice] = useState<string | null>(null);
   const [incidentBusy, setIncidentBusy] = useState(false);
+  const [updateStatus, setUpdateStatus] = useState<UpdateStatus | null>(null);
   const incidentBusyRef = useRef(false);
   const logIds = useRef<Set<number>>(new Set());
 
@@ -47,6 +49,20 @@ export function App(): ReactElement {
     if (logIds.current.has(line.id)) return;
     logIds.current.add(line.id);
     setLogLines((previous) => [...previous.slice(-(MAX_CLIENT_LOG_LINES - 1)), line]);
+  }, []);
+
+  useEffect(() => {
+    let disposed = false;
+    void window.lnwjud.getUpdateStatus().then((status) => {
+      if (!disposed) setUpdateStatus(status);
+    }).catch(() => undefined);
+    const unsubscribe = window.lnwjud.onUpdateStatus((status) => {
+      if (!disposed) setUpdateStatus(status);
+    });
+    return (): void => {
+      disposed = true;
+      unsubscribe();
+    };
   }, []);
 
   useEffect(() => {
@@ -147,6 +163,19 @@ export function App(): ReactElement {
     const interval = window.setInterval(() => { void refresh(); }, 1_000);
     return (): void => { window.clearInterval(interval); };
   }, [refresh]);
+
+  async function handleUpdateAction(): Promise<void> {
+    try {
+      if (updateStatus?.canInstall === true) {
+        const result = await window.lnwjud.installUpdate();
+        setUpdateStatus(result.status);
+        return;
+      }
+      setUpdateStatus(await window.lnwjud.checkForUpdates());
+    } catch (cause: unknown) {
+      setError(errorMessage(cause, locale === 'th' ? 'ไม่สามารถตรวจอัปเดตได้' : 'Unable to check for updates'));
+    }
+  }
 
   async function addWorkspace(rootPath: string): Promise<void> {
     try {
@@ -310,9 +339,11 @@ export function App(): ReactElement {
       locale={locale}
       appVersion={dashboard.appVersion}
       mcpRunning={dashboard.mcp.running}
+      updateStatus={updateStatus}
       screen={screen}
       onNavigate={setScreen}
       onLocaleChange={(next) => { void changeLocale(next); }}
+      onUpdateAction={() => { void handleUpdateAction(); }}
     >
       {error === null ? null : <div className="error-banner" role="alert">{error}</div>}
       {screen === 'home' ? (

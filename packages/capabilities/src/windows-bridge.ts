@@ -66,7 +66,7 @@ export class PowerShellWindowsCapabilityBridge implements WindowsCapabilityBridg
       let spawnFailed = false;
       const child = spawn(this.powershellPath, ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', this.scriptPath], {
         shell: false,
-        windowsHide: false,
+        windowsHide: true,
         stdio: ['pipe', 'pipe', 'pipe'],
       });
       const timeoutSeconds = readTimeout(request.input);

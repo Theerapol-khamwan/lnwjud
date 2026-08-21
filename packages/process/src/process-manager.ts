@@ -58,7 +58,7 @@ export class ProcessManager {
       cwd: spec.cwd,
       env: createSafeEnvironment(process.env),
       shell: false,
-      windowsHide: false,
+      windowsHide: true,
       ...(invocation.value.windowsVerbatimArguments === undefined ? {} : { windowsVerbatimArguments: invocation.value.windowsVerbatimArguments }),
     });
     const record: ManagedRecord = {

@@ -1,5 +1,5 @@
 export const APP_NAME = 'lnwjud';
-export const APP_VERSION = '4.6.0';
+export const APP_VERSION = '4.6.1';
 
 export const ipcChannels = {
   listWorkspaces: 'lnwjud:list-workspaces',
@@ -32,10 +32,14 @@ export const ipcChannels = {
   exportLogs: 'lnwjud:export-logs',
   captureIncident: 'lnwjud:capture-incident',
   openLogViewer: 'lnwjud:open-log-viewer',
+  getUpdateStatus: 'lnwjud:get-update-status',
+  checkForUpdates: 'lnwjud:check-for-updates',
+  installUpdate: 'lnwjud:install-update',
 } as const;
 
 export const pushChannels = {
   logEvent: 'lnwjud:event:log',
+  updateStatus: 'lnwjud:event:update-status',
 } as const;
 
 export type IpcChannel = typeof ipcChannels[keyof typeof ipcChannels];
@@ -43,7 +47,17 @@ export type PermissionProfileName = 'safe' | 'balanced' | 'full' | 'custom';
 export type UiLocale = 'th' | 'en';
 export type AgentState = 'stopped' | 'idle' | 'busy';
 export type TunnelRunState = 'stopped' | 'starting' | 'running' | 'error';
+export type UpdatePhase = 'idle' | 'checking' | 'available' | 'downloading' | 'ready' | 'installing' | 'up-to-date' | 'error' | 'unavailable';
 
+export interface UpdateStatus {
+  readonly phase: UpdatePhase;
+  readonly currentVersion: string;
+  readonly availableVersion: string | null;
+  readonly progressPercent: number | null;
+  readonly lastCheckedAt: string | null;
+  readonly message: string | null;
+  readonly canInstall: boolean;
+}
 export interface WorkspaceSummary {
   readonly id: string;
   readonly displayName: string;
@@ -326,6 +340,9 @@ export interface IpcRequestMap {
   readonly [ipcChannels.exportLogs]: ExportLogsRequest;
   readonly [ipcChannels.captureIncident]: undefined;
   readonly [ipcChannels.openLogViewer]: undefined;
+  readonly [ipcChannels.getUpdateStatus]: undefined;
+  readonly [ipcChannels.checkForUpdates]: undefined;
+  readonly [ipcChannels.installUpdate]: undefined;
 }
 
 export interface IpcResponseMap {
@@ -359,6 +376,9 @@ export interface IpcResponseMap {
   readonly [ipcChannels.exportLogs]: { readonly exported: boolean };
   readonly [ipcChannels.captureIncident]: IncidentExportResult;
   readonly [ipcChannels.openLogViewer]: { readonly opened: boolean };
+  readonly [ipcChannels.getUpdateStatus]: UpdateStatus;
+  readonly [ipcChannels.checkForUpdates]: UpdateStatus;
+  readonly [ipcChannels.installUpdate]: { readonly accepted: boolean; readonly status: UpdateStatus };
 }
 
 export interface LnwjudApi {
@@ -392,5 +412,9 @@ export interface LnwjudApi {
   exportLogs(request: ExportLogsRequest): Promise<IpcResponseMap[typeof ipcChannels.exportLogs]>;
   captureIncident(): Promise<IpcResponseMap[typeof ipcChannels.captureIncident]>;
   openLogViewer(): Promise<IpcResponseMap[typeof ipcChannels.openLogViewer]>;
+  getUpdateStatus(): Promise<IpcResponseMap[typeof ipcChannels.getUpdateStatus]>;
+  checkForUpdates(): Promise<IpcResponseMap[typeof ipcChannels.checkForUpdates]>;
+  installUpdate(): Promise<IpcResponseMap[typeof ipcChannels.installUpdate]>;
   onLogEvent(callback: (line: LogLine) => void): () => void;
+  onUpdateStatus(callback: (status: UpdateStatus) => void): () => void;
 }

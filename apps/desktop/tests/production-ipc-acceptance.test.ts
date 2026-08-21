@@ -1,6 +1,6 @@
 import { pathToFileURL } from 'node:url';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { ipcChannels, type TunnelStatus } from '@lnwjud/ipc-contracts';
+import { APP_VERSION, ipcChannels, type TunnelStatus } from '@lnwjud/ipc-contracts';
 
 const electronHarness = vi.hoisted(() => ({
   handlers: new Map<string, (event: unknown, payload?: unknown) => Promise<unknown>>(),
@@ -99,6 +99,23 @@ describe('production desktop IPC acceptance', () => {
       .resolves.toMatchObject({ profile: 'safe', strictRoots: true, allowedRoots: ['E:\\work'] });
     await expect(requiredHandler(ipcChannels.setStdioPolicy)(trusted, { profile: 'safe', strictRoots: true, allowedRoots: [] }))
       .rejects.toThrow(/requires at least one allowed root/);
+  });
+
+  it('exposes updater status, manual check, and install actions through trusted IPC', async () => {
+    const services = desktopServices();
+    registerIpcHandlers(() => ({}) as never, services);
+    const trusted = { senderFrame: { url: pathToFileURL(getRendererEntryPath()).href } };
+
+    await expect(requiredHandler(ipcChannels.getUpdateStatus)(trusted)).resolves.toMatchObject({
+      phase: 'unavailable',
+      currentVersion: APP_VERSION,
+      canInstall: false,
+    });
+    await expect(requiredHandler(ipcChannels.checkForUpdates)(trusted)).resolves.toMatchObject({ phase: 'unavailable' });
+    await expect(requiredHandler(ipcChannels.installUpdate)(trusted)).resolves.toMatchObject({
+      accepted: false,
+      status: { phase: 'unavailable' },
+    });
   });
 
   it('enforces the production IPC sender and payload guards before invoking services', async () => {

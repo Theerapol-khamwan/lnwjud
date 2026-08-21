@@ -232,13 +232,60 @@ input:focus, select:focus {
 
 .titlebar-version {
   font-size: 10.5px;
+  line-height: 1.45;
   font-family: var(--font-mono);
   color: var(--gold-primary);
   background: rgba(245, 197, 66, 0.1);
   border: 1px solid rgba(245, 197, 66, 0.25);
-  padding: 1px 6px;
-  border-radius: 4px;
-  font-weight: 600;
+  padding: 1px 7px;
+  border-radius: 999px;
+  font-weight: 650;
+}
+
+button.titlebar-version {
+  -webkit-app-region: no-drag;
+  appearance: none;
+  cursor: pointer;
+  transition: border-color 160ms ease, background 160ms ease, box-shadow 160ms ease, transform 160ms ease;
+}
+
+button.titlebar-version:hover {
+  background: rgba(245, 197, 66, 0.16);
+  border-color: rgba(245, 197, 66, 0.5);
+  transform: translateY(-1px);
+}
+
+.titlebar-version.update-checking,
+.titlebar-version.update-downloading,
+.titlebar-version.update-available {
+  border-color: rgba(96, 165, 250, 0.55);
+  background: rgba(59, 130, 246, 0.12);
+  color: #bfdbfe;
+}
+
+.titlebar-version.update-ready {
+  color: #fff7cf;
+  border-color: rgba(250, 204, 21, 0.82);
+  background: linear-gradient(120deg, rgba(161, 98, 7, 0.72), rgba(245, 158, 11, 0.28));
+  box-shadow: 0 0 0 1px rgba(250, 204, 21, 0.12), 0 0 16px rgba(245, 158, 11, 0.32);
+  animation: update-ready-pulse 1.8s ease-in-out infinite;
+}
+
+.titlebar-version.update-installing {
+  color: #dcfce7;
+  border-color: rgba(74, 222, 128, 0.55);
+  background: rgba(34, 197, 94, 0.14);
+}
+
+.titlebar-version.update-error {
+  color: #fecaca;
+  border-color: rgba(248, 113, 113, 0.55);
+  background: rgba(127, 29, 29, 0.24);
+}
+
+@keyframes update-ready-pulse {
+  0%, 100% { box-shadow: 0 0 0 1px rgba(250, 204, 21, 0.12), 0 0 10px rgba(245, 158, 11, 0.22); }
+  50% { box-shadow: 0 0 0 1px rgba(250, 204, 21, 0.28), 0 0 22px rgba(245, 158, 11, 0.46); }
 }
 
 .titlebar-center {

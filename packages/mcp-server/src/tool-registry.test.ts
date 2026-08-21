@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { appError, err, ok } from '@lnwjud/domain';
 import { permissionProfiles } from '@lnwjud/permissions';
 import type { ActivitySinkEvent } from './activity-tracker.js';
@@ -6,6 +6,10 @@ import { ToolRegistry, type McpApplicationServices } from './tool-registry.js';
 import { UPGRADE_TOOL_CATALOG } from './upgrade-catalog.js';
 
 const actor = { clientId: 'client-1', clientName: 'test' };
+
+afterEach(() => {
+  vi.useRealTimers();
+});
 
 describe('MCP tool registry', () => {
   it('returns the exact deterministic tool order', () => {
@@ -111,6 +115,32 @@ describe('MCP tool registry', () => {
 
     expect(response).toMatchObject({ isError: true, structuredContent: { error: { code: 'INTERNAL_ERROR', recoverable: true } } });
     expect(response.content[0]?.text).not.toContain('stack');
+  });
+
+  it('does not impose a default 90-second response cutoff on long-running tools', async () => {
+    vi.useFakeTimers();
+    const services: McpApplicationServices = {
+      search: {
+        async searchText() {
+          await new Promise((resolve) => setTimeout(resolve, 95_000));
+          return ok({ matches: [], truncated: false });
+        },
+        async searchFiles() {
+          return ok({ paths: [], truncated: false });
+        },
+      },
+    };
+    const registry = new ToolRegistry(services, actor);
+    let settled = false;
+    const pending = registry.invoke('search_text', { workspaceId: 'workspace-1', query: 'slow-but-valid' });
+    void pending.then(() => { settled = true; });
+
+    await vi.advanceTimersByTimeAsync(90_001);
+    await Promise.resolve();
+    expect(settled).toBe(false);
+
+    await vi.advanceTimersByTimeAsync(4_999);
+    await expect(pending).resolves.toMatchObject({ structuredContent: { matches: [], truncated: false } });
   });
 
   it('returns a recoverable timeout before a slow tool can outlive the MCP response budget', async () => {

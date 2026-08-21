@@ -87,7 +87,7 @@ export class NodeBrowserCdpProtocol implements BrowserCdpProtocol {
         '--no-default-browser-check',
         ...(url === undefined ? [] : [url]),
       ];
-      const child = spawn(executable, args, { shell: false, windowsHide: false, detached: false, stdio: 'ignore' });
+      const child = spawn(executable, args, { shell: false, windowsHide: true, detached: false, stdio: 'ignore' });
       return this.waitForLaunch(child, signal);
     } catch {
       return err(appError('INTERNAL_ERROR', 'Chrome could not be started', true));

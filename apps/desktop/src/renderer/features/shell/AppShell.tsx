@@ -1,5 +1,5 @@
 import type { ReactElement, ReactNode } from 'react';
-import type { UiLocale } from '@lnwjud/ipc-contracts';
+import type { UiLocale, UpdateStatus } from '@lnwjud/ipc-contracts';
 import { createTranslator } from '../../i18n/index.js';
 import type { MessageKey } from '../../i18n/messages.js';
 
@@ -9,9 +9,11 @@ interface AppShellProps {
   readonly locale: UiLocale;
   readonly appVersion: string;
   readonly mcpRunning: boolean;
+  readonly updateStatus: UpdateStatus | null;
   readonly screen: Screen;
   readonly onNavigate: (screen: Screen) => void;
   readonly onLocaleChange: (locale: UiLocale) => void;
+  readonly onUpdateAction: () => void;
   readonly children: ReactNode;
 }
 
@@ -35,7 +37,18 @@ export function AppShell(props: AppShellProps): ReactElement {
           <div className="titlebar-brand">
             <img src="./favicon.ico" alt="lnwjud logo" className="titlebar-logo" />
             <span className="titlebar-title">{t('brand')}</span>
-            <span className="titlebar-version">v{props.appVersion}</span>
+            <button
+              type="button"
+              className={`titlebar-version update-${props.updateStatus?.phase ?? 'idle'}`}
+              onClick={props.onUpdateAction}
+              title={props.updateStatus?.message ?? (props.locale === 'th' ? 'กดเพื่อตรวจอัปเดต' : 'Check for updates')}
+              aria-label={props.updateStatus?.canInstall === true
+                ? (props.locale === 'th' ? `ติดตั้งอัปเดต ${props.updateStatus.availableVersion ?? ''}` : `Install update ${props.updateStatus.availableVersion ?? ''}`)
+                : (props.locale === 'th' ? 'ตรวจอัปเดต' : 'Check for updates')}
+              aria-busy={props.updateStatus?.phase === 'checking' || props.updateStatus?.phase === 'downloading'}
+            >
+              {versionBadgeText(props.appVersion, props.updateStatus, props.locale)}
+            </button>
           </div>
 
           <div className="titlebar-center">
@@ -99,4 +112,18 @@ export function AppShell(props: AppShellProps): ReactElement {
       </div>
     </div>
   );
+}
+function versionBadgeText(appVersion: string, status: UpdateStatus | null, locale: UiLocale): string {
+  if (status === null) return `v${appVersion}`;
+  const next = status.availableVersion;
+  if (status.phase === 'ready' && next !== null) return locale === 'th' ? `อัปเดต v${next}` : `Update v${next}`;
+  if (status.phase === 'installing' && next !== null) return locale === 'th' ? `กำลังติดตั้ง v${next}` : `Installing v${next}`;
+  if (status.phase === 'downloading') {
+    const percent = status.progressPercent === null ? '' : ` ${Math.round(status.progressPercent)}%`;
+    return `v${appVersion} ↓${percent}`;
+  }
+  if (status.phase === 'available' && next !== null) return `v${appVersion} → v${next}`;
+  if (status.phase === 'checking') return locale === 'th' ? `v${appVersion} • เช็ก…` : `v${appVersion} • checking…`;
+  if (status.phase === 'error') return `v${appVersion} • !`;
+  return `v${appVersion}`;
 }

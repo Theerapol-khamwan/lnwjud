@@ -36,7 +36,7 @@ export interface ToolRegistryOptions {
   readonly maxToolDurationMs?: number;
 }
 
-const DEFAULT_MCP_TOOL_RESPONSE_BUDGET_MS = 90_000;
+const DEFAULT_MCP_TOOL_RESPONSE_BUDGET_MS: number | null = null;
 
 interface BudgetedToolExecution {
   readonly response: McpToolResponse;
@@ -51,7 +51,7 @@ export class ToolRegistry {
   private readonly permissionEngine = new DefaultPermissionEngine();
   private readonly profileProvider: () => PermissionProfile;
   private readonly allowAiDeleteProvider: () => boolean;
-  private readonly maxToolDurationMs: number;
+  private readonly maxToolDurationMs: number | null;
 
   public constructor(services: McpApplicationServices, actor: FileActor, options: ToolRegistryOptions = {}) {
     this.diagnostic = options.diagnostic;
@@ -200,15 +200,18 @@ export class ToolRegistry {
           return;
         }
         parentSignal?.addEventListener('abort', onParentAbort, { once: true });
-        timer = setTimeout(() => {
-          deadlineExceeded = true;
-          controller.abort();
-          finish(mapError(appError(
-            'PROCESS_TIMEOUT',
-            `MCP tool ${tool.name} exceeded the ${Math.ceil(this.maxToolDurationMs / 1000)}s response budget; cancellation was requested, but an underlying operation may still be finishing. Check task/process status before retrying.`,
-            true,
-          )));
-        }, this.maxToolDurationMs);
+        const responseBudgetMs = this.maxToolDurationMs;
+        if (responseBudgetMs !== null) {
+          timer = setTimeout(() => {
+            deadlineExceeded = true;
+            controller.abort();
+            finish(mapError(appError(
+              'PROCESS_TIMEOUT',
+              `MCP tool ${tool.name} exceeded the ${Math.ceil(responseBudgetMs / 1000)}s response budget; cancellation was requested, but an underlying operation may still be finishing. Check task/process status before retrying.`,
+              true,
+            )));
+          }, responseBudgetMs);
+        }
         operation = tool.execute(input, controller.signal).then(mapResult);
         void operation.then(
           finish,
@@ -228,7 +231,7 @@ export class ToolRegistry {
   }
 }
 
-function normalizeToolResponseBudget(value: number | undefined): number {
+function normalizeToolResponseBudget(value: number | undefined): number | null {
   return typeof value === 'number' && Number.isFinite(value) && value > 0
     ? value
     : DEFAULT_MCP_TOOL_RESPONSE_BUDGET_MS;

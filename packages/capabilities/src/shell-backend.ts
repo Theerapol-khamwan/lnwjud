@@ -162,7 +162,7 @@ export class ShellCapabilityBackend implements CapabilityBackend {
         cwd: cwd.value,
         env: createSafeEnvironment(process.env, this.unrestricted),
         shell: false,
-        windowsHide: false,
+        windowsHide: true,
         ...(invocation.value.windowsVerbatimArguments === undefined ? {} : { windowsVerbatimArguments: invocation.value.windowsVerbatimArguments }),
       });
     } catch {

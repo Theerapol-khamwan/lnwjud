@@ -33,6 +33,7 @@ import {
   type StopProcessRequest,
   type TunnelStatus,
   type UiLocale,
+  type UpdateStatus,
   type WorkLogEntry,
   type WorkspaceSummary,
 } from '@lnwjud/ipc-contracts';
@@ -243,6 +244,26 @@ function mcpStatus(value: unknown): McpConnectionStatus {
     running: booleanField(value, 'running'),
     url: nullableString(value.url),
     workspaceId: nullableString(value.workspaceId),
+  };
+}
+
+function updateStatus(value: unknown): UpdateStatus {
+  if (!isRecord(value)) throw new Error('Invalid IPC response');
+  const phase = value.phase;
+  if (phase !== 'idle' && phase !== 'checking' && phase !== 'available' && phase !== 'downloading'
+    && phase !== 'ready' && phase !== 'installing' && phase !== 'up-to-date' && phase !== 'error' && phase !== 'unavailable') {
+    throw new Error('Invalid IPC response');
+  }
+  const progress = value.progressPercent;
+  if (progress !== null && (typeof progress !== 'number' || !Number.isFinite(progress))) throw new Error('Invalid IPC response');
+  return {
+    phase,
+    currentVersion: stringField(value, 'currentVersion'),
+    availableVersion: nullableString(value.availableVersion),
+    progressPercent: progress,
+    lastCheckedAt: nullableString(value.lastCheckedAt),
+    message: nullableString(value.message),
+    canInstall: booleanField(value, 'canInstall'),
   };
 }
 
@@ -509,6 +530,20 @@ function captureIncident(): Promise<IncidentExportResult> {
   });
 }
 
+function onUpdateStatus(callback: (status: UpdateStatus) => void): () => void {
+  const listener = (_event: unknown, payload: unknown): void => {
+    try {
+      callback(updateStatus(payload));
+    } catch {
+      // Ignore malformed push events.
+    }
+  };
+  ipcRenderer.on(pushChannels.updateStatus, listener);
+  return (): void => {
+    ipcRenderer.removeListener(pushChannels.updateStatus, listener);
+  };
+}
+
 function onLogEvent(callback: (line: LogLine) => void): () => void {
   const listener = (_event: unknown, payload: unknown): void => {
     try {
@@ -557,7 +592,14 @@ const api: LnwjudApi = {
     if (!isRecord(value)) throw new Error('Invalid IPC response');
     return { opened: booleanField(value, 'opened') };
   }),
+  getUpdateStatus: () => invoke(ipcChannels.getUpdateStatus).then(updateStatus),
+  checkForUpdates: () => invoke(ipcChannels.checkForUpdates).then(updateStatus),
+  installUpdate: () => invoke(ipcChannels.installUpdate).then((value: unknown) => {
+    if (!isRecord(value)) throw new Error('Invalid IPC response');
+    return { accepted: booleanField(value, 'accepted'), status: updateStatus(value.status) };
+  }),
   onLogEvent,
+  onUpdateStatus,
 };
 
 contextBridge.exposeInMainWorld('lnwjud', api);

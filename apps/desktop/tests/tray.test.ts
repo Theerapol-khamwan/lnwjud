@@ -27,6 +27,20 @@ describe('desktop tray behavior', () => {
     expect(actions.quit).toHaveBeenCalledOnce();
   });
 
+  it('shows a contextual install label when an update is ready', () => {
+    const actions = {
+      openMainWindow: vi.fn(),
+      checkForUpdates: vi.fn(),
+      updateLabel: 'ติดตั้งอัปเดต v4.7.0',
+      quit: vi.fn(),
+    };
+    const menu = createTrayMenuTemplate(actions);
+
+    expect(menu[1]?.label).toBe('ติดตั้งอัปเดต v4.7.0');
+    menu[1]?.click?.();
+    expect(actions.checkForUpdates).toHaveBeenCalledOnce();
+  });
+
   it('hides on a normal close but allows an intentional quit', () => {
     expect(shouldHideMainWindowOnClose(false)).toBe(true);
     expect(shouldHideMainWindowOnClose(true)).toBe(false);

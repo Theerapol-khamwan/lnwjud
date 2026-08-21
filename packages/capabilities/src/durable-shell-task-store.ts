@@ -476,7 +476,7 @@ try {
     cwd: spec.cwd,
     env: childEnvironment,
     shell: false,
-    windowsHide: false,
+    windowsHide: true,
     ...(spec.windowsVerbatimArguments === undefined ? {} : { windowsVerbatimArguments: spec.windowsVerbatimArguments }),
   });
   metadata.child_pid = child.pid;
