@@ -110,6 +110,7 @@ export interface DesktopRuntime {
   readonly mcpActor: FileActor;
   readonly activityTracker: ActivityTracker;
   readonly logHub: LogHub;
+  getLocale(): UiLocale;
   createBackup(reason?: BackupReason): Promise<BackupSummary>;
   ensureDefaultWorkspace(rootPath: string): Promise<string>;
   autoStartMcp(): Promise<McpConnectionStatus>;
@@ -509,6 +510,7 @@ export function createDesktopRuntime(dataPath: string, options: DesktopRuntimeOp
     mcpActor,
     activityTracker,
     logHub,
+    getLocale: (): UiLocale => readLocale(settingsRepository),
     createBackup: (reason: BackupReason = 'manual'): Promise<BackupSummary> => backupService.create(reason),
     ensureDefaultWorkspace: async (rootPath: string): Promise<string> => {
       await ensureMachineRoots(rootPath);

@@ -12,10 +12,12 @@ describe('MVP release verification gate', () => {
       'lint',
       'typecheck',
       'test',
+      'test:acceptance',
       'test:integration',
       'test:e2e',
       'build',
       'test:packaging',
+      'test:release-gate',
       'package:windows',
     ];
     let previousIndex = -1;

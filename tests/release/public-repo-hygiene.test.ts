@@ -28,6 +28,7 @@ describe('public repository hygiene', () => {
       'apps/desktop/build/lnwjud-mcp-stdio.cjs',
       'apps/desktop/build/lnwjud-mcp-stdio.cmd',
       'apps/desktop/build/lnwjud-mcp-stdio.mjs',
+      'apps/desktop/build/lnwjud-node.exe',
     ];
 
     for (const file of generated) {

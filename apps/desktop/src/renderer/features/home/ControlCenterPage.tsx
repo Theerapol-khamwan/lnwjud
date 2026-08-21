@@ -45,6 +45,13 @@ export function ControlCenterPage(props: ControlCenterPageProps): ReactElement {
         ? t('tunnel.error')
         : t('tunnel.stopped');
 
+  const stdioBroad = dashboard.stdioPermissionProfile === 'full' && !dashboard.stdioStrictRoots;
+  const broadAccess = dashboard.unrestricted || dashboard.allowAiDelete || stdioBroad;
+  const onOff = (enabled: boolean): string => enabled ? t('security.enabled') : t('security.disabled');
+  const workspaceScope = dashboard.stdioStrictRoots
+    ? `${dashboard.stdioAllowedRoots.length} ${t('security.allowedRoots')}`
+    : t('security.machineRoots');
+
   async function copyText(value: string): Promise<void> {
     await navigator.clipboard.writeText(value);
     setCopyStatus(t('mcp.copied'));
@@ -79,6 +86,29 @@ export function ControlCenterPage(props: ControlCenterPageProps): ReactElement {
             {dashboard.unrestricted ? ` • ${t('badge.unrestricted')}` : ''}
           </p>
         </div>
+      </section>
+
+      <section className={`panel security-overview ${broadAccess ? 'security-risk-broad' : 'security-risk-restricted'}`} aria-label={t('security.title')}>
+        <div className="security-overview-header">
+          <div>
+            <h2>{t('security.title')}</h2>
+            <p className="hint">{t('security.strictHint')}</p>
+          </div>
+          <span className={`security-summary-chip ${broadAccess ? 'broad' : 'restricted'}`} data-testid="security-summary">
+            {broadAccess ? t('security.summaryBroad') : t('security.summaryRestricted')}
+          </span>
+        </div>
+        <div className="security-overview-grid">
+          <SecurityMetric label={t('security.desktopProfile')} value={dashboard.permissionProfile.toUpperCase()} />
+          <SecurityMetric label={t('security.stdioProfile')} value={dashboard.stdioPermissionProfile.toUpperCase()} />
+          <SecurityMetric label={t('security.strictRoots')} value={onOff(dashboard.stdioStrictRoots)} state={dashboard.stdioStrictRoots ? 'safe' : 'warn'} />
+          <SecurityMetric label={t('security.aiDelete')} value={onOff(dashboard.allowAiDelete)} state={dashboard.allowAiDelete ? 'warn' : 'safe'} />
+          <SecurityMetric label={t('security.unrestricted')} value={onOff(dashboard.unrestricted)} state={dashboard.unrestricted ? 'warn' : 'safe'} />
+          <SecurityMetric label={t('security.workspaceScope')} value={workspaceScope} state={dashboard.stdioStrictRoots ? 'safe' : 'warn'} />
+          <SecurityMetric label={t('security.tunnelAccess')} value={tunnelLabel} state={dashboard.tunnel.state === 'running' ? 'active' : 'neutral'} />
+          <SecurityMetric label={t('security.registeredWorkspaces')} value={String(props.workspaces.length)} />
+        </div>
+        {stdioBroad ? <div className="security-warning" role="status">⚠ {t('security.warningBroad')}</div> : null}
       </section>
 
       <div className="home-grid">
@@ -189,6 +219,15 @@ export function ControlCenterPage(props: ControlCenterPageProps): ReactElement {
       </div>
 
     </div>
+  );
+}
+
+function SecurityMetric(props: { readonly label: string; readonly value: string; readonly state?: 'safe' | 'warn' | 'active' | 'neutral' }): ReactElement {
+  return (
+    <article className={`security-metric ${props.state ?? 'neutral'}`}>
+      <span>{props.label}</span>
+      <strong>{props.value}</strong>
+    </article>
   );
 }
 

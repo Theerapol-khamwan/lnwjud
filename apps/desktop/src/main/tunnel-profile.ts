@@ -26,8 +26,8 @@ export function resolveStdioLauncherPath(candidates: readonly string[]): string 
 /**
  * The packaged Electron executable uses the GUI subsystem. When tunnel-client
  * starts it as a child, its stdio handles can close immediately even though
- * Electron reports that the app is ready. The packaged direct-node launcher
- * keeps the MCP pipe owned by a normal console process.
+ * Electron reports that the app is ready. The packaged launcher uses the private Node 24 runtime shipped with lnwjud and
+ * keeps the MCP pipe owned by a normal console process without system Node.js.
  */
 export function preferredTunnelMcpCommand(execPath: string, cmdFallback: string | null): string | null {
   void execPath;

@@ -1,4 +1,4 @@
-name: Release
+﻿name: Release
 
 on:
   push:
@@ -8,9 +8,13 @@ on:
 permissions:
   contents: write
 
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
 jobs:
   build-release:
-    name: Build & Publish Windows Release
+    name: Verify & Publish Windows Release
     runs-on: windows-latest
 
     steps:
@@ -36,20 +40,9 @@ jobs:
           corepack enable
           corepack prepare pnpm@10.15.0 --activate
 
-      - name: Install Dependencies
-        run: pnpm install --frozen-lockfile
-
-      - name: Typecheck
-        run: pnpm run typecheck
-
-      - name: Run Tests
-        run: pnpm run test
-
-      - name: Build Packages & Desktop
-        run: pnpm run build
-
-      - name: Package Windows Installer
-        run: pnpm run package:windows
+      - name: Run authoritative verification gate
+        shell: powershell
+        run: powershell -NoProfile -NonInteractive -ExecutionPolicy Bypass -File scripts/verify-release.ps1
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

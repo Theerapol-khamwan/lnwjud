@@ -1,11 +1,17 @@
-import { readFile } from 'node:fs/promises';
-import path from 'node:path';
+import type { UpdateStatus } from '@lnwjud/ipc-contracts';
 import { describe, expect, it, vi } from 'vitest';
-import { createTrayMenuTemplate, shouldHideMainWindowOnClose } from '../src/main/tray.js';
+import { nativeMessages } from '../src/main/native-i18n.js';
+import {
+  createTrayMenuTemplate,
+  createTrayToolTip,
+  createTrayUpdateLabel,
+  shouldHideMainWindowOnClose,
+} from '../src/main/tray.js';
 
 describe('desktop tray behavior', () => {
-  it('exposes open, update, and quit actions in the context menu', () => {
+  it('exposes Thai open, update, and quit actions in the context menu', () => {
     const actions = {
+      locale: 'th' as const,
       openMainWindow: vi.fn(),
       checkForUpdates: vi.fn(),
       quit: vi.fn(),
@@ -27,8 +33,25 @@ describe('desktop tray behavior', () => {
     expect(actions.quit).toHaveBeenCalledOnce();
   });
 
+  it('localizes the whole tray menu to English', () => {
+    const menu = createTrayMenuTemplate({
+      locale: 'en',
+      openMainWindow: vi.fn(),
+      checkForUpdates: vi.fn(),
+      quit: vi.fn(),
+    });
+
+    expect(menu.map((item) => item.type === 'separator' ? 'separator' : item.label)).toEqual([
+      'Open lnwjud',
+      'Check for Updates',
+      'separator',
+      'Quit',
+    ]);
+  });
+
   it('shows a contextual install label when an update is ready', () => {
     const actions = {
+      locale: 'th' as const,
       openMainWindow: vi.fn(),
       checkForUpdates: vi.fn(),
       updateLabel: 'ติดตั้งอัปเดต v4.7.0',
@@ -41,14 +64,38 @@ describe('desktop tray behavior', () => {
     expect(actions.checkForUpdates).toHaveBeenCalledOnce();
   });
 
+  it('localizes updater state labels and the tray tooltip', () => {
+    const ready: UpdateStatus = {
+      phase: 'ready',
+      currentVersion: '4.6.1',
+      availableVersion: '4.6.2',
+      progressPercent: 100,
+      lastCheckedAt: null,
+      message: null,
+      canInstall: true,
+    };
+    const downloading: UpdateStatus = {
+      ...ready,
+      phase: 'downloading',
+      progressPercent: 42.4,
+      canInstall: false,
+    };
+
+    expect(createTrayUpdateLabel(ready, 'th')).toBe('ติดตั้งอัปเดต v4.6.2');
+    expect(createTrayUpdateLabel(ready, 'en')).toBe('Install update v4.6.2');
+    expect(createTrayUpdateLabel(downloading, 'th')).toBe('กำลังดาวน์โหลด v4.6.2 42%');
+    expect(createTrayUpdateLabel(downloading, 'en')).toBe('Downloading v4.6.2 42%');
+    expect(createTrayToolTip('th')).toBe('lnwjud — ทำงานเบื้องหลัง');
+    expect(createTrayToolTip('en')).toBe('lnwjud — running in background');
+  });
+
   it('hides on a normal close but allows an intentional quit', () => {
     expect(shouldHideMainWindowOnClose(false)).toBe(true);
     expect(shouldHideMainWindowOnClose(true)).toBe(false);
   });
-  it('gives manual tray checks explicit feedback when the installed version is already current', async () => {
-    const source = await readFile(path.resolve(import.meta.dirname, '..', 'src', 'main', 'main.ts'), 'utf8');
-    expect(source).toContain("autoUpdater.on('update-not-available'");
-    expect(source).toContain('เป็นเวอร์ชันล่าสุดแล้ว');
-  });
 
+  it('keeps manual update feedback localized in the native catalog', () => {
+    expect(nativeMessages('th').updateCurrentDialog('4.6.1')).toBe('lnwjud v4.6.1 เป็นเวอร์ชันล่าสุดแล้ว');
+    expect(nativeMessages('en').updateCurrentDialog('4.6.1')).toBe('lnwjud v4.6.1 is up to date');
+  });
 });

@@ -43,11 +43,13 @@ import { createDesktopRuntime, type DesktopRuntime } from './desktop-services.js
 import { DesktopShutdownCoordinator } from './desktop-shutdown.js';
 import { shouldHoldSingleInstanceLock, wantsMcpStdio } from './instance-lock.js';
 import { createLogViewerWindow, createMainWindow, getRendererEntryPath, getWindowIconPath, isAllowedRendererUrl } from './window.js';
-import { createTrayMenuTemplate, shouldHideMainWindowOnClose } from './tray.js';
+import { createTrayMenuTemplate, createTrayToolTip, createTrayUpdateLabel, shouldHideMainWindowOnClose } from './tray.js';
 import { UpdateInstallCoordinator, type UpdateSharedActivitySnapshot } from './update-install.js';
 import { UpdateCheckScheduler } from './update-check-scheduler.js';
 import { atomicWrite, type IncidentReport } from './incident-report.js';
 import { IncidentSaveCoordinator } from './incident-save.js';
+import { localizedUpdateStatusMessage, nativeMessages } from './native-i18n.js';
+import { CrashDiagnosticsRecorder, RendererRecoveryPolicy } from './crash-recovery.js';
 
 export interface DesktopIpcServices {
   listWorkspaces(): Promise<IpcResponseMap[typeof ipcChannels.listWorkspaces]>;
@@ -81,6 +83,10 @@ export interface DesktopIpcServices {
 }
 
 export type MainWindowProvider = () => BrowserWindow | null;
+
+export interface DesktopIpcHooks {
+  readonly onLocaleChanged?: (locale: UiLocale) => void;
+}
 
 const emptyTunnel: TunnelStatus = {
   state: 'stopped',
@@ -183,6 +189,7 @@ export function isTrustedIpcSender(event: IpcMainInvokeEvent, window: BrowserWin
 export function registerIpcHandlers(
   getMainWindow: MainWindowProvider,
   services: DesktopIpcServices = defaultDesktopServices,
+  hooks: DesktopIpcHooks = {},
 ): void {
   const incidentSaver = new IncidentSaveCoordinator({
     capture: (): Promise<IncidentReport> => services.captureIncident(updaterEventTail),
@@ -294,7 +301,9 @@ export function registerIpcHandlers(
   });
   ipcMain.handle(ipcChannels.setLocale, async (event, payload: unknown) => {
     assertTrustedSender(event, getMainWindow());
-    return services.setLocale(parseSetLocaleRequest(payload));
+    const result = await services.setLocale(parseSetLocaleRequest(payload));
+    hooks.onLocaleChanged?.(result.locale);
+    return result;
   });
   ipcMain.handle(ipcChannels.launchManagedBrowser, async (event, payload: unknown) => {
     assertTrustedSender(event, getMainWindow());
@@ -496,18 +505,22 @@ let mainWindow: BrowserWindow | null = null;
 let logViewerWindow: BrowserWindow | null = null;
 let desktopRuntime: DesktopRuntime | null = null;
 let tray: Tray | null = null;
+let desktopLocale: UiLocale = 'th';
 let quitRequested = false;
 let desktopShutdownCoordinator: DesktopShutdownCoordinator | null = null;
 let updateInstallCoordinator: UpdateInstallCoordinator | null = null;
 let updateCheckScheduler: UpdateCheckScheduler | null = null;
 let pendingUpdateCheckSource: 'automatic' | 'tray' | 'renderer' | null = null;
+let crashDiagnostics: CrashDiagnosticsRecorder | null = null;
+const rendererRecoveryPolicy = new RendererRecoveryPolicy();
+let crashRecoveryConfigured = false;
 let currentUpdateStatus: UpdateStatus = {
   phase: app.isPackaged ? 'idle' : 'unavailable',
   currentVersion: APP_VERSION,
   availableVersion: null,
   progressPercent: null,
   lastCheckedAt: null,
-  message: app.isPackaged ? null : 'ระบบอัปเดตทำงานในแอปที่ติดตั้งจาก Release',
+  message: app.isPackaged ? null : nativeMessages(desktopLocale).updaterUnavailablePackagedOnly,
   canInstall: false,
 };
 
@@ -559,57 +572,44 @@ function patchUpdateStatus(patch: Partial<UpdateStatus>): UpdateStatus {
   return publishUpdateStatus({ ...currentUpdateStatus, ...patch });
 }
 
-function updateTrayLabel(): string {
-  const version = currentUpdateStatus.availableVersion;
-  if (currentUpdateStatus.phase === 'ready' && version !== null) return `ติดตั้งอัปเดต v${version}`;
-  if (currentUpdateStatus.phase === 'installing' && version !== null) return `กำลังเตรียมติดตั้ง v${version}`;
-  if (currentUpdateStatus.phase === 'downloading' && version !== null) {
-    const percent = currentUpdateStatus.progressPercent === null ? '' : ` ${Math.round(currentUpdateStatus.progressPercent)}%`;
-    return `กำลังดาวน์โหลด v${version}${percent}`;
-  }
-  if (currentUpdateStatus.phase === 'checking') return 'กำลังตรวจอัปเดต…';
-  return 'ตรวจอัปเดต';
-}
-
 function refreshDesktopTrayMenu(): void {
   if (tray === null) return;
   tray.setContextMenu(Menu.buildFromTemplate(createTrayMenuTemplate({
+    locale: desktopLocale,
     openMainWindow: revealMainWindow,
     checkForUpdates: checkForUpdatesFromTray,
-    updateLabel: updateTrayLabel(),
+    updateLabel: createTrayUpdateLabel(currentUpdateStatus, desktopLocale),
     quit: (): void => { app.quit(); },
   })));
 }
 
 function requestUpdateCheck(source: 'automatic' | 'tray' | 'renderer'): UpdateStatus {
+  const messages = nativeMessages(desktopLocale);
   if (!app.isPackaged) {
-    const status = patchUpdateStatus({
-      phase: 'unavailable',
-      message: 'การตรวจอัปเดตจะทำงานเมื่อใช้แอปที่ติดตั้งจาก Release แล้ว',
-      canInstall: false,
-    });
+    const status = patchUpdateStatus({ phase: 'unavailable', message: messages.updaterUnavailable, canInstall: false });
     if (source === 'tray') {
-      void dialog.showMessageBox({ type: 'info', title: 'ตรวจอัปเดต', message: status.message ?? 'ระบบอัปเดตไม่พร้อมใช้งาน', buttons: ['ตกลง'] });
+      void dialog.showMessageBox({ type: 'info', title: messages.updaterCheckTitle, message: status.message ?? messages.updaterUnavailablePackagedOnly, buttons: [messages.ok] });
     }
     return status;
   }
   if (currentUpdateStatus.phase === 'available' || currentUpdateStatus.phase === 'downloading' || currentUpdateStatus.phase === 'ready' || currentUpdateStatus.phase === 'installing') return currentUpdateStatus;
   if (pendingUpdateCheckSource !== null || currentUpdateStatus.phase === 'checking') {
     if (source === 'tray') {
-      void dialog.showMessageBox({ type: 'info', title: 'ตรวจอัปเดต', message: 'กำลังตรวจอัปเดตอยู่ กรุณารอผลการตรวจสอบ', buttons: ['ตกลง'] });
+      void dialog.showMessageBox({ type: 'info', title: messages.updaterCheckTitle, message: messages.updaterAlreadyChecking, buttons: [messages.ok] });
     }
     return currentUpdateStatus;
   }
   pendingUpdateCheckSource = source;
-  const status = patchUpdateStatus({ phase: 'checking', progressPercent: null, message: 'กำลังตรวจหาเวอร์ชันใหม่…', canInstall: false });
+  const status = patchUpdateStatus({ phase: 'checking', progressPercent: null, message: messages.updaterChecking, canInstall: false });
   void autoUpdater.checkForUpdates().catch((error: unknown) => {
     if (pendingUpdateCheckSource !== source) return;
     pendingUpdateCheckSource = null;
-    const message = error instanceof Error ? error.message : 'ไม่สามารถตรวจอัปเดตได้';
+    const message = error instanceof Error ? error.message : nativeMessages(desktopLocale).updaterCheckFailed;
     console.error(`[AutoUpdater] ${source} check failed: ${message}`);
     patchUpdateStatus({ phase: 'error', lastCheckedAt: new Date().toISOString(), message, canInstall: false });
     if (source === 'tray') {
-      void dialog.showMessageBox({ type: 'error', title: 'ตรวจอัปเดต - lnwjud', message, buttons: ['ตกลง'] });
+      const currentMessages = nativeMessages(desktopLocale);
+      void dialog.showMessageBox({ type: 'error', title: currentMessages.updaterCheckTitle, message, buttons: [currentMessages.ok] });
     }
   });
   return status;
@@ -621,7 +621,7 @@ function requestUpdateInstall(): { readonly accepted: boolean; readonly status: 
   }
   const status = patchUpdateStatus({
     phase: 'installing',
-    message: 'กำลังรอให้งานที่ใช้งานอยู่เสร็จก่อนรีสตาร์ตเพื่อติดตั้ง…',
+    message: nativeMessages(desktopLocale).updaterInstallWaiting,
     canInstall: false,
   });
   updateInstallCoordinator.requestInstall();
@@ -637,6 +637,17 @@ function checkForUpdatesFromTray(): void {
   requestUpdateCheck('tray');
 }
 
+function setDesktopLocale(locale: UiLocale): void {
+  desktopLocale = locale;
+  if (tray !== null) tray.setToolTip(createTrayToolTip(locale));
+  const localizedMessage = localizedUpdateStatusMessage(currentUpdateStatus, locale);
+  if (localizedMessage !== currentUpdateStatus.message) {
+    publishUpdateStatus({ ...currentUpdateStatus, message: localizedMessage });
+  } else {
+    refreshDesktopTrayMenu();
+  }
+}
+
 function createDesktopTray(): void {
   const iconPath = getWindowIconPath();
   if (iconPath === undefined) {
@@ -645,7 +656,7 @@ function createDesktopTray(): void {
   }
   tray?.destroy();
   tray = new Tray(nativeImage.createFromPath(iconPath));
-  tray.setToolTip('lnwjud — ทำงานเบื้องหลัง');
+  tray.setToolTip(createTrayToolTip(desktopLocale));
   refreshDesktopTrayMenu();
   tray.on('click', revealMainWindow);
 }
@@ -724,7 +735,7 @@ function bootstrapMcpStdio(): void {
 
 function initAutoUpdater(runtime: DesktopRuntime): void {
   if (!app.isPackaged) {
-    patchUpdateStatus({ phase: 'unavailable', message: 'ระบบอัปเดตทำงานในแอปที่ติดตั้งจาก Release', canInstall: false });
+    patchUpdateStatus({ phase: 'unavailable', message: nativeMessages(desktopLocale).updaterUnavailablePackagedOnly, canInstall: false });
     return;
   }
   try {
@@ -764,7 +775,7 @@ function initAutoUpdater(runtime: DesktopRuntime): void {
     autoUpdater.on('checking-for-update', () => {
       recordUpdaterEvent('checking-for-update');
       console.log('[AutoUpdater] Checking for updates on GitHub...');
-      patchUpdateStatus({ phase: 'checking', progressPercent: null, message: 'กำลังตรวจหาเวอร์ชันใหม่…', canInstall: false });
+      patchUpdateStatus({ phase: 'checking', progressPercent: null, message: nativeMessages(desktopLocale).updaterChecking, canInstall: false });
     });
 
     autoUpdater.on('update-available', (info) => {
@@ -772,20 +783,21 @@ function initAutoUpdater(runtime: DesktopRuntime): void {
       const requestedFromTray = pendingUpdateCheckSource === 'tray';
       pendingUpdateCheckSource = null;
       console.log(`[AutoUpdater] Update available: v${info.version}`);
+      const messages = nativeMessages(desktopLocale);
       patchUpdateStatus({
         phase: 'available',
         availableVersion: info.version,
         progressPercent: 0,
         lastCheckedAt: new Date().toISOString(),
-        message: `พบ v${info.version} — กำลังดาวน์โหลดในเบื้องหลัง`,
+        message: messages.updateAvailableStatus(info.version),
         canInstall: false,
       });
       if (requestedFromTray) {
         void dialog.showMessageBox({
           type: 'info',
-          title: 'พบอัปเดต - lnwjud',
-          message: `พบ lnwjud v${info.version} กำลังดาวน์โหลดอัปเดตในเบื้องหลัง`,
-          buttons: ['ตกลง'],
+          title: messages.updaterAvailableTitle,
+          message: messages.updateAvailableDialog(info.version),
+          buttons: [messages.ok],
         });
       }
       broadcastToAllWindows(pushChannels.logEvent, {
@@ -802,7 +814,7 @@ function initAutoUpdater(runtime: DesktopRuntime): void {
       patchUpdateStatus({
         phase: 'downloading',
         progressPercent: percent,
-        message: `กำลังดาวน์โหลดอัปเดต ${Math.round(percent)}%`,
+        message: nativeMessages(desktopLocale).updateDownloadingStatus(currentUpdateStatus.availableVersion, percent),
         canInstall: false,
       });
     });
@@ -811,20 +823,21 @@ function initAutoUpdater(runtime: DesktopRuntime): void {
       recordUpdaterEvent(`update-not-available:${info.version}`);
       const requestedFromTray = pendingUpdateCheckSource === 'tray';
       pendingUpdateCheckSource = null;
+      const messages = nativeMessages(desktopLocale);
       patchUpdateStatus({
         phase: 'up-to-date',
         availableVersion: null,
         progressPercent: null,
         lastCheckedAt: new Date().toISOString(),
-        message: `v${info.version} เป็นเวอร์ชันล่าสุดแล้ว`,
+        message: messages.updateCurrentStatus(info.version),
         canInstall: false,
       });
       if (!requestedFromTray) return;
       void dialog.showMessageBox({
         type: 'info',
-        title: 'ตรวจอัปเดต - lnwjud',
-        message: `lnwjud v${info.version} เป็นเวอร์ชันล่าสุดแล้ว`,
-        buttons: ['ตกลง'],
+        title: messages.updaterCheckTitle,
+        message: messages.updateCurrentDialog(info.version),
+        buttons: [messages.ok],
       });
     });
 
@@ -834,7 +847,7 @@ function initAutoUpdater(runtime: DesktopRuntime): void {
         phase: 'ready',
         availableVersion: info.version,
         progressPercent: 100,
-        message: `v${info.version} พร้อมติดตั้ง — กดที่เวอร์ชันมุมซ้ายบนเพื่ออัปเดต`,
+        message: nativeMessages(desktopLocale).updateReadyStatus(info.version),
         canInstall: true,
       });
       console.log(`[AutoUpdater] Downloaded update: v${info.version}; waiting for user action.`);
@@ -852,18 +865,20 @@ function initAutoUpdater(runtime: DesktopRuntime): void {
       pendingUpdateCheckSource = null;
       recordUpdaterEvent(`error:${err.message}`);
       console.error('[AutoUpdater] error:', err.message);
+      const messages = nativeMessages(desktopLocale);
+      const message = err.message || messages.updaterCheckFailed;
       patchUpdateStatus({
         phase: 'error',
         lastCheckedAt: new Date().toISOString(),
-        message: err.message || 'ไม่สามารถตรวจอัปเดตได้',
+        message,
         canInstall: false,
       });
       if (!requestedFromTray) return;
       void dialog.showMessageBox({
         type: 'error',
-        title: 'ตรวจอัปเดต - lnwjud',
-        message: err.message || 'ไม่สามารถตรวจอัปเดตได้',
-        buttons: ['ตกลง'],
+        title: messages.updaterCheckTitle,
+        message,
+        buttons: [messages.ok],
       });
     });
 
@@ -874,7 +889,7 @@ function initAutoUpdater(runtime: DesktopRuntime): void {
     updateCheckScheduler.start();
   } catch (err: unknown) {
     console.error('Failed to initialize auto updater:', err);
-    patchUpdateStatus({ phase: 'error', message: err instanceof Error ? err.message : 'Failed to initialize auto updater', canInstall: false });
+    patchUpdateStatus({ phase: 'error', message: err instanceof Error ? err.message : nativeMessages(desktopLocale).updaterCheckFailed, canInstall: false });
   }
 }
 
@@ -884,10 +899,11 @@ function bootstrapDesktop(): void {
     app.setAppUserModelId('com.lnwjud.desktop');
     const runtime = createDesktopRuntime(dataPath);
     desktopRuntime = runtime;
+    setDesktopLocale(runtime.getLocale());
     configureDesktopShutdown(runtime);
     runtime.logHub.setOnLine((line) => broadcastToAllWindows(pushChannels.logEvent, line));
     runtime.logHub.start();
-    registerIpcHandlers(() => mainWindow, runtime.services);
+    registerIpcHandlers(() => mainWindow, runtime.services, { onLocaleChanged: setDesktopLocale });
     try {
       await runtime.autoStartMcp();
     } catch (error: unknown) {
@@ -974,10 +990,58 @@ function handleDesktopBeforeQuit(event: Electron.Event): void {
   });
 }
 
+function configureCrashRecovery(dataPath: string): void {
+  crashDiagnostics ??= new CrashDiagnosticsRecorder(dataPath, APP_VERSION);
+  if (crashRecoveryConfigured) return;
+  crashRecoveryConfigured = true;
+
+  process.on('uncaughtExceptionMonitor', (error) => {
+    crashDiagnostics?.record({ type: 'main-uncaught-exception', processType: 'main', error });
+  });
+  app.on('child-process-gone', (_event, details) => {
+    crashDiagnostics?.record({
+      type: 'child-process-gone',
+      processType: details.type,
+      reason: details.reason,
+      exitCode: details.exitCode,
+    });
+  });
+  app.on('render-process-gone', (_event, webContents, details) => {
+    crashDiagnostics?.record({
+      type: 'renderer-gone',
+      processType: 'renderer',
+      reason: details.reason,
+      exitCode: details.exitCode,
+    });
+    if (quitRequested || !rendererRecoveryPolicy.shouldRecover(details.reason)) return;
+    const mainCrashed = mainWindow !== null && !mainWindow.isDestroyed() && mainWindow.webContents.id === webContents.id;
+    const logViewerCrashed = logViewerWindow !== null && !logViewerWindow.isDestroyed() && logViewerWindow.webContents.id === webContents.id;
+    if (!mainCrashed && !logViewerCrashed) return;
+
+    if (mainCrashed) {
+      const crashedWindow = mainWindow;
+      mainWindow = null;
+      if (crashedWindow !== null && !crashedWindow.isDestroyed()) crashedWindow.destroy();
+      setTimeout(() => {
+        if (!quitRequested && (mainWindow === null || mainWindow.isDestroyed())) createDesktopWindow();
+      }, 250);
+    }
+    if (logViewerCrashed) {
+      const crashedViewer = logViewerWindow;
+      logViewerWindow = null;
+      if (crashedViewer !== null && !crashedViewer.isDestroyed()) crashedViewer.destroy();
+      setTimeout(() => {
+        if (!quitRequested && (logViewerWindow === null || logViewerWindow.isDestroyed())) openLogViewerWindow();
+      }, 250);
+    }
+  });
+}
+
 function configureDataPath(): string {
   app.setName(APP_NAME);
   const dataPath = resolveLnwjudDataPath(process.env, app.getPath('appData'));
   app.setPath('userData', dataPath);
+  configureCrashRecovery(dataPath);
   const restore = applyPendingSqliteRestoreSync(path.join(dataPath, 'lnwjud.sqlite'), path.join(dataPath, 'backups'));
   if (restore.error !== undefined) console.error(`Scheduled database restore failed: ${restore.error}`);
   if (restore.applied) console.log(`Database restore applied from ${restore.backupId ?? 'scheduled backup'}`);

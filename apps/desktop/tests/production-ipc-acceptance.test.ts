@@ -101,6 +101,18 @@ describe('production desktop IPC acceptance', () => {
       .rejects.toThrow(/requires at least one allowed root/);
   });
 
+  it('notifies the native tray after a trusted locale change', async () => {
+    const services = desktopServices();
+    const onLocaleChanged = vi.fn();
+    registerIpcHandlers(() => ({}) as never, services, { onLocaleChanged });
+    const trusted = { senderFrame: { url: pathToFileURL(getRendererEntryPath()).href } };
+
+    await expect(requiredHandler(ipcChannels.setLocale)(trusted, { locale: 'en' })).resolves.toEqual({ locale: 'en' });
+
+    expect(services.setLocale).toHaveBeenCalledWith({ locale: 'en' });
+    expect(onLocaleChanged).toHaveBeenCalledExactlyOnceWith('en');
+  });
+
   it('exposes updater status, manual check, and install actions through trusted IPC', async () => {
     const services = desktopServices();
     registerIpcHandlers(() => ({}) as never, services);

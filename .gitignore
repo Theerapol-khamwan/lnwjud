@@ -1,4 +1,4 @@
-# Dependencies & Package Managers
+﻿# Dependencies & Package Managers
 node_modules/
 .pnpm-store/
 
@@ -10,6 +10,7 @@ build/
 apps/desktop/build/*.cjs
 apps/desktop/build/*.cmd
 apps/desktop/build/*.mjs
+apps/desktop/build/*.exe
 *.tsbuildinfo
 *.tsbuildinfo.*
 *.last-run.json

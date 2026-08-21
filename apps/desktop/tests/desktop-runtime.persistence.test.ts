@@ -107,6 +107,29 @@ describe('DesktopRuntime persistence', () => {
     }
   }, 30_000);
 
+  it('restores the persisted UI locale for native tray startup', async () => {
+    const rawDataRoot = await mkdtemp(path.join(os.tmpdir(), 'lnwjud-runtime-locale-data-'));
+    temporaryRoots.push(rawDataRoot);
+    const dataRoot = await realpath(rawDataRoot);
+
+    const firstRuntime = createDesktopRuntime(dataRoot);
+    try {
+      expect(firstRuntime.getLocale()).toBe('th');
+      await expect(firstRuntime.services.setLocale({ locale: 'en' })).resolves.toEqual({ locale: 'en' });
+      expect(firstRuntime.getLocale()).toBe('en');
+    } finally {
+      await firstRuntime.close();
+    }
+
+    const restartedRuntime = createDesktopRuntime(dataRoot);
+    try {
+      expect(restartedRuntime.getLocale()).toBe('en');
+      await expect(restartedRuntime.services.getDashboard()).resolves.toMatchObject({ locale: 'en' });
+    } finally {
+      await restartedRuntime.close();
+    }
+  }, 30_000);
+
   it('serves the local capability health tool through the desktop MCP listener', async () => {
     const rawDataRoot = await mkdtemp(path.join(os.tmpdir(), 'lnwjud-runtime-data-'));
     const rawWorkspaceRoot = await mkdtemp(path.join(os.tmpdir(), 'lnwjud-runtime-workspace-'));

@@ -136,7 +136,7 @@ continuation rather than lowering an existing limit silently.
 
 - MCP protocol is the only stdout payload; diagnostics go to stderr.
 - The packaged Windows tunnel command is the direct-node
-  `lnwjud-mcp-stdio.cmd` launcher. The GUI Electron executable is not used as a
+  `lnwjud-mcp-stdio.cmd` launcher backed by the private Node 24 runtime shipped with the installer. The GUI Electron executable is not used as a
   tunnel child because its stdio handles can close when started by
   `tunnel-client`.
 - Closing the peer is a normal shutdown; owned runtime resources are closed once.

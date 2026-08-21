@@ -61,6 +61,23 @@ export type MessageKey =
   | 'settings.restartRequired'
   | 'settings.saved'
   | 'badge.unrestricted'
+  | 'security.title'
+  | 'security.summaryBroad'
+  | 'security.summaryRestricted'
+  | 'security.desktopProfile'
+  | 'security.stdioProfile'
+  | 'security.strictRoots'
+  | 'security.aiDelete'
+  | 'security.unrestricted'
+  | 'security.workspaceScope'
+  | 'security.tunnelAccess'
+  | 'security.enabled'
+  | 'security.disabled'
+  | 'security.registeredWorkspaces'
+  | 'security.allowedRoots'
+  | 'security.machineRoots'
+  | 'security.warningBroad'
+  | 'security.strictHint'
   | 'live.title'
   | 'live.subtitle'
   | 'live.tabTunnel'
@@ -174,6 +191,23 @@ export const th: Messages = {
   'settings.restartRequired': 'ต้องรีสตาร์ทแอพเพื่อให้มีผล',
   'settings.saved': 'บันทึกเรียบร้อย',
   'badge.unrestricted': 'Unrestricted',
+  'security.title': 'ภาพรวมความปลอดภัย',
+  'security.summaryBroad': 'การเข้าถึงกว้าง',
+  'security.summaryRestricted': 'จำกัดขอบเขตแล้ว',
+  'security.desktopProfile': 'Desktop Profile',
+  'security.stdioProfile': 'Secure Tunnel / STDIO Profile',
+  'security.strictRoots': 'Strict Roots',
+  'security.aiDelete': 'AI File Delete',
+  'security.unrestricted': 'Unrestricted',
+  'security.workspaceScope': 'ขอบเขต Workspace',
+  'security.tunnelAccess': 'Tunnel',
+  'security.enabled': 'เปิด',
+  'security.disabled': 'ปิด',
+  'security.registeredWorkspaces': 'workspace ที่ลงทะเบียน',
+  'security.allowedRoots': 'Allowed Roots',
+  'security.machineRoots': 'Machine roots / workspace ที่ลงทะเบียน',
+  'security.warningBroad': 'Secure Tunnel / STDIO ใช้ Full โดยปิด Strict Roots อยู่ จึงอาจมองเห็น machine roots ที่ระบบลงทะเบียนไว้ ควรเปิด Strict Roots เมื่อต้องการจำกัดเฉพาะโฟลเดอร์ที่เลือก',
+  'security.strictHint': 'Strict Roots จำกัดเฉพาะ Secure Tunnel / STDIO และไม่ใช่ OS sandbox',
   'live.title': 'Live Logs',
   'live.subtitle': 'ดู log ของ tunnel, กิจกรรม MCP และ process แบบ realtime',
   'live.tabTunnel': 'Tunnel',
@@ -286,6 +320,23 @@ export const en: Messages = {
   'settings.restartRequired': 'Restart the app to apply',
   'settings.saved': 'Saved successfully',
   'badge.unrestricted': 'Unrestricted',
+  'security.title': 'Security Overview',
+  'security.summaryBroad': 'Broad access',
+  'security.summaryRestricted': 'Restricted scope',
+  'security.desktopProfile': 'Desktop Profile',
+  'security.stdioProfile': 'Secure Tunnel / STDIO Profile',
+  'security.strictRoots': 'Strict Roots',
+  'security.aiDelete': 'AI File Delete',
+  'security.unrestricted': 'Unrestricted',
+  'security.workspaceScope': 'Workspace Scope',
+  'security.tunnelAccess': 'Tunnel',
+  'security.enabled': 'On',
+  'security.disabled': 'Off',
+  'security.registeredWorkspaces': 'registered workspaces',
+  'security.allowedRoots': 'Allowed Roots',
+  'security.machineRoots': 'Machine roots / registered workspaces',
+  'security.warningBroad': 'Secure Tunnel / STDIO is using Full with Strict Roots off, so registered machine roots may be visible. Enable Strict Roots to limit access to selected folders.',
+  'security.strictHint': 'Strict Roots scopes Secure Tunnel / STDIO only and is not an OS sandbox.',
   'live.title': 'Live Logs',
   'live.subtitle': 'Real-time tunnel, MCP activity, and process logs',
   'live.tabTunnel': 'Tunnel',

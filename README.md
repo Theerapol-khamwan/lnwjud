@@ -40,9 +40,9 @@ The tunnel is outbound-only: `tunnel-client` runs beside lnwjud, reaches OpenAI
 over outbound HTTPS, forwards MCP work to the local stdio server, and returns the
 response without opening a public inbound port on the Windows machine.
 
-## Current release: v4.6.1
+## Current release: v4.6.2
 
-The current published installer and runtime contract are `v4.6.1`. The runtime
+The current published installer and runtime contract are `v4.6.2`. The runtime
 advertises **210 MCP tools**. The earlier 184-tool snapshot remains only as the
 compatibility baseline used by the v4 architecture; new v4 gateway capabilities
 are additive.
@@ -165,16 +165,16 @@ stops the current local HTTP listener.
 
 1. Download the latest published installer from
    [GitHub Releases](https://github.com/engasnm111/lnwjud/releases/latest).
-   The current release is `lnwjud-Setup-4.6.1.exe`.
+   The current release is `lnwjud-Setup-4.6.2.exe`.
 2. Run the NSIS installer and launch **lnwjud Agent Control Center**.
 3. Add or select the project/workspace you want lnwjud to operate on.
 4. Review **Settings** before attaching an AI client, especially Permission
    Profile and Unrestricted Mode.
 
-The graphical desktop app is packaged with Electron and does not require a
-separate Node.js installation just to open the dashboard. **The packaged stdio
-launcher does require Node.js 24.x**, so install Node.js 24 if you will connect
-through Secure MCP Tunnel, Codex stdio, or another local stdio MCP host.
+The graphical desktop app and the packaged stdio/Secure-Tunnel launcher are
+self-contained. The installer ships Electron for the dashboard and a private
+Node.js 24 runtime for `lnwjud-mcp-stdio.cmd`, so end users do **not** need a
+separate system Node.js installation.
 
 ### 2. Prepare OpenAI Secure MCP Tunnel for ChatGPT web
 
@@ -190,14 +190,13 @@ Use**.
 3. Create a restricted runtime API key with **Tunnels Read + Use**.
 4. Download the current `tunnel-client.exe` from the Platform tunnel page or the
    official [openai/tunnel-client releases](https://github.com/openai/tunnel-client/releases).
-5. Install Node.js 24.x if it is not already installed.
-6. Determine the installed stdio launcher path, normally:
+5. Determine the installed stdio launcher path, normally:
 
 ```text
 C:/Users/<WindowsUser>/AppData/Local/Programs/lnwjud/lnwjud-mcp-stdio.cmd
 ```
 
-7. In a temporary PowerShell session, initialize the tunnel profile:
+6. In a temporary PowerShell session, initialize the tunnel profile:
 
 ```powershell
 $env:CONTROL_PLANE_API_KEY = '<runtime-key-for-this-session>'
@@ -306,13 +305,12 @@ MCP Tunnel should use the generated launcher instead:
 lnwjud-mcp-stdio.cmd --workspace D:\projects\my-app
 ```
 
-The build generates `lnwjud-mcp-stdio.cjs` and `lnwjud-mcp-stdio.cmd` from the
-current source. These generated bundles are intentionally ignored by Git and are
-not source-of-truth files in the public repository. The Windows package copies
-them next to the installed application and into its resources directory.
-
-The launcher looks for Node.js in the normal Windows installation locations and
-then on `PATH`. Use Node.js 24.x to match the project engine contract.
+The build generates `lnwjud-mcp-stdio.cjs`, `lnwjud-mcp-stdio.cmd`, and a
+private `lnwjud-node.exe` copied from the pinned Node.js 24 build runtime.
+These generated runtime files are intentionally ignored by Git. The Windows
+package copies them next to the installed application and into its resources
+directory, and the launcher uses only this bundled runtime rather than a system
+Node installation or `PATH`.
 
 ### STDIO permission profiles and strict roots
 
@@ -331,7 +329,7 @@ The **AI File Delete Policy** in Desktop Settings is separate. When enabled, onl
 ### Core requirements
 
 - Windows x64.
-- Node.js 24.x for source builds and all stdio-based MCP connections.
+- Node.js 24.x for source development/builds. Installed releases bundle their own private Node 24 runtime for stdio/Secure Tunnel.
 - Git/Corepack/pnpm for source development.
 
 ### Optional dependencies
@@ -413,7 +411,7 @@ corepack pnpm@10.15.0 package:windows
 The x64 NSIS installer is written to:
 
 ```text
-apps/desktop/dist/installers/lnwjud-Setup-4.6.1.exe
+apps/desktop/dist/installers/lnwjud-Setup-4.6.2.exe
 ```
 
 The installer is per-user by default. A common installed executable path is:
@@ -498,9 +496,10 @@ codex mcp add lnwjud -- "$env:LOCALAPPDATA\Programs\lnwjud\lnwjud-mcp-stdio.cmd"
 codex mcp list
 ```
 
-The stdio launcher is the Node-based `lnwjud-mcp-stdio.cmd` shipped next to the
-desktop app (not the GUI `lnwjud.exe`). It exposes the full tool catalog,
-including skills/MCP bridge meta-tools. Requires Node.js 24+.
+The stdio launcher is `lnwjud-mcp-stdio.cmd` shipped next to the desktop app
+(not the GUI `lnwjud.exe`). It exposes the full tool catalog, including
+skills/MCP bridge meta-tools, and uses the bundled private `lnwjud-node.exe`;
+no separate Node.js installation is required for an installed release.
 
 The same server can be added in ChatGPT desktop or an IDE extension under
 Settings → MCP servers → Add server → STDIO. Restart the host after saving.
@@ -762,7 +761,7 @@ start a new chat.
 
 ## Complete MCP tool catalog (210 runtime tools)
 
-This index is generated from the current v4.6.1 `ToolRegistry`, not copied from an older release document. Optional/planned tools still appear in the advertised contract and report their availability/requirements at runtime where applicable.
+This index is generated from the current v4.6.2 `ToolRegistry`, not copied from an older release document. Optional/planned tools still appear in the advertised contract and report their availability/requirements at runtime where applicable.
 
 | # | Tool | Permission | Runtime description |
 | ---: | --- | --- | --- |

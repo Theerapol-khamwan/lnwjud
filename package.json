@@ -1,6 +1,6 @@
 {
   "name": "lnwjud",
-  "version": "4.6.1",
+  "version": "4.6.2",
   "private": true,
   "packageManager": "pnpm@10.15.0",
   "engines": {
@@ -22,7 +22,9 @@
     "diagnose:electron": "node scripts/diagnose-electron-startup.mjs",
     "build": "corepack pnpm@10.15.0 -r --if-present build",
     "desktop": "corepack pnpm@10.15.0 --filter @lnwjud/desktop build && corepack pnpm@10.15.0 --filter @lnwjud/desktop exec electron ./dist/main/main.js",
-    "start": "corepack pnpm@10.15.0 desktop"
+    "start": "corepack pnpm@10.15.0 desktop",
+    "docs:tools": "corepack pnpm@10.15.0 --filter @lnwjud/mcp-server build && node scripts/generate-tool-catalog.mjs",
+    "docs:tools:check": "corepack pnpm@10.15.0 --filter @lnwjud/mcp-server build && node scripts/generate-tool-catalog.mjs --check"
   },
   "devDependencies": {
     "@eslint/js": "9.33.0",
