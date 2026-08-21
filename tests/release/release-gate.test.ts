@@ -57,6 +57,15 @@ describe('MVP release verification gate', () => {
     expect(rootPackage.scripts?.desktop).toContain('--filter @lnwjud/desktop electron:install');
   });
 
+  it('provisions ripgrep on fresh Windows CI and release runners before E2E', async () => {
+    for (const workflowName of ['ci.yml', 'release.yml']) {
+      const workflow = await readFile(path.join(repositoryRoot, '.github', 'workflows', workflowName), 'utf8');
+      expect(workflow).toContain('Install ripgrep for E2E search');
+      expect(workflow).toContain('choco install ripgrep -y --no-progress');
+      expect(workflow.indexOf('Install ripgrep for E2E search')).toBeLessThan(workflow.indexOf('Run authoritative verification gate'));
+    }
+  });
+
   it('rejects release tags that do not match the packaged application version', async () => {
     const workflow = await readFile(path.join(repositoryRoot, '.github', 'workflows', 'release.yml'), 'utf8');
     expect(workflow).toContain('github.ref_name');

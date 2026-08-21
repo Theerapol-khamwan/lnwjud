@@ -29,6 +29,10 @@ jobs:
           corepack enable
           corepack prepare pnpm@10.15.0 --activate
 
+      - name: Install ripgrep for E2E search
+        shell: powershell
+        run: choco install ripgrep -y --no-progress
+
       - name: Run authoritative verification gate
         shell: powershell
         run: powershell -NoProfile -NonInteractive -ExecutionPolicy Bypass -File scripts/verify-release.ps1
