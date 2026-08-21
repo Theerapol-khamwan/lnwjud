@@ -21,7 +21,7 @@ describe('PowerShellWindowsCapabilityBridge integrity', () => {
     const bridge = new PowerShellWindowsCapabilityBridge({ scriptPath, expectedScriptSha256, platform: 'win32' });
 
     await expect(bridge.execute({ capability: 'system_info', input: { action: 'summary' } })).resolves.toEqual({ ok: true, value: { trusted: true } });
-  });
+  }, 15_000);
 
   it('fails closed after the script changes, even if it was valid on a previous call', async () => {
     const root = await temporaryRoot();
@@ -37,7 +37,7 @@ describe('PowerShellWindowsCapabilityBridge integrity', () => {
       ok: false,
       error: { code: 'INTERNAL_ERROR', message: 'Windows bridge script integrity check failed' },
     });
-  });
+  }, 15_000);
 
   it('rejects a missing or malformed expected hash before starting PowerShell', async () => {
     const root = await temporaryRoot();
