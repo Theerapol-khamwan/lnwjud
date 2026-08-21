@@ -31,10 +31,17 @@ export interface ToolRegistryOptions {
   readonly activity?: ActivitySink;
   readonly activityTracker?: ActivityTracker;
   readonly profileProvider?: () => PermissionProfile;
+  /** Allows only the scoped delete_file tool to delete without per-call chat confirmation. */
+  readonly allowAiDeleteProvider?: () => boolean;
   readonly maxToolDurationMs?: number;
 }
 
 const DEFAULT_MCP_TOOL_RESPONSE_BUDGET_MS = 90_000;
+
+interface BudgetedToolExecution {
+  readonly response: McpToolResponse;
+  readonly deferredSettlement?: Promise<void>;
+}
 
 export class ToolRegistry {
   private readonly tools: readonly McpToolDefinition[];
@@ -43,12 +50,14 @@ export class ToolRegistry {
   private readonly schemaRegistry: ToolSchemaRegistry;
   private readonly permissionEngine = new DefaultPermissionEngine();
   private readonly profileProvider: () => PermissionProfile;
+  private readonly allowAiDeleteProvider: () => boolean;
   private readonly maxToolDurationMs: number;
 
   public constructor(services: McpApplicationServices, actor: FileActor, options: ToolRegistryOptions = {}) {
     this.diagnostic = options.diagnostic;
     this.activity = options.activityTracker ?? new ActivityTracker(options.activity);
     this.profileProvider = options.profileProvider ?? ((): PermissionProfile => permissionProfiles.full);
+    this.allowAiDeleteProvider = options.allowAiDeleteProvider ?? ((): boolean => false);
     this.maxToolDurationMs = normalizeToolResponseBudget(options.maxToolDurationMs);
     const contextEconomy = new ContextEconomyRuntime();
     const context: McpToolContext = { services, actor, contextEconomy };
@@ -75,7 +84,7 @@ export class ToolRegistry {
     this.tools = [
       ...baseTools,
       ...batchTools({
-        invoke: (name, input) => this.invoke(name, input),
+        invoke: (name, input, signal) => this.invoke(name, input, undefined, signal),
         describe: (name) => baseTools.find((tool) => tool.name === name),
       }),
     ];
@@ -99,7 +108,7 @@ export class ToolRegistry {
     return this.schemaRegistry.describe(name);
   }
 
-  public async invoke(name: string, input: unknown, traceContext?: TraceContext): Promise<McpToolResponse> {
+  public async invoke(name: string, input: unknown, traceContext?: TraceContext, parentSignal?: AbortSignal): Promise<McpToolResponse> {
     const callId = await this.activity.begin(name, input, traceContext);
     const started = Date.now();
     try {
@@ -116,7 +125,8 @@ export class ToolRegistry {
         return response;
       }
       const destructiveDecision = inspectDestructiveOperation(tool.name, parsed.value);
-      if (destructiveDecision.destructive && !hasExplicitUserConfirmation(parsed.value)) {
+      const policyAllowsScopedDelete = tool.name === 'delete_file' && this.allowAiDeleteProvider();
+      if (destructiveDecision.destructive && !hasExplicitUserConfirmation(parsed.value) && !policyAllowsScopedDelete) {
         const message = `Destructive operation requires explicit user confirmation${destructiveDecision.reason === undefined ? '' : `: ${destructiveDecision.reason}`}. Ask the user in chat first, then retry with userConfirmed: true`;
         const response = mapError(appError('PERMISSION_REQUIRED', message, true));
         await this.activity.end(callId, 'PERMISSION_REQUIRED', Date.now() - started, message);
@@ -124,7 +134,7 @@ export class ToolRegistry {
       }
       const permissionDecision = this.permissionEngine.decide(this.profileProvider(), {
         action: 'mcp:' + tool.name,
-        level: tool.permission,
+        level: policyAllowsScopedDelete ? 'WRITE' : tool.permission,
         workspaceId: readWorkspaceId(parsed.value),
         target: tool.name,
         destructive: tool.annotations.destructiveHint,
@@ -138,11 +148,22 @@ export class ToolRegistry {
         await this.activity.end(callId, code, Date.now() - started, message);
         return response;
       }
-      const response = await this.executeWithinResponseBudget(tool, parsed.value);
+      const execution = await this.executeWithinResponseBudget(tool, parsed.value, parentSignal);
+      const response = execution.response;
       const resultCode = response.isError === true
         ? readErrorCode(response) ?? 'ERROR'
         : 'SUCCESS';
-      await this.activity.end(callId, resultCode, Date.now() - started, readErrorMessage(response));
+      const resultMessage = readErrorMessage(response);
+      if (execution.deferredSettlement !== undefined) {
+        void execution.deferredSettlement.then(() => this.activity.end(
+          callId,
+          resultCode,
+          Date.now() - started,
+          resultMessage,
+        ));
+      } else {
+        await this.activity.end(callId, resultCode, Date.now() - started, resultMessage);
+      }
       return response;
     } catch (error: unknown) {
       const response = mapError(sanitizeException(error, this.diagnostic));
@@ -151,28 +172,58 @@ export class ToolRegistry {
     }
   }
 
-  private async executeWithinResponseBudget(tool: McpToolDefinition, input: unknown): Promise<McpToolResponse> {
+  private async executeWithinResponseBudget(tool: McpToolDefinition, input: unknown, parentSignal?: AbortSignal): Promise<BudgetedToolExecution> {
     const controller = new AbortController();
     let timer: ReturnType<typeof setTimeout> | undefined;
-    let timedOut = false;
+    let settled = false;
+    let deadlineExceeded = false;
+    let onParentAbort: (() => void) | undefined;
+    let operation: Promise<McpToolResponse> | undefined;
     try {
-      return await new Promise<McpToolResponse>((resolve, reject) => {
-        timer = setTimeout(() => {
-          timedOut = true;
-          resolve(mapError(appError(
+      const response = await new Promise<McpToolResponse>((resolve, reject) => {
+        const finish = (response: McpToolResponse): void => {
+          if (settled) return;
+          settled = true;
+          resolve(response);
+        };
+        onParentAbort = (): void => {
+          deadlineExceeded = true;
+          controller.abort();
+          finish(mapError(appError(
             'PROCESS_TIMEOUT',
-            `MCP tool ${tool.name} exceeded the ${Math.ceil(this.maxToolDurationMs / 1000)}s response budget; the underlying operation may still be finishing. Check task/process status before retrying.`,
+            `MCP tool ${tool.name} was cancelled because its parent request ended; cancellation was requested, but an underlying operation may still be finishing. Check task/process status before retrying.`,
             true,
           )));
+        };
+        if (parentSignal?.aborted) {
+          onParentAbort();
+          return;
+        }
+        parentSignal?.addEventListener('abort', onParentAbort, { once: true });
+        timer = setTimeout(() => {
+          deadlineExceeded = true;
           controller.abort();
+          finish(mapError(appError(
+            'PROCESS_TIMEOUT',
+            `MCP tool ${tool.name} exceeded the ${Math.ceil(this.maxToolDurationMs / 1000)}s response budget; cancellation was requested, but an underlying operation may still be finishing. Check task/process status before retrying.`,
+            true,
+          )));
         }, this.maxToolDurationMs);
-        void tool.execute(input, controller.signal).then(
-          (result) => { if (!timedOut) resolve(mapResult(result)); },
+        operation = tool.execute(input, controller.signal).then(mapResult);
+        void operation.then(
+          finish,
           reject,
         );
       });
+      return {
+        response,
+        ...(deadlineExceeded && operation !== undefined
+          ? { deferredSettlement: operation.then(() => undefined, () => undefined) }
+          : {}),
+      };
     } finally {
       if (timer !== undefined) clearTimeout(timer);
+      if (onParentAbort !== undefined) parentSignal?.removeEventListener('abort', onParentAbort);
     }
   }
 }

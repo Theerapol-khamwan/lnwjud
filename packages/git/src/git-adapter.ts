@@ -1,5 +1,5 @@
 import { appError, err, ok, type Result } from '@lnwjud/domain';
-import { DirectGitRunner, type GitRunResult, type GitRunner } from './git-runner.js';
+import { DirectGitRunner, type GitRunOptions, type GitRunResult, type GitRunner } from './git-runner.js';
 import { parsePorcelainStatus, type GitStatusEntry } from './parsers/status-parser.js';
 
 export interface GitStatusResult {
@@ -48,8 +48,12 @@ const MAX_GIT_TIMEOUT_MS = 300_000;
 export class GitAdapter {
   public constructor(private readonly runner: GitRunner = new DirectGitRunner()) {}
 
-  public async status(cwd: string): Promise<Result<GitStatusResult>> {
-    const result = await this.runner.run(['status', '--porcelain=v1', '-z', '--untracked-files=all'], cwd);
+  public async status(cwd: string, signal?: AbortSignal): Promise<Result<GitStatusResult>> {
+    const result = await this.runner.run(
+      ['status', '--porcelain=v1', '-z', '--untracked-files=all'],
+      cwd,
+      this.signalOptions(signal),
+    );
     const error = this.mapError(result);
     if (error !== null) return error;
     return ok({ entries: parsePorcelainStatus(result.stdout) });
@@ -70,28 +74,28 @@ export class GitAdapter {
     return ok(null);
   }
 
-  public async diff(cwd: string, request: GitDiffRequest = {}): Promise<Result<GitDiffResult>> {
+  public async diff(cwd: string, request: GitDiffRequest = {}, signal?: AbortSignal): Promise<Result<GitDiffResult>> {
     const maxBytes = request.maxBytes ?? 1024 * 1024;
     if (!this.isLimit(maxBytes, 4 * 1024 * 1024)) return err(appError('INVALID_INPUT', 'Git diff byte limit is invalid'));
     const args = ['diff', '--no-ext-diff', '--no-color'];
     if (request.staged === true) args.push('--cached');
     args.push('--');
     if (request.path !== undefined) args.push(request.path);
-    const result = await this.runner.run(args, cwd);
+    const result = await this.runner.run(args, cwd, this.signalOptions(signal));
     const error = this.mapError(result);
     if (error !== null) return error;
     const bounded = this.bound(result.stdout, maxBytes);
     return ok({ patch: bounded.text, truncated: bounded.truncated });
   }
 
-  public async log(cwd: string, request: GitLogRequest = {}): Promise<Result<GitLogResult>> {
+  public async log(cwd: string, request: GitLogRequest = {}, signal?: AbortSignal): Promise<Result<GitLogResult>> {
     const maxCommits = request.maxCommits ?? 20;
     const maxBytes = request.maxBytes ?? 1024 * 1024;
     if (!this.isLimit(maxCommits, 100) || !this.isLimit(maxBytes, 4 * 1024 * 1024)) {
       return err(appError('INVALID_INPUT', 'Git log limit is invalid'));
     }
     const args = ['log', '--no-color', '--format=%H%x1f%an%x1f%aI%x1f%s%x1e', '-n', String(maxCommits), '--'];
-    const result = await this.runner.run(args, cwd);
+    const result = await this.runner.run(args, cwd, this.signalOptions(signal));
     const error = this.mapError(result);
     if (error !== null) return error;
     const bounded = this.bound(result.stdout, maxBytes);
@@ -104,10 +108,18 @@ export class GitAdapter {
     return ok({ entries, truncated: bounded.truncated });
   }
 
-  public async run(cwd: string, args: readonly string[], timeoutMs: number = DEFAULT_GIT_TIMEOUT_MS): Promise<Result<GitCommandResult>> {
+  public async run(
+    cwd: string,
+    args: readonly string[],
+    timeoutMs: number = DEFAULT_GIT_TIMEOUT_MS,
+    signal?: AbortSignal,
+  ): Promise<Result<GitCommandResult>> {
     const validation = this.validateArgs(args, timeoutMs);
     if (!validation.ok) return validation;
-    const result = await this.runner.run(args, cwd, { timeoutMs });
+    const result = await this.runner.run(args, cwd, {
+      timeoutMs,
+      ...(signal === undefined ? {} : { signal }),
+    });
     if (result.exitCode === -1 && /ENOENT/i.test(result.stderr)) {
       return err(appError('EXECUTABLE_NOT_FOUND', 'Git executable was not found'));
     }
@@ -125,6 +137,10 @@ export class GitAdapter {
       return err(appError('INVALID_INPUT', 'Git timeout is invalid'));
     }
     return ok(undefined);
+  }
+
+  private signalOptions(signal: AbortSignal | undefined): GitRunOptions | undefined {
+    return signal === undefined ? undefined : { signal };
   }
 
   private mapError(result: GitRunResult): Result<never> | null {

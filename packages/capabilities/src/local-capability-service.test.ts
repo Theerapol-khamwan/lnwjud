@@ -61,4 +61,26 @@ describe('LocalCapabilityService', () => {
     const result = await service.execute('clipboard', {});
     expect(result).toMatchObject({ ok: false, error: { code: 'INVALID_INPUT' } });
   });
+
+  it('does not dispatch an already-cancelled capability call', async () => {
+    let called = false;
+    const backend = { execute: async (): Promise<ReturnType<typeof ok>> => { called = true; return ok({}); } };
+    const service = new LocalCapabilityService({
+      shell: backend,
+      domCdp: backend,
+      accessibility: backend,
+      inputEvent: backend,
+      vision: backend,
+      window: backend,
+      health: backend,
+    });
+    const controller = new AbortController();
+    controller.abort();
+
+    await expect(service.execute('shell', {}, controller.signal)).resolves.toMatchObject({
+      ok: false,
+      error: { code: 'PROCESS_TIMEOUT' },
+    });
+    expect(called).toBe(false);
+  });
 });

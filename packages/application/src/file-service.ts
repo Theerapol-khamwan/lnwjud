@@ -58,6 +58,8 @@ export interface FileServiceDependencies {
   readonly unrestricted?: boolean;
   /** Registered/selected workspaces are trusted even when global unrestricted mode is off. */
   readonly trustedWorkspaceAccess?: boolean;
+  /** When true, filesystem deletion may proceed without per-call userConfirmed. Hard workspace-root blocks remain. */
+  readonly allowDeleteWithoutConfirmation?: () => boolean;
 }
 
 export interface WriteFileRequest {
@@ -110,6 +112,7 @@ export class FileService {
   private readonly unboundedReader: UnboundedFileReader;
   private readonly unrestricted: boolean;
   private readonly trustedWorkspaceAccess: boolean;
+  private readonly allowDeleteWithoutConfirmation: () => boolean;
 
   public constructor(
     private readonly workspaces: WorkspaceRepository,
@@ -125,6 +128,7 @@ export class FileService {
     this.unboundedReader = dependencies.unboundedReader ?? new UnboundedFileReader();
     this.unrestricted = dependencies.unrestricted === true;
     this.trustedWorkspaceAccess = dependencies.trustedWorkspaceAccess === true;
+    this.allowDeleteWithoutConfirmation = dependencies.allowDeleteWithoutConfirmation ?? ((): boolean => false);
   }
 
   private isTrustedWorkspace(workspace: Workspace): boolean {
@@ -197,19 +201,23 @@ export class FileService {
     return ok({ files });
   }
 
-  public async writeFile(actor: FileActor, workspaceId: string | undefined, request: WriteFileRequest): Promise<Result<WriteFileResult>> {
+  public async writeFile(actor: FileActor, workspaceId: string | undefined, request: WriteFileRequest, signal?: AbortSignal): Promise<Result<WriteFileResult>> {
     if (typeof request?.path !== 'string' || typeof request.content !== 'string') {
       return err(appError('INVALID_INPUT', 'Write request is invalid'));
     }
     if (Buffer.byteLength(request.content, 'utf8') > MAX_FILE_WRITE_BYTES) {
       return err(appError('FILE_TOO_LARGE', 'File exceeds the maximum write size'));
     }
+    if (isAborted(signal)) return cancelledFileMutation();
     const workspaceResult = await resolveWorkspaceForPath(this.workspaces, workspaceId, request.path);
+    if (isAborted(signal)) return cancelledFileMutation();
     if (!workspaceResult.ok) return workspaceResult;
     const workspace = workspaceResult.value;
     const resolved = await this.guard.resolveForWrite(workspace, request.path);
+    if (isAborted(signal)) return cancelledFileMutation();
     if (!resolved.ok) return resolved;
     const existing = await this.inspectExistingFile(resolved.value.absolutePath);
+    if (isAborted(signal)) return cancelledFileMutation();
     if (!existing.ok) return existing;
     if (existing.value === 'directory') return err(appError('INVALID_INPUT', 'Directories cannot be written as files'));
     const permission = this.decide(workspace.id, 'write_file', 'WRITE', resolved.value.relativePath, false);
@@ -218,9 +226,11 @@ export class FileService {
     let checkpointId: string | undefined;
     if (existing.value) {
       const checkpoint = await this.createCheckpoint(actor, workspace.id, [resolved.value.relativePath]);
+      if (isAborted(signal)) return cancelledFileMutation();
       if (!checkpoint.ok) return checkpoint;
       checkpointId = checkpoint.value.id;
     }
+    if (isAborted(signal)) return cancelledFileMutation();
     const writeResult = await this.writer.write(resolved.value.realPath ?? resolved.value.absolutePath, request.content);
     if (!writeResult.ok) return writeResult;
     return ok({
@@ -230,26 +240,32 @@ export class FileService {
     });
   }
 
-  public async applyPatch(actor: FileActor, workspaceId: string | undefined, request: ApplyPatchRequest): Promise<Result<ApplyPatchResult>> {
+  public async applyPatch(actor: FileActor, workspaceId: string | undefined, request: ApplyPatchRequest, signal?: AbortSignal): Promise<Result<ApplyPatchResult>> {
     const validation = this.patchApplier.validate(request?.files ?? []);
     if (!validation.ok) return validation;
     const firstPath = request.files[0]?.path;
     if (typeof firstPath !== 'string') return err(appError('INVALID_INPUT', 'At least one file is required'));
+    if (isAborted(signal)) return cancelledFileMutation();
     const workspaceResult = await resolveWorkspaceForPath(this.workspaces, workspaceId, firstPath);
+    if (isAborted(signal)) return cancelledFileMutation();
     if (!workspaceResult.ok) return workspaceResult;
     const workspace = workspaceResult.value;
 
     const resolvedFiles: { readonly patch: FilePatch; readonly absolutePath: string; readonly relativePath: string }[] = [];
     const existingPaths: string[] = [];
     for (const patch of request.files) {
+      if (isAborted(signal)) return cancelledFileMutation();
       const fileWorkspace = await resolveWorkspaceForPath(this.workspaces, workspaceId, patch.path);
+      if (isAborted(signal)) return cancelledFileMutation();
       if (!fileWorkspace.ok) return fileWorkspace;
       if (fileWorkspace.value.id !== workspace.id) {
         return err(appError('PATH_OUTSIDE_WORKSPACE', 'All files must be in the same workspace'));
       }
       const resolved = await this.guard.resolveForWrite(workspace, patch.path);
+      if (isAborted(signal)) return cancelledFileMutation();
       if (!resolved.ok) return resolved;
       const existing = await this.inspectExistingFile(resolved.value.absolutePath);
+      if (isAborted(signal)) return cancelledFileMutation();
       if (!existing.ok) return existing;
       if (existing.value === 'directory') return err(appError('INVALID_INPUT', 'Directories cannot be patched as files'));
       if (existing.value) existingPaths.push(resolved.value.relativePath);
@@ -265,10 +281,12 @@ export class FileService {
     let checkpointId: string | undefined;
     if (existingPaths.length > 0) {
       const checkpoint = await this.createCheckpoint(actor, workspace.id, existingPaths);
+      if (isAborted(signal)) return cancelledFileMutation();
       if (!checkpoint.ok) return checkpoint;
       checkpointId = checkpoint.value.id;
     }
     for (const resolved of resolvedFiles) {
+      if (isAborted(signal)) return cancelledFileMutation();
       const writeResult = await this.writer.write(resolved.absolutePath, resolved.patch.content);
       if (!writeResult.ok) return writeResult;
     }
@@ -278,19 +296,23 @@ export class FileService {
     });
   }
 
-  public async moveFile(actor: FileActor, workspaceId: string | undefined, request: MoveFileRequest): Promise<Result<void>> {
-    const prepared = await this.prepareTransfer(actor, workspaceId, request, 'move_file');
+  public async moveFile(actor: FileActor, workspaceId: string | undefined, request: MoveFileRequest, signal?: AbortSignal): Promise<Result<void>> {
+    const prepared = await this.prepareTransfer(actor, workspaceId, request, 'move_file', signal);
     if (!prepared.ok) return prepared;
+    if (isAborted(signal)) return cancelledFileMutation();
     const { sourceAbs, destinationAbs, isDirectory } = prepared.value;
     const parent = await ensureParentDirectory(destinationAbs);
+    if (isAborted(signal)) return cancelledFileMutation();
     if (!parent.ok) return parent;
     try {
       await rename(sourceAbs, destinationAbs);
     } catch (error: unknown) {
       if (nodeErrorCode(error) !== 'EXDEV') return err(mapNodeFsError(error, 'File move failed'));
       try {
+        if (isAborted(signal)) return cancelledFileMutation();
         if (isDirectory) await cp(sourceAbs, destinationAbs, { recursive: true, errorOnExist: true, force: false });
         else await copyFile(sourceAbs, destinationAbs, fsConstants.COPYFILE_EXCL);
+        if (isAborted(signal)) return cancelledFileMutation();
         await rm(sourceAbs, { recursive: isDirectory, force: false });
       } catch (copyError: unknown) {
         return err(mapNodeFsError(copyError, 'File move failed'));
@@ -299,11 +321,13 @@ export class FileService {
     return ok(undefined);
   }
 
-  public async copyFile(actor: FileActor, workspaceId: string | undefined, request: CopyFileRequest): Promise<Result<CopyFileResult>> {
-    const prepared = await this.prepareTransfer(actor, workspaceId, request, 'copy_file');
+  public async copyFile(actor: FileActor, workspaceId: string | undefined, request: CopyFileRequest, signal?: AbortSignal): Promise<Result<CopyFileResult>> {
+    const prepared = await this.prepareTransfer(actor, workspaceId, request, 'copy_file', signal);
     if (!prepared.ok) return prepared;
+    if (isAborted(signal)) return cancelledFileMutation();
     const { sourceAbs, destinationAbs, isDirectory, sourceRelative, destinationRelative } = prepared.value;
     const parent = await ensureParentDirectory(destinationAbs);
+    if (isAborted(signal)) return cancelledFileMutation();
     if (!parent.ok) return parent;
     try {
       if (isDirectory) await cp(sourceAbs, destinationAbs, { recursive: true, errorOnExist: true, force: false });
@@ -314,27 +338,33 @@ export class FileService {
     return ok({ sourcePath: sourceRelative, destinationPath: destinationRelative });
   }
 
-  public async deleteFile(actor: FileActor, workspaceId: string | undefined, request: DeleteFileRequest): Promise<Result<void>> {
+  public async deleteFile(actor: FileActor, workspaceId: string | undefined, request: DeleteFileRequest, signal?: AbortSignal): Promise<Result<void>> {
     void actor;
     if (typeof request?.path !== 'string') return err(appError('INVALID_INPUT', 'Delete request is invalid'));
-    if (request.userConfirmed !== true) {
+    const policyAllowsDelete = this.allowDeleteWithoutConfirmation();
+    if (request.userConfirmed !== true && !policyAllowsDelete) {
       return err(appError(
         'PERMISSION_REQUIRED',
         'Deletion requires the user to confirm in chat first, then retry delete_file with userConfirmed: true',
       ));
     }
+    if (isAborted(signal)) return cancelledFileMutation();
     const workspaceResult = await resolveWorkspaceForPath(this.workspaces, workspaceId, request.path);
+    if (isAborted(signal)) return cancelledFileMutation();
     if (!workspaceResult.ok) return workspaceResult;
     const resolved = await this.guard.resolveForRead(workspaceResult.value, request.path);
+    if (isAborted(signal)) return cancelledFileMutation();
     if (!resolved.ok) return resolved;
     if (resolved.value.relativePath.length === 0) return err(appError('PERMISSION_DENIED', 'Workspace root cannot be deleted'));
-    const permission = this.decide(workspaceResult.value.id, 'delete_file', 'DANGEROUS', resolved.value.relativePath, true);
+    const permission = this.decide(workspaceResult.value.id, 'delete_file', policyAllowsDelete ? 'WRITE' : 'DANGEROUS', resolved.value.relativePath, !policyAllowsDelete);
     if (!permission.ok) return permission;
     const targetPath = resolved.value.realPath ?? resolved.value.absolutePath;
     try {
       const target = await lstat(targetPath);
+      if (isAborted(signal)) return cancelledFileMutation();
       if (target.isDirectory()) {
         const entries = await readdir(targetPath);
+        if (isAborted(signal)) return cancelledFileMutation();
         if (entries.length > 0) return err(appError('INVALID_INPUT', 'Non-empty directories cannot be deleted'));
         await rmdir(targetPath);
       } else {
@@ -351,6 +381,7 @@ export class FileService {
     workspaceId: string | undefined,
     request: MoveFileRequest,
     action: 'move_file' | 'copy_file',
+    signal?: AbortSignal,
   ): Promise<Result<{
     readonly sourceAbs: string;
     readonly destinationAbs: string;
@@ -362,19 +393,25 @@ export class FileService {
     if (typeof request?.sourcePath !== 'string' || typeof request.destinationPath !== 'string') {
       return err(appError('INVALID_INPUT', 'Transfer request is invalid'));
     }
+    if (isAborted(signal)) return cancelledFileMutation();
     const workspaceResult = await resolveSharedWorkspace(this.workspaces, workspaceId, request.sourcePath, request.destinationPath);
+    if (isAborted(signal)) return cancelledFileMutation();
     if (!workspaceResult.ok) return workspaceResult;
     const workspace = workspaceResult.value;
     const source = await this.guard.resolveForRead(workspace, request.sourcePath);
+    if (isAborted(signal)) return cancelledFileMutation();
     if (!source.ok) return source;
     const destination = await this.guard.resolveForWrite(workspace, request.destinationPath);
+    if (isAborted(signal)) return cancelledFileMutation();
     if (!destination.ok) return destination;
     const sourceAbs = source.value.realPath ?? source.value.absolutePath;
     const destinationAbs = destination.value.absolutePath;
     const sourceType = await this.inspectExistingFile(sourceAbs);
+    if (isAborted(signal)) return cancelledFileMutation();
     if (!sourceType.ok) return sourceType;
     if (!sourceType.value) return err(appError('FILE_NOT_FOUND', 'Source file was not found'));
     const destinationType = await this.inspectExistingFile(destinationAbs);
+    if (isAborted(signal)) return cancelledFileMutation();
     if (!destinationType.ok) return destinationType;
     if (destinationType.value) return err(appError('INVALID_INPUT', 'Destination already exists'));
     if (sourceType.value === 'directory' && isWithin(sourceAbs, destinationAbs) && path.resolve(sourceAbs) !== path.resolve(destinationAbs)) {
@@ -421,4 +458,12 @@ export class FileService {
       return ok(false);
     }
   }
+}
+
+function isAborted(signal: AbortSignal | undefined): boolean {
+  return signal?.aborted === true;
+}
+
+function cancelledFileMutation(): Result<never> {
+  return err(appError('PROCESS_TIMEOUT', 'File mutation was cancelled before the next side effect', true));
 }

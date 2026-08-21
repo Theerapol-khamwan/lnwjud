@@ -2,17 +2,37 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { syncMachineRoots } from '@lnwjud/application';
 import { startMcpStdio } from '@lnwjud/mcp-server';
-import { permissionProfiles } from '@lnwjud/permissions';
-import { isUnrestricted, resolveLnwjudDataPath, UNRESTRICTED_SETTING_KEY } from '@lnwjud/shared';
+import {
+  STDIO_ALLOWED_ROOTS_SETTING_KEY,
+  STDIO_PERMISSION_PROFILE_SETTING_KEY,
+  STDIO_STRICT_ROOTS_SETTING_KEY,
+  UNRESTRICTED_SETTING_KEY,
+  isUnrestricted,
+  parseAllowedRoots,
+  parseBooleanSetting,
+  parseStdioPermissionProfile,
+  resolveLnwjudDataPath,
+} from '@lnwjud/shared';
 import { SqliteDatabase, SqliteSettingsRepository, SqliteWorkspaceRepository } from '@lnwjud/storage';
-import { machineRootPath, normalizeWorkspaceRoot, WorkspaceService } from '@lnwjud/workspace';
+import { machineRootPath, normalizeWorkspaceRoot, WorkspaceService, type Workspace } from '@lnwjud/workspace';
 import { createStdioMcpRuntime } from '../runtime/stdio-mcp-runtime.js';
+import { StrictWorkspaceRepository, canonicalizeAllowedRoots, requestedPathInsideAllowedRoot } from '../runtime/strict-workspace-repository.js';
 
 function readArg(flag: string): string | undefined {
   const index = process.argv.indexOf(flag);
   if (index < 0) return undefined;
   const value = process.argv[index + 1];
   return typeof value === 'string' && value.trim().length > 0 ? value : undefined;
+}
+
+function readArgs(flag: string): readonly string[] {
+  const values: string[] = [];
+  for (let index = 0; index < process.argv.length; index += 1) {
+    if (process.argv[index] !== flag) continue;
+    const value = process.argv[index + 1];
+    if (typeof value === 'string' && value.trim().length > 0) values.push(value.trim());
+  }
+  return values;
 }
 
 function hasFlag(flag: string): boolean {
@@ -24,83 +44,115 @@ function resolveDataPath(): string {
 }
 
 async function main(): Promise<void> {
-  const requestedRaw = readArg('--workspace') ?? process.env.LNWJUD_WORKSPACE;
-  const requestedPath = path.resolve(requestedRaw && requestedRaw.trim().length > 0 ? requestedRaw : machineRootPath());
-  const restrictedRoot = machineRootPath(requestedPath);
-
   const dataPath = resolveDataPath();
   fs.mkdirSync(dataPath, { recursive: true });
 
   const database = new SqliteDatabase(path.join(dataPath, 'lnwjud.sqlite'));
-  const workspaceRepository = new SqliteWorkspaceRepository(database);
+  const rawWorkspaceRepository = new SqliteWorkspaceRepository(database);
   const settingsRepository = new SqliteSettingsRepository(database);
-  const workspaceService = new WorkspaceService(workspaceRepository);
-  const unrestricted = isUnrestricted(process.env, settingsRepository.get(UNRESTRICTED_SETTING_KEY));
 
+  const profileName = parseStdioPermissionProfile(
+    readArg('--profile')
+      ?? process.env.LNWJUD_STDIO_PROFILE
+      ?? settingsRepository.get(STDIO_PERMISSION_PROFILE_SETTING_KEY),
+    'full',
+  );
+  const strictRootsEnabled = hasFlag('--strict-roots')
+    || (process.env.LNWJUD_STRICT_ROOTS !== undefined
+      ? parseBooleanSetting(process.env.LNWJUD_STRICT_ROOTS, false)
+      : parseBooleanSetting(settingsRepository.get(STDIO_STRICT_ROOTS_SETTING_KEY), false));
+  const cliAllowedRoots = readArgs('--allowed-root');
+  const envAllowedRoots = parseAllowedRoots(process.env.LNWJUD_ALLOWED_ROOTS);
+  const storedAllowedRoots = parseAllowedRoots(settingsRepository.get(STDIO_ALLOWED_ROOTS_SETTING_KEY));
+  const configuredAllowedRoots = cliAllowedRoots.length > 0
+    ? cliAllowedRoots
+    : envAllowedRoots.length > 0
+      ? envAllowedRoots
+      : storedAllowedRoots;
+  const strictAllowedRoots = strictRootsEnabled ? await canonicalizeAllowedRoots(configuredAllowedRoots) : undefined;
+
+  const rawWorkspaceService = new WorkspaceService(rawWorkspaceRepository);
+  const reset = hasFlag('--reset-workspaces')
+    || process.env.LNWJUD_RESET_WORKSPACES === '1'
+    || process.env.LNWJUD_RESET_WORKSPACES === 'true';
+  if (reset) {
+    for (const existing of await rawWorkspaceService.list()) await rawWorkspaceService.delete(existing.id);
+    process.stderr.write('lnwjud MCP stdio: cleared previous workspaces\n');
+  }
+
+  const workspaceRepository = strictAllowedRoots === undefined
+    ? rawWorkspaceRepository
+    : new StrictWorkspaceRepository(rawWorkspaceRepository, strictAllowedRoots);
+  const workspaceService = new WorkspaceService(workspaceRepository);
+  const unrestricted = strictAllowedRoots === undefined
+    ? isUnrestricted(process.env, settingsRepository.get(UNRESTRICTED_SETTING_KEY))
+    : false;
+
+  const requestedRaw = readArg('--workspace') ?? process.env.LNWJUD_WORKSPACE;
+  const requestedPath = path.resolve(
+    requestedRaw && requestedRaw.trim().length > 0
+      ? requestedRaw
+      : strictAllowedRoots?.[0] ?? machineRootPath(),
+  );
   if (!fs.existsSync(requestedPath)) {
     process.stderr.write(`lnwjud MCP stdio: workspace path does not exist: ${requestedPath}\n`);
     process.exit(2);
   }
 
-  process.env.LNWJUD_CAPABILITY_ROOTS = process.env.LNWJUD_CAPABILITY_ROOTS?.trim()
-    || restrictedRoot.replace(/\\/g, '/');
-
-  const reset = hasFlag('--reset-workspaces')
-    || process.env.LNWJUD_RESET_WORKSPACES === '1'
-    || process.env.LNWJUD_RESET_WORKSPACES === 'true';
-  if (reset) {
-    for (const existing of await workspaceService.list()) {
-      await workspaceService.delete(existing.id);
+  let workspace: Workspace;
+  if (strictAllowedRoots !== undefined) {
+    process.env.LNWJUD_CAPABILITY_ROOTS = strictAllowedRoots.join(';');
+    for (const root of strictAllowedRoots) {
+      const normalized = normalizeWorkspaceRoot(root).toLowerCase();
+      const existing = (await workspaceService.list()).find((entry) => normalizeWorkspaceRoot(entry.realRootPath).toLowerCase() === normalized);
+      if (existing !== undefined) continue;
+      const added = await workspaceService.add(path.basename(root) || root, root);
+      if (!added.ok) throw new Error(`Could not register strict allowed root ${root}: ${added.error.message}`);
     }
-    process.stderr.write('lnwjud MCP stdio: cleared previous workspaces\n');
-  }
+    const selectedAllowedRoot = await requestedPathInsideAllowedRoot(requestedPath, strictAllowedRoots);
+    const selectedNorm = normalizeWorkspaceRoot(selectedAllowedRoot).toLowerCase();
+    const selected = (await workspaceService.list()).find((entry) => normalizeWorkspaceRoot(entry.realRootPath).toLowerCase() === selectedNorm);
+    if (selected === undefined) throw new Error(`Strict allowed root was not registered: ${selectedAllowedRoot}`);
+    workspace = selected;
+  } else {
+    const restrictedRoot = machineRootPath(requestedPath);
+    process.env.LNWJUD_CAPABILITY_ROOTS = process.env.LNWJUD_CAPABILITY_ROOTS?.trim()
+      || restrictedRoot.replace(/\\/g, '/');
+    const machineRoot = await syncMachineRoots(workspaceService, unrestricted, requestedPath);
+    if (machineRoot === null) throw new Error('Could not register machine root');
 
-  const machineRoot = await syncMachineRoots(workspaceService, unrestricted, requestedPath);
-  if (machineRoot === null) {
-    process.stderr.write('lnwjud MCP stdio: could not register machine root\n');
-    process.exit(1);
-  }
-
-  const requestedNorm = normalizeWorkspaceRoot(requestedPath).toLowerCase();
-  const workspaces = await workspaceService.list();
-  let workspace = workspaces.find((entry) => normalizeWorkspaceRoot(entry.realRootPath).toLowerCase() === requestedNorm);
-
-  if (workspace === undefined && requestedNorm !== normalizeWorkspaceRoot(restrictedRoot).toLowerCase()) {
-    const displayName = path.basename(requestedPath) || 'Workspace';
-    const added = await workspaceService.add(displayName, requestedPath);
-    if (!added.ok) {
-      process.stderr.write(`lnwjud MCP stdio: could not register ${requestedPath} (${added.error.message})\n`);
-      process.exit(1);
+    const requestedNorm = normalizeWorkspaceRoot(requestedPath).toLowerCase();
+    const workspaces = await workspaceService.list();
+    let selected = workspaces.find((entry) => normalizeWorkspaceRoot(entry.realRootPath).toLowerCase() === requestedNorm);
+    if (selected === undefined && requestedNorm !== normalizeWorkspaceRoot(restrictedRoot).toLowerCase()) {
+      const added = await workspaceService.add(path.basename(requestedPath) || 'Workspace', requestedPath);
+      if (!added.ok) throw new Error(`Could not register ${requestedPath}: ${added.error.message}`);
+      selected = added.value;
     }
-    workspace = added.value;
+    workspace = selected ?? machineRoot;
   }
-
-  workspace ??= machineRoot;
 
   for (const entry of await workspaceService.list()) {
     process.stderr.write(`lnwjud workspace id=${entry.id} root=${entry.realRootPath}\n`);
   }
   database.close();
 
-  const primary = workspace;
-  const runtime = createStdioMcpRuntime(dataPath, primary, unrestricted);
+  const runtime = createStdioMcpRuntime(dataPath, workspace, unrestricted, {
+    permissionProfile: profileName,
+    ...(strictAllowedRoots === undefined ? {} : { strictAllowedRoots }),
+  });
   await runtime.activityReady;
-  process.stderr.write(`lnwjud MCP stdio ready primary=${primary.id} root=${primary.realRootPath}${unrestricted ? ' unrestricted=1' : ''}\n`);
+  process.stderr.write(
+    `lnwjud MCP stdio ready primary=${workspace.id} root=${workspace.realRootPath} profile=${profileName}`
+      + `${unrestricted ? ' unrestricted=1' : ''}${strictAllowedRoots === undefined ? '' : ` strict_roots=${strictAllowedRoots.length}`}\n`,
+  );
 
   let shuttingDown = false;
   const shutdown = async (): Promise<void> => {
     if (shuttingDown) return;
     shuttingDown = true;
-    try {
-      await handle?.close();
-    } catch {
-      // ignore transport close races during parent teardown
-    }
-    try {
-      await runtime.close();
-    } catch {
-      // ignore runtime close races during parent teardown
-    }
+    try { await handle?.close(); } catch { /* transport may already be closed */ }
+    try { await runtime.close(); } catch { /* runtime may already be closing */ }
     process.exit(0);
   };
 
@@ -108,7 +160,8 @@ async function main(): Promise<void> {
     services: runtime.services,
     actor: runtime.actor,
     activityTracker: runtime.activityTracker,
-    profileProvider: (): typeof permissionProfiles.full => permissionProfiles.full,
+    profileProvider: runtime.profileProvider,
+    allowAiDeleteProvider: runtime.allowAiDeleteProvider,
     onError: (error): void => {
       if (/EPIPE|ECONNRESET|broken pipe/i.test(error.message)) {
         process.stderr.write(`lnwjud MCP stdio: peer closed (${error.message})\n`);
@@ -122,9 +175,7 @@ async function main(): Promise<void> {
   process.stdin.on('end', () => { void shutdown(); });
   process.stdin.on('close', () => { void shutdown(); });
   process.stdout.on('error', (error: NodeJS.ErrnoException) => {
-    if (error.code === 'EPIPE' || error.code === 'ECONNRESET') {
-      void shutdown();
-    }
+    if (error.code === 'EPIPE' || error.code === 'ECONNRESET') void shutdown();
   });
   process.on('SIGINT', () => { void shutdown(); });
   process.on('SIGTERM', () => { void shutdown(); });

@@ -64,7 +64,7 @@ describe('public repository hygiene', () => {
 
     expect(readme).toContain(`## Current release: v${rootPackage.version as string}`);
     expect(readme).toContain(`current published installer and runtime contract are \`v${rootPackage.version as string}\``);
-    expect(readme).toContain('208 tools');
+    expect(readme).toContain('210 tools');
     expect(readme).not.toContain(['Verify the ', '184-tool catalog'].join(''));
     expect(readme).not.toContain(['current v3.0.0 catalog contains ', '184 tools'].join(''));
     expect(readme).not.toContain('packaged v3.0.0 build');

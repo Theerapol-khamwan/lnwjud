@@ -73,3 +73,4 @@ docs/benchmarks/*
 *.swo
 .DS_Store
 Thumbs.db
+lnwjud-incident.json

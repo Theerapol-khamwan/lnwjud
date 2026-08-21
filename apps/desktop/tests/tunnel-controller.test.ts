@@ -242,7 +242,92 @@ describe('TunnelController lifecycle', () => {
 
     const status = await controller.start();
 
-    expect(status).toMatchObject({ state: 'error', message: 'Tunnel is already owned by PID 7123' });
+    expect(status).toMatchObject({
+      state: 'starting',
+      source: 'external',
+      message: 'Tunnel is owned by PID 7123; tunnel process liveness is not yet confirmed',
+    });
+  });
+
+  it('keeps verified foreign ownership when the external process probe is unavailable', async () => {
+    const dataPath = await mkdtemp(path.join(os.tmpdir(), 'lnwjud-tunnel-controller-'));
+    temporaryRoots.push(dataPath);
+    vi.stubEnv('APPDATA', path.join(dataPath, 'appdata'));
+    const profileDir = path.join(dataPath, 'appdata', 'tunnel-client');
+    await (await import('node:fs/promises')).mkdir(profileDir, { recursive: true });
+    await (await import('node:fs/promises')).writeFile(path.join(profileDir, 'lnwjud.tunnel.lock'), JSON.stringify({
+      version: 1,
+      pid: 7123,
+      processStartedAt: '2026-08-20T00:00:00.000Z',
+      acquiredAt: '2026-08-20T00:00:00.000Z',
+    }), 'utf8');
+    const controller = new TunnelController({
+      getClientPath: (): string | null => null,
+      setClientPath: (): void => undefined,
+      getDataPath: (): string => dataPath,
+      isExternalTunnelRunning: async (): Promise<boolean> => { throw new Error('CIM probe timed out'); },
+      inspectLockProcess: async (): Promise<ProcessProbeResult> => ({ state: 'live', processStartedAt: '2026-08-20T00:00:00.000Z' }),
+      currentLockOwner: async (): Promise<TunnelLockOwner> => ({ pid: 9999, processStartedAt: timestamp(1), acquiredAt: timestamp(2) }),
+    });
+
+    await expect(controller.start()).resolves.toMatchObject({
+      state: 'starting',
+      source: 'external',
+      message: 'Tunnel is owned by PID 7123; tunnel process liveness is unverifiable',
+    });
+  });
+
+  it('fails closed without launching when the external process probe is unavailable and no lock exists', async () => {
+    const dataPath = await mkdtemp(path.join(os.tmpdir(), 'lnwjud-tunnel-controller-'));
+    temporaryRoots.push(dataPath);
+    vi.stubEnv('APPDATA', path.join(dataPath, 'appdata'));
+    const profileDir = path.join(dataPath, 'appdata', 'tunnel-client');
+    await (await import('node:fs/promises')).mkdir(profileDir, { recursive: true });
+    const clientPath = path.join(dataPath, 'tunnel-client.exe');
+    await writeFile(clientPath, 'fixture', 'utf8');
+    await writeFile(path.join(profileDir, 'lnwjud.yaml'), 'mcp:\n  command: fixture\n', 'utf8');
+    await writeFile(path.join(profileDir, 'lnwjud.runtime.secret'), 'encrypted-fixture', 'utf8');
+    const decryptSecret = vi.fn(async (): Promise<string> => 'must-not-run');
+    const controller = new TunnelController({
+      getClientPath: (): string => clientPath,
+      setClientPath: (): void => undefined,
+      getDataPath: (): string => dataPath,
+      isExternalTunnelRunning: async (): Promise<boolean> => { throw new Error('CIM probe timed out'); },
+      decryptSecret,
+    });
+
+    await expect(controller.start()).resolves.toMatchObject({
+      state: 'error',
+      source: 'desktop',
+      message: 'Tunnel process liveness is unverifiable; refusing to start a possible duplicate',
+    });
+    expect(decryptSecret).not.toHaveBeenCalled();
+    expect(await readTunnelLock(profileDir)).toBeNull();
+  });
+
+  it('does not acquire ownership or launch a duplicate when another app already has a live tunnel', async () => {
+    const dataPath = await mkdtemp(path.join(os.tmpdir(), 'lnwjud-tunnel-controller-'));
+    temporaryRoots.push(dataPath);
+    vi.stubEnv('APPDATA', path.join(dataPath, 'appdata'));
+    const profileDir = path.join(dataPath, 'appdata', 'tunnel-client');
+    await (await import('node:fs/promises')).mkdir(profileDir, { recursive: true });
+    const clientPath = path.join(dataPath, 'tunnel-client.exe');
+    await writeFile(clientPath, 'fixture', 'utf8');
+    await writeFile(path.join(profileDir, 'lnwjud.yaml'), 'mcp:\n  command: fixture\n', 'utf8');
+    await writeFile(path.join(profileDir, 'lnwjud.runtime.secret'), 'encrypted-fixture', 'utf8');
+    const decryptSecret = vi.fn(async (): Promise<string> => 'not-used');
+    const controller = new TunnelController({
+      getClientPath: (): string => clientPath,
+      setClientPath: (): void => undefined,
+      getDataPath: (): string => dataPath,
+      isExternalTunnelRunning: async (): Promise<boolean> => true,
+      currentLockOwner: async (): Promise<TunnelLockOwner> => ({ pid: 9999, processStartedAt: timestamp(1), acquiredAt: timestamp(2) }),
+      decryptSecret,
+    });
+
+    await expect(controller.start()).resolves.toMatchObject({ state: 'running', source: 'external', message: null });
+    expect(decryptSecret).not.toHaveBeenCalled();
+    expect(await readTunnelLock(profileDir)).toBeNull();
   });
 
   it('reports an externally running tunnel as health/status evidence', async () => {
@@ -435,7 +520,11 @@ async function expectSecondControllerBlocked(dataPath: string, firstOwner: Tunne
       acquiredAt: '2026-08-20T00:01:00.000Z',
     }),
   });
-  await expect(second.start()).resolves.toMatchObject({ state: 'error', message: `Tunnel is already owned by PID ${firstOwner.pid}` });
+  await expect(second.start()).resolves.toMatchObject({
+    state: 'starting',
+    source: 'external',
+    message: `Tunnel is owned by PID ${firstOwner.pid}; tunnel process liveness is not yet confirmed`,
+  });
 }
 
 function controllerInternals(controller: TunnelController): {

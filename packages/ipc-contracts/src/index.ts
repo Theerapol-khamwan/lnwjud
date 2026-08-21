@@ -8,6 +8,8 @@ export const ipcChannels = {
   getDashboard: 'lnwjud:get-dashboard',
   setPermissionProfile: 'lnwjud:set-permission-profile',
   setUnrestrictedMode: 'lnwjud:set-unrestricted-mode',
+  setAiDeletePolicy: 'lnwjud:set-ai-delete-policy',
+  setStdioPolicy: 'lnwjud:set-stdio-policy',
   listProcesses: 'lnwjud:list-processes',
   startProcess: 'lnwjud:start-process',
   stopProcess: 'lnwjud:stop-process',
@@ -174,6 +176,11 @@ export interface DashboardSnapshot {
   readonly mode: 'WORK';
   readonly locale: UiLocale;
   readonly unrestricted: boolean;
+  /** When true, the scoped delete_file tool may delete within its workspace without per-call chat confirmation. */
+  readonly allowAiDelete: boolean;
+  readonly stdioPermissionProfile: PermissionProfileName;
+  readonly stdioStrictRoots: boolean;
+  readonly stdioAllowedRoots: readonly string[];
   readonly connectionModes: ConnectionModes;
   readonly workLog: readonly WorkLogEntry[];
   readonly inFlight: readonly InFlightWorkItem[];
@@ -193,7 +200,7 @@ export interface ProcessSummary {
   readonly workspaceId: string;
   readonly executable: string;
   readonly args: readonly string[];
-  readonly state: 'starting' | 'running' | 'exited' | 'failed' | 'stopped' | 'timed_out';
+  readonly state: 'starting' | 'running' | 'exited' | 'failed' | 'stopped' | 'timed_out' | 'termination_unverified';
   readonly logSummary: string;
 }
 
@@ -225,6 +232,16 @@ export interface SetPermissionProfileRequest {
 
 export interface SetUnrestrictedModeRequest {
   readonly enabled: boolean;
+}
+
+export interface SetAiDeletePolicyRequest {
+  readonly enabled: boolean;
+}
+
+export interface SetStdioPolicyRequest {
+  readonly profile: PermissionProfileName;
+  readonly strictRoots: boolean;
+  readonly allowedRoots: readonly string[];
 }
 
 export interface StartProcessRequest {
@@ -271,6 +288,8 @@ export interface IpcRequestMap {
   readonly [ipcChannels.getDashboard]: undefined;
   readonly [ipcChannels.setPermissionProfile]: SetPermissionProfileRequest;
   readonly [ipcChannels.setUnrestrictedMode]: SetUnrestrictedModeRequest;
+  readonly [ipcChannels.setAiDeletePolicy]: SetAiDeletePolicyRequest;
+  readonly [ipcChannels.setStdioPolicy]: SetStdioPolicyRequest;
   readonly [ipcChannels.listProcesses]: undefined;
   readonly [ipcChannels.startProcess]: StartProcessRequest;
   readonly [ipcChannels.stopProcess]: StopProcessRequest;
@@ -300,6 +319,8 @@ export interface IpcResponseMap {
   readonly [ipcChannels.getDashboard]: DashboardSnapshot;
   readonly [ipcChannels.setPermissionProfile]: { readonly profile: PermissionProfileName };
   readonly [ipcChannels.setUnrestrictedMode]: { readonly unrestricted: boolean; readonly restartRequired: boolean };
+  readonly [ipcChannels.setAiDeletePolicy]: { readonly enabled: boolean };
+  readonly [ipcChannels.setStdioPolicy]: { readonly profile: PermissionProfileName; readonly strictRoots: boolean; readonly allowedRoots: readonly string[]; readonly restartRequired: boolean };
   readonly [ipcChannels.listProcesses]: readonly ProcessSummary[];
   readonly [ipcChannels.startProcess]: ProcessSummary;
   readonly [ipcChannels.stopProcess]: { readonly stopped: boolean };
@@ -329,6 +350,8 @@ export interface LnwjudApi {
   getDashboard(): Promise<IpcResponseMap[typeof ipcChannels.getDashboard]>;
   setPermissionProfile(request: SetPermissionProfileRequest): Promise<IpcResponseMap[typeof ipcChannels.setPermissionProfile]>;
   setUnrestrictedMode(request: SetUnrestrictedModeRequest): Promise<IpcResponseMap[typeof ipcChannels.setUnrestrictedMode]>;
+  setAiDeletePolicy(request: SetAiDeletePolicyRequest): Promise<IpcResponseMap[typeof ipcChannels.setAiDeletePolicy]>;
+  setStdioPolicy(request: SetStdioPolicyRequest): Promise<IpcResponseMap[typeof ipcChannels.setStdioPolicy]>;
   listProcesses(): Promise<IpcResponseMap[typeof ipcChannels.listProcesses]>;
   startProcess(request: StartProcessRequest): Promise<IpcResponseMap[typeof ipcChannels.startProcess]>;
   stopProcess(request: StopProcessRequest): Promise<IpcResponseMap[typeof ipcChannels.stopProcess]>;

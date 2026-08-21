@@ -29,4 +29,32 @@ describe('skills and mcp bridge tools', () => {
       structuredContent: { content: [{ type: 'text', text: 'pong' }] },
     });
   });
+
+  it('forwards the caller AbortSignal through mcp_describe and mcp_call', async () => {
+    const observed: AbortSignal[] = [];
+    const extensions: ExtensionsService = {
+      listSkills: async () => ok({ skills: [] }),
+      readSkill: async () => ok({ id: 'a/b', name: 'b', description: '', source: 'a', path: '/SKILL.md', content: '' }),
+      listMcpServers: async () => ok({ servers: [] }),
+      describeMcpServer: async (_input, signal) => {
+        if (signal !== undefined) observed.push(signal);
+        return ok({ server: 'mock', enabled: true, connected: true, tools: [] });
+      },
+      callMcpTool: async (_input, signal) => {
+        if (signal !== undefined) observed.push(signal);
+        return ok({ content: [] });
+      },
+      close: async () => undefined,
+    };
+    const registry = new ToolRegistry({ extensions }, { clientId: 'test', clientName: 'test' });
+    const controller = new AbortController();
+
+    await expect(registry.invoke('mcp_describe', { server: 'mock' }, undefined, controller.signal))
+      .resolves.toMatchObject({ structuredContent: { server: 'mock', connected: true } });
+    await expect(registry.invoke('mcp_call', { server: 'mock', tool: 'ping', arguments: {}, userConfirmed: true }, undefined, controller.signal))
+      .resolves.toMatchObject({ structuredContent: { content: [] } });
+
+    expect(observed).toHaveLength(2);
+    for (const signal of observed) expect(signal).toBeInstanceOf(AbortSignal);
+  });
 });

@@ -160,7 +160,7 @@ function fakeCodexSource(): string {
     "import path from 'node:path';",
     "process.stdout.write('fake-codex-started\\n');",
     "await writeFile(path.join(process.cwd(), 'src', 'reviewed.ts'), 'export const reviewed = true;\\n', 'utf8');",
-    "if (process.argv[2]?.includes('hold')) await new Promise(() => {});",
+    "if (process.argv[2]?.includes('hold')) await new Promise(() => { setInterval(() => {}, 1000); });",
   ].join('\n');
 }
 

@@ -43,18 +43,18 @@ export function batchTools(invoker: BatchToolInvoker): readonly McpToolDefinitio
     permission: 'DANGEROUS',
     annotations: { readOnlyHint: false, destructiveHint: true },
     inputSchema: toolBatchSchema,
-    async handler(rawInput): Promise<Result<unknown>> {
+    async handler(rawInput, signal): Promise<Result<unknown>> {
       const input = rawInput as ToolBatchInput;
       const normalized = normalizePlan(input, invoker);
       if (!normalized.ok) return normalized;
 
       try {
-        const result = await executeBatch(normalized.value, async (call, signal) => {
+        const result = await executeBatch(normalized.value, async (call, childSignal) => {
           if (call.tool === 'tool_batch') throw new BatchChildError('INVALID_INPUT', 'Nested tool_batch calls are not allowed');
-          const response = await invoker.invoke(call.tool, call.input, signal);
+          const response = await invoker.invoke(call.tool, call.input, childSignal);
           if (response.isError === true) throw toChildError(response);
           return response;
-        });
+        }, { signal });
         return ok(result);
       } catch (error: unknown) {
         return err({

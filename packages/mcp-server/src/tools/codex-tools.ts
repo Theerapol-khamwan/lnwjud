@@ -17,9 +17,19 @@ export function codexTools(context: McpToolContext): McpToolDefinition[] {
       permission: 'EXECUTE',
       annotations: { readOnlyHint: false, destructiveHint: false },
       inputSchema: codexRunSchema,
+      handler: async (input, signal) => context.services.codex === undefined
+        ? missingService()
+        : context.services.codex.run(context.actor, input.workspaceId, input.instruction, signal),
+    }),
+    defineTool({
+      name: 'codex_task_list',
+      description: 'List local Codex task handles owned by this client, including launches whose response was cancelled.',
+      permission: 'READ',
+      annotations: { readOnlyHint: true, destructiveHint: false },
+      inputSchema: codexTaskHandleSchema.pick({ workspaceId: true }),
       handler: async (input) => context.services.codex === undefined
         ? missingService()
-        : context.services.codex.run(context.actor, input.workspaceId, input.instruction),
+        : context.services.codex.list(context.actor, input.workspaceId),
     }),
     defineTool({
       name: 'codex_task_status',

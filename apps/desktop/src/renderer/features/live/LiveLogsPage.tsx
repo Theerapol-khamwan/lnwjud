@@ -26,7 +26,7 @@ export function LiveLogsPage(props: LiveLogsPageProps): ReactElement {
   const sources: readonly LogTab[] = ['tunnel', 'mcp', 'process'];
 
   return (
-    <div className="page-content">
+    <div className="page-content live-logs-page">
       <div className="page-heading">
         <div>
           <h1>{t('live.title')}</h1>

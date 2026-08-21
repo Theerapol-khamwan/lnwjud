@@ -13,6 +13,7 @@ export interface McpServerOptions {
   readonly activity?: ActivitySink;
   readonly activityTracker?: ActivityTracker;
   readonly profileProvider?: () => PermissionProfile;
+  readonly allowAiDeleteProvider?: () => boolean;
 }
 
 export function createMcpServer(options: McpServerOptions): McpServer {
@@ -21,6 +22,7 @@ export function createMcpServer(options: McpServerOptions): McpServer {
     ...(options.activity === undefined ? {} : { activity: options.activity }),
     ...(options.activityTracker === undefined ? {} : { activityTracker: options.activityTracker }),
     ...(options.profileProvider === undefined ? {} : { profileProvider: options.profileProvider }),
+    ...(options.allowAiDeleteProvider === undefined ? {} : { allowAiDeleteProvider: options.allowAiDeleteProvider }),
   });
   const server = new McpServer({ name: APP_NAME, version: APP_VERSION }, { capabilities: { tools: {} } });
   for (const tool of registry.list()) {

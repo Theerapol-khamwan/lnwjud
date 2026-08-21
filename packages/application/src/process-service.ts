@@ -16,7 +16,7 @@ export interface ProcessStartRequest {
 }
 
 export interface ProcessManagerPort {
-  start(spec: ManagedProcessStart): Promise<Result<ManagedProcess>>;
+  start(spec: ManagedProcessStart, signal?: AbortSignal, onCreated?: (process: ManagedProcess) => void): Promise<Result<ManagedProcess>>;
   list?(): readonly ManagedProcess[];
   status(processId: string): Result<ManagedProcess>;
   logs(processId: string, query: LogQuery): Result<ProcessLogResult>;
@@ -73,14 +73,16 @@ export class ProcessService {
     this.profileProvider = dependencies.profileProvider ?? ((): PermissionProfile => dependencies.profile ?? permissionProfiles.balanced);
   }
 
-  public start(actor: FileActor, workspaceId: string, request: ProcessStartRequest): Promise<Result<ManagedProcess>> {
-    return this.startInternal(actor, workspaceId, request, 'client');
+  public start(actor: FileActor, workspaceId: string, request: ProcessStartRequest, signal?: AbortSignal): Promise<Result<ManagedProcess>> {
+    return this.startInternal(actor, workspaceId, request, 'client', signal);
   }
 
-  public async startProjectCommand(actor: FileActor, workspaceId: string, kind: ProjectCommandKind): Promise<Result<ManagedProcess>> {
+  public async startProjectCommand(actor: FileActor, workspaceId: string, kind: ProjectCommandKind, signal?: AbortSignal): Promise<Result<ManagedProcess>> {
+    if (isAborted(signal)) return cancelledStart();
     const command = await this.projectService.getCommand(workspaceId, kind);
+    if (isAborted(signal)) return cancelledStart();
     if (!command.ok) return command;
-    return this.startInternal(actor, workspaceId, { executable: command.value.executable, args: command.value.args }, 'project');
+    return this.startInternal(actor, workspaceId, { executable: command.value.executable, args: command.value.args }, 'project', signal);
   }
 
   public async status(actor: FileActor, workspaceId: string, processId: string): Promise<Result<ManagedProcess>> {
@@ -111,12 +113,15 @@ export class ProcessService {
     return this.processManager.stop(processId);
   }
 
-  private async startInternal(actor: FileActor, workspaceId: string, request: ProcessStartRequest, source: CommandSource): Promise<Result<ManagedProcess>> {
+  private async startInternal(actor: FileActor, workspaceId: string, request: ProcessStartRequest, source: CommandSource, signal?: AbortSignal): Promise<Result<ManagedProcess>> {
     const validation = this.validateRequest(request);
     if (!validation.ok) return validation;
+    if (isAborted(signal)) return cancelledStart();
     const workspace = await this.getWorkspace(workspaceId);
+    if (isAborted(signal)) return cancelledStart();
     if (!workspace.ok) return workspace;
     const cwd = await this.resolveCwd(workspace.value, request.cwd);
+    if (isAborted(signal)) return cancelledStart();
     if (!cwd.ok) return cwd;
 
     const profile = this.profileProvider();
@@ -133,11 +138,14 @@ export class ProcessService {
     if (permissionDecision === 'DENY') return err(appError('PERMISSION_DENIED', 'Process execution is denied'));
     if (commandDecision === 'ASK' || permissionDecision === 'ASK') return err(appError('PERMISSION_REQUIRED', 'Process execution requires permission'));
 
+    if (isAborted(signal)) return cancelledStart();
     const started = await this.processManager.start({
       executable: request.executable,
       args: [...request.args],
       cwd: cwd.value,
       ...(request.timeoutMs === undefined ? {} : { timeoutMs: request.timeoutMs }),
+    }, signal, (process) => {
+      this.owners.set(process.processId, { actorId: actor.clientId, workspaceId });
     });
     if (started.ok) this.owners.set(started.value.processId, { actorId: actor.clientId, workspaceId });
     return started;
@@ -190,4 +198,12 @@ export class ProcessService {
     const workspace = await this.workspaces.get(workspaceId);
     return workspace === null ? err(appError('WORKSPACE_NOT_FOUND', 'Workspace was not found')) : ok(workspace);
   }
+}
+
+function cancelledStart(): Result<never> {
+  return err(appError('PROCESS_TIMEOUT', 'Process start was cancelled before launch completed', true));
+}
+
+function isAborted(signal: AbortSignal | undefined): boolean {
+  return signal?.aborted === true;
 }

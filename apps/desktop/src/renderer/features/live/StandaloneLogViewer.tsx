@@ -59,7 +59,7 @@ export function StandaloneLogViewer(): ReactElement {
   const sources: readonly LogSource[] = ['tunnel', 'mcp', 'process'];
 
   return (
-    <div className="window-container">
+    <div className="window-container log-viewer-window">
       <header className="custom-titlebar">
         <div className="titlebar-drag-region">
           <div className="titlebar-brand">

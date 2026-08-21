@@ -4,13 +4,13 @@ import { appError, err, ok, type Result } from '@lnwjud/domain';
 import type { McpServerLaunchConfig, McpToolSummary } from './types.js';
 
 export interface McpClientSession {
-  listTools(): Promise<readonly McpToolSummary[]>;
-  callTool(name: string, args: Readonly<Record<string, unknown>>): Promise<unknown>;
+  listTools(signal?: AbortSignal): Promise<readonly McpToolSummary[]>;
+  callTool(name: string, args: Readonly<Record<string, unknown>>, signal?: AbortSignal): Promise<unknown>;
   close(): Promise<void>;
 }
 
 export interface McpClientFactory {
-  connect(config: McpServerLaunchConfig): Promise<McpClientSession>;
+  connect(config: McpServerLaunchConfig, signal?: AbortSignal): Promise<McpClientSession>;
 }
 
 export interface McpSessionManagerOptions {
@@ -43,14 +43,17 @@ export class McpSessionManager {
     return this.sessions.has(server);
   }
 
-  public async describe(server: string, config: McpServerLaunchConfig): Promise<Result<{
+  public async describe(server: string, config: McpServerLaunchConfig, signal?: AbortSignal): Promise<Result<{
     readonly connected: boolean;
     readonly tools: readonly McpToolSummary[];
   }>> {
     try {
-      const managed = await this.ensure(server, config);
+      if (isAborted(signal)) return cancelledCall();
+      const managed = await this.ensure(server, config, signal);
+      if (isAborted(signal)) return cancelledCall();
       return ok({ connected: true, tools: managed.tools });
     } catch (error: unknown) {
+      if (isAborted(signal)) return cancelledCall();
       return err(appError('INTERNAL_ERROR', sanitizeError(error), true));
     }
   }
@@ -60,19 +63,24 @@ export class McpSessionManager {
     config: McpServerLaunchConfig,
     tool: string,
     args: Readonly<Record<string, unknown>>,
+    signal?: AbortSignal,
   ): Promise<Result<unknown>> {
     try {
-      const managed = await this.ensure(server, config);
+      if (isAborted(signal)) return cancelledCall();
+      const managed = await this.ensure(server, config, signal);
+      if (isAborted(signal)) return cancelledCall();
       const result = await this.enqueue(managed, () => withTimeout(
-        managed.session.callTool(tool, args),
+        (callSignal) => managed.session.callTool(tool, args, callSignal),
         this.callTimeoutMs,
         `Timed out calling ${server}/${tool}`,
+        signal,
       ));
       managed.lastUsedAt = Date.now();
       this.scheduleIdleSweep();
       return ok(result);
     } catch (error: unknown) {
       await this.drop(server);
+      if (isAborted(signal)) return cancelledCall();
       return err(appError('INTERNAL_ERROR', sanitizeError(error), true));
     }
   }
@@ -87,23 +95,32 @@ export class McpSessionManager {
     await Promise.all(closers);
   }
 
-  private async ensure(server: string, config: McpServerLaunchConfig): Promise<ManagedSession> {
+  private async ensure(server: string, config: McpServerLaunchConfig, signal?: AbortSignal): Promise<ManagedSession> {
+    if (isAborted(signal)) throw new Error('Child MCP connection was cancelled');
     const existing = this.sessions.get(server);
     if (existing !== undefined) {
       existing.lastUsedAt = Date.now();
       return existing;
     }
-    const session = await this.factory.connect(config);
-    const tools = await session.listTools();
-    const managed: ManagedSession = {
-      session,
-      tools,
-      lastUsedAt: Date.now(),
-      queue: Promise.resolve(),
-    };
-    this.sessions.set(server, managed);
-    this.scheduleIdleSweep();
-    return managed;
+
+    const session = await this.factory.connect(config, signal);
+    try {
+      if (isAborted(signal)) throw new Error('Child MCP connection was cancelled');
+      const tools = await session.listTools(signal);
+      if (isAborted(signal)) throw new Error('Child MCP connection was cancelled');
+      const managed: ManagedSession = {
+        session,
+        tools,
+        lastUsedAt: Date.now(),
+        queue: Promise.resolve(),
+      };
+      this.sessions.set(server, managed);
+      this.scheduleIdleSweep();
+      return managed;
+    } catch (error: unknown) {
+      await session.close().catch(() => undefined);
+      throw error;
+    }
   }
 
   private enqueue<T>(managed: ManagedSession, operation: () => Promise<T>): Promise<T> {
@@ -136,7 +153,7 @@ export class McpSessionManager {
 }
 
 export const defaultMcpClientFactory: McpClientFactory = {
-  async connect(config: McpServerLaunchConfig): Promise<McpClientSession> {
+  async connect(config: McpServerLaunchConfig, signal?: AbortSignal): Promise<McpClientSession> {
     const transport = new StdioClientTransport({
       command: config.command,
       args: [...(config.args ?? [])],
@@ -151,18 +168,18 @@ export const defaultMcpClientFactory: McpClientFactory = {
       { name: 'lnwjud-mcp-bridge', version: '1.0.0' },
       { versionNegotiation: { mode: { pin: '2026-07-28' } } },
     );
-    await client.connect(transport);
+    await client.connect(transport, signal === undefined ? undefined : { signal });
     return {
-      async listTools(): Promise<readonly McpToolSummary[]> {
-        const listed = await client.listTools();
+      async listTools(listSignal?: AbortSignal): Promise<readonly McpToolSummary[]> {
+        const listed = await client.listTools(undefined, listSignal === undefined ? undefined : { signal: listSignal });
         return listed.tools.map((tool) => ({
           name: tool.name,
           description: tool.description ?? '',
           ...(tool.inputSchema === undefined ? {} : { inputSchema: tool.inputSchema }),
         }));
       },
-      async callTool(name: string, args: Readonly<Record<string, unknown>>): Promise<unknown> {
-        return client.callTool({ name, arguments: { ...args } });
+      async callTool(name: string, args: Readonly<Record<string, unknown>>, callSignal?: AbortSignal): Promise<unknown> {
+        return client.callTool({ name, arguments: { ...args } }, callSignal === undefined ? undefined : { signal: callSignal });
       },
       async close(): Promise<void> {
         await client.close();
@@ -171,20 +188,60 @@ export const defaultMcpClientFactory: McpClientFactory = {
   },
 };
 
-function withTimeout<T>(promise: Promise<T>, timeoutMs: number, message: string): Promise<T> {
+function withTimeout<T>(operation: (signal: AbortSignal) => Promise<T>, timeoutMs: number, message: string, parentSignal?: AbortSignal): Promise<T> {
   return new Promise<T>((resolve, reject) => {
-    const timer = setTimeout(() => reject(new Error(message)), timeoutMs);
-    promise.then(
-      (value) => {
-        clearTimeout(timer);
-        resolve(value);
-      },
-      (error: unknown) => {
-        clearTimeout(timer);
-        reject(error);
-      },
-    );
+    const controller = new AbortController();
+    if (isAborted(parentSignal)) {
+      controller.abort(parentSignal?.reason);
+      reject(parentSignal?.reason instanceof Error ? parentSignal.reason : new Error('Child MCP call was cancelled'));
+      return;
+    }
+
+    let settled = false;
+    const cleanup = (): void => {
+      clearTimeout(timer);
+      parentSignal?.removeEventListener('abort', onAbort);
+    };
+    const resolveOnce = (value: T): void => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      resolve(value);
+    };
+    const rejectOnce = (error: unknown): void => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      reject(error);
+    };
+    const onAbort = (): void => {
+      controller.abort(parentSignal?.reason);
+      rejectOnce(parentSignal?.reason instanceof Error ? parentSignal.reason : new Error('Child MCP call was cancelled'));
+    };
+
+    parentSignal?.addEventListener('abort', onAbort, { once: true });
+    const timer = setTimeout(() => {
+      controller.abort(new Error(message));
+      rejectOnce(new Error(message));
+    }, timeoutMs);
+
+    let pending: Promise<T>;
+    try {
+      pending = operation(controller.signal);
+    } catch (error: unknown) {
+      rejectOnce(error);
+      return;
+    }
+    pending.then(resolveOnce, rejectOnce);
   });
+}
+
+function isAborted(signal: AbortSignal | undefined): boolean {
+  return signal?.aborted === true;
+}
+
+function cancelledCall(): Result<never> {
+  return err(appError('PROCESS_TIMEOUT', 'Child MCP operation was cancelled', true));
 }
 
 function sanitizeError(error: unknown): string {

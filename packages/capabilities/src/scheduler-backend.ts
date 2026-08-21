@@ -14,33 +14,34 @@ export interface SchedulerRunResult {
 export interface SchedulerBackendOptions {
   readonly platform?: NodeJS.Platform;
   readonly executable?: string;
-  readonly runImpl?: (executable: string, args: readonly string[]) => Promise<SchedulerRunResult>;
+  readonly runImpl?: (executable: string, args: readonly string[], signal?: AbortSignal) => Promise<SchedulerRunResult>;
 }
 
 export class SchedulerCapabilityBackend implements CapabilityBackend {
   private readonly platform: NodeJS.Platform;
   private readonly executable: string;
-  private readonly runImpl: (executable: string, args: readonly string[]) => Promise<SchedulerRunResult>;
+  private readonly runImpl: (executable: string, args: readonly string[], signal?: AbortSignal) => Promise<SchedulerRunResult>;
 
   public constructor(options: SchedulerBackendOptions = {}) {
     this.platform = options.platform ?? process.platform;
     this.executable = options.executable ?? 'schtasks.exe';
-    this.runImpl = options.runImpl ?? (async (executable, args): Promise<SchedulerRunResult> => {
-      const result = await execFileAsync(executable, [...args], { windowsHide: true, encoding: 'utf8', maxBuffer: 4 * 1024 * 1024 });
+    this.runImpl = options.runImpl ?? (async (executable, args, signal): Promise<SchedulerRunResult> => {
+      const result = await execFileAsync(executable, [...args], { windowsHide: true, encoding: 'utf8', maxBuffer: 4 * 1024 * 1024, ...(signal === undefined ? {} : { signal }) });
       return { stdout: typeof result.stdout === 'string' ? result.stdout : '', stderr: typeof result.stderr === 'string' ? result.stderr : '' };
     });
   }
 
-  public async execute(input: unknown): Promise<Result<unknown>> {
+  public async execute(input: unknown, signal?: AbortSignal): Promise<Result<unknown>> {
     if (this.platform !== 'win32') return err(appError('INTERNAL_ERROR', 'Scheduled tasks are unavailable on this platform', true));
     const parsed = parseRequest(input);
     if (!parsed.ok) return parsed;
+    if (isSignalAborted(signal)) return cancelledOperation();
     const request = parsed.value;
 
     try {
       switch (request.action) {
-        case 'list': return ok({ tasks: await this.list() });
-        case 'create': return ok(await this.create(request.taskName, request.command, request.arguments ?? [], request.schedule ?? 'DAILY', request.startTime ?? '09:00'));
+        case 'list': return ok({ tasks: await this.list(signal) });
+        case 'create': return ok(await this.create(request.taskName, request.command, request.arguments ?? [], request.schedule ?? 'DAILY', request.startTime ?? '09:00', signal));
         case 'delete':
           if (request.userConfirmed !== true) {
             return err(appError(
@@ -48,17 +49,18 @@ export class SchedulerCapabilityBackend implements CapabilityBackend {
               'Deleting a scheduled task requires the user to confirm in chat first, then retry scheduler with userConfirmed: true',
             ));
           }
-          return ok(await this.delete(request.taskName));
-        case 'run': return ok(await this.run(request.taskName));
+          return ok(await this.delete(request.taskName, signal));
+        case 'run': return ok(await this.run(request.taskName, signal));
       }
     } catch (error: unknown) {
+      if (isSignalAborted(signal) || (error instanceof Error && error.name === 'AbortError')) return cancelledOperation();
       const detail = extractDetail(error);
       return err(appError('INTERNAL_ERROR', detail.length > 0 ? detail : 'Scheduled task operation failed', true));
     }
   }
 
-  private async list(): Promise<readonly Record<string, unknown>[]> {
-    const result = await this.runImpl(this.executable, ['/Query', '/FO', 'LIST']);
+  private async list(signal?: AbortSignal): Promise<readonly Record<string, unknown>[]> {
+    const result = await this.runCommand(['/Query', '/FO', 'LIST'], signal);
     const lines = result.stdout.split(/\r?\n/);
     const tasks: Record<string, unknown>[] = [];
     let current: Record<string, unknown> | null = null;
@@ -85,24 +87,38 @@ export class SchedulerCapabilityBackend implements CapabilityBackend {
     return tasks;
   }
 
-  private async create(taskName: string, command: string, args: readonly string[], schedule: string, startTime: string): Promise<Record<string, unknown>> {
+  private async create(taskName: string, command: string, args: readonly string[], schedule: string, startTime: string, signal?: AbortSignal): Promise<Record<string, unknown>> {
     const taskRun = buildTaskRun(command, args);
-    await this.runImpl(this.executable, [
+    await this.runCommand([
       '/Create', '/TN', taskName, '/TR', taskRun,
       '/SC', schedule.toUpperCase(), '/ST', startTime, '/F',
-    ]);
+    ], signal);
     return { created: true, task_name: taskName, schedule, start_time: startTime };
   }
 
-  private async delete(taskName: string): Promise<Record<string, unknown>> {
-    await this.runImpl(this.executable, ['/Delete', '/TN', taskName, '/F']);
+  private async delete(taskName: string, signal?: AbortSignal): Promise<Record<string, unknown>> {
+    await this.runCommand(['/Delete', '/TN', taskName, '/F'], signal);
     return { deleted: true, task_name: taskName };
   }
 
-  private async run(taskName: string): Promise<Record<string, unknown>> {
-    await this.runImpl(this.executable, ['/Run', '/TN', taskName]);
+  private async run(taskName: string, signal?: AbortSignal): Promise<Record<string, unknown>> {
+    await this.runCommand(['/Run', '/TN', taskName], signal);
     return { started: true, task_name: taskName };
   }
+
+  private runCommand(args: readonly string[], signal?: AbortSignal): Promise<SchedulerRunResult> {
+    return signal === undefined
+      ? this.runImpl(this.executable, args)
+      : this.runImpl(this.executable, args, signal);
+  }
+}
+
+function cancelledOperation(): Result<never> {
+  return err(appError('PROCESS_TIMEOUT', 'Scheduled task operation was cancelled', true));
+}
+
+function isSignalAborted(signal: AbortSignal | undefined): boolean {
+  return signal?.aborted === true;
 }
 
 interface SchedulerRequest {

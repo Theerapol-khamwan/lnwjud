@@ -1,4 +1,4 @@
-import { mkdtemp, realpath, rm } from 'node:fs/promises';
+import { mkdtemp, readFile, realpath, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { Client, StreamableHTTPClientTransport } from '@modelcontextprotocol/client';
@@ -68,6 +68,42 @@ describe('DesktopRuntime persistence', () => {
       }
     } finally {
       if (!firstClosed) await closeRuntime(firstRuntime);
+    }
+  }, 30_000);
+
+  it('persists AI delete and STDIO security policy settings and applies scoped delete dynamically', async () => {
+    const rawDataRoot = await mkdtemp(path.join(os.tmpdir(), 'lnwjud-runtime-policy-data-'));
+    const rawWorkspaceRoot = await mkdtemp(path.join(os.tmpdir(), 'lnwjud-runtime-policy-workspace-'));
+    temporaryRoots.push(rawDataRoot, rawWorkspaceRoot);
+    const dataRoot = await realpath(rawDataRoot);
+    const workspaceRoot = await realpath(rawWorkspaceRoot);
+    const runtime = createDesktopRuntime(dataRoot);
+    try {
+      const workspace = await runtime.services.addWorkspace({ rootPath: workspaceRoot });
+      await writeFile(path.join(workspaceRoot, 'delete-policy.txt'), 'payload', 'utf8');
+      await expect(runtime.mcpServices.file.deleteFile(runtime.mcpActor, workspace.id, { path: 'delete-policy.txt' }))
+        .resolves.toMatchObject({ ok: false, error: { code: 'PERMISSION_REQUIRED' } });
+      await expect(runtime.services.setAiDeletePolicy({ enabled: true })).resolves.toEqual({ enabled: true });
+      await expect(runtime.mcpServices.file.deleteFile(runtime.mcpActor, workspace.id, { path: 'delete-policy.txt' }))
+        .resolves.toMatchObject({ ok: true });
+      await expect(readFile(path.join(workspaceRoot, 'delete-policy.txt'), 'utf8')).rejects.toThrow();
+
+      await expect(runtime.services.setStdioPolicy({ profile: 'safe', strictRoots: true, allowedRoots: [workspaceRoot] }))
+        .resolves.toMatchObject({ profile: 'safe', strictRoots: true, allowedRoots: [workspaceRoot] });
+      await expect(runtime.services.getDashboard()).resolves.toMatchObject({
+        allowAiDelete: true, stdioPermissionProfile: 'safe', stdioStrictRoots: true, stdioAllowedRoots: [workspaceRoot],
+      });
+    } finally {
+      await runtime.close();
+    }
+
+    const restarted = createDesktopRuntime(dataRoot);
+    try {
+      await expect(restarted.services.getDashboard()).resolves.toMatchObject({
+        allowAiDelete: true, stdioPermissionProfile: 'safe', stdioStrictRoots: true, stdioAllowedRoots: [workspaceRoot],
+      });
+    } finally {
+      await restarted.close();
     }
   }, 30_000);
 

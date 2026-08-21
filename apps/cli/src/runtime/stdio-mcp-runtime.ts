@@ -34,13 +34,14 @@ import {
   WslFilesystemCapabilityBackend,
 } from '@lnwjud/capabilities';
 import type { Result } from '@lnwjud/domain';
+import { ALLOW_AI_DELETE_SETTING_KEY, parseBooleanSetting } from '@lnwjud/shared';
 import {
   EXTENSIONS_SETTINGS_KEY,
   createLocalExtensionsService,
   type ExtensionsService,
 } from '@lnwjud/extensions';
 import { ActivityTracker, SharedActivitySnapshotLease, composeActivitySinks, createFileActivitySink, currentSharedActivityOwner, mcpActivityLogPath, type ActivitySink, type ActivitySinkEvent, type McpApplicationServices } from '@lnwjud/mcp-server';
-import { permissionProfiles } from '@lnwjud/permissions';
+import { permissionProfiles, type PermissionProfile, type PermissionProfileName } from '@lnwjud/permissions';
 import {
   SqliteAuditRepository,
   SqliteCheckpointRepository,
@@ -49,6 +50,7 @@ import {
   SqliteWorkspaceRepository,
 } from '@lnwjud/storage';
 import { allFixedDriveRoots, machineRootPath, SecretPolicy, WorkspacePathGuard, WorkspaceService, type Workspace } from '@lnwjud/workspace';
+import { StrictWorkspaceRepository } from './strict-workspace-repository.js';
 
 export interface StdioMcpRuntime {
   readonly services: McpApplicationServices;
@@ -56,39 +58,57 @@ export interface StdioMcpRuntime {
   readonly extensions: ExtensionsService;
   readonly activityTracker: ActivityTracker;
   readonly activityReady: Promise<void>;
+  readonly profileProvider: () => PermissionProfile;
+  readonly allowAiDeleteProvider: () => boolean;
   close(): Promise<void>;
 }
 
-/**
- * Builds full-access MCP application services for stdio/CLI launches.
- * Permission profile is always `full`. Capabilities are wired for ChatGPT tunnel use.
- */
-export function createStdioMcpRuntime(dataPath: string, workspace: Workspace, unrestricted: boolean = false): StdioMcpRuntime {
+/** Builds stdio/CLI MCP services. Defaults stay full/unrestricted unless an explicit stdio policy constrains them. */
+export interface StdioMcpRuntimeOptions {
+  readonly permissionProfile?: PermissionProfileName;
+  readonly strictAllowedRoots?: readonly string[];
+}
+
+export function createStdioMcpRuntime(
+  dataPath: string,
+  workspace: Workspace,
+  unrestricted: boolean = false,
+  options: StdioMcpRuntimeOptions = {},
+): StdioMcpRuntime {
   const database = new SqliteDatabase(path.join(dataPath, 'lnwjud.sqlite'));
-  const workspaceRepository = new SqliteWorkspaceRepository(database);
+  const rawWorkspaceRepository = new SqliteWorkspaceRepository(database);
+  const workspaceRepository = options.strictAllowedRoots === undefined
+    ? rawWorkspaceRepository
+    : new StrictWorkspaceRepository(rawWorkspaceRepository, options.strictAllowedRoots);
   const workspaceIndex = new WorkspaceIndexService(workspaceRepository, new JsonWorkspaceIndexStore(path.join(dataPath, 'workspace-index')));
   const settingsRepository = new SqliteSettingsRepository(database);
   const auditRepository = new SqliteAuditRepository(database);
   const auditService = new AuditService(auditRepository);
   const checkpointRepository = new SqliteCheckpointRepository(database);
   const workspaceService = new WorkspaceService(workspaceRepository);
-  const fullProfile = permissionProfiles.full;
+  const profileName = options.permissionProfile ?? 'full';
+  const activeProfile = permissionProfiles[profileName];
+  const strictRoots = options.strictAllowedRoots !== undefined;
+  const effectiveUnrestricted = strictRoots ? false : unrestricted;
+  const profileProvider = (): PermissionProfile => activeProfile;
+  const allowAiDeleteProvider = (): boolean => parseBooleanSetting(settingsRepository.get(ALLOW_AI_DELETE_SETTING_KEY), false);
 
   const projectService = new ProjectService(workspaceRepository);
   const processService = new ProcessService(workspaceRepository, {
     projectService,
-    profileProvider: (): typeof permissionProfiles.full => fullProfile,
-    unrestricted,
+    profileProvider,
+    unrestricted: effectiveUnrestricted,
   });
   const checkpointService = new CheckpointService(workspaceRepository, checkpointRepository, {
-    profile: fullProfile,
+    profile: activeProfile,
   });
-  const pathGuard = new WorkspacePathGuard(new SecretPolicy(), { unrestricted, trustedWorkspaceAccess: true });
+  const pathGuard = new WorkspacePathGuard(new SecretPolicy(), { unrestricted: effectiveUnrestricted, trustedWorkspaceAccess: !strictRoots });
   const fileService = new FileService(workspaceRepository, pathGuard, undefined, {
     checkpointService,
-    profileProvider: (): typeof permissionProfiles.full => fullProfile,
-    unrestricted,
-    trustedWorkspaceAccess: true,
+    profileProvider,
+    unrestricted: effectiveUnrestricted,
+    trustedWorkspaceAccess: !strictRoots,
+    allowDeleteWithoutConfirmation: allowAiDeleteProvider,
   });
   const gitService = new GitService(workspaceRepository);
   const workspaceQuery = new WorkspaceQueryService(workspaceRepository, pathGuard);
@@ -98,14 +118,14 @@ export function createStdioMcpRuntime(dataPath: string, workspace: Workspace, un
   });
   const codexService = new CodexService(workspaceRepository, {
     auditService,
-    profileProvider: (): typeof permissionProfiles.full => fullProfile,
+    profileProvider,
   });
   const capabilityService = createStdioCapabilityService(dataPath, machineRootPath(workspace.realRootPath), async () => {
     const listed = await workspaceRepository.list();
     const roots = listed.map((entry) => entry.realRootPath);
-    if (roots.length === 0) return unrestricted ? [...allFixedDriveRoots()] : [machineRootPath(workspace.realRootPath)];
+    if (roots.length === 0) return effectiveUnrestricted ? [...allFixedDriveRoots()] : [workspace.realRootPath];
     return roots;
-  }, unrestricted);
+  }, effectiveUnrestricted, options.strictAllowedRoots);
   const actor: FileActor = { clientId: 'cli-mcp-stdio', clientName: 'lnwjud cli MCP' };
   const sharedActivityLease = createSharedActivityLease(process.env.TUNNEL_CLIENT_PROFILE_DIR);
   const activityReady = sharedActivityLease.then(async (lease) => lease?.initialize());
@@ -149,7 +169,7 @@ export function createStdioMcpRuntime(dataPath: string, workspace: Workspace, un
     runtimeStatePath: path.join(dataPath, 'upgrade-runtime.json'),
     capabilities: capabilityService,
     extensions,
-    workspaceInfo: new WorkspaceInfoService(workspaceRepository, workspaceService, unrestricted),
+    workspaceInfo: new WorkspaceInfoService(workspaceRepository, workspaceService, effectiveUnrestricted),
     workspaceQuery,
     projectSnapshot: new ProjectSnapshotService(workspaceRepository, {
       projectService,
@@ -172,6 +192,8 @@ export function createStdioMcpRuntime(dataPath: string, workspace: Workspace, un
     extensions,
     activityTracker,
     activityReady,
+    profileProvider,
+    allowAiDeleteProvider,
     close: async (): Promise<void> => {
       await (await sharedActivityLease)?.close();
       await extensions.close().catch(() => undefined);
@@ -191,22 +213,26 @@ function createStdioCapabilityService(
   restrictedRoot: string,
   workspaceRootsProvider: () => Promise<readonly string[]>,
   unrestricted: boolean,
+  strictAllowedRoots?: readonly string[],
 ): LocalCapabilityService {
   const capabilityRootsProvider = async (): Promise<readonly string[]> => {
     const workspaceRoots = await workspaceRootsProvider();
+    if (strictAllowedRoots !== undefined) return workspaceRoots.length > 0 ? workspaceRoots : strictAllowedRoots;
     const configuredRoots = readCapabilityRoots(process.env.LNWJUD_CAPABILITY_ROOTS);
     const roots = [...workspaceRoots, ...configuredRoots, ...(unrestricted ? [...allFixedDriveRoots()] : [restrictedRoot])];
     return roots.length === 0 ? [dataPath] : roots;
   };
+  const initialCapabilityRoots = strictAllowedRoots ?? [dataPath, ...(unrestricted ? [...allFixedDriveRoots()] : [restrictedRoot])];
   const shellBackend = new ShellCapabilityBackend({
-    allowedRoots: [dataPath, ...(unrestricted ? [...allFixedDriveRoots()] : [restrictedRoot])],
+    allowedRoots: initialCapabilityRoots,
     allowedRootsProvider: capabilityRootsProvider,
     unrestricted,
+    taskStateDirectory: path.join(dataPath, 'background-tasks'),
   });
   const browserProtocol = new NodeBrowserCdpProtocol({ profileDir: path.join(dataPath, 'browser-profile') });
   const browserBackend = new BrowserCdpBackend({
     protocol: browserProtocol,
-    launcher: (url: string | undefined): Promise<Result<unknown>> => browserProtocol.launch(url),
+    launcher: (url: string | undefined, signal?: AbortSignal): Promise<Result<unknown>> => browserProtocol.launch(url, signal),
   });
   const windowsBridge = new PowerShellWindowsCapabilityBridge({ scriptPath: capabilityBridgeScriptPath() });
   const nativeOptions = { allowedRootsProvider: workspaceRootsProvider, unrestricted };
@@ -220,7 +246,8 @@ function createStdioCapabilityService(
     ...(ocrHelper === undefined ? {} : { packageIdentity: async (): Promise<Result<boolean>> => ({ ok: true, value: true }) }),
   }));
   const wslAvailabilityProbe = async (): Promise<Result<unknown>> => {
-    const result = await shellBackend.execute({ operation: 'run', executable: 'wsl.exe', arguments: ['--status'], cwd: dataPath, execution: 'foreground', timeout_seconds: 5, max_output_bytes: 32 * 1024, userConfirmed: false });
+    const probeRoots = await capabilityRootsProvider();
+    const result = await shellBackend.execute({ operation: 'run', executable: 'wsl.exe', arguments: ['--status'], cwd: probeRoots[0] ?? dataPath, execution: 'foreground', timeout_seconds: 5, max_output_bytes: 32 * 1024, userConfirmed: false });
     if (!result.ok) return { ok: true, value: { available: false, ready: false, local: true, reason: 'wsl_executable_unavailable' } };
     const value = typeof result.value === 'object' && result.value !== null && !Array.isArray(result.value) ? result.value as Record<string, unknown> : {};
     const ready = value.state === 'completed' && value.exit_code === 0;
@@ -229,13 +256,13 @@ function createStdioCapabilityService(
   const wslBackend = new WslCapabilityBackend({
     platform: process.platform,
     runner: shellBackend,
-    allowedRoots: [dataPath],
+    allowedRoots: initialCapabilityRoots,
     allowedRootsProvider: capabilityRootsProvider,
     availabilityProbe: wslAvailabilityProbe,
   });
   const wslFsBackend = new WslFilesystemCapabilityBackend({
     platform: process.platform,
-    allowedRoots: [dataPath],
+    allowedRoots: initialCapabilityRoots,
     allowedRootsProvider: capabilityRootsProvider,
     availabilityProbe: wslAvailabilityProbe,
   });

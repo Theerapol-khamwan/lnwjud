@@ -10,11 +10,13 @@ export interface PowerShellWindowsBridgeOptions {
   readonly platform?: NodeJS.Platform;
   readonly maxOutputBytes?: number;
   readonly terminator?: ProcessTreeTerminator;
+  readonly terminationRetryMs?: number;
 }
 
 const DEFAULT_TIMEOUT_SECONDS = 600;
 const MAX_TIMEOUT_SECONDS = 14_400;
 const DEFAULT_MAX_OUTPUT_BYTES = 8 * 1024 * 1024;
+const DEFAULT_TERMINATION_RETRY_MS = 250;
 const APP_ERROR_CODES: readonly AppErrorCode[] = [
   'INVALID_INPUT', 'WORKSPACE_NOT_FOUND', 'PATH_OUTSIDE_WORKSPACE', 'SECRET_ACCESS_DENIED', 'PERMISSION_DENIED',
   'PERMISSION_REQUIRED', 'FILE_NOT_FOUND', 'FILE_TOO_LARGE', 'BINARY_FILE', 'PROCESS_NOT_FOUND', 'PROCESS_TIMEOUT',
@@ -27,6 +29,7 @@ export class PowerShellWindowsCapabilityBridge implements WindowsCapabilityBridg
   private readonly platform: NodeJS.Platform;
   private readonly maxOutputBytes: number;
   private readonly terminator: ProcessTreeTerminator;
+  private readonly terminationRetryMs: number;
 
   public constructor(options: PowerShellWindowsBridgeOptions) {
     this.scriptPath = path.resolve(options.scriptPath);
@@ -34,11 +37,13 @@ export class PowerShellWindowsCapabilityBridge implements WindowsCapabilityBridg
     this.platform = options.platform ?? process.platform;
     this.maxOutputBytes = Math.max(1, Math.min(options.maxOutputBytes ?? DEFAULT_MAX_OUTPUT_BYTES, DEFAULT_MAX_OUTPUT_BYTES));
     this.terminator = options.terminator ?? new WindowsProcessTree();
+    this.terminationRetryMs = Math.max(1, options.terminationRetryMs ?? DEFAULT_TERMINATION_RETRY_MS);
   }
 
-  public execute(request: { readonly capability: WindowsCapabilityName; readonly input: unknown }): Promise<Result<unknown>> {
+  public execute(request: { readonly capability: WindowsCapabilityName; readonly input: unknown }, signal?: AbortSignal): Promise<Result<unknown>> {
     if (this.platform !== 'win32') return Promise.resolve(err(appError('INTERNAL_ERROR', 'Windows bridge is unavailable on this platform', true)));
     if (!path.isAbsolute(this.scriptPath)) return Promise.resolve(err(appError('INVALID_INPUT', 'Windows bridge script path must be absolute')));
+    if (signal?.aborted === true) return Promise.resolve(err(appError('PROCESS_TIMEOUT', 'Windows bridge operation was cancelled', true)));
     let serialized: string;
     try {
       serialized = JSON.stringify(request);
@@ -48,20 +53,29 @@ export class PowerShellWindowsCapabilityBridge implements WindowsCapabilityBridg
 
     return new Promise((resolve) => {
       let stdout = '';
-      let timedOut = false;
+      let stopReason: 'timed_out' | 'cancelled' | null = null;
+      let stopPromise: Promise<void> | null = null;
       let settled = false;
+      let spawnFailed = false;
       const child = spawn(this.powershellPath, ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', this.scriptPath], {
         shell: false,
         windowsHide: false,
         stdio: ['pipe', 'pipe', 'pipe'],
       });
       const timeoutSeconds = readTimeout(request.input);
-      const timer = setTimeout(() => {
-        timedOut = true;
-        const pid = child.pid;
-        if (pid === undefined) child.kill();
-        else void this.terminator.stop(child, pid);
-      }, timeoutSeconds * 1000);
+      const requestStop = (reason: 'timed_out' | 'cancelled'): void => {
+        if (stopReason !== null) return;
+        stopReason = reason;
+        stopPromise = stopUntilVerified(child, this.terminator, this.terminationRetryMs, () => spawnFailed);
+      };
+      const onAbort = (): void => requestStop('cancelled');
+      const timer = setTimeout(() => requestStop('timed_out'), timeoutSeconds * 1000);
+      signal?.addEventListener('abort', onAbort, { once: true });
+      if (signal?.aborted === true) onAbort();
+      const cleanup = (): void => {
+        clearTimeout(timer);
+        signal?.removeEventListener('abort', onAbort);
+      };
       const append = (current: string, value: Buffer | string): string => {
         const chunk = Buffer.isBuffer(value) ? value.toString('utf8') : value;
         const remaining = this.maxOutputBytes - Buffer.byteLength(current, 'utf8');
@@ -70,17 +84,22 @@ export class PowerShellWindowsCapabilityBridge implements WindowsCapabilityBridg
       child.stdout?.on('data', (chunk: Buffer | string) => { stdout = append(stdout, chunk); });
       child.stderr?.resume();
       child.once('error', () => {
-        if (settled) return;
-        settled = true;
-        clearTimeout(timer);
-        resolve(err(appError('INTERNAL_ERROR', 'Windows bridge process could not start', true)));
+        spawnFailed = child.pid === undefined;
+        void settleAfterExit(true);
       });
-      child.once('close', () => {
+      child.once('close', () => { void settleAfterExit(false); });
+      const settleAfterExit = async (failedToStart: boolean): Promise<void> => {
         if (settled) return;
         settled = true;
-        clearTimeout(timer);
-        if (timedOut) {
-          resolve(err(appError('PROCESS_TIMEOUT', 'Windows bridge timed out', true)));
+        cleanup();
+        if (stopPromise !== null) await stopPromise;
+        if (stopReason !== null) {
+          const reason = stopReason === 'cancelled' ? 'Windows bridge operation was cancelled' : 'Windows bridge timed out';
+          resolve(err(appError('PROCESS_TIMEOUT', reason, true)));
+          return;
+        }
+        if (failedToStart) {
+          resolve(err(appError('INTERNAL_ERROR', 'Windows bridge process could not start', true)));
           return;
         }
         const result = parseBridgeResult(stdout);
@@ -89,7 +108,7 @@ export class PowerShellWindowsCapabilityBridge implements WindowsCapabilityBridg
           return;
         }
         resolve(err(appError('INTERNAL_ERROR', 'Windows bridge returned an invalid response', true)));
-      });
+      };
       child.stdin?.end(serialized, 'utf8');
     });
   }
@@ -119,4 +138,35 @@ function powershellExecutable(): string {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+async function stopUntilVerified(
+  child: ReturnType<typeof spawn>,
+  terminator: ProcessTreeTerminator,
+  retryMs: number,
+  spawnFailed: () => boolean,
+): Promise<void> {
+  while (true) {
+    const pid = child.pid;
+    if (pid === undefined) {
+      if (spawnFailed()) return;
+    } else {
+      try {
+        await terminator.stop(child, pid);
+        return;
+      } catch {
+        // Keep the caller's activity lease alive until a later retry verifies the whole tree.
+        if (child.exitCode !== null || child.signalCode !== null) await neverSettles();
+      }
+    }
+    await delay(retryMs);
+  }
+}
+
+function delay(milliseconds: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, milliseconds));
+}
+
+function neverSettles(): Promise<never> {
+  return new Promise<never>(() => undefined);
 }

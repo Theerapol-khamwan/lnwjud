@@ -11,14 +11,24 @@ export function processTools(context: McpToolContext): McpToolDefinition[] {
       permission: 'EXECUTE',
       annotations: { readOnlyHint: false, destructiveHint: false },
       inputSchema: processStartSchema,
-      handler: async (input) => context.services.process === undefined
+      handler: async (input, signal) => context.services.process === undefined
         ? missingService()
         : context.services.process.start(context.actor, input.workspaceId, {
           executable: input.executable,
           args: input.args,
           ...(input.cwd === undefined ? {} : { cwd: input.cwd }),
           ...(input.timeoutMs === undefined ? {} : { timeoutMs: input.timeoutMs }),
-        }),
+        }, signal),
+    }),
+    defineTool({
+      name: 'process_list',
+      description: 'List managed process handles owned by this client in a workspace, including launches whose response was cancelled.',
+      permission: 'READ',
+      annotations: { readOnlyHint: true, destructiveHint: false },
+      inputSchema: processHandleSchema.pick({ workspaceId: true }),
+      handler: async (input) => context.services.process === undefined
+        ? missingService()
+        : context.services.process.list(context.actor, input.workspaceId),
     }),
     defineTool({
       name: 'process_status',
@@ -71,8 +81,8 @@ function projectCommandTools(context: McpToolContext): McpToolDefinition[] {
     permission: 'EXECUTE',
     annotations: { readOnlyHint: false, destructiveHint: false },
     inputSchema: processHandleSchema.pick({ workspaceId: true }),
-    handler: async (input) => context.services.process === undefined
+    handler: async (input, signal) => context.services.process === undefined
       ? missingService()
-      : context.services.process.startProjectCommand(context.actor, input.workspaceId, kind),
+      : context.services.process.startProjectCommand(context.actor, input.workspaceId, kind, signal),
   }));
 }

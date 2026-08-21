@@ -6,6 +6,7 @@ import { ActivityTracker } from './activity-tracker.js';
 import {
   SharedActivitySnapshotLease,
   parseProcessProbeOutput,
+  probeProcessStart,
   readSharedActivitySnapshot,
   sharedActivitySnapshotPath,
   type ProcessProbeResult,
@@ -24,6 +25,47 @@ describe('process start probe output', () => {
     expect(parseProcessProbeOutput('')).toEqual({ state: 'unverifiable', reason: 'invalid_probe_response' });
     expect(parseProcessProbeOutput('GONE')).toEqual({ state: 'gone' });
     expect(parseProcessProbeOutput('LIVE|2026-08-20T00:00:00.000Z')).toEqual({ state: 'live', processStartedAt: '2026-08-20T00:00:00.000Z' });
+  });
+
+  it('retries a killed Windows process probe and accepts the next trustworthy result', async () => {
+    let attempts = 0;
+    const runProbe = async (): Promise<string> => {
+      attempts += 1;
+      if (attempts === 1) throw Object.assign(new Error('probe exceeded timeout'), { killed: true, signal: 'SIGTERM' });
+      return 'LIVE|2026-08-20T00:00:00.000Z';
+    };
+
+    await expect(probeProcessStart(7001, { runProbe, attempts: 2, timeoutMs: 5_000 })).resolves.toEqual({
+      state: 'live',
+      processStartedAt: '2026-08-20T00:00:00.000Z',
+    });
+    expect(attempts).toBe(2);
+  });
+
+  it('classifies Node execFile timeout errors after bounded retries', async () => {
+    let attempts = 0;
+    const runProbe = async (): Promise<string> => {
+      attempts += 1;
+      throw Object.assign(new Error('probe exceeded timeout'), { killed: true, signal: 'SIGTERM' });
+    };
+
+    await expect(probeProcessStart(7001, { runProbe, attempts: 2, timeoutMs: 5_000 })).resolves.toEqual({
+      state: 'unverifiable',
+      reason: 'probe_timeout',
+    });
+    expect(attempts).toBe(2);
+  });
+
+  it('keeps the default retry budget below the caller five-second test deadline', async () => {
+    const timeouts: number[] = [];
+    const runProbe = async (_pid: number, timeoutMs: number): Promise<string> => {
+      timeouts.push(timeoutMs);
+      throw Object.assign(new Error('probe exceeded timeout'), { killed: true, signal: 'SIGTERM' });
+    };
+
+    await expect(probeProcessStart(7001, { runProbe })).resolves.toEqual({ state: 'unverifiable', reason: 'probe_timeout' });
+    expect(timeouts).toHaveLength(2);
+    expect(timeouts.reduce((total, timeout) => total + timeout, 0)).toBeLessThan(4_000);
   });
 });
 

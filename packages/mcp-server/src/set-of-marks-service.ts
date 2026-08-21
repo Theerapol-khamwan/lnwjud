@@ -60,9 +60,10 @@ export class SetOfMarksService {
     this.maxTtlSeconds = clamp(options.maxTtlSeconds ?? 300, this.defaultTtlSeconds, 300);
   }
 
-  public async capture(input: unknown): Promise<Result<unknown>> {
+  public async capture(input: unknown, signal?: AbortSignal): Promise<Result<unknown>> {
     const parsed = parseCaptureInput(input, this.defaultTtlSeconds, this.maxTtlSeconds);
     if (!parsed.ok) return parsed;
+    if (signal?.aborted) return cancelledResult('Visual capture');
     this.pruneExpired();
 
     const observed = await this.executeCapability('accessibility', {
@@ -72,12 +73,14 @@ export class SetOfMarksService {
         max_depth: parsed.value.maxDepth,
         max_items: Math.min(parsed.value.maxMarks * 4, 2_000),
       },
-    });
+    }, signal);
     if (!observed.ok) return observed;
+    if (signal?.aborted) return cancelledResult('Visual capture');
     const observedMarks = extractMarks(observed.value, parsed.value.maxMarks);
 
-    const captured = await this.executeCapability('vision', parsed.value.visionInput);
+    const captured = await this.executeCapability('vision', parsed.value.visionInput, signal);
     if (!captured.ok) return captured;
+    if (signal?.aborted) return cancelledResult('Visual capture');
     const sourceImage = normalizeImage(captured.value, false);
     if (!sourceImage.ok) return sourceImage;
 
@@ -87,7 +90,8 @@ export class SetOfMarksService {
       image_base64: sourceImage.value.data_base64,
       marks: marks.map((mark) => ({ mark_id: mark.markId, label: mark.label, bounds: mark.annotationBounds })),
     };
-    const annotated = await this.executeCapability('vision', annotationInput);
+    const annotated = await this.executeCapability('vision', annotationInput, signal);
+    if (signal?.aborted) return cancelledResult('Visual capture');
     const annotatedImage = annotated.ok ? normalizeImage(annotated.value, true) : undefined;
     const image = annotatedImage?.ok === true
       ? { ...annotatedImage.value, origin_x: sourceImage.value.origin_x, origin_y: sourceImage.value.origin_y }
@@ -111,9 +115,10 @@ export class SetOfMarksService {
     return ok(toPublicObservation(observation));
   }
 
-  public async act(input: unknown): Promise<Result<unknown>> {
+  public async act(input: unknown, signal?: AbortSignal): Promise<Result<unknown>> {
     const parsed = parseActionInput(input);
     if (!parsed.ok) return parsed;
+    if (signal?.aborted) return cancelledResult('Marked UI action');
     const observation = this.observations.get(parsed.value.observationId);
     if (observation === undefined) return err(appError('INVALID_INPUT', 'The visual observation is unknown or stale'));
     if (this.now() >= observation.expiresAtMs) {
@@ -130,15 +135,16 @@ export class SetOfMarksService {
     if (parsed.value.dryRun === true) return ok({ dry_run: true, observationId: observation.observationId, markId: mark.markId, action: parsed.value.action });
 
     const targetParameters = { ...observation.uiParameters, ...mark.target };
-    const current = await this.executeCapability('accessibility', { action: 'find_element', parameters: targetParameters });
+    const current = await this.executeCapability('accessibility', { action: 'find_element', parameters: targetParameters }, signal);
     if (!current.ok) return current;
+    if (signal?.aborted) return cancelledResult('Marked UI action');
     const actionParameters = parsed.value.value === undefined ? targetParameters : { ...targetParameters, value: parsed.value.value };
-    return this.executeCapability('accessibility', { action: parsed.value.action, parameters: actionParameters });
+    return this.executeCapability('accessibility', { action: parsed.value.action, parameters: actionParameters }, signal);
   }
 
-  private async executeCapability(tool: 'accessibility' | 'vision', input: unknown): Promise<Result<unknown>> {
+  private async executeCapability(tool: 'accessibility' | 'vision', input: unknown, signal?: AbortSignal): Promise<Result<unknown>> {
     if (this.capabilities === undefined) return err(appError('INTERNAL_ERROR', 'Capability service is unavailable', true));
-    return this.capabilities.execute(tool, input);
+    return this.capabilities.execute(tool, input, signal);
   }
 
   private pruneExpired(): void {
@@ -293,6 +299,10 @@ function readBounds(value: unknown): Bounds | undefined {
 
 function isMutatingAction(action: ActionInput['action']): boolean {
   return action === 'click' || action === 'set_value' || action === 'select_item' || action === 'menu_select';
+}
+
+function cancelledResult(operation: string): Result<never> {
+  return err(appError('PROCESS_TIMEOUT', `${operation} was cancelled`, true));
 }
 
 function readNonEmptyString(value: unknown): string | undefined {

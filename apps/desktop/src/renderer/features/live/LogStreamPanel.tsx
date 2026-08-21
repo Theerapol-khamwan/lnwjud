@@ -31,12 +31,15 @@ export function LogStreamPanel(props: LogStreamPanelProps): ReactElement {
       ? props.lines
       : props.lines.filter((line) => line.text.toLowerCase().includes(filter.toLowerCase()))
   ), [props.lines, filter]);
-  const visible = filtered.slice(-MAX_VISIBLE_LINES);
+  const visible = [...filtered].sort(compareLogLinesNewestFirst).slice(0, MAX_VISIBLE_LINES);
 
   useEffect(() => {
     if (paused) return;
     const element = streamRef.current;
-    if (element !== null) element.scrollTop = element.scrollHeight;
+    if (element === null) return;
+    element.scrollTop = 0;
+    const outerScroller = element.closest<HTMLElement>('.main-pane, .log-viewer-window');
+    if (outerScroller !== null && outerScroller.scrollTop > element.offsetTop) outerScroller.scrollTop = element.offsetTop;
   }, [visible.length, paused]);
 
   return (
@@ -87,6 +90,13 @@ export function filterLines(lines: readonly LogLine[], source: LogSource): reado
 
 export function logLevelFor(line: LogLine): LogLevel {
   return line.level;
+}
+
+export function compareLogLinesNewestFirst(left: LogLine, right: LogLine): number {
+  const leftTime = Date.parse(left.timestamp);
+  const rightTime = Date.parse(right.timestamp);
+  if (Number.isFinite(leftTime) && Number.isFinite(rightTime) && leftTime !== rightTime) return rightTime - leftTime;
+  return right.id - left.id;
 }
 
 function formatTime(value: string): string {

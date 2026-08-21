@@ -74,6 +74,66 @@ describe('CodexService', () => {
     await expect(service.stop({ clientId: 'client-1', clientName: 'test' }, workspace.id, started.value.codexTaskId))
       .resolves.toMatchObject({ ok: true });
   });
+
+  it('stops a Codex process with verified retry when cancellation races its launch response', async () => {
+    const workspace = await createWorkspace();
+    const controller = new AbortController();
+    const stopCalls: Array<{ processId: string; autoRetry: boolean | undefined }> = [];
+    const adapter = fakeAdapter();
+    adapter.start = async (cwd, instruction): Promise<Result<ManagedProcess>> => {
+      controller.abort();
+      return ok({ processId: 'process-race', executable: 'codex', args: ['exec', instruction], cwd, state: 'running', startedAt: new Date(0).toISOString() });
+    };
+    adapter.stop = async (processId, autoRetry): Promise<Result<void>> => {
+      stopCalls.push({ processId, autoRetry });
+      return ok(undefined);
+    };
+    const service = new CodexService(repository(workspace), { adapter });
+
+    await expect(service.run({ clientId: 'client-1', clientName: 'test' }, workspace.id, 'review', controller.signal))
+      .resolves.toMatchObject({ ok: false, error: { code: 'PROCESS_TIMEOUT' } });
+    expect(stopCalls).toEqual([{ processId: 'process-race', autoRetry: true }]);
+  });
+
+  it('lists and authorizes a provisionally created Codex task before start settles', async () => {
+    const workspace = await createWorkspace();
+    const handle: ManagedProcess = {
+      processId: 'process-provisional',
+      executable: 'codex',
+      args: ['exec', 'review'],
+      cwd: workspace.realRootPath,
+      state: 'termination_unverified',
+      startedAt: new Date(0).toISOString(),
+      error: 'Process termination could not be verified',
+    };
+    let releaseStart!: () => void;
+    const startGate = new Promise<void>((resolve) => { releaseStart = resolve; });
+    let created!: () => void;
+    const createdGate = new Promise<void>((resolve) => { created = resolve; });
+    let stops = 0;
+    const adapter = fakeAdapter();
+    adapter.start = async (_cwd, _instruction, _signal, onCreated): Promise<Result<ManagedProcess>> => {
+      onCreated?.(handle);
+      created();
+      await startGate;
+      return ok(handle);
+    };
+    adapter.statusProcess = (): Result<ManagedProcess> => ok(handle);
+    adapter.stop = async (): Promise<Result<void>> => { stops += 1; return ok(undefined); };
+    const service = new CodexService(repository(workspace), { adapter, taskIdFactory: (): string => 'codex-provisional' });
+    const actor = { clientId: 'client-1', clientName: 'test' };
+
+    const starting = service.run(actor, workspace.id, 'review');
+    await createdGate;
+    await expect(service.list(actor, workspace.id)).resolves.toMatchObject({
+      ok: true,
+      value: [{ codexTaskId: 'codex-provisional', process: { processId: 'process-provisional', state: 'termination_unverified' } }],
+    });
+    await expect(service.stop(actor, workspace.id, 'codex-provisional')).resolves.toMatchObject({ ok: true });
+    expect(stops).toBe(1);
+    releaseStart();
+    await expect(starting).resolves.toMatchObject({ ok: true, value: { codexTaskId: 'codex-provisional' } });
+  });
 });
 
 async function createWorkspace(): Promise<Workspace> {

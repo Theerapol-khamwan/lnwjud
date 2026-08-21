@@ -25,21 +25,21 @@ import {
 } from './schemas.js';
 
 export function capabilityTools(context: McpToolContext): McpToolDefinition[] {
-  const execute = (tool: Parameters<NonNullable<McpToolContext['services']['capabilities']>['execute']>[0], input: unknown): Promise<Result<unknown>> => (
+  const execute = (tool: Parameters<NonNullable<McpToolContext['services']['capabilities']>['execute']>[0], input: unknown, signal?: AbortSignal): Promise<Result<unknown>> => (
     context.services.capabilities === undefined
       ? Promise.resolve(missingService())
-      : context.services.capabilities.execute(tool, input)
+      : context.services.capabilities.execute(tool, input, signal)
   );
   const setOfMarks = new SetOfMarksService(context.services.capabilities);
 
   return [
     defineTool({
       name: 'shell',
-      description: 'Default tool for system operations and CLI tasks. Destructive shell commands require explicit chat confirmation and userConfirmed: true. Foreground is best for short work; background returns a task_id for status, logs, wait, result, or cancel.',
+      description: 'Default tool for system operations and CLI tasks. Destructive shell commands require explicit chat confirmation and userConfirmed: true. Use background for long-running work: it returns a durable task_id quickly and the job keeps running independently of the MCP call; use status, logs, wait, result, or cancel later. Auto mode also promotes unfinished work to a durable task.',
       permission: 'EXECUTE',
       annotations: { readOnlyHint: false, destructiveHint: true },
       inputSchema: shellCapabilitySchema,
-      handler: async (input) => execute('shell', input),
+      handler: async (input, signal) => execute('shell', input, signal),
     }),
     defineTool({
       name: 'dom_cdp',
@@ -47,7 +47,7 @@ export function capabilityTools(context: McpToolContext): McpToolDefinition[] {
       permission: 'DANGEROUS',
       annotations: { readOnlyHint: false, destructiveHint: true },
       inputSchema: domCdpCapabilitySchema,
-      handler: async (input) => execute('dom_cdp', input),
+      handler: async (input, signal) => execute('dom_cdp', input, signal),
     }),
     defineTool({
       name: 'accessibility',
@@ -55,7 +55,7 @@ export function capabilityTools(context: McpToolContext): McpToolDefinition[] {
       permission: 'DANGEROUS',
       annotations: { readOnlyHint: false, destructiveHint: true },
       inputSchema: accessibilityCapabilitySchema,
-      handler: async (input) => execute('accessibility', input),
+      handler: async (input, signal) => execute('accessibility', input, signal),
     }),
     defineTool({
       name: 'input_event',
@@ -63,7 +63,7 @@ export function capabilityTools(context: McpToolContext): McpToolDefinition[] {
       permission: 'DANGEROUS',
       annotations: { readOnlyHint: false, destructiveHint: true },
       inputSchema: inputEventCapabilitySchema,
-      handler: async (input) => execute('input_event', input),
+      handler: async (input, signal) => execute('input_event', input, signal),
     }),
     defineTool({
       name: 'vision',
@@ -71,7 +71,7 @@ export function capabilityTools(context: McpToolContext): McpToolDefinition[] {
       permission: 'READ',
       annotations: { readOnlyHint: true, destructiveHint: false },
       inputSchema: visionCapabilitySchema,
-      handler: async (input) => execute('vision', input),
+      handler: async (input, signal) => execute('vision', input, signal),
     }),
     defineTool({
       name: 'vision_annotated_capture',
@@ -79,7 +79,7 @@ export function capabilityTools(context: McpToolContext): McpToolDefinition[] {
       permission: 'READ',
       annotations: { readOnlyHint: true, destructiveHint: false },
       inputSchema: visionAnnotatedCaptureSchema,
-      handler: async (input) => setOfMarks.capture(input),
+      handler: async (input, signal) => setOfMarks.capture(input, signal),
     }),
     defineTool({
       name: 'ui_target_action',
@@ -87,7 +87,7 @@ export function capabilityTools(context: McpToolContext): McpToolDefinition[] {
       permission: 'DANGEROUS',
       annotations: { readOnlyHint: false, destructiveHint: true },
       inputSchema: uiTargetActionSchema,
-      handler: async (input) => setOfMarks.act(input),
+      handler: async (input, signal) => setOfMarks.act(input, signal),
     }),
     defineTool({
       name: 'window',
@@ -95,7 +95,7 @@ export function capabilityTools(context: McpToolContext): McpToolDefinition[] {
       permission: 'DANGEROUS',
       annotations: { readOnlyHint: false, destructiveHint: true },
       inputSchema: windowCapabilitySchema,
-      handler: async (input) => execute('window', input),
+      handler: async (input, signal) => execute('window', input, signal),
     }),
     defineTool({
       name: 'health',
@@ -103,7 +103,7 @@ export function capabilityTools(context: McpToolContext): McpToolDefinition[] {
       permission: 'READ',
       annotations: { readOnlyHint: true, destructiveHint: false },
       inputSchema: healthCapabilitySchema,
-      handler: async (input) => execute('health', input),
+      handler: async (input, signal) => execute('health', input, signal),
     }),
     defineTool({
       name: 'system_info',
@@ -111,7 +111,7 @@ export function capabilityTools(context: McpToolContext): McpToolDefinition[] {
       permission: 'READ',
       annotations: { readOnlyHint: true, destructiveHint: false },
       inputSchema: systemInfoCapabilitySchema,
-      handler: async (input) => execute('system_info', input),
+      handler: async (input, signal) => execute('system_info', input, signal),
     }),
     defineTool({
       name: 'notification',
@@ -119,7 +119,7 @@ export function capabilityTools(context: McpToolContext): McpToolDefinition[] {
       permission: 'EXECUTE',
       annotations: { readOnlyHint: false, destructiveHint: false },
       inputSchema: notificationCapabilitySchema,
-      handler: async (input) => execute('notification', input),
+      handler: async (input, signal) => execute('notification', input, signal),
     }),
     defineTool({
       name: 'file_dialog',
@@ -127,7 +127,7 @@ export function capabilityTools(context: McpToolContext): McpToolDefinition[] {
       permission: 'EXECUTE',
       annotations: { readOnlyHint: true, destructiveHint: false },
       inputSchema: fileDialogCapabilitySchema,
-      handler: async (input) => execute('file_dialog', input),
+      handler: async (input, signal) => execute('file_dialog', input, signal),
     }),
     defineTool({
       name: 'clipboard',
@@ -135,7 +135,7 @@ export function capabilityTools(context: McpToolContext): McpToolDefinition[] {
       permission: 'DANGEROUS',
       annotations: { readOnlyHint: false, destructiveHint: false },
       inputSchema: clipboardCapabilitySchema,
-      handler: async (input) => execute('clipboard', input),
+      handler: async (input, signal) => execute('clipboard', input, signal),
     }),
     defineTool({
       name: 'web_fetch',
@@ -143,7 +143,7 @@ export function capabilityTools(context: McpToolContext): McpToolDefinition[] {
       permission: 'DANGEROUS',
       annotations: { readOnlyHint: true, destructiveHint: false },
       inputSchema: webFetchCapabilitySchema,
-      handler: async (input) => execute('web_fetch', input),
+      handler: async (input, signal) => execute('web_fetch', input, signal),
     }),
     defineTool({
       name: 'audio',
@@ -151,7 +151,7 @@ export function capabilityTools(context: McpToolContext): McpToolDefinition[] {
       permission: 'DANGEROUS',
       annotations: { readOnlyHint: false, destructiveHint: false },
       inputSchema: audioCapabilitySchema,
-      handler: async (input) => execute('audio', input),
+      handler: async (input, signal) => execute('audio', input, signal),
     }),
     defineTool({
       name: 'screen_record',
@@ -159,7 +159,7 @@ export function capabilityTools(context: McpToolContext): McpToolDefinition[] {
       permission: 'DANGEROUS',
       annotations: { readOnlyHint: false, destructiveHint: false },
       inputSchema: screenRecordCapabilitySchema,
-      handler: async (input) => execute('screen_record', input),
+      handler: async (input, signal) => execute('screen_record', input, signal),
     }),
     defineTool({
       name: 'office',
@@ -167,7 +167,7 @@ export function capabilityTools(context: McpToolContext): McpToolDefinition[] {
       permission: 'DANGEROUS',
       annotations: { readOnlyHint: false, destructiveHint: false },
       inputSchema: officeCapabilitySchema,
-      handler: async (input) => execute('office', input),
+      handler: async (input, signal) => execute('office', input, signal),
     }),
     defineTool({
       name: 'scheduler',
@@ -175,7 +175,7 @@ export function capabilityTools(context: McpToolContext): McpToolDefinition[] {
       permission: 'DANGEROUS',
       annotations: { readOnlyHint: false, destructiveHint: true },
       inputSchema: schedulerCapabilitySchema,
-      handler: async (input) => execute('scheduler', input),
+      handler: async (input, signal) => execute('scheduler', input, signal),
     }),
     defineTool({
       name: 'wsl_exec',
@@ -183,7 +183,7 @@ export function capabilityTools(context: McpToolContext): McpToolDefinition[] {
       permission: 'EXECUTE',
       annotations: { readOnlyHint: false, destructiveHint: true },
       inputSchema: wslCapabilitySchema,
-      handler: async (input) => execute('wsl_exec', input),
+      handler: async (input, signal) => execute('wsl_exec', input, signal),
     }),
     defineTool({
       name: 'wsl_fs',
@@ -191,7 +191,7 @@ export function capabilityTools(context: McpToolContext): McpToolDefinition[] {
       permission: 'READ',
       annotations: { readOnlyHint: true, destructiveHint: false },
       inputSchema: wslFilesystemCapabilitySchema,
-      handler: async (input) => execute('wsl_fs', input),
+      handler: async (input, signal) => execute('wsl_fs', input, signal),
     }),
   ];
 }

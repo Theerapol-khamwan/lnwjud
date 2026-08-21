@@ -10,6 +10,8 @@ const SNAPSHOT_FILE = 'lnwjud.mcp.activity.json';
 const SNAPSHOT_VERSION = 1;
 const DEFAULT_STALE_AFTER_MS = 5_000;
 const DEFAULT_HEARTBEAT_MS = 1_000;
+const DEFAULT_PROCESS_PROBE_TIMEOUT_MS = 1_750;
+const DEFAULT_PROCESS_PROBE_ATTEMPTS = 2;
 const MAX_SNAPSHOT_BYTES = 16 * 1024;
 const ISO_UTC_MILLISECONDS = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/;
 
@@ -30,6 +32,12 @@ export type ProcessProbeResult =
   | { readonly state: 'live'; readonly processStartedAt: string }
   | { readonly state: 'gone' }
   | { readonly state: 'unverifiable'; readonly reason: string };
+
+export interface ProcessProbeOptions {
+  readonly runProbe?: (pid: number, timeoutMs: number) => Promise<string>;
+  readonly timeoutMs?: number;
+  readonly attempts?: number;
+}
 
 export type SharedActivityObservation =
   | { readonly state: 'available'; readonly owner: SharedActivityOwner; readonly activeCount: number; readonly revision: number; readonly updatedAt: string }
@@ -192,20 +200,20 @@ export async function currentSharedActivityOwner(): Promise<SharedActivityOwner>
   return { pid: process.pid, processStartedAt: probe.processStartedAt };
 }
 
-export async function probeProcessStart(pid: number): Promise<ProcessProbeResult> {
+export async function probeProcessStart(pid: number, options: ProcessProbeOptions = {}): Promise<ProcessProbeResult> {
   if (!Number.isInteger(pid) || pid <= 0 || pid > 2_147_483_647) return { state: 'unverifiable', reason: 'invalid_pid' };
-  try {
-    const { stdout } = await execFileAsync('powershell.exe', [
-      '-NoProfile',
-      '-NonInteractive',
-      '-Command',
-      `$ErrorActionPreference='Stop'; $p=Get-CimInstance Win32_Process -Filter "ProcessId = ${pid}" -ErrorAction Stop; if($null -eq $p){'GONE'}else{'LIVE|' + $p.CreationDate.ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ss.fffZ',[Globalization.CultureInfo]::InvariantCulture)}`,
-    ], { windowsHide: true, encoding: 'utf8', timeout: 3_000 });
-    return parseProcessProbeOutput(stdout);
-  } catch (error: unknown) {
-    const code = typeof error === 'object' && error !== null && 'code' in error ? String((error as { code?: unknown }).code ?? '') : '';
-    return { state: 'unverifiable', reason: code === 'ETIMEDOUT' ? 'probe_timeout' : 'probe_failed' };
+  const runProbe = options.runProbe ?? runWindowsProcessProbe;
+  const timeoutMs = positiveInteger(options.timeoutMs, DEFAULT_PROCESS_PROBE_TIMEOUT_MS);
+  const attempts = Math.min(3, positiveInteger(options.attempts, DEFAULT_PROCESS_PROBE_ATTEMPTS));
+  for (let attempt = 1; attempt <= attempts; attempt += 1) {
+    try {
+      return parseProcessProbeOutput(await runProbe(pid, timeoutMs));
+    } catch (error: unknown) {
+      if (!isProcessProbeTimeout(error)) return { state: 'unverifiable', reason: 'probe_failed' };
+      if (attempt === attempts) return { state: 'unverifiable', reason: 'probe_timeout' };
+    }
   }
+  return { state: 'unverifiable', reason: 'probe_timeout' };
 }
 
 export function parseProcessProbeOutput(stdout: string): ProcessProbeResult {
@@ -280,4 +288,26 @@ async function restoreSnapshot(quarantinePath: string, snapshotPath: string): Pr
 
 function isAlreadyExists(error: unknown): boolean {
   return typeof error === 'object' && error !== null && ['EEXIST', 'EPERM'].includes(String((error as NodeJS.ErrnoException).code ?? ''));
+}
+
+async function runWindowsProcessProbe(pid: number, timeoutMs: number): Promise<string> {
+  const { stdout } = await execFileAsync('powershell.exe', [
+    '-NoProfile',
+    '-NonInteractive',
+    '-Command',
+    `$ErrorActionPreference='Stop'; try{$p=Get-Process -Id ${pid} -ErrorAction Stop}catch{if($_.FullyQualifiedErrorId -like 'NoProcessFoundForGivenId,*'){'GONE';exit 0};throw}; 'LIVE|' + $p.StartTime.ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ss.fffZ',[Globalization.CultureInfo]::InvariantCulture)`,
+  ], { windowsHide: true, encoding: 'utf8', timeout: timeoutMs });
+  return stdout;
+}
+
+function isProcessProbeTimeout(error: unknown): boolean {
+  if (typeof error !== 'object' || error === null) return false;
+  const value = error as { readonly code?: unknown; readonly killed?: unknown; readonly signal?: unknown };
+  return value.code === 'ETIMEDOUT'
+    || value.killed === true
+    || (value.code == null && value.signal === 'SIGTERM');
+}
+
+function positiveInteger(value: number | undefined, fallback: number): number {
+  return Number.isInteger(value) && (value ?? 0) > 0 ? value as number : fallback;
 }

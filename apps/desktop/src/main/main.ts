@@ -20,8 +20,10 @@ import {
   type PermissionProfileName,
   type SaveTunnelApiKeyRequest,
   type SelectWorkspaceRequest,
+  type SetAiDeletePolicyRequest,
   type SetLocaleRequest,
   type SetPermissionProfileRequest,
+  type SetStdioPolicyRequest,
   type SetTunnelClientPathRequest,
   type SetUnrestrictedModeRequest,
   type StartMcpRequest,
@@ -49,6 +51,8 @@ export interface DesktopIpcServices {
   getDashboard(): Promise<DashboardSnapshot>;
   setPermissionProfile(request: SetPermissionProfileRequest): Promise<{ readonly profile: PermissionProfileName }>;
   setUnrestrictedMode(request: SetUnrestrictedModeRequest): Promise<{ readonly unrestricted: boolean; readonly restartRequired: boolean }>;
+  setAiDeletePolicy(request: SetAiDeletePolicyRequest): Promise<{ readonly enabled: boolean }>;
+  setStdioPolicy(request: SetStdioPolicyRequest): Promise<{ readonly profile: PermissionProfileName; readonly strictRoots: boolean; readonly allowedRoots: readonly string[]; readonly restartRequired: boolean }>;
   listProcesses(): Promise<IpcResponseMap[typeof ipcChannels.listProcesses]>;
   startProcess(request: StartProcessRequest): Promise<IpcResponseMap[typeof ipcChannels.startProcess]>;
   stopProcess(request: StopProcessRequest): Promise<{ readonly stopped: boolean }>;
@@ -103,6 +107,10 @@ const defaultDesktopServices: DesktopIpcServices = {
     mode: 'WORK',
     locale: 'th',
     unrestricted: false,
+    allowAiDelete: false,
+    stdioPermissionProfile: 'full',
+    stdioStrictRoots: false,
+    stdioAllowedRoots: [],
     connectionModes: { httpUrl: null, stdioCommand: 'lnwjud.exe --mcp-stdio' },
     workLog: [],
     inFlight: [],
@@ -113,6 +121,10 @@ const defaultDesktopServices: DesktopIpcServices = {
   setUnrestrictedMode: async (request): Promise<{ readonly unrestricted: boolean; readonly restartRequired: boolean }> => ({
     unrestricted: request.enabled,
     restartRequired: false,
+  }),
+  setAiDeletePolicy: async (request): Promise<{ readonly enabled: boolean }> => ({ enabled: request.enabled }),
+  setStdioPolicy: async (request): Promise<{ readonly profile: PermissionProfileName; readonly strictRoots: boolean; readonly allowedRoots: readonly string[]; readonly restartRequired: boolean }> => ({
+    profile: request.profile, strictRoots: request.strictRoots, allowedRoots: request.allowedRoots, restartRequired: false,
   }),
   listProcesses: async (): Promise<readonly ProcessSummary[]> => [],
   startProcess: async (): Promise<IpcResponseMap[typeof ipcChannels.startProcess]> => {
@@ -197,6 +209,14 @@ export function registerIpcHandlers(
   ipcMain.handle(ipcChannels.setUnrestrictedMode, async (event, payload: unknown) => {
     assertTrustedSender(event, getMainWindow());
     return services.setUnrestrictedMode(parseSetUnrestrictedModeRequest(payload));
+  });
+  ipcMain.handle(ipcChannels.setAiDeletePolicy, async (event, payload: unknown) => {
+    assertTrustedSender(event, getMainWindow());
+    return services.setAiDeletePolicy(parseSetAiDeletePolicyRequest(payload));
+  });
+  ipcMain.handle(ipcChannels.setStdioPolicy, async (event, payload: unknown) => {
+    assertTrustedSender(event, getMainWindow());
+    return services.setStdioPolicy(parseSetStdioPolicyRequest(payload));
   });
   ipcMain.handle(ipcChannels.listProcesses, async (event, payload: unknown) => {
     assertTrustedSender(event, getMainWindow());
@@ -318,6 +338,20 @@ function parseSetPermissionProfileRequest(payload: unknown): SetPermissionProfil
 function parseSetUnrestrictedModeRequest(payload: unknown): SetUnrestrictedModeRequest {
   if (!isRecord(payload) || typeof payload.enabled !== 'boolean') throw new Error('Invalid IPC payload: enabled');
   return { enabled: payload.enabled };
+}
+
+function parseSetAiDeletePolicyRequest(payload: unknown): SetAiDeletePolicyRequest {
+  if (!isRecord(payload) || typeof payload.enabled !== 'boolean') throw new Error('Invalid IPC payload: enabled');
+  return { enabled: payload.enabled };
+}
+
+function parseSetStdioPolicyRequest(payload: unknown): SetStdioPolicyRequest {
+  if (!isRecord(payload) || !isPermissionProfile(payload.profile) || typeof payload.strictRoots !== 'boolean' || !Array.isArray(payload.allowedRoots)) {
+    throw new Error('Invalid IPC payload: stdio policy');
+  }
+  const allowedRoots = payload.allowedRoots.map((root) => nonEmptyString(root, 'allowedRoot').trim());
+  if (payload.strictRoots && allowedRoots.length === 0) throw new Error('Strict root mode requires at least one allowed root');
+  return { profile: payload.profile, strictRoots: payload.strictRoots, allowedRoots };
 }
 
 function parseClearLogBufferRequest(payload: unknown): ClearLogBufferRequest {

@@ -22,22 +22,22 @@ export function mcpBridgeTools(context: McpToolContext): McpToolDefinition[] {
       description: 'Connect to one local MCP server (if needed) and return its tool names, descriptions, and input schemas.',
       ...fullAccess,
       inputSchema: mcpDescribeSchema,
-      handler: async (input) => context.services.extensions === undefined
+      handler: async (input, signal) => context.services.extensions === undefined
         ? missingService()
-        : context.services.extensions.describeMcpServer({ server: input.server }),
+        : context.services.extensions.describeMcpServer({ server: input.server }, signal),
     }),
     defineTool({
       name: 'mcp_call',
       description: 'Call a tool on a discovered local MCP server. Because child side effects cannot be proven non-destructive at this boundary, every mcp_call requires explicit chat confirmation and userConfirmed: true.',
       ...fullAccess,
       inputSchema: mcpCallSchema,
-      handler: async (input) => context.services.extensions === undefined
+      handler: async (input, signal) => context.services.extensions === undefined
         ? missingService()
         : context.services.extensions.callMcpTool({
           server: input.server,
           tool: input.tool,
           ...(input.arguments === undefined ? {} : { arguments: input.arguments }),
-        }),
+        }, signal),
     }),
   ];
 }

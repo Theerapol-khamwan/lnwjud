@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { ok, type Result } from '@lnwjud/domain';
+import { appError, err, ok, type Result } from '@lnwjud/domain';
 import type { CapabilityService, CapabilityToolName } from '@lnwjud/capabilities';
 import { SetOfMarksService } from './set-of-marks-service.js';
 
@@ -73,6 +73,50 @@ describe('SetOfMarksService', () => {
     now = 11_001;
     await expect(service.act({ workspaceId: 'ws-1', observationId: captured.value.observationId, markId: 'm1', observationHash: captured.value.observationHash, action: 'click', userConfirmed: true })).resolves.toMatchObject({ ok: false, error: { code: 'INVALID_INPUT' } });
     expect(calls.some((call) => isRecord(call.input) && call.input.action === 'find_element')).toBe(true);
+  });
+
+  it('does not dispatch a marked UI action when cancellation wins during revalidation', async () => {
+    let releaseFind!: () => void;
+    let findStarted!: () => void;
+    const findEntered = new Promise<void>((resolve) => { findStarted = resolve; });
+    const findReleased = new Promise<void>((resolve) => { releaseFind = resolve; });
+    let actions = 0;
+    const capabilities: CapabilityService = {
+      execute: async (tool, input): Promise<Result<unknown>> => {
+        if (tool === 'accessibility' && isRecord(input) && input.action === 'observe') {
+          return ok({ elements: [{ element: { name: 'Save', automation_id: 'save', enabled: true, offscreen: false, bounds: { x: 20, y: 30, width: 100, height: 40 } } }] });
+        }
+        if (tool === 'accessibility' && isRecord(input) && input.action === 'find_element') {
+          findStarted();
+          await findReleased;
+          return ok({ element: { name: 'Save', automation_id: 'save' } });
+        }
+        if (tool === 'accessibility' && isRecord(input) && input.action === 'click') {
+          actions += 1;
+          return ok({ clicked: true });
+        }
+        return ok(image);
+      },
+    };
+    const service = new SetOfMarksService(capabilities);
+    const captured = await service.capture({ workspaceId: 'ws-1', capture: 'display' });
+    if (!captured.ok) throw new Error('capture failed');
+    const controller = new AbortController();
+
+    const acting = service.act({
+      workspaceId: 'ws-1',
+      observationId: captured.value.observationId,
+      markId: 'm1',
+      observationHash: captured.value.observationHash,
+      action: 'click',
+      userConfirmed: true,
+    }, controller.signal);
+    await findEntered;
+    controller.abort();
+    releaseFind();
+
+    await expect(acting).resolves.toEqual(err(appError('PROCESS_TIMEOUT', 'Marked UI action was cancelled', true)));
+    expect(actions).toBe(0);
   });
 });
 

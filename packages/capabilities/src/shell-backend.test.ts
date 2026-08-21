@@ -76,7 +76,7 @@ describe('ShellCapabilityBackend', () => {
     const result = await backend.execute({
       operation: 'run',
       executable: process.execPath,
-      arguments: ['-e', "setTimeout(() => process.stdout.write('late'), 250)"],
+      arguments: ['-e', "setTimeout(() => process.stdout.write('late'), 2000)"],
       cwd: root,
       execution: 'foreground',
       timeout_seconds: 5,
@@ -87,6 +87,206 @@ describe('ShellCapabilityBackend', () => {
     if (result.ok) await backend.execute({ operation: 'cancel', task_id: result.value.task_id });
   });
 
+  it('cancels a foreground process when its caller aborts the request', async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), 'lnwjud-shell-'));
+    temporaryRoots.push(root);
+    let stops = 0;
+    const backend = new ShellCapabilityBackend({
+      allowedRoots: [root],
+      maxSynchronousWaitSeconds: 1,
+      terminator: {
+        async stop(child): Promise<void> {
+          stops += 1;
+          if (child.exitCode !== null) return;
+          const exited = new Promise<void>((resolve) => child.once('close', () => resolve()));
+          child.kill();
+          await exited;
+        },
+      },
+    });
+    const controller = new AbortController();
+    const startedAt = Date.now();
+
+    const running = backend.execute({
+      operation: 'run',
+      executable: process.execPath,
+      arguments: ['-e', 'setTimeout(() => {}, 300)'],
+      cwd: root,
+      execution: 'foreground',
+      timeout_seconds: 5,
+    }, controller.signal);
+    setTimeout(() => controller.abort(), 20);
+
+    await expect(running).resolves.toMatchObject({ ok: true, value: { state: 'cancelled' } });
+    expect(Date.now() - startedAt).toBeLessThan(200);
+    expect(stops).toBe(1);
+  });
+
+  it('does not spawn after cancellation wins during executable resolution', async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), 'lnwjud-shell-'));
+    temporaryRoots.push(root);
+    let releaseResolver!: () => void;
+    let resolverStarted!: () => void;
+    const resolverEntered = new Promise<void>((resolve) => { resolverStarted = resolve; });
+    const resolverReleased = new Promise<void>((resolve) => { releaseResolver = resolve; });
+    let stops = 0;
+    const backend = new ShellCapabilityBackend({
+      allowedRoots: [root],
+      executableResolver: {
+        async resolve(): Promise<Result<string>> {
+          resolverStarted();
+          await resolverReleased;
+          return ok(process.execPath);
+        },
+      },
+      terminator: {
+        async stop(child): Promise<void> {
+          stops += 1;
+          if (child.exitCode !== null) return;
+          const exited = new Promise<void>((resolve) => child.once('close', () => resolve()));
+          child.kill();
+          await exited;
+        },
+      },
+    });
+    const controller = new AbortController();
+
+    const pending = backend.execute({
+      operation: 'run',
+      executable: 'delayed-fixture',
+      arguments: ['-e', 'process.exit(0)'],
+      cwd: root,
+      execution: 'foreground',
+      timeout_seconds: 5,
+    }, controller.signal);
+    await resolverEntered;
+    controller.abort();
+    releaseResolver();
+
+    await expect(pending).resolves.toMatchObject({ ok: false, error: { code: 'PROCESS_TIMEOUT' } });
+    expect(stops).toBe(0);
+  });
+
+  it('retains an explicit unverified state when the root closes after termination rejection', async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), 'lnwjud-shell-'));
+    temporaryRoots.push(root);
+    const backend = new ShellCapabilityBackend({
+      allowedRoots: [root],
+      terminator: {
+        async stop(child): Promise<void> {
+          setTimeout(() => child.kill(), 20);
+          throw new Error('termination not verified');
+        },
+      },
+    });
+    const started = await backend.execute({
+      operation: 'run',
+      executable: process.execPath,
+      arguments: ['-e', 'setTimeout(() => {}, 300)'],
+      cwd: root,
+      execution: 'background',
+      timeout_seconds: 5,
+    });
+    expect(started.ok).toBe(true);
+    if (!started.ok) return;
+
+    const cancelling = backend.execute({ operation: 'cancel', task_id: started.value.task_id });
+    await new Promise((resolve) => setTimeout(resolve, 80));
+    await expect(backend.execute({ operation: 'list' })).resolves.toMatchObject({
+      ok: true,
+      value: { tasks: [expect.objectContaining({ task_id: started.value.task_id, state: 'termination_unverified' })] },
+    });
+    const statusAfterFailure = await backend.execute({ operation: 'status', task_id: started.value.task_id });
+    expect(statusAfterFailure).toMatchObject({
+      ok: true,
+      value: {
+        state: 'termination_unverified',
+        error: 'Process termination could not be verified',
+      },
+    });
+    if (statusAfterFailure.ok) expect(statusAfterFailure.value).not.toHaveProperty('finished_at');
+    await expect(Promise.race([cancelling.then(() => 'settled'), delayForTest(30).then(() => 'pending')])).resolves.toBe('pending');
+  });
+
+  it('retains an explicit unverified state when the root closes before termination rejection', async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), 'lnwjud-shell-'));
+    temporaryRoots.push(root);
+    const backend = new ShellCapabilityBackend({
+      allowedRoots: [root],
+      terminator: {
+        async stop(child): Promise<void> {
+          const closed = new Promise<void>((resolve) => child.once('close', () => resolve()));
+          child.kill();
+          await closed;
+          throw new Error('tree verification failed after root exit');
+        },
+      },
+    });
+    const started = await backend.execute({
+      operation: 'run',
+      executable: process.execPath,
+      arguments: ['-e', 'setTimeout(() => {}, 2000)'],
+      cwd: root,
+      execution: 'background',
+      timeout_seconds: 5,
+    });
+    expect(started.ok).toBe(true);
+    if (!started.ok) return;
+
+    const cancelling = backend.execute({ operation: 'cancel', task_id: started.value.task_id });
+    await new Promise((resolve) => setTimeout(resolve, 80));
+    const statusAfterFailure = await backend.execute({ operation: 'status', task_id: started.value.task_id });
+    expect(statusAfterFailure).toMatchObject({
+      ok: true,
+      value: { state: 'termination_unverified', error: 'Process termination could not be verified' },
+    });
+    if (statusAfterFailure.ok) expect(statusAfterFailure.value).not.toHaveProperty('finished_at');
+    await expect(Promise.race([cancelling.then(() => 'settled'), delayForTest(30).then(() => 'pending')])).resolves.toBe('pending');
+  });
+
+  it('allows a termination-unverified task to be safely re-verified', async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), 'lnwjud-shell-'));
+    temporaryRoots.push(root);
+    let attempts = 0;
+    const backend = new ShellCapabilityBackend({
+      allowedRoots: [root],
+      terminator: {
+        async stop(child): Promise<void> {
+          attempts += 1;
+          if (attempts === 1) {
+            const closed = new Promise<void>((resolve) => child.once('close', () => resolve()));
+            child.kill();
+            await closed;
+            throw new Error('first verification failed');
+          }
+        },
+      },
+    });
+    const started = await backend.execute({
+      operation: 'run',
+      executable: process.execPath,
+      arguments: ['-e', 'setTimeout(() => {}, 2000)'],
+      cwd: root,
+      execution: 'background',
+      timeout_seconds: 5,
+    });
+    expect(started.ok).toBe(true);
+    if (!started.ok) return;
+
+    const firstCancellation = backend.execute({ operation: 'cancel', task_id: started.value.task_id });
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    await expect(backend.execute({ operation: 'status', task_id: started.value.task_id })).resolves.toMatchObject({
+      ok: true,
+      value: { state: 'termination_unverified' },
+    });
+    await expect(backend.execute({ operation: 'cancel', task_id: started.value.task_id })).resolves.toMatchObject({
+      ok: true,
+      value: { state: 'cancelled' },
+    });
+    await expect(firstCancellation).resolves.toMatchObject({ ok: true, value: { state: 'cancelled' } });
+    expect(attempts).toBe(2);
+  });
+
   it('caps shell wait calls so polling cannot hold the MCP connection open indefinitely', async () => {
     const root = await mkdtemp(path.join(os.tmpdir(), 'lnwjud-shell-'));
     temporaryRoots.push(root);
@@ -94,7 +294,7 @@ describe('ShellCapabilityBackend', () => {
     const started = await backend.execute({
       operation: 'run',
       executable: process.execPath,
-      arguments: ['-e', "setTimeout(() => process.stdout.write('late'), 250)"],
+      arguments: ['-e', "setTimeout(() => process.stdout.write('late'), 2000)"],
       cwd: root,
       execution: 'background',
       timeout_seconds: 5,
@@ -132,6 +332,10 @@ describe('ShellCapabilityBackend', () => {
     });
   });
 });
+
+function delayForTest(milliseconds: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, milliseconds));
+}
 
 describe('ShellCapabilityBackend unrestricted', () => {
   it('allows a working directory outside configured local roots', async () => {

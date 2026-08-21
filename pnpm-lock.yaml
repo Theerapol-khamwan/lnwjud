@@ -253,6 +253,9 @@ importers:
       '@lnwjud/domain':
         specifier: workspace:*
         version: link:../domain
+      '@lnwjud/process':
+        specifier: workspace:*
+        version: link:../process
 
   packages/ipc-contracts: {}
 

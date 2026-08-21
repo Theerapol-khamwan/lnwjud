@@ -19,6 +19,10 @@ const dashboard: DashboardSnapshot = {
   mode: 'WORK',
   locale: 'en',
   unrestricted: false,
+  allowAiDelete: false,
+  stdioPermissionProfile: 'full',
+  stdioStrictRoots: false,
+  stdioAllowedRoots: [],
   connectionModes: { httpUrl: null, stdioCommand: 'lnwjud --mcp-stdio' },
   workLog: [],
   inFlight: [],
@@ -33,7 +37,7 @@ describe('shared incident capture busy UI', () => {
       ...common, dashboard, workspaces: [], mcpBusy: false, tunnelBusy: false,
       onRefresh: async () => undefined, onStopMcp: async () => undefined, onRestartMcp: async () => undefined,
       onSelectWorkspace: async () => undefined, onAddWorkspace: async () => undefined, onStartTunnel: async () => undefined,
-      onStopTunnel: async () => undefined, onClearWorkLog: async () => undefined,
+      onStopTunnel: async () => undefined,
     }));
     const live = renderToStaticMarkup(createElement(LiveLogsPage, {
       ...common, lines: [], tunnelLogPath: null, tunnelLogExists: false,

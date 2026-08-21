@@ -22,7 +22,7 @@ export function ProcessPanel({ workspaceId, processes, selectedProcess, onStartF
           <p data-testid="process-status">{selectedProcess.state}</p>
           <p><strong>Log summary</strong></p>
           <pre data-testid="process-log">{selectedProcess.logSummary}</pre>
-          {selectedProcess.state === 'running' || selectedProcess.state === 'starting'
+          {selectedProcess.state === 'running' || selectedProcess.state === 'starting' || selectedProcess.state === 'termination_unverified'
             ? <button type="button" onClick={() => { void onStopProcess(selectedProcess.id); }}>Stop process</button>
             : null}
         </div>

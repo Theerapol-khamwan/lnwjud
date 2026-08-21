@@ -11,10 +11,10 @@ export const MAX_CODEX_INSTRUCTION_BYTES = 256 * 1024;
 
 export interface CodexAdapterPort {
   status(): Promise<Result<CodexStatus>>;
-  start(cwd: string, instruction: string): Promise<Result<ManagedProcess>>;
+  start(cwd: string, instruction: string, signal?: AbortSignal, onCreated?: (process: ManagedProcess) => void): Promise<Result<ManagedProcess>>;
   statusProcess(processId: string): Result<ManagedProcess>;
   logs(processId: string, query: LogQuery): Result<ProcessLogResult>;
-  stop(processId: string): Promise<Result<void>>;
+  stop(processId: string, autoRetry?: boolean): Promise<Result<void>>;
 }
 
 export interface CodexAuditPort {
@@ -41,6 +41,11 @@ interface CodexTaskOwner {
 export interface CodexRunResult {
   readonly codexTaskId: string;
   readonly processId: string;
+}
+
+export interface CodexTaskListItem {
+  readonly codexTaskId: string;
+  readonly process: ManagedProcess;
 }
 
 export class CodexService {
@@ -74,21 +79,32 @@ export class CodexService {
     return this.adapter.status();
   }
 
-  public async run(actor: FileActor, workspaceId: string, instruction: string): Promise<Result<CodexRunResult>> {
+  public async run(actor: FileActor, workspaceId: string, instruction: string, signal?: AbortSignal): Promise<Result<CodexRunResult>> {
     if (typeof instruction !== 'string' || instruction.trim().length === 0) return err(appError('INVALID_INPUT', 'Codex instruction is required'));
     if (Buffer.byteLength(instruction, 'utf8') > MAX_CODEX_INSTRUCTION_BYTES) return err(appError('FILE_TOO_LARGE', 'Codex instruction is too large'));
+    if (isAborted(signal)) return cancelledCodexRun();
     const workspace = await this.getWorkspace(workspaceId);
+    if (isAborted(signal)) return cancelledCodexRun();
     if (!workspace.ok) return workspace;
     const root = await this.guard.resolveForRead(workspace.value, '.');
+    if (isAborted(signal)) return cancelledCodexRun();
     if (!root.ok) return root;
     const permission = this.permissionEngine.decide(this.profileProvider(), { action: 'codex_run', level: 'EXECUTE', workspaceId, target: '.', destructive: false });
     if (permission === 'DENY') return err(appError('PERMISSION_DENIED', 'Codex execution is denied'));
     if (permission === 'ASK') return err(appError('PERMISSION_REQUIRED', 'Codex execution requires permission'));
 
-    const started = await this.adapter.start(root.value.realPath ?? root.value.absolutePath, instruction);
-    if (!started.ok) return started;
+    if (isAborted(signal)) return cancelledCodexRun();
     const codexTaskId = this.taskIdFactory();
-    this.owners.set(codexTaskId, { actorId: actor.clientId, workspaceId, processId: started.value.processId });
+    const registerOwner = (process: ManagedProcess): void => {
+      this.owners.set(codexTaskId, { actorId: actor.clientId, workspaceId, processId: process.processId });
+    };
+    const started = await this.adapter.start(root.value.realPath ?? root.value.absolutePath, instruction, signal, registerOwner);
+    if (!started.ok) return started;
+    if (isAborted(signal)) {
+      await this.adapter.stop(started.value.processId, true);
+      return cancelledCodexRun();
+    }
+    registerOwner(started.value);
     await this.recordAudit(actor, workspaceId, codexTaskId, instruction);
     return ok({ codexTaskId, processId: started.value.processId });
   }
@@ -97,6 +113,18 @@ export class CodexService {
     const owner = this.authorize(actor, workspaceId, codexTaskId);
     if (!owner.ok) return owner;
     return this.adapter.statusProcess(owner.value.processId);
+  }
+
+  public async list(actor: FileActor, workspaceId: string): Promise<Result<readonly CodexTaskListItem[]>> {
+    const workspace = await this.getWorkspace(workspaceId);
+    if (!workspace.ok) return workspace;
+    const tasks: CodexTaskListItem[] = [];
+    for (const [codexTaskId, owner] of this.owners) {
+      if (owner.actorId !== actor.clientId || owner.workspaceId !== workspaceId) continue;
+      const process = this.adapter.statusProcess(owner.processId);
+      if (process.ok) tasks.push({ codexTaskId, process: process.value });
+    }
+    return ok(tasks);
   }
 
   public async taskLogs(actor: FileActor, workspaceId: string, codexTaskId: string, query: LogQuery): Promise<Result<ProcessLogResult>> {
@@ -132,4 +160,12 @@ export class CodexService {
     const workspace = await this.workspaces.get(workspaceId);
     return workspace === null ? err(appError('WORKSPACE_NOT_FOUND', 'Workspace was not found')) : ok(workspace);
   }
+}
+
+function isAborted(signal: AbortSignal | undefined): boolean {
+  return signal?.aborted === true;
+}
+
+function cancelledCodexRun(): Result<never> {
+  return err(appError('PROCESS_TIMEOUT', 'Codex run was cancelled before launch completed', true));
 }

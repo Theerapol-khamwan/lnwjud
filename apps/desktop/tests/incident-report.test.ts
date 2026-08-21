@@ -225,6 +225,30 @@ describe('incident correlation and privacy', () => {
     ]);
   });
 
+  it.each(['INVALID_INPUT', 'INTERNAL_ERROR', 'EXECUTABLE_NOT_FOUND'])(
+    'treats known MCP terminal %s as a completed local failure through LogHub',
+    async (resultCode) => {
+      const hub = new LogHub({ tunnelLogPath: 'Z:\\missing\\lnwjud-tunnel.log' });
+      hub.syncWorkLog([
+        { id: `${resultCode}-start`, timestamp: timestamp(1), callId: 'failed-call', kind: 'task', toolName: 'search_text', resultCode: 'STARTED', targetSummary: null },
+        { id: `${resultCode}-completion`, timestamp: timestamp(2), callId: 'failed-call', kind: 'error', toolName: 'search_text', resultCode, targetSummary: null },
+      ], []);
+
+      const report = await buildIncidentReport(evidence({ logLines: hub.snapshot().lines }));
+      expect(report.classification).toBe('local_tool_failed');
+      expect(report.mcpCalls).toEqual([
+        expect.objectContaining({
+          callId: 'failed-call',
+          resultCode: 'FAILED',
+          completionState: 'failure',
+          incomplete: false,
+          startedWithoutCompletion: false,
+          completionWithoutStart: false,
+        }),
+      ]);
+    },
+  );
+
   it('retains distinct in-flight occurrences reusing a callId through the real LogHub path', async () => {
     const hub = new LogHub({ tunnelLogPath: 'Z:\\missing\\lnwjud-tunnel.log' });
     hub.syncWorkLog([], [{ callId: 'reused', toolName: 'read_file', targetSummary: null, startedAt: timestamp(1) }]);

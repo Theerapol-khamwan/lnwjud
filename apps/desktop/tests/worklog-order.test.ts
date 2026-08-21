@@ -1,0 +1,14 @@
+import { describe, expect, it } from 'vitest';
+import { newestFirstWorkLogRows } from '../src/renderer/features/worklog/WorkLogPanel.js';
+
+describe('Work Log ordering', () => {
+  it('merges active and completed activity newest first', () => {
+    const rows = newestFirstWorkLogRows([
+      { id: 'done-new', timestamp: '2026-08-22T00:00:03.000Z', kind: 'result', toolName: 'new', resultCode: 'SUCCESS', errorMessage: null, targetSummary: null, durationMs: 3, workspaceId: null },
+      { id: 'done-old', timestamp: '2026-08-22T00:00:01.000Z', kind: 'result', toolName: 'old', resultCode: 'SUCCESS', errorMessage: null, targetSummary: null, durationMs: 1, workspaceId: null },
+    ], [
+      { callId: 'running-mid', toolName: 'running', startedAt: '2026-08-22T00:00:02.000Z', targetSummary: null, workspaceId: null },
+    ]);
+    expect(rows.map((row) => row.id)).toEqual(['done-new', 'running-mid', 'done-old']);
+  });
+});

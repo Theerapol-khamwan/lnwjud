@@ -1,4 +1,4 @@
-export type ManagedProcessState = 'starting' | 'running' | 'exited' | 'failed' | 'stopped' | 'timed_out';
+export type ManagedProcessState = 'starting' | 'running' | 'exited' | 'failed' | 'stopped' | 'timed_out' | 'termination_unverified';
 
 export interface ManagedProcessStart {
   readonly executable: string;
@@ -16,6 +16,7 @@ export interface ManagedProcess {
   readonly startedAt: string;
   readonly finishedAt?: string;
   readonly exitCode?: number;
+  readonly error?: string;
 }
 
 export type ProcessLogStream = 'stdout' | 'stderr';

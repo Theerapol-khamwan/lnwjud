@@ -2,7 +2,7 @@ import { appError, err, type Result } from '@lnwjud/domain';
 import type { CapabilityService, CapabilityToolName } from './index.js';
 
 export interface CapabilityBackend {
-  execute(input: unknown): Promise<Result<unknown>>;
+  execute(input: unknown, signal?: AbortSignal): Promise<Result<unknown>>;
 }
 
 export interface LocalCapabilityBackends {
@@ -29,11 +29,14 @@ export interface LocalCapabilityBackends {
 export class LocalCapabilityService implements CapabilityService {
   public constructor(private readonly backends: LocalCapabilityBackends) {}
 
-  public execute(tool: CapabilityToolName, input: unknown): Promise<Result<unknown>> {
+  public execute(tool: CapabilityToolName, input: unknown, signal?: AbortSignal): Promise<Result<unknown>> {
+    if (signal?.aborted === true) {
+      return Promise.resolve(err(appError('PROCESS_TIMEOUT', 'Capability operation was cancelled before dispatch', true)));
+    }
     const backend = this.backendFor(tool);
     return backend === undefined
       ? Promise.resolve(err(appError('INVALID_INPUT', 'Capability tool is not supported')))
-      : backend.execute(input);
+      : backend.execute(input, signal);
   }
 
   private backendFor(tool: CapabilityToolName): CapabilityBackend | undefined {

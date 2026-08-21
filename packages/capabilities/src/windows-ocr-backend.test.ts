@@ -44,4 +44,23 @@ describe('WindowsOcrCapabilityBackend', () => {
       reason: 'native_helper_not_configured',
     } });
   });
+
+  it('does not dispatch OCR after caller cancellation wins during identity verification', async () => {
+    let releaseIdentity!: () => void;
+    const identityBlocked = new Promise<void>((resolve) => { releaseIdentity = resolve; });
+    let helperCalled = false;
+    const backend = new WindowsOcrCapabilityBackend({
+      platform: 'win32',
+      packageIdentity: async (): Promise<Result<boolean>> => { await identityBlocked; return ok(true); },
+      helper: { execute: async (): Promise<Result<unknown>> => { helperCalled = true; return ok({}); } },
+    });
+    const controller = new AbortController();
+
+    const pending = backend.execute({ action: 'ocr' }, controller.signal);
+    controller.abort();
+    releaseIdentity();
+
+    await expect(pending).resolves.toMatchObject({ ok: false, error: { code: 'PROCESS_TIMEOUT' } });
+    expect(helperCalled).toBe(false);
+  });
 });

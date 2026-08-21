@@ -810,17 +810,53 @@ input:focus, select:focus {
   overflow-wrap: anywhere;
 }
 
+/* Live Logs use the page/window as the primary vertical scroll owner.
+   This avoids a trapped nested scrollbar and keeps the panel bottom reachable. */
+.live-logs-page {
+  flex: 0 0 auto;
+  min-height: 100%;
+}
+
+.live-logs-page .log-panel {
+  flex: 0 0 auto;
+  max-width: 100%;
+}
+
+.live-logs-page .log-stream {
+  flex: 0 0 auto;
+  overflow-y: visible;
+  max-height: none;
+}
+
 /* Log Viewer Popout Shell */
+.log-viewer-window {
+  overflow-y: auto;
+  overflow-x: hidden;
+}
+
+.log-viewer-window .custom-titlebar {
+  position: sticky;
+  top: 0;
+}
+
 .log-viewer-shell {
-  padding: 16px 20px;
-  flex: 1;
+  padding: 16px 20px 24px;
+  flex: 0 0 auto;
   display: flex;
   flex-direction: column;
-  height: 100vh;
+  min-height: calc(100vh - 38px);
+  height: auto;
+  overflow: visible;
+}
+
+.log-viewer-shell .log-panel {
+  flex: 0 0 auto;
+  max-width: 100%;
 }
 
 .log-viewer-shell .log-stream {
-  flex: 1;
+  flex: 0 0 auto;
+  overflow-y: visible;
   max-height: none;
 }
 
@@ -1547,4 +1583,28 @@ h2 {
     grid-template-columns: minmax(0, auto) minmax(0, auto) minmax(0, 1fr);
     gap: 8px;
   }
+}
+
+.settings-textarea {
+  width: 100%;
+  box-sizing: border-box;
+  resize: vertical;
+  min-height: 112px;
+  padding: 11px 14px;
+  border-radius: 10px;
+  border: 1px solid rgba(245, 197, 66, 0.2);
+  background: #070a10;
+  color: var(--text);
+  font: 13px/1.55 var(--font-mono);
+  margin-top: 4px;
+}
+
+.settings-textarea:focus {
+  outline: none;
+  border-color: var(--gold-primary);
+  box-shadow: 0 0 0 2px rgba(245, 197, 66, 0.12);
+}
+
+.compact-toggle {
+  min-height: 42px;
 }

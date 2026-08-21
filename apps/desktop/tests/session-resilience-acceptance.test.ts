@@ -66,7 +66,7 @@ describe('session resilience acceptance', () => {
     try {
       await client.connect(transport);
       const tools = await client.listTools();
-      expect(tools.tools).toHaveLength(208);
+      expect(tools.tools).toHaveLength(210);
       for (let index = 0; index < 3; index += 1) {
         const result = await client.callTool({ name: 'workspace_list', arguments: {} });
         expect(result.isError).not.toBe(true);
@@ -205,16 +205,16 @@ describe('session resilience acceptance', () => {
           ? { state: 'available' as const, activeCallCount: observation.activeCount, revision: observation.revision, ownerKey: `${observation.owner.pid}:${observation.owner.processStartedAt}` }
           : observation;
       };
-      const coordinator = new UpdateInstallCoordinator({ activeCallCount: (): number => 0, tunnelRunning: async (): Promise<boolean> => true, sharedActivitySnapshot, install, quietPeriodMs: 60, pollIntervalMs: 10 });
+      const coordinator = new UpdateInstallCoordinator({ activeCallCount: (): number => 0, tunnelRunning: async (): Promise<boolean> => true, sharedActivitySnapshot, install, quietPeriodMs: 300, pollIntervalMs: 20 });
       await activity.command('BEGIN');
       coordinator.requestInstall();
       await delay(120);
       expect(install).not.toHaveBeenCalled();
       await activity.command('END');
-      await delay(25);
+      await delay(200);
       await activity.command('BEGIN');
       await activity.command('END');
-      await delay(45);
+      await delay(180);
       expect(install).not.toHaveBeenCalled();
       await waitUntil(() => install.mock.calls.length === 1, 500);
       expect(install).toHaveBeenCalledOnce();

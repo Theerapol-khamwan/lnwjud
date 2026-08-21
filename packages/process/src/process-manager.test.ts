@@ -1,7 +1,8 @@
-import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { access, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { PathExecutableResolver, ProcessManager } from './index.js';
+import { ok } from '@lnwjud/domain';
+import { PathExecutableResolver, ProcessManager, type ExecutableResolver, type ProcessTreeTerminator } from './index.js';
 
 async function waitForState(manager: ProcessManager, processId: string, state: string): Promise<void> {
   for (let attempt = 0; attempt < 100; attempt += 1) {
@@ -92,4 +93,121 @@ describe('ProcessManager', () => {
       await rm(root, { recursive: true, force: true });
     }
   });
+
+  it('keeps stop pending and nonterminal until process-tree termination is verified', async () => {
+    let terminationAllowed = false;
+    const terminator: ProcessTreeTerminator = {
+      async stop(child): Promise<void> {
+        if (!terminationAllowed) throw new Error('verification unavailable');
+        if (child.exitCode === null && child.signalCode === null) child.kill();
+      },
+    };
+    const manager = new ProcessManager(terminator);
+    const started = await manager.start({
+      executable: process.execPath,
+      args: ['-e', 'setInterval(() => {}, 1000)'],
+      cwd: process.cwd(),
+    });
+    expect(started.ok).toBe(true);
+    if (!started.ok) return;
+
+    const stopping = manager.stop(started.value.processId);
+    await waitForState(manager, started.value.processId, 'termination_unverified');
+    expect(manager.status(started.value.processId)).toMatchObject({
+      ok: true,
+      value: { state: 'termination_unverified', error: expect.stringContaining('could not be verified') },
+    });
+    expect((manager.status(started.value.processId) as { ok: true; value: { finishedAt?: string } }).value.finishedAt).toBeUndefined();
+    await expect(Promise.race([stopping.then(() => 'settled'), delay(50).then(() => 'pending')])).resolves.toBe('pending');
+
+    terminationAllowed = true;
+    await expect(manager.stop(started.value.processId)).resolves.toMatchObject({ ok: true });
+    await expect(stopping).resolves.toMatchObject({ ok: true });
+    expect(manager.status(started.value.processId)).toMatchObject({ ok: true, value: { state: 'stopped' } });
+  });
+
+  it('does not infer verified termination when the root closes before a failed tree stop', async () => {
+    let terminationAllowed = false;
+    const terminator: ProcessTreeTerminator = {
+      async stop(): Promise<void> {
+        await delay(50);
+        if (!terminationAllowed) throw new Error('tree verification failed after root close');
+      },
+    };
+    const manager = new ProcessManager(terminator);
+    const started = await manager.start({
+      executable: process.execPath,
+      args: ['-e', 'setTimeout(() => {}, 10)'],
+      cwd: process.cwd(),
+    });
+    expect(started.ok).toBe(true);
+    if (!started.ok) return;
+
+    const stopping = manager.stop(started.value.processId);
+    await waitForState(manager, started.value.processId, 'termination_unverified');
+    await delay(25);
+    expect(manager.status(started.value.processId)).toMatchObject({ ok: true, value: { state: 'termination_unverified' } });
+
+    terminationAllowed = true;
+    await expect(manager.stop(started.value.processId)).resolves.toMatchObject({ ok: true });
+    await expect(stopping).resolves.toMatchObject({ ok: true });
+    expect(manager.status(started.value.processId)).toMatchObject({ ok: true, value: { state: 'stopped' } });
+  });
+
+  it('keeps timeout termination failures contained and retries until verified', async () => {
+    let terminationAllowed = false;
+    const terminator: ProcessTreeTerminator = {
+      async stop(child): Promise<void> {
+        if (!terminationAllowed) throw new Error('verification unavailable');
+        if (child.exitCode === null && child.signalCode === null) child.kill();
+      },
+    };
+    const manager = new ProcessManager(terminator);
+    const started = await manager.start({
+      executable: process.execPath,
+      args: ['-e', 'setInterval(() => {}, 1000)'],
+      cwd: process.cwd(),
+      timeoutMs: 25,
+    });
+    expect(started.ok).toBe(true);
+    if (!started.ok) return;
+
+    await waitForState(manager, started.value.processId, 'termination_unverified');
+    terminationAllowed = true;
+    await expect(manager.stop(started.value.processId)).resolves.toMatchObject({ ok: true });
+    await waitForState(manager, started.value.processId, 'timed_out');
+  });
+
+  it('does not spawn after cancellation wins during executable resolution', async () => {
+    const root = await mkdtemp(path.join(process.cwd(), 'lnwjud-cancelled-process-'));
+    const marker = path.join(root, 'late-spawn-marker.txt');
+    let releaseResolver!: () => void;
+    const resolverGate = new Promise<void>((resolve) => { releaseResolver = resolve; });
+    const resolver: ExecutableResolver = {
+      async resolve() {
+        await resolverGate;
+        return ok(process.execPath);
+      },
+    };
+    const controller = new AbortController();
+    try {
+      const starting = new ProcessManager(undefined, resolver).start({
+        executable: 'delayed-node',
+        args: ['-e', `require('node:fs').writeFileSync(${JSON.stringify(marker)}, 'spawned')`],
+        cwd: root,
+      }, controller.signal);
+      controller.abort();
+      releaseResolver();
+
+      await expect(starting).resolves.toMatchObject({ ok: false, error: { code: 'PROCESS_TIMEOUT' } });
+      await delay(100);
+      await expect(access(marker)).rejects.toThrow();
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
 });
+
+function delay(milliseconds: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, milliseconds));
+}

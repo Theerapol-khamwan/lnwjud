@@ -64,13 +64,15 @@ export class LocalExtensionsService implements ExtensionsService {
     });
   }
 
-  public async describeMcpServer(input: { readonly server: string }): Promise<Result<{
+  public async describeMcpServer(input: { readonly server: string }, signal?: AbortSignal): Promise<Result<{
     readonly server: string;
     readonly enabled: boolean;
     readonly connected: boolean;
     readonly tools: readonly { readonly name: string; readonly description: string; readonly inputSchema?: unknown }[];
   }>> {
+    if (isAborted(signal)) return cancelledMcpCall();
     const server = await this.findServer(input.server);
+    if (isAborted(signal)) return cancelledMcpCall();
     if (!server.ok) return server;
     if (!server.value.enabled) {
       return err(appError('PERMISSION_DENIED', `MCP server is disabled: ${input.server}`));
@@ -78,7 +80,7 @@ export class LocalExtensionsService implements ExtensionsService {
     if (server.value.excluded) {
       return err(appError('PERMISSION_DENIED', server.value.exclusionReason ?? `MCP server is excluded: ${input.server}`));
     }
-    const described = await this.sessions.describe(server.value.name, server.value.config);
+    const described = await this.sessions.describe(server.value.name, server.value.config, signal);
     if (!described.ok) return described;
     return ok({
       server: server.value.name,
@@ -92,8 +94,10 @@ export class LocalExtensionsService implements ExtensionsService {
     readonly server: string;
     readonly tool: string;
     readonly arguments?: Readonly<Record<string, unknown>>;
-  }): Promise<Result<unknown>> {
+  }, signal?: AbortSignal): Promise<Result<unknown>> {
+    if (isAborted(signal)) return cancelledMcpCall();
     const server = await this.findServer(input.server);
+    if (isAborted(signal)) return cancelledMcpCall();
     if (!server.ok) return server;
     if (!server.value.enabled) {
       return err(appError('PERMISSION_DENIED', `MCP server is disabled: ${input.server}`));
@@ -106,6 +110,7 @@ export class LocalExtensionsService implements ExtensionsService {
       server.value.config,
       input.tool,
       input.arguments ?? {},
+      signal,
     );
   }
 
@@ -138,4 +143,12 @@ export class LocalExtensionsService implements ExtensionsService {
     if (server === undefined) return err(appError('INVALID_INPUT', `Unknown MCP server: ${name}`));
     return ok(server);
   }
+}
+
+function isAborted(signal: AbortSignal | undefined): boolean {
+  return signal?.aborted === true;
+}
+
+function cancelledMcpCall(): Result<never> {
+  return err(appError('PROCESS_TIMEOUT', 'Child MCP operation was cancelled before dispatch', true));
 }

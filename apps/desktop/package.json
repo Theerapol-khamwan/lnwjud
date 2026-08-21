@@ -2,7 +2,7 @@
   "name": "@lnwjud/desktop",
   "version": "4.5.0",
   "private": true,
-  "description": "Windows-first local AI-agent runtime and MCP gateway with 208 tools.",
+  "description": "Windows-first local AI-agent runtime and MCP gateway with 210 tools.",
   "author": "Adisorn",
   "homepage": "https://github.com/engasnm111/lnwjud#readme",
   "repository": {

@@ -8,7 +8,7 @@ Zod schemas in `packages/mcp-server/src/tools/` are the implementation source
 of truth. The existing human-oriented catalog remains useful for field details,
 while this document records the primitive/core contract, preserves the earlier
 compatibility baseline, and records policy class, annotations, and schema source.
-The current v4 runtime advertises 208 tools; the additive v4 entries are defined
+The current v4 runtime advertises 210 tools; the additive v4 entries are defined
 in `packages/mcp-server/src/upgrade-catalog.ts` and the exact runtime order is
 verified by `packages/mcp-server/src/tool-registry.test.ts`.
 
@@ -35,13 +35,13 @@ verified by `packages/mcp-server/src/tool-registry.test.ts`.
 | `EXECUTE` | Starts/controls an owned command, process, project, or Codex task | prompts in Safe; allowed in Balanced/Full |
 | `DANGEROUS` | Destructive, interactive, external, or full-access meta capability | denied in Safe; prompts in Balanced; allowed in Full subject to hard blocks |
 
-Desktop and packaged stdio runtimes use the configured full local capability
-profile to preserve the working v1 behavior. This does not disable workspace
-guards, ownership checks, secret policy, or hard blocks.
+Desktop uses its configured local permission profile. Packaged stdio keeps `full` as the backward-compatible default but accepts `safe|balanced|full|custom` through the launcher, environment, or Desktop STDIO policy settings. Optional strict-root mode suppresses automatic whole-drive registration and exposes only explicit canonical allowed roots. These controls do not disable ownership checks, realpath/reparse-point guards, secret policy, or hard blocks, and strict roots are not an OS sandbox.
+
+Destructive operations still require explicit chat confirmation by default. The only configurable exception is the scoped `delete_file` tool when **AI File Delete Policy** is explicitly enabled; arbitrary shell/WSL deletion remains confirmation-gated.
 
 ## Core primitive runtime catalog
 
-The table below records the core primitive layer. The full **208-tool** runtime
+The table below records the core primitive layer. The full **210-tool** runtime
 index is generated from `ToolRegistry` in the project README so it cannot be
 mistaken for this smaller primitive table. The `schema` column identifies the
 authoritative implementation file and the number of top-level input properties
@@ -70,54 +70,56 @@ runtime; changing either requires a contract test and a catalog update.
 | 17 | `copy_file` | WRITE | no | no | 3 | `file-tools.ts` |
 | 18 | `delete_file` | DANGEROUS | no | yes | 3 | `file-tools.ts` |
 | 19 | `process_start` | EXECUTE | no | no | 5 | `process-tools.ts` |
-| 20 | `process_status` | READ | yes | no | 2 | `process-tools.ts` |
-| 21 | `process_logs` | READ | yes | no | 4 | `process-tools.ts` |
-| 22 | `process_stop` | EXECUTE | no | no | 2 | `process-tools.ts` |
-| 23 | `project_dev` | EXECUTE | no | no | 1 | `process-tools.ts` |
-| 24 | `project_test` | EXECUTE | no | no | 1 | `process-tools.ts` |
-| 25 | `project_lint` | EXECUTE | no | no | 1 | `process-tools.ts` |
-| 26 | `project_typecheck` | EXECUTE | no | no | 1 | `process-tools.ts` |
-| 27 | `project_build` | EXECUTE | no | no | 1 | `process-tools.ts` |
-| 28 | `codex_status` | READ | yes | no | 0 | `codex-tools.ts` |
-| 29 | `codex_run` | EXECUTE | no | no | 2 | `codex-tools.ts` |
-| 30 | `codex_task_status` | READ | yes | no | 2 | `codex-tools.ts` |
-| 31 | `codex_task_logs` | READ | yes | no | 4 | `codex-tools.ts` |
-| 32 | `codex_stop` | EXECUTE | no | no | 2 | `codex-tools.ts` |
-| 33 | `shell` | EXECUTE | no | yes | 16 | `capability-tools.ts` |
-| 34 | `dom_cdp` | DANGEROUS | no | yes | 10 | `capability-tools.ts` |
-| 35 | `accessibility` | DANGEROUS | no | yes | 8 | `capability-tools.ts` |
-| 36 | `input_event` | DANGEROUS | no | yes | 8 | `capability-tools.ts` |
-| 37 | `vision` | READ | yes | no | 12 | `capability-tools.ts` |
-| 38 | `window` | DANGEROUS | no | yes | 6 | `capability-tools.ts` |
-| 39 | `health` | READ | yes | no | 3 | `capability-tools.ts` |
-| 40 | `system_info` | READ | yes | no | 5 | `capability-tools.ts` |
-| 41 | `notification` | EXECUTE | no | no | 6 | `capability-tools.ts` |
-| 42 | `file_dialog` | EXECUTE | yes | no | 8 | `capability-tools.ts` |
-| 43 | `clipboard` | DANGEROUS | no | no | 5 | `capability-tools.ts` |
-| 44 | `web_fetch` | DANGEROUS | yes | no | 9 | `capability-tools.ts` |
-| 45 | `audio` | DANGEROUS | no | no | 7 | `capability-tools.ts` |
-| 46 | `screen_record` | DANGEROUS | no | no | 10 | `capability-tools.ts` |
-| 47 | `office` | DANGEROUS | no | no | 12 | `capability-tools.ts` |
-| 48 | `scheduler` | DANGEROUS | no | yes | 10 | `capability-tools.ts` |
-| 49 | `skills_list` | DANGEROUS | no | yes | 2 | `skill-tools.ts` |
-| 50 | `skills_read` | DANGEROUS | no | yes | 2 | `skill-tools.ts` |
-| 51 | `mcp_list` | DANGEROUS | no | yes | 0 | `mcp-bridge-tools.ts` |
-| 52 | `mcp_describe` | DANGEROUS | no | yes | 1 | `mcp-bridge-tools.ts` |
-| 53 | `mcp_call` | DANGEROUS | no | yes | 3 | `mcp-bridge-tools.ts` |
-| 54 | `tool_batch` | DANGEROUS | no | yes | 3 | `batch-tools.ts` |
-| 55 | `workspace_context` | READ | yes | no | 8 | `context-tools.ts` |
-| 56 | `workspace_context_continue` | READ | yes | no | 2 | `context-tools.ts` |
-| 57 | `workspace_full_scan` | READ | yes | no | 5 | `context-tools.ts` |
-| 58 | `workspace_full_scan_continue` | READ | yes | no | 2 | `context-tools.ts` |
-| 59 | `workspace_snapshot` | READ | yes | no | 1 | `context-tools.ts` |
-| 60 | `search_all` | READ | yes | no | 6 | `context-tools.ts` |
-| 61 | `read_many_files` | READ | yes | no | 2 | `context-tools.ts` |
-| 62 | `read_file_page` | READ | yes | no | 5 | `file-page-tools.ts` |
-| 63 | `read_file_page_continue` | READ | yes | no | 2 | `file-page-tools.ts` |
-| 64 | `workspace_index` | READ | yes | no | 3 | `workspace-index-tools.ts` |
-| 65 | `workspace_index_status` | READ | yes | no | 1 | `workspace-index-tools.ts` |
-| 66 | `workspace_index_watch` | READ | yes | no | 3 | `workspace-index-tools.ts` |
-| 67 | `workspace_index_stop` | READ | yes | no | 1 | `workspace-index-tools.ts` |
+| 20 | `process_list` | READ | yes | no | 1 | `process-tools.ts` |
+| 21 | `process_status` | READ | yes | no | 2 | `process-tools.ts` |
+| 22 | `process_logs` | READ | yes | no | 4 | `process-tools.ts` |
+| 23 | `process_stop` | EXECUTE | no | no | 2 | `process-tools.ts` |
+| 24 | `project_dev` | EXECUTE | no | no | 1 | `process-tools.ts` |
+| 25 | `project_test` | EXECUTE | no | no | 1 | `process-tools.ts` |
+| 26 | `project_lint` | EXECUTE | no | no | 1 | `process-tools.ts` |
+| 27 | `project_typecheck` | EXECUTE | no | no | 1 | `process-tools.ts` |
+| 28 | `project_build` | EXECUTE | no | no | 1 | `process-tools.ts` |
+| 29 | `codex_status` | READ | yes | no | 0 | `codex-tools.ts` |
+| 30 | `codex_run` | EXECUTE | no | no | 2 | `codex-tools.ts` |
+| 31 | `codex_task_list` | READ | yes | no | 1 | `codex-tools.ts` |
+| 32 | `codex_task_status` | READ | yes | no | 2 | `codex-tools.ts` |
+| 33 | `codex_task_logs` | READ | yes | no | 4 | `codex-tools.ts` |
+| 34 | `codex_stop` | EXECUTE | no | no | 2 | `codex-tools.ts` |
+| 35 | `shell` | EXECUTE | no | yes | 16 | `capability-tools.ts` |
+| 36 | `dom_cdp` | DANGEROUS | no | yes | 10 | `capability-tools.ts` |
+| 37 | `accessibility` | DANGEROUS | no | yes | 8 | `capability-tools.ts` |
+| 38 | `input_event` | DANGEROUS | no | yes | 8 | `capability-tools.ts` |
+| 39 | `vision` | READ | yes | no | 12 | `capability-tools.ts` |
+| 40 | `window` | DANGEROUS | no | yes | 6 | `capability-tools.ts` |
+| 41 | `health` | READ | yes | no | 3 | `capability-tools.ts` |
+| 42 | `system_info` | READ | yes | no | 5 | `capability-tools.ts` |
+| 43 | `notification` | EXECUTE | no | no | 6 | `capability-tools.ts` |
+| 44 | `file_dialog` | EXECUTE | yes | no | 8 | `capability-tools.ts` |
+| 45 | `clipboard` | DANGEROUS | no | no | 5 | `capability-tools.ts` |
+| 46 | `web_fetch` | DANGEROUS | yes | no | 9 | `capability-tools.ts` |
+| 47 | `audio` | DANGEROUS | no | no | 7 | `capability-tools.ts` |
+| 48 | `screen_record` | DANGEROUS | no | no | 10 | `capability-tools.ts` |
+| 49 | `office` | DANGEROUS | no | no | 12 | `capability-tools.ts` |
+| 50 | `scheduler` | DANGEROUS | no | yes | 10 | `capability-tools.ts` |
+| 51 | `skills_list` | DANGEROUS | no | yes | 2 | `skill-tools.ts` |
+| 52 | `skills_read` | DANGEROUS | no | yes | 2 | `skill-tools.ts` |
+| 53 | `mcp_list` | DANGEROUS | no | yes | 0 | `mcp-bridge-tools.ts` |
+| 54 | `mcp_describe` | DANGEROUS | no | yes | 1 | `mcp-bridge-tools.ts` |
+| 55 | `mcp_call` | DANGEROUS | no | yes | 3 | `mcp-bridge-tools.ts` |
+| 56 | `tool_batch` | DANGEROUS | no | yes | 3 | `batch-tools.ts` |
+| 57 | `workspace_context` | READ | yes | no | 8 | `context-tools.ts` |
+| 58 | `workspace_context_continue` | READ | yes | no | 2 | `context-tools.ts` |
+| 59 | `workspace_full_scan` | READ | yes | no | 5 | `context-tools.ts` |
+| 60 | `workspace_full_scan_continue` | READ | yes | no | 2 | `context-tools.ts` |
+| 61 | `workspace_snapshot` | READ | yes | no | 1 | `context-tools.ts` |
+| 62 | `search_all` | READ | yes | no | 6 | `context-tools.ts` |
+| 63 | `read_many_files` | READ | yes | no | 2 | `context-tools.ts` |
+| 64 | `read_file_page` | READ | yes | no | 5 | `file-page-tools.ts` |
+| 65 | `read_file_page_continue` | READ | yes | no | 2 | `file-page-tools.ts` |
+| 66 | `workspace_index` | READ | yes | no | 3 | `workspace-index-tools.ts` |
+| 67 | `workspace_index_status` | READ | yes | no | 1 | `workspace-index-tools.ts` |
+| 68 | `workspace_index_watch` | READ | yes | no | 3 | `workspace-index-tools.ts` |
+| 69 | `workspace_index_stop` | READ | yes | no | 1 | `workspace-index-tools.ts` |
 
 ## Schema groups and contract examples
 
@@ -172,6 +174,7 @@ git_diff: { workspaceId: string; path?: string; staged?: boolean; maxBytes?: num
 git_log: { workspaceId: string; maxCommits?: number; maxBytes?: number }
 git: { workspaceId?: string; cwd?: string; args: string[]; timeoutSeconds?: number }
 process_start: { workspaceId: string; executable: string; args: string[]; cwd?: string; timeoutMs?: number }
+process_list: { workspaceId: string }
 process_status: { workspaceId: string; processId: string }
 process_logs: { workspaceId: string; processId: string; tailLines?: number; sinceSequence?: number }
 process_stop: { workspaceId: string; processId: string }
@@ -182,6 +185,7 @@ project_typecheck: { workspaceId: string }
 project_build: { workspaceId: string }
 codex_status: {}
 codex_run: { workspaceId: string; instruction: string }
+codex_task_list: { workspaceId: string }
 codex_task_status: { workspaceId: string; codexTaskId: string }
 codex_task_logs: { workspaceId: string; codexTaskId: string; tailLines?: number; sinceSequence?: number }
 codex_stop: { workspaceId: string; codexTaskId: string }
@@ -202,7 +206,7 @@ capability backends. Important invariants are:
 - `vision`, `health`, and `system_info` remain truthful read-only diagnostics;
 - `web_fetch` remains HTTP(S)-only and bounded by explicit byte/timeout fields;
 - `skills_*` and `mcp_*` remain full-access bridge tools and do not silently
-  flatten child-server tools into the 208-tool catalog.
+  flatten child-server tools into the 210-tool catalog.
 
 The additive Windows gateway contract is:
 

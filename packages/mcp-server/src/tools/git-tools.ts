@@ -9,9 +9,9 @@ export function gitTools(context: McpToolContext): McpToolDefinition[] {
       permission: 'READ',
       annotations: { readOnlyHint: true, destructiveHint: false },
       inputSchema: gitStatusSchema,
-      handler: async (input) => context.services.git === undefined
+      handler: async (input, signal) => context.services.git === undefined
         ? missingService()
-        : context.services.git.status(context.actor, input.workspaceId),
+        : context.services.git.status(context.actor, input.workspaceId, signal),
     }),
     defineTool({
       name: 'git_diff',
@@ -19,13 +19,13 @@ export function gitTools(context: McpToolContext): McpToolDefinition[] {
       permission: 'READ',
       annotations: { readOnlyHint: true, destructiveHint: false },
       inputSchema: gitDiffSchema,
-      handler: async (input) => context.services.git === undefined
+      handler: async (input, signal) => context.services.git === undefined
         ? missingService()
         : context.services.git.diff(context.actor, input.workspaceId, {
           ...(input.path === undefined ? {} : { path: input.path }),
           ...(input.staged === undefined ? {} : { staged: input.staged }),
           ...(input.maxBytes === undefined ? {} : { maxBytes: input.maxBytes }),
-        }),
+        }, signal),
     }),
     defineTool({
       name: 'git_log',
@@ -33,12 +33,12 @@ export function gitTools(context: McpToolContext): McpToolDefinition[] {
       permission: 'READ',
       annotations: { readOnlyHint: true, destructiveHint: false },
       inputSchema: gitLogSchema,
-      handler: async (input) => context.services.git === undefined
+      handler: async (input, signal) => context.services.git === undefined
         ? missingService()
         : context.services.git.log(context.actor, input.workspaceId, {
           ...(input.maxCommits === undefined ? {} : { maxCommits: input.maxCommits }),
           ...(input.maxBytes === undefined ? {} : { maxBytes: input.maxBytes }),
-        }),
+        }, signal),
     }),
     defineTool({
       name: 'git',
@@ -46,14 +46,14 @@ export function gitTools(context: McpToolContext): McpToolDefinition[] {
       permission: 'EXECUTE',
       annotations: { readOnlyHint: false, destructiveHint: true },
       inputSchema: gitRunSchema,
-      handler: async (input) => context.services.git === undefined
+      handler: async (input, signal) => context.services.git === undefined
         ? missingService()
         : context.services.git.run(context.actor, {
           args: input.args,
           ...(input.workspaceId === undefined ? {} : { workspaceId: input.workspaceId }),
           ...(input.cwd === undefined ? {} : { cwd: input.cwd }),
           ...(input.timeoutSeconds === undefined ? {} : { timeoutMs: Math.floor(input.timeoutSeconds * 1000) }),
-        }),
+        }, signal),
     }),
   ];
 }

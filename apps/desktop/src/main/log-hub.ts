@@ -1,6 +1,7 @@
 import { closeSync, existsSync, openSync, readSync, statSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import { StringDecoder } from 'node:string_decoder';
+import type { AppErrorCode } from '@lnwjud/domain';
 import { type LogCorrelation, type LogLevel, type LogLine, type LogSnapshot, type LogSource, type TunnelLifecycleCategory } from '@lnwjud/ipc-contracts';
 
 const MAX_LINES_PER_SOURCE = 2_000;
@@ -437,9 +438,30 @@ function normalizeMcpResultCode(value: string): 'SUCCESS' | 'FAILED' | 'FATAL' |
   const normalized = value.toUpperCase();
   if (normalized === 'SUCCESS') return 'SUCCESS';
   if (normalized === 'FATAL') return 'FATAL';
-  if (['FAILED', 'FILE_NOT_FOUND', 'CHILD_FAILED', 'DEPENDENCY_FAILED', 'PERMISSION_DENIED'].includes(normalized)) return 'FAILED';
+  if (Object.prototype.hasOwnProperty.call(MCP_FAILURE_RESULT_CODES, normalized)) return 'FAILED';
   return 'UNKNOWN';
 }
+
+const MCP_FAILURE_RESULT_CODES = {
+  INVALID_INPUT: true,
+  WORKSPACE_NOT_FOUND: true,
+  PATH_OUTSIDE_WORKSPACE: true,
+  SECRET_ACCESS_DENIED: true,
+  PERMISSION_DENIED: true,
+  PERMISSION_REQUIRED: true,
+  FILE_NOT_FOUND: true,
+  FILE_TOO_LARGE: true,
+  BINARY_FILE: true,
+  PROCESS_NOT_FOUND: true,
+  PROCESS_TIMEOUT: true,
+  EXECUTABLE_NOT_FOUND: true,
+  GIT_NOT_REPOSITORY: true,
+  CODEX_NOT_AVAILABLE: true,
+  INTERNAL_ERROR: true,
+  FAILED: true,
+  CHILD_FAILED: true,
+  DEPENDENCY_FAILED: true,
+} as const satisfies Record<AppErrorCode | 'FAILED' | 'CHILD_FAILED' | 'DEPENDENCY_FAILED', true>;
 
 function stringRecordField(record: Record<string, unknown>, keys: readonly string[]): string | undefined {
   for (const key of keys) if (typeof record[key] === 'string' && (record[key] as string).length <= 128) return record[key] as string;

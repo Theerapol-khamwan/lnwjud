@@ -20,6 +20,32 @@ describe('CodexAdapter', () => {
     expect(result).toMatchObject({ ok: true, value: { processId: 'process-1' } });
     expect(calls).toEqual([{ executable: 'C:\\tools\\codex.exe', args: ['exec', 'review "quoted" input'], cwd: 'C:\\workspace' }]);
   });
+
+  it('does not start a process after cancellation wins during Codex discovery', async () => {
+    let releaseDiscovery!: () => void;
+    const discoveryGate = new Promise<void>((resolve) => { releaseDiscovery = resolve; });
+    let starts = 0;
+    const manager: CodexProcessManagerPort = {
+      async start(): Promise<Result<ManagedProcess>> { starts += 1; return ok(processHandle()); },
+      status(): Result<ManagedProcess> { return ok(processHandle()); },
+      logs(): Result<ProcessLogResult> { return ok({ entries: [], truncated: false, nextSequence: 0 }); },
+      async stop(): Promise<Result<void>> { return ok(undefined); },
+    };
+    const discovery: CodexDiscoveryPort = {
+      async discover(): Promise<Result<CodexDiscoveryResult>> {
+        await discoveryGate;
+        return ok(discovered());
+      },
+    };
+    const controller = new AbortController();
+
+    const starting = new CodexAdapter(discovery, manager).start('C:\\workspace', 'review', controller.signal);
+    controller.abort();
+    releaseDiscovery();
+
+    await expect(starting).resolves.toMatchObject({ ok: false, error: { code: 'PROCESS_TIMEOUT' } });
+    expect(starts).toBe(0);
+  });
 });
 
 function discovered(): CodexDiscoveryResult {

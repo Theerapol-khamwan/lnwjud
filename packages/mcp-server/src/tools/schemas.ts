@@ -48,7 +48,7 @@ export const copyFileSchema = moveFileSchema;
 export const deleteFileSchema = z.object({
   workspaceId: optionalWorkspaceIdSchema,
   path: pathSchema,
-  /** Must be true after the human confirms deletion in chat. Silent deletes are blocked. */
+  /** True after human confirmation. May be omitted only when the scoped AI File Delete Policy is explicitly enabled. */
   userConfirmed: z.boolean().optional(),
 }).strict();
 
@@ -150,14 +150,14 @@ const capabilityRequestSchema = {
 };
 
 export const shellCapabilitySchema = z.object({
-  operation: z.enum(['run', 'status', 'wait', 'logs', 'result', 'cancel', 'resume', 'approve', 'deny']).default('run'),
+  operation: z.enum(['run', 'list', 'status', 'wait', 'logs', 'result', 'cancel', 'resume', 'approve', 'deny']).default('run'),
   executable: z.string().trim().min(1).max(1024).optional(),
   arguments: z.array(z.string().max(32_768)).max(128).optional(),
   privilege: z.enum(['user', 'admin']).default('user'),
   cwd: pathSchema.optional(),
   execution: z.enum(['foreground', 'background', 'auto']).default('auto'),
   task_id: z.string().trim().min(1).max(128).optional(),
-  timeout_seconds: z.number().min(0.1).max(14_400).optional(),
+  timeout_seconds: z.number().min(0.1).max(604_800).optional(),
   max_output_bytes: z.number().int().min(1).max(8 * 1024 * 1024).optional(),
   tail_lines: z.number().int().min(0).max(10_000).optional(),
   include_stdout: z.boolean().default(true),

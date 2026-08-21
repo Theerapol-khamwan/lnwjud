@@ -81,4 +81,20 @@ describe('WindowsNativeCapabilityBackend', () => {
 
     await expect(backend.execute({ action: 'capture_display' })).resolves.toMatchObject({ ok: false, error: { code: 'INTERNAL_ERROR' } });
   });
+
+  it('does not dispatch a native side effect after caller cancellation', async () => {
+    let called = false;
+    const bridge: WindowsCapabilityBridge = {
+      execute: async () => { called = true; return ok({}); },
+    };
+    const backend = new WindowsNativeCapabilityBackend('input_event', bridge, 'win32');
+    const controller = new AbortController();
+    controller.abort();
+
+    await expect(backend.execute({ operation: 'click' }, controller.signal)).resolves.toMatchObject({
+      ok: false,
+      error: { code: 'PROCESS_TIMEOUT' },
+    });
+    expect(called).toBe(false);
+  });
 });

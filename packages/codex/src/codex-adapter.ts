@@ -8,10 +8,10 @@ export interface CodexDiscoveryPort {
 }
 
 export interface CodexProcessManagerPort {
-  start(spec: ManagedProcessStart): Promise<Result<ManagedProcess>>;
+  start(spec: ManagedProcessStart, signal?: AbortSignal, onCreated?: (process: ManagedProcess) => void): Promise<Result<ManagedProcess>>;
   status(processId: string): Result<ManagedProcess>;
   logs(processId: string, query: LogQuery): Result<ProcessLogResult>;
-  stop(processId: string): Promise<Result<void>>;
+  stop(processId: string, autoRetry?: boolean): Promise<Result<void>>;
 }
 
 export interface CodexInvocationBuilderPort {
@@ -34,15 +34,23 @@ export class CodexAdapter {
     return discovered.ok ? ok(discovered.value.status) : discovered;
   }
 
-  public async start(cwd: string, instruction: string): Promise<Result<ManagedProcess>> {
+  public async start(
+    cwd: string,
+    instruction: string,
+    signal?: AbortSignal,
+    onCreated?: (process: ManagedProcess) => void,
+  ): Promise<Result<ManagedProcess>> {
+    if (isAborted(signal)) return cancelledCodexStart();
     const discovered = await this.discovery.discover();
+    if (isAborted(signal)) return cancelledCodexStart();
     if (!discovered.ok) return discovered;
     if (!discovered.value.status.installed || discovered.value.status.executablePath === undefined) {
       return err({ code: 'CODEX_NOT_AVAILABLE', message: 'Codex is not installed', recoverable: true });
     }
     const invocation = this.builder.build(discovered.value.status.executablePath, discovered.value.capabilities, instruction);
     if (!invocation.ok) return invocation;
-    return this.processManager.start({ executable: invocation.value.executable, args: invocation.value.args, cwd });
+    if (isAborted(signal)) return cancelledCodexStart();
+    return this.processManager.start({ executable: invocation.value.executable, args: invocation.value.args, cwd }, signal, onCreated);
   }
 
   public statusProcess(processId: string): Result<ManagedProcess> {
@@ -53,7 +61,15 @@ export class CodexAdapter {
     return this.processManager.logs(processId, query);
   }
 
-  public stop(processId: string): Promise<Result<void>> {
-    return this.processManager.stop(processId);
+  public stop(processId: string, autoRetry = false): Promise<Result<void>> {
+    return this.processManager.stop(processId, autoRetry);
   }
+}
+
+function isAborted(signal: AbortSignal | undefined): boolean {
+  return signal?.aborted === true;
+}
+
+function cancelledCodexStart(): Result<never> {
+  return err({ code: 'PROCESS_TIMEOUT', message: 'Codex start was cancelled before launch completed', recoverable: true });
 }

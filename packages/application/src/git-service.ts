@@ -28,11 +28,11 @@ export class GitService {
     private readonly adapter: GitAdapter = new GitAdapter(),
   ) {}
 
-  public async status(actor: FileActor, workspaceId: string): Promise<Result<GitStatusResult>> {
+  public async status(actor: FileActor, workspaceId: string, signal?: AbortSignal): Promise<Result<GitStatusResult>> {
     void actor;
     const workspace = await this.getWorkspace(workspaceId);
     if (!workspace.ok) return workspace;
-    return this.adapter.status(workspace.value.realRootPath);
+    return this.adapter.status(workspace.value.realRootPath, signal);
   }
 
   public async branch(actor: FileActor, workspaceId: string): Promise<Result<string | null>> {
@@ -42,7 +42,12 @@ export class GitService {
     return this.adapter.branch(workspace.value.realRootPath);
   }
 
-  public async diff(actor: FileActor, workspaceId: string, request: GitDiffRequest = {}): Promise<Result<GitDiffResult>> {
+  public async diff(
+    actor: FileActor,
+    workspaceId: string,
+    request: GitDiffRequest = {},
+    signal?: AbortSignal,
+  ): Promise<Result<GitDiffResult>> {
     void actor;
     const workspace = await this.getWorkspace(workspaceId);
     if (!workspace.ok) return workspace;
@@ -56,21 +61,26 @@ export class GitService {
       ...(pathValue === undefined ? {} : { path: pathValue }),
       ...(request.staged === undefined ? {} : { staged: request.staged }),
       ...(request.maxBytes === undefined ? {} : { maxBytes: request.maxBytes }),
-    });
+    }, signal);
   }
 
-  public async log(actor: FileActor, workspaceId: string, request: GitLogRequest = {}): Promise<Result<GitLogResult>> {
+  public async log(
+    actor: FileActor,
+    workspaceId: string,
+    request: GitLogRequest = {},
+    signal?: AbortSignal,
+  ): Promise<Result<GitLogResult>> {
     void actor;
     const workspace = await this.getWorkspace(workspaceId);
     if (!workspace.ok) return workspace;
-    return this.adapter.log(workspace.value.realRootPath, request);
+    return this.adapter.log(workspace.value.realRootPath, request, signal);
   }
 
-  public async run(actor: FileActor, request: GitRunRequest): Promise<Result<GitCommandResult>> {
+  public async run(actor: FileActor, request: GitRunRequest, signal?: AbortSignal): Promise<Result<GitCommandResult>> {
     void actor;
     const cwd = await this.resolveCwd(request.workspaceId, request.cwd);
     if (!cwd.ok) return cwd;
-    return this.adapter.run(cwd.value, request.args, request.timeoutMs);
+    return this.adapter.run(cwd.value, request.args, request.timeoutMs, signal);
   }
 
   private async resolveCwd(workspaceId: string | undefined, requestedCwd: string | undefined): Promise<Result<string>> {

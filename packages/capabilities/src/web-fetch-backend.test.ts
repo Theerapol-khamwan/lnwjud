@@ -86,4 +86,26 @@ describe('WebFetchCapabilityBackend', () => {
 
     expect(result).toMatchObject({ ok: false, error: { recoverable: true } });
   });
+
+  it('combines caller cancellation with the request timeout signal', async () => {
+    let observedSignal: AbortSignal | null = null;
+    const fetchImpl = vi.fn(async (_input: string | URL | Request, init?: RequestInit): Promise<Response> => {
+      observedSignal = init?.signal ?? null;
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      if (observedSignal?.aborted === true) {
+        const error = new Error('aborted');
+        error.name = 'AbortError';
+        throw error;
+      }
+      return textResponse('late');
+    });
+    const backend = new WebFetchCapabilityBackend({ fetchImpl: fetchImpl as unknown as typeof fetch });
+    const controller = new AbortController();
+
+    const pending = backend.execute({ url: 'https://example.com/cancelled', timeout_seconds: 10 }, controller.signal);
+    controller.abort();
+
+    await expect(pending).resolves.toMatchObject({ ok: false, error: { code: 'PROCESS_TIMEOUT', recoverable: true } });
+    expect(observedSignal?.aborted).toBe(true);
+  });
 });

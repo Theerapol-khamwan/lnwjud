@@ -77,4 +77,15 @@ describe('SchedulerCapabilityBackend', () => {
 
     expect(result).toMatchObject({ ok: false, error: { recoverable: true } });
   });
+
+  it('does not invoke schtasks when the caller is already cancelled', async () => {
+    const runImpl = vi.fn(async (): Promise<{ stdout: string; stderr: string }> => ({ stdout: '', stderr: '' }));
+    const backend = new SchedulerCapabilityBackend({ platform: 'win32', runImpl });
+    const controller = new AbortController();
+    controller.abort();
+
+    await expect(backend.execute({ action: 'run', task_name: 'LnwjudTest' }, controller.signal))
+      .resolves.toMatchObject({ ok: false, error: { code: 'PROCESS_TIMEOUT' } });
+    expect(runImpl).not.toHaveBeenCalled();
+  });
 });

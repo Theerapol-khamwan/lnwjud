@@ -4,6 +4,10 @@ import type { MessageKey } from '../../i18n/messages.js';
 
 export type WorkLogFilter = 'all' | 'error';
 
+type WorkLogRow =
+  | { readonly kind: 'inflight'; readonly timestamp: string; readonly id: string; readonly item: InFlightWorkItem }
+  | { readonly kind: 'entry'; readonly timestamp: string; readonly id: string; readonly item: WorkLogEntry };
+
 interface WorkLogPanelProps {
   readonly title: string;
   readonly emptyLabel: string;
@@ -19,10 +23,8 @@ interface WorkLogPanelProps {
 }
 
 export function WorkLogPanel(props: WorkLogPanelProps): ReactElement {
-  const filtered = props.filter === 'error'
-    ? props.entries.filter((entry) => entry.kind === 'error')
-    : props.entries;
-  const visible = props.compact ? filtered.slice(0, 40) : filtered;
+  const rows = newestFirstWorkLogRows(props.entries, props.inFlight, props.filter);
+  const visible = props.compact ? rows.slice(0, 40) : rows;
 
   return (
     <section className={`panel worklog-panel${props.compact ? ' compact' : ''}`} aria-label={props.title}>
@@ -47,30 +49,46 @@ export function WorkLogPanel(props: WorkLogPanelProps): ReactElement {
         </div>
       </div>
       <div className="worklog-stream" data-testid="work-log">
-        {props.inFlight.map((item) => (
-          <div key={item.callId} className="worklog-line inflight">
-            <time>{formatTime(item.startedAt)}</time>
+        {visible.length === 0 ? <p>{props.emptyLabel}</p> : null}
+        {visible.map((row) => row.kind === 'inflight' ? (
+          <div key={`inflight:${row.item.callId}`} className="worklog-line inflight">
+            <time>{formatTime(row.item.startedAt)}</time>
             <span className="tag">[TASK]</span>
-            <strong>{item.toolName}</strong>
-            <span className="worklog-summary">{item.targetSummary ?? ''}</span>
+            <strong>{row.item.toolName}</strong>
+            <span className="worklog-summary">{row.item.targetSummary ?? ''}</span>
             <span className="worklog-duration" />
           </div>
-        ))}
-        {visible.length === 0 && props.inFlight.length === 0 ? <p>{props.emptyLabel}</p> : null}
-        {visible.map((entry) => (
-          <div key={entry.id} className={`worklog-line ${entry.kind}`}>
-            <time>{formatTime(entry.timestamp)}</time>
-            <span className="tag">{tagFor(entry.kind)}</span>
-            <strong>{entry.toolName}</strong>
-            <span className="worklog-summary">
-              {renderEntryDetail(entry)}
-            </span>
-            {entry.kind !== 'task' ? <em>{entry.durationMs}ms</em> : <span className="worklog-duration" />}
+        ) : (
+          <div key={`entry:${row.item.id}`} className={`worklog-line ${row.item.kind}`}>
+            <time>{formatTime(row.item.timestamp)}</time>
+            <span className="tag">{tagFor(row.item.kind)}</span>
+            <strong>{row.item.toolName}</strong>
+            <span className="worklog-summary">{renderEntryDetail(row.item)}</span>
+            {row.item.kind !== 'task' ? <em>{row.item.durationMs}ms</em> : <span className="worklog-duration" />}
           </div>
         ))}
       </div>
     </section>
   );
+}
+
+export function newestFirstWorkLogRows(
+  entries: readonly WorkLogEntry[],
+  inFlight: readonly InFlightWorkItem[],
+  filter: WorkLogFilter = 'all',
+): readonly WorkLogRow[] {
+  const entryRows = (filter === 'error' ? entries.filter((entry) => entry.kind === 'error') : entries)
+    .map((item): WorkLogRow => ({ kind: 'entry', timestamp: item.timestamp, id: item.id, item }));
+  const inFlightRows = filter === 'error'
+    ? []
+    : inFlight.map((item): WorkLogRow => ({ kind: 'inflight', timestamp: item.startedAt, id: item.callId, item }));
+  return [...entryRows, ...inFlightRows].sort((left, right) => {
+    const leftTime = Date.parse(left.timestamp);
+    const rightTime = Date.parse(right.timestamp);
+    if (Number.isFinite(leftTime) && Number.isFinite(rightTime) && leftTime !== rightTime) return rightTime - leftTime;
+    const timestampOrder = right.timestamp.localeCompare(left.timestamp);
+    return timestampOrder !== 0 ? timestampOrder : right.id.localeCompare(left.id);
+  });
 }
 
 function renderEntryDetail(entry: WorkLogEntry): ReactElement | string {
@@ -83,9 +101,7 @@ function renderEntryDetail(entry: WorkLogEntry): ReactElement | string {
         </>
       );
     }
-    if (entry.errorMessage) {
-      return <span className="worklog-error-detail">{entry.errorMessage}</span>;
-    }
+    if (entry.errorMessage) return <span className="worklog-error-detail">{entry.errorMessage}</span>;
     return entry.targetSummary ?? entry.resultCode;
   }
   return entry.targetSummary ?? entry.resultCode;

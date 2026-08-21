@@ -112,12 +112,85 @@ describe('ProcessService', () => {
     await expect(service.stop({ clientId: 'client-1', clientName: 'test' }, workspace.id, started.value.processId))
       .resolves.toMatchObject({ ok: true });
   });
+
+  it('does not dispatch a project process after cancellation wins during command discovery', async () => {
+    const workspace = await createWorkspace();
+    const calls: ManagedProcessStart[] = [];
+    let releaseCommand!: () => void;
+    const commandGate = new Promise<void>((resolve) => { releaseCommand = resolve; });
+    const projectCommands: ProjectCommandSource = {
+      async getCommand(): Promise<Result<CommandSpec>> {
+        await commandGate;
+        return ok({ executable: 'pnpm', args: ['test'] });
+      },
+    };
+    const service = new ProcessService(repository(workspace), { processManager: fakeManager(calls), projectService: projectCommands });
+    const controller = new AbortController();
+
+    const starting = service.startProjectCommand({ clientId: 'client-1', clientName: 'test' }, workspace.id, 'test', controller.signal);
+    controller.abort();
+    releaseCommand();
+
+    await expect(starting).resolves.toMatchObject({ ok: false, error: { code: 'PROCESS_TIMEOUT' } });
+    expect(calls).toHaveLength(0);
+  });
+
+  it('forwards the invocation signal to the process manager', async () => {
+    const workspace = await createWorkspace();
+    const calls: ManagedProcessStart[] = [];
+    const observedSignals: Array<AbortSignal | undefined> = [];
+    const service = new ProcessService(repository(workspace), { processManager: fakeManager(calls, observedSignals) });
+    const signal = new AbortController().signal;
+
+    await expect(service.start({ clientId: 'client-1', clientName: 'test' }, workspace.id, {
+      executable: 'pnpm',
+      args: ['test'],
+    }, signal)).resolves.toMatchObject({ ok: true });
+
+    expect(observedSignals).toEqual([signal]);
+  });
+
+  it('provisionally owns a created process so a cancelled launch remains listable and stoppable', async () => {
+    const workspace = await createWorkspace();
+    const handle = processHandle('process-provisional');
+    let releaseStart!: () => void;
+    const startGate = new Promise<void>((resolve) => { releaseStart = resolve; });
+    let created!: () => void;
+    const createdGate = new Promise<void>((resolve) => { created = resolve; });
+    let stops = 0;
+    const manager: NonNullable<ProcessServiceDependencies['processManager']> = {
+      async start(_spec, _signal, onCreated): Promise<Result<ManagedProcess>> {
+        onCreated?.(handle);
+        created();
+        await startGate;
+        return ok(handle);
+      },
+      list(): readonly ManagedProcess[] { return [handle]; },
+      status(): Result<ManagedProcess> { return ok(handle); },
+      logs(): Result<ProcessLogResult> { return ok({ entries: [], truncated: false, nextSequence: 0 }); },
+      async stop(): Promise<Result<void>> { stops += 1; return ok(undefined); },
+    };
+    const service = new ProcessService(repository(workspace), { processManager: manager });
+    const actor = { clientId: 'client-1', clientName: 'test' };
+
+    const starting = service.start(actor, workspace.id, { executable: 'pnpm', args: ['test'] });
+    await createdGate;
+    await expect(service.list(actor, workspace.id)).resolves.toMatchObject({
+      ok: true,
+      value: [expect.objectContaining({ processId: 'process-provisional' })],
+    });
+    await expect(service.stop(actor, workspace.id, 'process-provisional')).resolves.toMatchObject({ ok: true });
+    expect(stops).toBe(1);
+    releaseStart();
+    await expect(starting).resolves.toMatchObject({ ok: true });
+  });
 });
 
-function fakeManager(calls: ManagedProcessStart[]): ProcessServiceDependencies['processManager'] {
+function fakeManager(calls: ManagedProcessStart[], observedSignals: Array<AbortSignal | undefined> = []): ProcessServiceDependencies['processManager'] {
   return {
-    async start(spec: ManagedProcessStart): Promise<Result<ManagedProcess>> {
+    async start(spec: ManagedProcessStart, signal?: AbortSignal): Promise<Result<ManagedProcess>> {
       calls.push(spec);
+      observedSignals.push(signal);
       return ok(processHandle());
     },
     status(): Result<ManagedProcess> { return ok(processHandle()); },

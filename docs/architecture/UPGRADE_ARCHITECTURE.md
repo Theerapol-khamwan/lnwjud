@@ -41,7 +41,7 @@ MCP clients (ChatGPT / Codex / Claude / other agents)
              MCP stdio or loopback Streamable HTTP
                          |
                          v
-                  ToolRegistry (208 tools: 184-tool baseline plus additive gateway contracts)
+                  ToolRegistry (210 tools: 184-tool baseline plus additive gateway contracts)
                          |
        +-----------------+------------------+
        |                 |                  |
@@ -108,7 +108,7 @@ builds the high-impact slices on top of it:
 Long-running operations use the existing task handles where a concrete backend
 exists. Activity events now carry bounded `traceId`/`traceParent` values into
 NDJSON and SQLite audit metadata. The 184-tool snapshot remains a compatibility
-baseline; current transports advertise 208 tools because all additions are
+baseline; current transports advertise 210 tools because all additions are
 append-only.
 
 ## Request and side-effect pipeline

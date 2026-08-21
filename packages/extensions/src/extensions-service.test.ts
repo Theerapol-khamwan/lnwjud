@@ -3,6 +3,15 @@ import { DEFAULT_EXTENSIONS_SETTINGS } from './types.js';
 import { LocalExtensionsService } from './extensions-service.js';
 import type { McpClientFactory, McpClientSession } from './mcp-session-manager.js';
 
+function settingsWithMockServer(): typeof DEFAULT_EXTENSIONS_SETTINGS {
+  return {
+    ...DEFAULT_EXTENSIONS_SETTINGS,
+    extraMcpServers: {
+      mock: { command: 'node', args: ['mock-server.js'] },
+    },
+  };
+}
+
 describe('LocalExtensionsService MCP bridge', () => {
   it('lists, describes, and calls child MCP tools through the session manager', async () => {
     const calls: string[] = [];
@@ -18,12 +27,7 @@ describe('LocalExtensionsService MCP bridge', () => {
       connect: async () => session,
     };
     const service = new LocalExtensionsService({
-      settings: {
-        ...DEFAULT_EXTENSIONS_SETTINGS,
-        extraMcpServers: {
-          mock: { command: 'node', args: ['mock-server.js'] },
-        },
-      },
+      settings: settingsWithMockServer(),
       homeDir: process.cwd(),
       appDataDir: process.cwd(),
       clientFactory: factory,
@@ -45,6 +49,72 @@ describe('LocalExtensionsService MCP bridge', () => {
     expect(called.ok).toBe(true);
     expect(calls).toEqual(['ping:{"n":1}']);
 
+    await service.close();
+  });
+
+  it('does not connect a child MCP server when the request is already cancelled', async () => {
+    let connects = 0;
+    const factory: McpClientFactory = {
+      connect: async () => {
+        connects += 1;
+        throw new Error('must not connect');
+      },
+    };
+    const service = new LocalExtensionsService({
+      settings: settingsWithMockServer(),
+      homeDir: process.cwd(),
+      appDataDir: process.cwd(),
+      clientFactory: factory,
+    });
+    const controller = new AbortController();
+    controller.abort();
+
+    await expect(service.callMcpTool({ server: 'mock', tool: 'ping' }, controller.signal))
+      .resolves.toMatchObject({ ok: false, error: { code: 'PROCESS_TIMEOUT' } });
+    await expect(service.describeMcpServer({ server: 'mock' }, controller.signal))
+      .resolves.toMatchObject({ ok: false, error: { code: 'PROCESS_TIMEOUT' } });
+    expect(connects).toBe(0);
+
+    await service.close();
+  });
+
+  it('aborts an in-flight child MCP call and closes its managed session', async () => {
+    let observedSignal: AbortSignal | undefined;
+    let releaseStarted!: () => void;
+    const started = new Promise<void>((resolve) => { releaseStarted = resolve; });
+    let closes = 0;
+    const session: McpClientSession = {
+      listTools: async () => [{ name: 'ping', description: 'Ping tool' }],
+      callTool: async (_name, _args, signal) => {
+        observedSignal = signal;
+        releaseStarted();
+        await new Promise<void>((resolve) => {
+          if (signal?.aborted === true) {
+            resolve();
+            return;
+          }
+          signal?.addEventListener('abort', () => resolve(), { once: true });
+        });
+        throw new Error('child call cancelled');
+      },
+      close: async () => { closes += 1; },
+    };
+    const factory: McpClientFactory = { connect: async () => session };
+    const service = new LocalExtensionsService({
+      settings: settingsWithMockServer(),
+      homeDir: process.cwd(),
+      appDataDir: process.cwd(),
+      clientFactory: factory,
+    });
+    const controller = new AbortController();
+
+    const pending = service.callMcpTool({ server: 'mock', tool: 'ping' }, controller.signal);
+    await started;
+    controller.abort();
+
+    await expect(pending).resolves.toMatchObject({ ok: false, error: { code: 'PROCESS_TIMEOUT' } });
+    expect(observedSignal?.aborted).toBe(true);
+    expect(closes).toBe(1);
     await service.close();
   });
 });

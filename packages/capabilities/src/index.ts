@@ -24,7 +24,7 @@ export const capabilityToolNames = Object.freeze([
 export type CapabilityToolName = (typeof capabilityToolNames)[number];
 
 export interface CapabilityService {
-  execute(tool: CapabilityToolName, input: unknown): Promise<Result<unknown>>;
+  execute(tool: CapabilityToolName, input: unknown, signal?: AbortSignal): Promise<Result<unknown>>;
 }
 
 export { LocalCapabilityService, type CapabilityBackend, type LocalCapabilityBackends } from './local-capability-service.js';

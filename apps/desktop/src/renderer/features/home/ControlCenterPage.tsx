@@ -1,7 +1,6 @@
 import { useState, type ReactElement } from 'react';
 import type { DashboardSnapshot, IncidentClassification, UiLocale, WorkspaceSummary } from '@lnwjud/ipc-contracts';
 import { createTranslator } from '../../i18n/index.js';
-import { WorkLogPanel, type WorkLogFilter } from '../worklog/WorkLogPanel.js';
 
 interface ControlCenterPageProps {
   readonly dashboard: DashboardSnapshot;
@@ -16,7 +15,6 @@ interface ControlCenterPageProps {
   readonly onAddWorkspace: (rootPath: string) => Promise<void>;
   readonly onStartTunnel: () => Promise<void>;
   readonly onStopTunnel: () => Promise<void>;
-  readonly onClearWorkLog: () => Promise<void>;
   readonly onCaptureIncident: () => Promise<void>;
   readonly incidentBusy: boolean;
   readonly incidentClassification: IncidentClassification | null;
@@ -30,7 +28,6 @@ export function ControlCenterPage(props: ControlCenterPageProps): ReactElement {
   const [copyStatus, setCopyStatus] = useState<string | null>(null);
   const [projectPath, setProjectPath] = useState('');
   const [selectedId, setSelectedId] = useState(dashboard.selectedWorkspace?.id ?? '');
-  const [filter, setFilter] = useState<WorkLogFilter>('all');
 
   const agentLabel = dashboard.agentState === 'busy'
     ? t('agent.busy')
@@ -191,19 +188,6 @@ export function ControlCenterPage(props: ControlCenterPageProps): ReactElement {
         </section>
       </div>
 
-      <WorkLogPanel
-        title={t('workLog.title')}
-        emptyLabel={t('workLog.empty')}
-        filterAllLabel={t('workLog.filterAll')}
-        filterErrorLabel={t('workLog.filterError')}
-        clearLabel={t('workLog.clear')}
-        filter={filter}
-        onFilterChange={setFilter}
-        onClear={props.onClearWorkLog}
-        entries={dashboard.workLog}
-        inFlight={dashboard.inFlight}
-        compact
-      />
     </div>
   );
 }

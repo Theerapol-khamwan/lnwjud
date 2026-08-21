@@ -47,8 +47,8 @@ export interface McpApplicationServices {
   readonly search?: Pick<SearchService, 'searchFiles' | 'searchText'>;
   readonly workspaceIndex?: Pick<WorkspaceIndexService, 'indexWorkspace' | 'status' | 'startWatch' | 'stopWatch'>;
   readonly git?: Pick<GitService, 'status' | 'diff' | 'log' | 'run'>;
-  readonly process?: Pick<ProcessService, 'start' | 'status' | 'logs' | 'stop' | 'startProjectCommand'>;
-  readonly codex?: Pick<CodexService, 'status' | 'run' | 'taskStatus' | 'taskLogs' | 'stop'>;
+  readonly process?: Pick<ProcessService, 'start' | 'list' | 'status' | 'logs' | 'stop' | 'startProjectCommand'>;
+  readonly codex?: Pick<CodexService, 'status' | 'run' | 'list' | 'taskStatus' | 'taskLogs' | 'stop'>;
 }
 
 export interface McpToolAnnotations {

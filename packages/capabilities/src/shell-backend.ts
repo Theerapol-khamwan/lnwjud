@@ -5,11 +5,12 @@ import { randomUUID } from 'node:crypto';
 import { appError, err, ok, type Result } from '@lnwjud/domain';
 import { PathExecutableResolver, WindowsProcessTree, toWindowsSpawnInvocation, type ExecutableResolver, type ProcessTreeTerminator } from '@lnwjud/process';
 import type { CapabilityBackend } from './local-capability-service.js';
+import { DurableShellTaskStore } from './durable-shell-task-store.js';
 
-type ShellOperation = 'run' | 'status' | 'wait' | 'logs' | 'result' | 'cancel' | 'resume' | 'approve' | 'deny';
+type ShellOperation = 'run' | 'list' | 'status' | 'wait' | 'logs' | 'result' | 'cancel' | 'resume' | 'approve' | 'deny';
 type ShellExecution = 'foreground' | 'background' | 'auto';
 type ShellPrivilege = 'user' | 'admin';
-type TaskState = 'running' | 'completed' | 'failed' | 'timed_out' | 'cancelled';
+type TaskState = 'running' | 'completed' | 'failed' | 'timed_out' | 'cancelled' | 'termination_unverified';
 
 interface ShellRequest {
   readonly operation: ShellOperation;
@@ -34,6 +35,8 @@ export interface ShellCapabilityOptions {
   readonly executableResolver?: ExecutableResolver;
   readonly terminator?: ProcessTreeTerminator;
   readonly defaultTimeoutSeconds?: number;
+  readonly defaultBackgroundTimeoutSeconds?: number;
+  readonly taskStateDirectory?: string;
   readonly autoWaitSeconds?: number;
   readonly maxSynchronousWaitSeconds?: number;
   readonly maxOutputBytes?: number;
@@ -61,15 +64,20 @@ interface ShellTaskRecord {
   errorMessage?: string;
   finishedAt?: string;
   timer?: ReturnType<typeof setTimeout>;
+  stopRequested?: 'timed_out' | 'cancelled';
+  terminationTarget?: 'timed_out' | 'cancelled';
+  terminationAttempt?: Promise<boolean>;
 }
 
-const SHELL_OPERATIONS: readonly ShellOperation[] = ['run', 'status', 'wait', 'logs', 'result', 'cancel', 'resume', 'approve', 'deny'];
+const SHELL_OPERATIONS: readonly ShellOperation[] = ['run', 'list', 'status', 'wait', 'logs', 'result', 'cancel', 'resume', 'approve', 'deny'];
 const DEFAULT_TIMEOUT_SECONDS = 3600;
+const DEFAULT_BACKGROUND_TIMEOUT_SECONDS = 86_400;
 const DEFAULT_AUTO_WAIT_SECONDS = 1;
 const DEFAULT_MAX_SYNCHRONOUS_WAIT_SECONDS = 60;
 const DEFAULT_MAX_OUTPUT_BYTES = 2 * 1024 * 1024;
-const MAX_TIMEOUT_SECONDS = 14_400;
+const MAX_TIMEOUT_SECONDS = 604_800;
 const MAX_OUTPUT_BYTES = 8 * 1024 * 1024;
+const FOREGROUND_CANCELLATION_RETRY_MS = 250;
 
 export class ShellCapabilityBackend implements CapabilityBackend {
   private readonly tasks = new Map<string, ShellTaskRecord>();
@@ -78,6 +86,8 @@ export class ShellCapabilityBackend implements CapabilityBackend {
   private readonly allowedRoots: readonly string[];
   private readonly allowedRootsProvider: (() => Promise<readonly string[]>) | undefined;
   private readonly defaultTimeoutSeconds: number;
+  private readonly defaultBackgroundTimeoutSeconds: number;
+  private readonly durableStore: DurableShellTaskStore | undefined;
   private readonly autoWaitSeconds: number;
   private readonly maxSynchronousWaitSeconds: number;
   private readonly maxOutputBytes: number;
@@ -90,18 +100,22 @@ export class ShellCapabilityBackend implements CapabilityBackend {
     this.executableResolver = options.executableResolver ?? new PathExecutableResolver();
     this.terminator = options.terminator ?? new WindowsProcessTree();
     this.defaultTimeoutSeconds = clampNumber(options.defaultTimeoutSeconds ?? DEFAULT_TIMEOUT_SECONDS, 0.1, MAX_TIMEOUT_SECONDS);
+    this.defaultBackgroundTimeoutSeconds = clampNumber(options.defaultBackgroundTimeoutSeconds ?? DEFAULT_BACKGROUND_TIMEOUT_SECONDS, 0.1, MAX_TIMEOUT_SECONDS);
+    this.durableStore = options.taskStateDirectory === undefined ? undefined : new DurableShellTaskStore(path.resolve(options.taskStateDirectory));
     this.autoWaitSeconds = clampNumber(options.autoWaitSeconds ?? DEFAULT_AUTO_WAIT_SECONDS, 0, DEFAULT_TIMEOUT_SECONDS);
     this.maxSynchronousWaitSeconds = clampNumber(options.maxSynchronousWaitSeconds ?? DEFAULT_MAX_SYNCHRONOUS_WAIT_SECONDS, 0.01, 90);
     this.maxOutputBytes = Math.floor(clampNumber(options.maxOutputBytes ?? DEFAULT_MAX_OUTPUT_BYTES, 1, MAX_OUTPUT_BYTES));
     this.unrestricted = options.unrestricted === true;
   }
 
-  public async execute(input: unknown): Promise<Result<unknown>> {
-    const parsed = parseShellRequest(input, this.defaultTimeoutSeconds, this.maxOutputBytes);
+  public async execute(input: unknown, signal?: AbortSignal): Promise<Result<unknown>> {
+    const parsed = parseShellRequest(input, this.defaultTimeoutSeconds, this.defaultBackgroundTimeoutSeconds, this.maxOutputBytes);
     if (!parsed.ok) return parsed;
+    if (signal?.aborted) return err(appError('PROCESS_TIMEOUT', 'Shell request was cancelled', true));
 
     switch (parsed.value.operation) {
-      case 'run': return this.run(parsed.value);
+      case 'run': return this.run(parsed.value, signal);
+      case 'list': return this.listTasks();
       case 'status': return this.taskSnapshot(parsed.value.taskId);
       case 'wait': return this.wait(parsed.value);
       case 'logs': return this.taskSnapshot(parsed.value.taskId, parsed.value.tailLines);
@@ -114,7 +128,7 @@ export class ShellCapabilityBackend implements CapabilityBackend {
     }
   }
 
-  private async run(request: ShellRequest): Promise<Result<unknown>> {
+  private async run(request: ShellRequest, signal?: AbortSignal): Promise<Result<unknown>> {
     if (request.executable === undefined) return err(appError('INVALID_INPUT', 'Executable is required'));
     if (request.privilege === 'admin') return err(appError('PERMISSION_DENIED', 'Administrator access is not available to the local runner'));
     if (isDeleteLikeShellCommand(request.executable, request.arguments) && !request.userConfirmed) {
@@ -126,13 +140,20 @@ export class ShellCapabilityBackend implements CapabilityBackend {
 
     const cwd = await this.resolveCwd(request.cwd);
     if (!cwd.ok) return cwd;
+    if (signal?.aborted) return err(appError('PROCESS_TIMEOUT', 'Shell request was cancelled before launch', true));
     const executable = await this.executableResolver.resolve(request.executable);
     if (!executable.ok) return executable;
+    if (signal?.aborted) return err(appError('PROCESS_TIMEOUT', 'Shell request was cancelled before launch', true));
     const invocation = toWindowsSpawnInvocation(executable.value, request.arguments, { allowMetacharacters: this.unrestricted });
     if (!invocation.ok) return invocation;
+    if (signal?.aborted) return err(appError('PROCESS_TIMEOUT', 'Shell request was cancelled before launch', true));
 
     if (request.dryRun) {
       return ok({ dry_run: true, executable: invocation.value.executable, arguments: [...invocation.value.args], cwd: cwd.value });
+    }
+
+    if (this.durableStore !== undefined && request.execution !== 'foreground') {
+      return this.runDurable(request, cwd.value, invocation.value);
     }
 
     let child: ChildProcess;
@@ -168,10 +189,20 @@ export class ShellCapabilityBackend implements CapabilityBackend {
     child.stdout?.on('data', (chunk: Buffer | string) => record.stdout.append(chunk));
     child.stderr?.on('data', (chunk: Buffer | string) => record.stderr.append(chunk));
     child.once('error', () => {
-      if (record.state === 'running') this.finish(record, 'failed', -1, 'Local task failed to start');
+      if (record.child.pid === undefined && record.terminationTarget !== undefined) {
+        this.finish(
+          record,
+          record.terminationTarget,
+          -1,
+          record.terminationTarget === 'timed_out' ? 'Local task timed out' : undefined,
+        );
+      } else if (record.state === 'running' && record.stopRequested === undefined) {
+        this.finish(record, 'failed', -1, 'Local task failed to start');
+      }
     });
     child.once('close', (exitCode: number | null) => {
       if (record.state !== 'running') return;
+      if (record.stopRequested !== undefined) return;
       this.finish(record, exitCode === 0 ? 'completed' : 'failed', exitCode ?? -1);
     });
     record.timer = setTimeout(() => { void this.timeout(record); }, request.timeoutSeconds * 1000);
@@ -180,49 +211,157 @@ export class ShellCapabilityBackend implements CapabilityBackend {
     const synchronousWait = request.execution === 'auto'
       ? Math.min(this.autoWaitSeconds, this.maxSynchronousWaitSeconds)
       : Math.min(request.timeoutSeconds, this.maxSynchronousWaitSeconds);
-    await this.waitFor(record, synchronousWait);
+    await this.waitForForeground(record, synchronousWait, signal);
     return ok(this.snapshot(record));
   }
 
   private async wait(request: ShellRequest): Promise<Result<unknown>> {
-    const record = this.getTask(request.taskId);
-    if (!record.ok) return record;
-    await this.waitFor(record.value, Math.min(request.timeoutSeconds, this.maxSynchronousWaitSeconds));
-    return ok(this.snapshot(record.value, request.tailLines));
+    if (request.taskId === undefined) return err(appError('INVALID_INPUT', 'Task ID is required'));
+    const record = this.tasks.get(request.taskId);
+    if (record !== undefined) {
+      await this.waitFor(record, Math.min(request.timeoutSeconds, this.maxSynchronousWaitSeconds));
+      return ok(this.snapshot(record, request.tailLines));
+    }
+    if (this.durableStore !== undefined) {
+      return this.durableStore.wait(request.taskId, Math.min(request.timeoutSeconds, this.maxSynchronousWaitSeconds), request.tailLines);
+    }
+    return err(appError('PROCESS_NOT_FOUND', 'Task was not found'));
   }
 
   private async waitFor(record: ShellTaskRecord, seconds: number): Promise<void> {
-    if (record.state !== 'running' || seconds <= 0) return;
+    if ((record.state !== 'running' && record.state !== 'termination_unverified') || seconds <= 0) return;
     await Promise.race([record.completion, delay(seconds * 1000)]);
   }
 
-  private async timeout(record: ShellTaskRecord): Promise<void> {
-    if (record.state !== 'running') return;
-    this.finish(record, 'timed_out', -1, 'Local task timed out');
-    const pid = record.child.pid;
-    if (pid !== undefined) await this.terminator.stop(record.child, pid);
-  }
-
-  private async cancel(taskId: string | undefined): Promise<Result<unknown>> {
-    const record = this.getTask(taskId);
-    if (!record.ok) return record;
-    if (record.value.state === 'running') {
-      this.finish(record.value, 'cancelled', -1);
-      const pid = record.value.child.pid;
-      if (pid !== undefined) await this.terminator.stop(record.value.child, pid);
+  private async waitForForeground(record: ShellTaskRecord, seconds: number, signal: AbortSignal | undefined): Promise<void> {
+    if (signal === undefined) {
+      await this.waitFor(record, seconds);
+      return;
     }
-    return ok(this.snapshot(record.value));
+    let cancellation: Promise<Result<unknown>> | undefined;
+    let resolveAbort!: () => void;
+    const aborted = new Promise<void>((resolve) => { resolveAbort = resolve; });
+    const onAbort = (): void => {
+      cancellation ??= this.cancel(record.taskId, true);
+      resolveAbort();
+    };
+    if (signal.aborted) onAbort();
+    else signal.addEventListener('abort', onAbort, { once: true });
+    try {
+      await Promise.race([this.waitFor(record, seconds), aborted]);
+      if (cancellation !== undefined) await cancellation;
+    } finally {
+      signal.removeEventListener('abort', onAbort);
+    }
   }
 
-  private taskSnapshot(taskId: string | undefined, tailLines?: number): Result<unknown> {
-    const record = this.getTask(taskId);
-    return record.ok ? ok(this.snapshot(record.value, tailLines)) : record;
+  private async timeout(record: ShellTaskRecord): Promise<void> {
+    if (record.state !== 'running' || record.stopRequested !== undefined) return;
+    await this.tryTerminate(record, 'timed_out');
+  }
+
+  private async cancel(taskId: string | undefined, autoRetry = false): Promise<Result<unknown>> {
+    if (taskId === undefined) return err(appError('INVALID_INPUT', 'Task ID is required'));
+    const existing = this.tasks.get(taskId);
+    if (existing === undefined) {
+      if (this.durableStore !== undefined) return this.durableStore.cancel(taskId);
+      return err(appError('PROCESS_NOT_FOUND', 'Task was not found'));
+    }
+    const record = existing;
+    if (record.state === 'running' || record.state === 'termination_unverified') {
+      const targetState = record.terminationTarget ?? 'cancelled';
+      let verified = await this.tryTerminate(record, targetState);
+      while (!verified && autoRetry) {
+        if (record.child.exitCode !== null || record.child.signalCode !== null) {
+          await record.completion;
+        }
+        await delay(FOREGROUND_CANCELLATION_RETRY_MS);
+        verified = await this.tryTerminate(record, targetState);
+      }
+      if (!verified) await record.completion;
+    }
+    return ok(this.snapshot(record));
+  }
+
+  private async tryTerminate(record: ShellTaskRecord, targetState: 'timed_out' | 'cancelled'): Promise<boolean> {
+    if (isVerifiedTerminal(record.state)) return true;
+    if (record.terminationAttempt !== undefined) return record.terminationAttempt;
+    const attempt = this.performTermination(record, targetState);
+    record.terminationAttempt = attempt;
+    try {
+      return await attempt;
+    } finally {
+      if (record.terminationAttempt === attempt) delete record.terminationAttempt;
+    }
+  }
+
+  private async performTermination(record: ShellTaskRecord, targetState: 'timed_out' | 'cancelled'): Promise<boolean> {
+    record.terminationTarget = targetState;
+    record.stopRequested = targetState;
+    if (record.timer !== undefined) clearTimeout(record.timer);
+    const pid = record.child.pid;
+    if (pid === undefined) {
+      delete record.stopRequested;
+      this.markTerminationUnverified(record, targetState === 'timed_out'
+        ? 'Local task timed out, but process termination could not be verified'
+        : 'Process termination could not be verified');
+      return false;
+    }
+    try {
+      await this.terminator.stop(record.child, pid);
+      this.finish(record, targetState, -1, targetState === 'timed_out' ? 'Local task timed out' : undefined);
+      return true;
+    } catch {
+      delete record.stopRequested;
+      this.markTerminationUnverified(record, targetState === 'timed_out'
+        ? 'Local task timed out, but process termination could not be verified'
+        : 'Process termination could not be verified');
+      return false;
+    }
+  }
+
+  private async taskSnapshot(taskId: string | undefined, tailLines?: number): Promise<Result<unknown>> {
+    if (taskId === undefined) return err(appError('INVALID_INPUT', 'Task ID is required'));
+    const record = this.tasks.get(taskId);
+    if (record !== undefined) return ok(this.snapshot(record, tailLines));
+    if (this.durableStore !== undefined) return this.durableStore.snapshot(taskId, tailLines);
+    return err(appError('PROCESS_NOT_FOUND', 'Task was not found'));
   }
 
   private getTask(taskId: string | undefined): Result<ShellTaskRecord> {
     if (taskId === undefined) return err(appError('INVALID_INPUT', 'Task ID is required'));
     const task = this.tasks.get(taskId);
     return task === undefined ? err(appError('PROCESS_NOT_FOUND', 'Task was not found')) : ok(task);
+  }
+
+  private async runDurable(
+    request: ShellRequest,
+    cwd: string,
+    invocation: { readonly executable: string; readonly args: readonly string[]; readonly windowsVerbatimArguments?: boolean },
+  ): Promise<Result<unknown>> {
+    if (this.durableStore === undefined) return err(appError('INTERNAL_ERROR', 'Durable task store is unavailable', true));
+    const taskId = randomUUID();
+    const launched = await this.durableStore.launch({
+      taskId,
+      executable: invocation.executable,
+      arguments: invocation.args,
+      cwd,
+      ...(invocation.windowsVerbatimArguments === undefined ? {} : { windowsVerbatimArguments: invocation.windowsVerbatimArguments }),
+      timeoutSeconds: request.timeoutSeconds,
+      maxOutputBytes: request.maxOutputBytes,
+      includeStdout: request.includeStdout,
+      includeStderr: request.includeStderr,
+    });
+    if (!launched.ok || request.execution === 'background') return launched;
+    return this.durableStore.wait(taskId, Math.min(this.autoWaitSeconds, this.maxSynchronousWaitSeconds));
+  }
+
+  private async listTasks(): Promise<Result<unknown>> {
+    const inMemory = [...this.tasks.values()].map((record) => this.snapshot(record));
+    if (this.durableStore === undefined) return ok({ tasks: inMemory });
+    const durable = await this.durableStore.list();
+    const durableIds = new Set(durable.map((task) => task.task_id).filter((value): value is string => typeof value === 'string'));
+    return ok({ tasks: [...durable, ...inMemory.filter((task) => !durableIds.has(String(task.task_id ?? '')))] });
   }
 
   private async resolveCwd(requestedCwd: string | undefined): Promise<Result<string>> {
@@ -261,13 +400,22 @@ export class ShellCapabilityBackend implements CapabilityBackend {
   }
 
   private finish(record: ShellTaskRecord, state: TaskState, exitCode?: number, errorMessage?: string): void {
-    if (record.state !== 'running') return;
+    if (record.state !== 'running' && record.state !== 'termination_unverified') return;
     record.state = state;
+    delete record.stopRequested;
+    delete record.terminationTarget;
     if (exitCode !== undefined) record.exitCode = exitCode;
     if (errorMessage !== undefined) record.errorMessage = errorMessage;
     record.finishedAt = new Date().toISOString();
     if (record.timer !== undefined) clearTimeout(record.timer);
     record.resolveCompletion();
+  }
+
+  private markTerminationUnverified(record: ShellTaskRecord, errorMessage: string): void {
+    record.state = 'termination_unverified';
+    record.errorMessage = errorMessage;
+    delete record.finishedAt;
+    if (record.timer !== undefined) clearTimeout(record.timer);
   }
 
   private snapshot(record: ShellTaskRecord, tailLines?: number): Record<string, unknown> {
@@ -314,7 +462,7 @@ class OutputCapture {
   }
 }
 
-function parseShellRequest(value: unknown, defaultTimeoutSeconds: number, maxOutputBytes: number): Result<ShellRequest> {
+function parseShellRequest(value: unknown, defaultTimeoutSeconds: number, defaultBackgroundTimeoutSeconds: number, maxOutputBytes: number): Result<ShellRequest> {
   if (!isRecord(value)) return err(appError('INVALID_INPUT', 'Shell input must be an object'));
   const operation = value.operation === undefined ? 'run' : value.operation;
   if (!isShellOperation(operation)) return err(appError('INVALID_INPUT', 'Shell operation is invalid'));
@@ -330,7 +478,9 @@ function parseShellRequest(value: unknown, defaultTimeoutSeconds: number, maxOut
   if (cwd !== undefined && (typeof cwd !== 'string' || cwd.includes('\0'))) return err(appError('INVALID_INPUT', 'Working directory is invalid'));
   const taskId = value.task_id === undefined ? undefined : value.task_id;
   if (taskId !== undefined && (typeof taskId !== 'string' || taskId.trim().length === 0)) return err(appError('INVALID_INPUT', 'Task ID is invalid'));
-  const timeoutSeconds = value.timeout_seconds === undefined ? defaultTimeoutSeconds : value.timeout_seconds;
+  const timeoutSeconds = value.timeout_seconds === undefined
+    ? (execution === 'background' || execution === 'auto' ? defaultBackgroundTimeoutSeconds : defaultTimeoutSeconds)
+    : value.timeout_seconds;
   if (typeof timeoutSeconds !== 'number' || !Number.isFinite(timeoutSeconds) || timeoutSeconds < 0.1 || timeoutSeconds > MAX_TIMEOUT_SECONDS) return err(appError('INVALID_INPUT', 'Timeout is invalid'));
   const requestedMaxBytes = value.max_output_bytes === undefined ? maxOutputBytes : value.max_output_bytes;
   if (typeof requestedMaxBytes !== 'number' || !Number.isInteger(requestedMaxBytes) || requestedMaxBytes < 1 || requestedMaxBytes > MAX_OUTPUT_BYTES) return err(appError('INVALID_INPUT', 'Output limit is invalid'));
@@ -374,6 +524,10 @@ function redactText(value: string): string {
 
 function clampNumber(value: number, minimum: number, maximum: number): number {
   return Math.min(maximum, Math.max(minimum, value));
+}
+
+function isVerifiedTerminal(state: TaskState): boolean {
+  return state === 'completed' || state === 'failed' || state === 'timed_out' || state === 'cancelled';
 }
 
 function isDeleteLikeShellCommand(executable: string, args: readonly string[]): boolean {

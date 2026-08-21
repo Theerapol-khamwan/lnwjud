@@ -152,12 +152,13 @@ async function executeOne(call: BatchInvocation, invoke: BatchInvoker, parentSig
   if (parentSignal?.aborted) return cancelledResult(call, Date.now() - started);
 
   const controller = new AbortController();
-  const onAbort = (): void => controller.abort();
-  parentSignal?.addEventListener('abort', onAbort, { once: true });
-
   let timeoutHandle: ReturnType<typeof setTimeout> | undefined;
   let resolveTimeout: (() => void) | undefined;
   let resolveCancellation: (() => void) | undefined;
+  const onAbort = (): void => {
+    controller.abort();
+    resolveCancellation?.();
+  };
   const timeout = new Promise<SettledOutcome>((resolve) => {
     resolveTimeout = (): void => resolve({ kind: 'timeout', error: TIMEOUT_ERROR });
   });
@@ -174,10 +175,7 @@ async function executeOne(call: BatchInvocation, invoke: BatchInvoker, parentSig
   }, call.timeoutMs);
   if (parentSignal !== undefined) {
     if (parentSignal.aborted) resolveCancellation?.();
-    else parentSignal.addEventListener('abort', () => {
-      controller.abort();
-      resolveCancellation?.();
-    }, { once: true });
+    else parentSignal.addEventListener('abort', onAbort, { once: true });
   }
 
   try {

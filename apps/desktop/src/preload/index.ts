@@ -20,8 +20,10 @@ import {
   type ProcessSummary,
   type SaveTunnelApiKeyRequest,
   type SelectWorkspaceRequest,
+  type SetAiDeletePolicyRequest,
   type SetLocaleRequest,
   type SetPermissionProfileRequest,
+  type SetStdioPolicyRequest,
   type SetTunnelClientPathRequest,
   type SetUnrestrictedModeRequest,
   type StartMcpRequest,
@@ -80,6 +82,11 @@ function workspaceSummary(value: unknown): WorkspaceSummary {
 function workspaceList(value: unknown): readonly WorkspaceSummary[] {
   if (!Array.isArray(value)) throw new Error('Invalid IPC response');
   return value.map(workspaceSummary);
+}
+
+function stringList(value: unknown): readonly string[] {
+  if (!Array.isArray(value) || value.some((entry) => typeof entry !== 'string')) throw new Error('Invalid IPC response');
+  return value as string[];
 }
 
 function permissionProfile(value: unknown): PermissionProfileName {
@@ -180,6 +187,10 @@ function dashboard(value: unknown): DashboardSnapshot {
     mode: 'WORK',
     locale: uiLocale(value.locale),
     unrestricted: booleanField(value, 'unrestricted'),
+    allowAiDelete: booleanField(value, 'allowAiDelete'),
+    stdioPermissionProfile: permissionProfile(value.stdioPermissionProfile),
+    stdioStrictRoots: booleanField(value, 'stdioStrictRoots'),
+    stdioAllowedRoots: stringList(value.stdioAllowedRoots),
     connectionModes: {
       httpUrl: nullableString(value.connectionModes.httpUrl),
       stdioCommand: stringField(value.connectionModes, 'stdioCommand'),
@@ -258,7 +269,7 @@ function processSummary(value: unknown): ProcessSummary {
 }
 
 function processState(value: unknown): ProcessSummary['state'] {
-  if (value === 'starting' || value === 'running' || value === 'exited' || value === 'failed' || value === 'stopped' || value === 'timed_out') {
+  if (value === 'starting' || value === 'running' || value === 'exited' || value === 'failed' || value === 'stopped' || value === 'timed_out' || value === 'termination_unverified') {
     return value;
   }
   throw new Error('Invalid IPC response');
@@ -317,6 +328,24 @@ function setUnrestrictedMode(request: SetUnrestrictedModeRequest): Promise<{ rea
   return invoke(ipcChannels.setUnrestrictedMode, { enabled: request.enabled }).then((value: unknown) => {
     if (!isRecord(value)) throw new Error('Invalid IPC response');
     return { unrestricted: booleanField(value, 'unrestricted'), restartRequired: booleanField(value, 'restartRequired') };
+  });
+}
+
+function setAiDeletePolicy(request: SetAiDeletePolicyRequest): Promise<{ readonly enabled: boolean }> {
+  if (!isRecord(request) || typeof request.enabled !== 'boolean') return Promise.reject(new Error('Invalid IPC request'));
+  return invoke(ipcChannels.setAiDeletePolicy, { enabled: request.enabled }).then((value: unknown) => {
+    if (!isRecord(value)) throw new Error('Invalid IPC response');
+    return { enabled: booleanField(value, 'enabled') };
+  });
+}
+
+function setStdioPolicy(request: SetStdioPolicyRequest): Promise<{ readonly profile: PermissionProfileName; readonly strictRoots: boolean; readonly allowedRoots: readonly string[]; readonly restartRequired: boolean }> {
+  if (!isRecord(request) || !Array.isArray(request.allowedRoots) || typeof request.strictRoots !== 'boolean') return Promise.reject(new Error('Invalid IPC request'));
+  const profile = permissionProfile(request.profile);
+  const allowedRoots = stringList(request.allowedRoots);
+  return invoke(ipcChannels.setStdioPolicy, { profile, strictRoots: request.strictRoots, allowedRoots }).then((value: unknown) => {
+    if (!isRecord(value)) throw new Error('Invalid IPC response');
+    return { profile: permissionProfile(value.profile), strictRoots: booleanField(value, 'strictRoots'), allowedRoots: stringList(value.allowedRoots), restartRequired: booleanField(value, 'restartRequired') };
   });
 }
 
@@ -472,6 +501,8 @@ const api: LnwjudApi = {
   getDashboard: () => invoke(ipcChannels.getDashboard).then(dashboard),
   setPermissionProfile,
   setUnrestrictedMode,
+  setAiDeletePolicy,
+  setStdioPolicy,
   listProcesses: () => invoke(ipcChannels.listProcesses).then(processList),
   startProcess,
   stopProcess,

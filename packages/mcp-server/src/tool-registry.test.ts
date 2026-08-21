@@ -14,9 +14,9 @@ describe('MCP tool registry', () => {
     expect(registry.list().map((tool) => tool.name)).toEqual([
       'workspace_list', 'workspace_register', 'workspace_info', 'workspace_tree', 'project_snapshot', 'read_file', 'read_files',
       'search_files', 'search_text', 'git_status', 'git_diff', 'git_log', 'git', 'write_file',
-      'apply_patch', 'move_file', 'copy_file', 'delete_file', 'process_start', 'process_status',
+      'apply_patch', 'move_file', 'copy_file', 'delete_file', 'process_start', 'process_list', 'process_status',
       'process_logs', 'process_stop', 'project_dev', 'project_test', 'project_lint',
-      'project_typecheck', 'project_build', 'codex_status', 'codex_run',
+      'project_typecheck', 'project_build', 'codex_status', 'codex_run', 'codex_task_list',
       'codex_task_status', 'codex_task_logs', 'codex_stop',
       'shell', 'dom_cdp', 'accessibility', 'input_event', 'vision', 'vision_annotated_capture', 'ui_target_action', 'window', 'health',
       'system_info', 'notification', 'file_dialog', 'clipboard', 'web_fetch',
@@ -313,6 +313,24 @@ describe('MCP tool registry', () => {
     const allowed = await registry.invoke('git', { workspaceId: 'workspace-1', args: ['reset', '--hard'], userConfirmed: true });
     expect(allowed.isError).not.toBe(true);
     expect(executed).toBe(1);
+  });
+
+  it('allows only scoped delete_file to bypass chat confirmation when the AI delete policy is enabled', async () => {
+    let deletes = 0;
+    const registry = new ToolRegistry({
+      file: {
+        async deleteFile(): Promise<ReturnType<typeof ok>> { deletes += 1; return ok(undefined); },
+      } as McpApplicationServices['file'],
+      capabilities: {
+        async execute(): Promise<ReturnType<typeof ok>> { return ok({ ok: true }); },
+      },
+    }, actor, { allowAiDeleteProvider: (): boolean => true });
+
+    const deleted = await registry.invoke('delete_file', { workspaceId: 'workspace-1', path: 'tmp.txt' });
+    expect(deleted.isError).not.toBe(true);
+    expect(deletes).toBe(1);
+    await expect(registry.invoke('shell', { operation: 'run', executable: 'rm', arguments: ['tmp.txt'] }))
+      .resolves.toMatchObject({ isError: true, structuredContent: { error: { code: 'PERMISSION_REQUIRED' } } });
   });
 
   it('allows non-destructive git commands without confirmation', async () => {

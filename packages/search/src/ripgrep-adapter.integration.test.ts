@@ -10,12 +10,12 @@ describe('RipgrepAdapter', () => {
 
     const result = await runner.run(
       process.execPath,
-      ['-e', "setTimeout(() => process.stdout.write('late'), 250)"],
+      ['-e', "setTimeout(() => process.stdout.write('late'), 2_000)"],
       process.cwd(),
       { timeoutMs: 40 },
     );
 
-    expect(Date.now() - startedAt).toBeLessThan(200);
+    expect(Date.now() - startedAt).toBeLessThan(1_000);
     expect(result.timedOut).toBe(true);
   });
 
@@ -27,13 +27,13 @@ describe('RipgrepAdapter', () => {
 
     const result = await runner.run(
       process.execPath,
-      ['-e', "setTimeout(() => process.stdout.write('late'), 250)"],
+      ['-e', "setTimeout(() => process.stdout.write('late'), 2_000)"],
       process.cwd(),
       { timeoutMs: 1_000, signal: controller.signal },
     );
     clearTimeout(abortTimer);
 
-    expect(Date.now() - startedAt).toBeLessThan(200);
+    expect(Date.now() - startedAt).toBeLessThan(1_000);
     expect(result.timedOut).toBe(true);
     expect(result.stdout).not.toContain('late');
   });

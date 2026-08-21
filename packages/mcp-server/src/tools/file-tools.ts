@@ -47,9 +47,9 @@ export function fileTools(context: McpToolContext): McpToolDefinition[] {
       permission: 'WRITE',
       annotations: { readOnlyHint: false, destructiveHint: false },
       inputSchema: writeFileSchema,
-      handler: async (input) => context.services.file === undefined
+      handler: async (input, signal) => context.services.file === undefined
         ? missingService()
-        : context.services.file.writeFile(context.actor, input.workspaceId, { path: input.path, content: input.content }),
+        : context.services.file.writeFile(context.actor, input.workspaceId, { path: input.path, content: input.content }, signal),
     }),
     defineTool({
       name: 'apply_patch',
@@ -57,9 +57,9 @@ export function fileTools(context: McpToolContext): McpToolDefinition[] {
       permission: 'WRITE',
       annotations: { readOnlyHint: false, destructiveHint: false },
       inputSchema: applyPatchSchema,
-      handler: async (input) => context.services.file === undefined
+      handler: async (input, signal) => context.services.file === undefined
         ? missingService()
-        : context.services.file.applyPatch(context.actor, input.workspaceId, { files: input.files }),
+        : context.services.file.applyPatch(context.actor, input.workspaceId, { files: input.files }, signal),
     }),
     defineTool({
       name: 'move_file',
@@ -67,9 +67,9 @@ export function fileTools(context: McpToolContext): McpToolDefinition[] {
       permission: 'WRITE',
       annotations: { readOnlyHint: false, destructiveHint: false },
       inputSchema: moveFileSchema,
-      handler: async (input) => context.services.file === undefined
+      handler: async (input, signal) => context.services.file === undefined
         ? missingService()
-        : context.services.file.moveFile(context.actor, input.workspaceId, { sourcePath: input.sourcePath, destinationPath: input.destinationPath }),
+        : context.services.file.moveFile(context.actor, input.workspaceId, { sourcePath: input.sourcePath, destinationPath: input.destinationPath }, signal),
     }),
     defineTool({
       name: 'copy_file',
@@ -77,22 +77,22 @@ export function fileTools(context: McpToolContext): McpToolDefinition[] {
       permission: 'WRITE',
       annotations: { readOnlyHint: false, destructiveHint: false },
       inputSchema: copyFileSchema,
-      handler: async (input) => context.services.file === undefined
+      handler: async (input, signal) => context.services.file === undefined
         ? missingService()
-        : context.services.file.copyFile(context.actor, input.workspaceId, { sourcePath: input.sourcePath, destinationPath: input.destinationPath }),
+        : context.services.file.copyFile(context.actor, input.workspaceId, { sourcePath: input.sourcePath, destinationPath: input.destinationPath }, signal),
     }),
     defineTool({
       name: 'delete_file',
-      description: 'Delete one file or an empty directory. Always ask the user in chat first, then retry with userConfirmed: true.',
+      description: 'Delete one file or an empty directory inside its workspace. By default ask the user in chat first and retry with userConfirmed: true; the desktop AI File Delete Policy may allow this scoped tool without per-call confirmation. Workspace-root deletion remains blocked.',
       permission: 'DANGEROUS',
       annotations: { readOnlyHint: false, destructiveHint: true },
       inputSchema: deleteFileSchema,
-      handler: async (input) => context.services.file === undefined
+      handler: async (input, signal) => context.services.file === undefined
         ? missingService()
         : context.services.file.deleteFile(context.actor, input.workspaceId, {
           path: input.path,
           ...(input.userConfirmed === undefined ? {} : { userConfirmed: input.userConfirmed }),
-        }),
+        }, signal),
     }),
   ];
 }

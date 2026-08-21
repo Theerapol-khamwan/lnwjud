@@ -35,6 +35,39 @@ function repository(workspace: Workspace): WorkspaceRepository {
 }
 
 describe('GitService', () => {
+  it('forwards cancellation to every MCP-exposed Git adapter operation', async () => {
+    const workspace = await createWorkspace();
+    const observedSignals: Array<AbortSignal | undefined> = [];
+    const adapter = {
+      async status(_cwd: string, signal?: AbortSignal) {
+        observedSignals.push(signal);
+        return { ok: true as const, value: { entries: [] } };
+      },
+      async diff(_cwd: string, _request: unknown, signal?: AbortSignal) {
+        observedSignals.push(signal);
+        return { ok: true as const, value: { patch: '', truncated: false } };
+      },
+      async log(_cwd: string, _request: unknown, signal?: AbortSignal) {
+        observedSignals.push(signal);
+        return { ok: true as const, value: { entries: [], truncated: false } };
+      },
+      async run(_cwd: string, _args: readonly string[], _timeoutMs: number | undefined, signal?: AbortSignal) {
+        observedSignals.push(signal);
+        return { ok: true as const, value: { exitCode: 0, stdout: '', stderr: '' } };
+      },
+    } as unknown as GitAdapter;
+    const service = new GitService(repository(workspace), undefined, adapter);
+    const actor = { clientId: 'test', clientName: 'test' };
+    const signal = new AbortController().signal;
+
+    await service.status(actor, workspace.id, signal);
+    await service.diff(actor, workspace.id, {}, signal);
+    await service.log(actor, workspace.id, {}, signal);
+    await service.run(actor, { args: ['status'], workspaceId: workspace.id }, signal);
+
+    expect(observedSignals).toEqual([signal, signal, signal, signal]);
+  });
+
   it('guards a diff path before delegating to the Git adapter', async () => {
     const workspace = await createWorkspace();
     const adapter = {

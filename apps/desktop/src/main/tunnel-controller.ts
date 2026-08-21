@@ -9,7 +9,7 @@ import { request as httpRequest } from 'node:http';
 import type { TunnelRunState, TunnelStatus } from '@lnwjud/ipc-contracts';
 import { probeProcessStart, type ProcessProbeResult } from '@lnwjud/mcp-server';
 import { formatTunnelExitMessage, tunnelExitHintFromLog } from './tunnel-exit.js';
-import { acquireTunnelLock, type TunnelLockAcquisition, type TunnelLockOwner } from './tunnel-lock.js';
+import { acquireTunnelLock, readTunnelLock, type TunnelLockAcquisition, type TunnelLockOwner } from './tunnel-lock.js';
 import { rewriteTunnelYamlMcpCommand } from './tunnel-profile.js';
 
 const execFileAsync = promisify(execFile);
@@ -23,6 +23,13 @@ const RESTART_DELAY_MS = 3_000;
 const MAX_AUTO_RESTARTS = 5;
 const RESTART_WINDOW_MS = 30_000;
 const MAX_HEALTH_METADATA_BYTES = 64 * 1024;
+type ExternalTunnelProbe = 'live' | 'gone' | 'unverifiable';
+
+class StartCancelledError extends Error {}
+
+function throwIfStartCancelled(signal: AbortSignal): void {
+  if (signal.aborted) throw new StartCancelledError('Tunnel start was cancelled');
+}
 
 export interface OwnedProcessIdentity {
   readonly pid: number;
@@ -55,7 +62,8 @@ export class TunnelController {
   private state: TunnelRunState = 'stopped';
   private message: string | null = null;
   private externalProbeAt = 0;
-  private lastExternalProbe = false;
+  private lastExternalProbe: ExternalTunnelProbe = 'unverifiable';
+  private foreignOwner: TunnelLockOwner | null = null;
   private intentionalStop = false;
   private restartTimer: ReturnType<typeof setTimeout> | null = null;
   private stableTimer: ReturnType<typeof setTimeout> | null = null;
@@ -63,6 +71,10 @@ export class TunnelController {
   private restartWindowStartedAt = 0;
   private lastApiKey: string | null = null;
   private tunnelLock: TunnelLockAcquisition | null = null;
+  private lifecycleTail: Promise<void> = Promise.resolve();
+  private startInFlight: Promise<TunnelStatus> | null = null;
+  private startAbortController: AbortController | null = null;
+  private stopInFlight: Promise<TunnelStatus> | null = null;
 
   public constructor(private readonly options: TunnelControllerOptions) {}
 
@@ -126,14 +138,26 @@ export class TunnelController {
     } else if (this.child !== null && this.child.exitCode !== null) {
       this.child = null;
       if (this.state === 'running') this.state = 'stopped';
-    } else if (this.state !== 'starting' && this.tunnelLock === null) {
+    } else if (this.tunnelLock === null) {
       // No desktop-owned child: reflect a tunnel started externally (e.g. start-lnwjud-tunnel.ps1).
-      if (await this.probeExternalRunning()) {
+      const externalProbe = await this.probeExternalRunning();
+      if (externalProbe === 'live') {
         this.state = 'running';
         this.message = null;
         source = 'external';
-      } else if (this.state === 'running') {
-        this.state = 'stopped';
+      } else {
+        const foreignOwner = await this.verifiedForeignOwner();
+        if (foreignOwner !== null) {
+          this.state = 'starting';
+          this.message = `Tunnel is owned by PID ${foreignOwner.pid}; tunnel process liveness is ${externalProbe === 'unverifiable' ? 'unverifiable' : 'not yet confirmed'}`;
+          source = 'external';
+        } else if (externalProbe === 'unverifiable') {
+          this.state = 'error';
+          this.message = 'Tunnel process liveness is unverifiable; refusing to start a possible duplicate';
+        } else if (this.state !== 'error' || this.message?.startsWith('Tunnel process liveness is unverifiable') === true) {
+          this.state = 'stopped';
+          this.message = null;
+        }
       }
     }
     return {
@@ -147,53 +171,119 @@ export class TunnelController {
     };
   }
 
-  private async probeExternalRunning(force = false): Promise<boolean> {
+  private async probeExternalRunning(force = false): Promise<ExternalTunnelProbe> {
     const now = Date.now();
     if (!force && now - this.externalProbeAt < EXTERNAL_PROBE_TTL_MS) return this.lastExternalProbe;
     this.externalProbeAt = now;
-    this.lastExternalProbe = await (this.options.isExternalTunnelRunning?.() ?? isLnwjudTunnelProcessRunning());
+    try {
+      const result = await (this.options.isExternalTunnelRunning?.() ?? isLnwjudTunnelProcessRunning());
+      this.lastExternalProbe = result ? 'live' : 'gone';
+    } catch {
+      this.lastExternalProbe = 'unverifiable';
+    }
     return this.lastExternalProbe;
   }
 
-  public async start(): Promise<TunnelStatus> {
+  public start(): Promise<TunnelStatus> {
+    if (this.startInFlight !== null && this.startAbortController?.signal.aborted !== true) return this.startInFlight;
+    const controller = new AbortController();
+    const operation = this.enqueueLifecycle(() => this.startOnce(controller.signal));
+    const tracked = operation.finally(() => {
+      if (this.startInFlight === tracked) this.startInFlight = null;
+      if (this.startAbortController === controller) this.startAbortController = null;
+    });
+    this.startAbortController = controller;
+    this.startInFlight = tracked;
+    return tracked;
+  }
+
+  private async startOnce(signal: AbortSignal): Promise<TunnelStatus> {
     this.intentionalStop = false;
     this.clearRestartTimer();
     this.clearStableTimer();
     this.restartAttempts = 0;
     this.restartWindowStartedAt = 0;
-    if (this.state === 'running' || this.state === 'starting') return this.status();
-    if (this.child !== null && this.child.exitCode === null) return this.status();
-    if (!(await this.ensureTunnelLock())) return this.status();
-
     try {
+      throwIfStartCancelled(signal);
+      if (this.state === 'running' || this.state === 'starting') return this.status();
+      if (this.child !== null && this.child.exitCode === null) return this.status();
+      const externalProbe = this.tunnelLock === null ? await this.probeExternalRunning(true) : 'gone';
+      throwIfStartCancelled(signal);
+      if (externalProbe === 'live') {
+        this.state = 'running';
+        this.message = null;
+        return this.status();
+      }
+      if (externalProbe === 'unverifiable') {
+        const foreignOwner = await this.verifiedForeignOwner();
+        throwIfStartCancelled(signal);
+        this.state = foreignOwner === null ? 'error' : 'starting';
+        this.message = foreignOwner === null
+          ? 'Tunnel process liveness is unverifiable; refusing to start a possible duplicate'
+          : `Tunnel is owned by PID ${foreignOwner.pid}; tunnel process liveness is unverifiable`;
+        return this.status();
+      }
+      const lockAcquired = await this.ensureTunnelLock();
+      throwIfStartCancelled(signal);
+      if (!lockAcquired) return this.status();
+
       const clientPath = this.resolveClientPath();
       if (clientPath === null || !existsSync(clientPath)) throw new Error('tunnel-client.exe was not found');
-      if (!(await this.hasApiKey())) throw new Error('Save a Runtime API key first');
+      const hasApiKey = await this.hasApiKey();
+      throwIfStartCancelled(signal);
+      if (!hasApiKey) throw new Error('Save a Runtime API key first');
       if (!existsSync(this.profilePath())) throw new Error('Missing tunnel profile lnwjud.yaml');
 
       const encryptedSecret = await readFile(this.secretPath(), 'utf8');
+      throwIfStartCancelled(signal);
       const apiKey = (await (this.options.decryptSecret?.(encryptedSecret) ?? decryptWithDpapi(encryptedSecret))).trim();
+      throwIfStartCancelled(signal);
       if (apiKey.length === 0) throw new Error('Saved Runtime API key is empty; save it again in Settings');
       this.lastApiKey = apiKey;
       this.state = 'starting';
       this.message = null;
       await mkdir(this.profileDirectory(), { recursive: true });
+      throwIfStartCancelled(signal);
       await this.preferPackagedStdioCommand();
+      throwIfStartCancelled(signal);
       await runTunnelDoctor(clientPath, apiKey, this.profileDirectory(), this.options.getDataPath());
+      throwIfStartCancelled(signal);
       this.spawnRun(clientPath, apiKey);
       this.state = 'running';
       this.scheduleStableReset();
       return this.status();
     } catch (error: unknown) {
-      this.state = 'error';
-      this.message = error instanceof Error ? error.message : 'Tunnel setup failed';
+      const cancelled = signal.aborted || error instanceof StartCancelledError;
+      this.state = cancelled ? 'stopped' : 'error';
+      this.message = cancelled ? null : error instanceof Error ? error.message : 'Tunnel setup failed';
       this.lastApiKey = null;
-      await this.releaseTunnelLock();
+      if (this.child === null || this.child.exitCode !== null) await this.releaseTunnelLock();
       return this.status();
     }
   }
 
-  public async stop(): Promise<TunnelStatus> {
+  public stop(): Promise<TunnelStatus> {
+    return this.requestStop();
+  }
+
+  public stopOwned(): Promise<TunnelStatus> {
+    return this.requestStop();
+  }
+
+  private requestStop(): Promise<TunnelStatus> {
+    this.intentionalStop = true;
+    this.clearRestartTimer();
+    this.startAbortController?.abort();
+    if (this.stopInFlight !== null) return this.stopInFlight;
+    const operation = this.enqueueLifecycle(() => this.stopOnce());
+    const tracked = operation.finally(() => {
+      if (this.stopInFlight === tracked) this.stopInFlight = null;
+    });
+    this.stopInFlight = tracked;
+    return tracked;
+  }
+
+  private async stopOnce(): Promise<TunnelStatus> {
     await this.killOwnedChild();
     await this.releaseTunnelLock();
     this.state = 'stopped';
@@ -204,15 +294,10 @@ export class TunnelController {
     return this.status();
   }
 
-  public async stopOwned(): Promise<TunnelStatus> {
-    await this.killOwnedChild();
-    await this.releaseTunnelLock();
-    this.state = 'stopped';
-    this.message = null;
-    this.lastApiKey = null;
-    this.restartAttempts = 0;
-    this.clearStableTimer();
-    return this.status();
+  private enqueueLifecycle<T>(operation: () => Promise<T>): Promise<T> {
+    const result = this.lifecycleTail.then(operation);
+    this.lifecycleTail = result.then(() => undefined, () => undefined);
+    return result;
   }
 
   private async killOwnedChild(): Promise<void> {
@@ -323,10 +408,12 @@ export class TunnelController {
         ...(this.options.inspectLockProcess === undefined ? {} : { inspectProcess: this.options.inspectLockProcess }),
       });
       if (!claim.acquired) {
-        this.state = 'error';
-        this.message = `Tunnel is already owned by PID ${claim.owner.pid}`;
+        this.foreignOwner = claim.owner;
+        this.state = 'starting';
+        this.message = `Tunnel is owned by PID ${claim.owner.pid}; tunnel process liveness is not yet confirmed`;
         return false;
       }
+      this.foreignOwner = null;
       this.tunnelLock = claim;
       return true;
     } catch (error: unknown) {
@@ -334,6 +421,21 @@ export class TunnelController {
       this.message = error instanceof Error ? error.message : 'Could not acquire tunnel ownership lock';
       return false;
     }
+  }
+
+  private async verifiedForeignOwner(): Promise<TunnelLockOwner | null> {
+    const owner = await readTunnelLock(this.profileDirectory());
+    if (owner === null) {
+      this.foreignOwner = null;
+      return null;
+    }
+    try {
+      const probe = await (this.options.inspectLockProcess?.(owner.pid) ?? probeProcessStart(owner.pid));
+      this.foreignOwner = probe.state === 'live' && probe.processStartedAt === owner.processStartedAt ? owner : null;
+    } catch {
+      this.foreignOwner = null;
+    }
+    return this.foreignOwner;
   }
 
   private async releaseTunnelLock(): Promise<void> {
@@ -562,11 +664,7 @@ function extractExecDetail(error: unknown): string {
 }
 
 async function isLnwjudTunnelProcessRunning(): Promise<boolean> {
-  try {
-    return (await findLnwjudTunnelProcessPids()).length > 0;
-  } catch {
-    return false;
-  }
+  return (await findLnwjudTunnelProcessPids()).length > 0;
 }
 
 async function findLnwjudTunnelProcessPids(): Promise<readonly number[]> {

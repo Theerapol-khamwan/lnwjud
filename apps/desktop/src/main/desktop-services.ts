@@ -39,7 +39,20 @@ import {
 import { permissionProfiles, type PermissionProfile, type PermissionProfileName } from '@lnwjud/permissions';
 import type { ManagedProcess } from '@lnwjud/process';
 import { PathExecutableResolver } from '@lnwjud/search';
-import { APP_NAME, APP_VERSION, isUnrestricted, UNRESTRICTED_SETTING_KEY } from '@lnwjud/shared';
+import {
+  ALLOW_AI_DELETE_SETTING_KEY,
+  APP_NAME,
+  APP_VERSION,
+  STDIO_ALLOWED_ROOTS_SETTING_KEY,
+  STDIO_PERMISSION_PROFILE_SETTING_KEY,
+  STDIO_STRICT_ROOTS_SETTING_KEY,
+  UNRESTRICTED_SETTING_KEY,
+  isUnrestricted,
+  parseAllowedRoots,
+  parseBooleanSetting,
+  parseStdioPermissionProfile,
+  serializeAllowedRoots,
+} from '@lnwjud/shared';
 import { SqliteAuditRepository, SqliteCheckpointRepository, SqliteDatabase, SqliteSettingsRepository, SqliteWorkspaceRepository } from '@lnwjud/storage';
 import type { Workspace } from '@lnwjud/workspace';
 import { machineRootPath, SecretPolicy, WorkspacePathGuard, WorkspaceService } from '@lnwjud/workspace';
@@ -59,8 +72,10 @@ import {
   type ProcessSummary,
   type SaveTunnelApiKeyRequest,
   type SelectWorkspaceRequest,
+  type SetAiDeletePolicyRequest,
   type SetLocaleRequest,
   type SetPermissionProfileRequest,
+  type SetStdioPolicyRequest,
   type SetTunnelClientPathRequest,
   type SetUnrestrictedModeRequest,
   type StartMcpRequest,
@@ -117,6 +132,7 @@ export function createDesktopRuntime(dataPath: string, options: DesktopRuntimeOp
   let profileName: PermissionProfileName = options.permissionProfile ?? readPermissionProfile(storedProfile);
   if (options.permissionProfile === undefined && storedProfile === null) settingsRepository.set(permissionSettingKey, profileName);
   const unrestricted = isUnrestricted(process.env, settingsRepository.get(UNRESTRICTED_SETTING_KEY));
+  const allowAiDeleteProvider = (): boolean => parseBooleanSetting(settingsRepository.get(ALLOW_AI_DELETE_SETTING_KEY), false);
   const projectService = new ProjectService(workspaceRepository);
   const processService = new ProcessService(workspaceRepository, {
     projectService,
@@ -132,6 +148,7 @@ export function createDesktopRuntime(dataPath: string, options: DesktopRuntimeOp
     profileProvider: (): PermissionProfile => permissionProfiles[profileName],
     unrestricted,
     trustedWorkspaceAccess: true,
+    allowDeleteWithoutConfirmation: allowAiDeleteProvider,
   });
   const workspaceInfoService = new WorkspaceInfoService(workspaceRepository, workspaceService, unrestricted);
   const workspaceQueryService = new WorkspaceQueryService(workspaceRepository, pathGuard);
@@ -223,6 +240,7 @@ export function createDesktopRuntime(dataPath: string, options: DesktopRuntimeOp
       actor: mcpActor,
       activityTracker,
       profileProvider: (): PermissionProfile => permissionProfiles[profileName],
+      allowAiDeleteProvider,
     }),
   });
   const tunnelController = new TunnelController({
@@ -331,6 +349,10 @@ export function createDesktopRuntime(dataPath: string, options: DesktopRuntimeOp
         mode: 'WORK',
         locale: readLocale(settingsRepository),
         unrestricted,
+        allowAiDelete: allowAiDeleteProvider(),
+        stdioPermissionProfile: parseStdioPermissionProfile(settingsRepository.get(STDIO_PERMISSION_PROFILE_SETTING_KEY), 'full'),
+        stdioStrictRoots: parseBooleanSetting(settingsRepository.get(STDIO_STRICT_ROOTS_SETTING_KEY), false),
+        stdioAllowedRoots: parseAllowedRoots(settingsRepository.get(STDIO_ALLOWED_ROOTS_SETTING_KEY)),
         connectionModes: buildConnectionModes(mcp.url),
         workLog,
         inFlight,
@@ -347,6 +369,19 @@ export function createDesktopRuntime(dataPath: string, options: DesktopRuntimeOp
       settingsRepository.set(UNRESTRICTED_SETTING_KEY, request.enabled ? 'true' : 'false');
       const applied = isUnrestricted(process.env, settingsRepository.get(UNRESTRICTED_SETTING_KEY));
       return { unrestricted: applied, restartRequired: applied !== unrestricted };
+    },
+    setAiDeletePolicy: async (request: SetAiDeletePolicyRequest): Promise<{ readonly enabled: boolean }> => {
+      settingsRepository.set(ALLOW_AI_DELETE_SETTING_KEY, request.enabled ? 'true' : 'false');
+      return { enabled: allowAiDeleteProvider() };
+    },
+    setStdioPolicy: async (request: SetStdioPolicyRequest): Promise<{ readonly profile: IpcPermissionProfileName; readonly strictRoots: boolean; readonly allowedRoots: readonly string[]; readonly restartRequired: boolean }> => {
+      const allowedRoots = parseAllowedRoots(request.allowedRoots.join(';'));
+      if (request.strictRoots && allowedRoots.length === 0) throw new Error('Strict root mode requires at least one allowed root');
+      settingsRepository.set(STDIO_PERMISSION_PROFILE_SETTING_KEY, request.profile);
+      settingsRepository.set(STDIO_STRICT_ROOTS_SETTING_KEY, request.strictRoots ? 'true' : 'false');
+      settingsRepository.set(STDIO_ALLOWED_ROOTS_SETTING_KEY, serializeAllowedRoots(allowedRoots));
+      const tunnelStatus = await tunnelController.status();
+      return { profile: request.profile, strictRoots: request.strictRoots, allowedRoots, restartRequired: tunnelStatus.state === 'running' };
     },
     listProcesses: async (): Promise<readonly ProcessSummary[]> => listTrackedProcesses(processService, trackedProcesses),
     startProcess: async (request: StartProcessRequest): Promise<ProcessSummary> => {
@@ -547,7 +582,7 @@ async function listTrackedProcesses(
     const status = await processService.status(actor, workspaceId, processId);
     if (!status.ok) continue;
     const logs = await processService.logs(actor, workspaceId, processId, { tailLines: 20 });
-    summaries.push(toProcessSummary(status.value, workspaceId, logs.ok ? summarizeLogs(logs.value.entries.map((entry) => entry.text)) : ''));
+    summaries.push(toProcessSummary(status.value, workspaceId, logs.ok ? summarizeLogs([...logs.value.entries].reverse().map((entry) => entry.text)) : ''));
   }
   return summaries;
 }

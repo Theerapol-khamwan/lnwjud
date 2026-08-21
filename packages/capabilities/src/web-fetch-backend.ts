@@ -18,7 +18,7 @@ export class WebFetchCapabilityBackend implements CapabilityBackend {
     this.fetchImpl = options.fetchImpl ?? fetch;
   }
 
-  public async execute(input: unknown): Promise<Result<unknown>> {
+  public async execute(input: unknown, parentSignal?: AbortSignal): Promise<Result<unknown>> {
     const parsed = parseRequest(input);
     if (!parsed.ok) return parsed;
     const request = parsed.value;
@@ -53,7 +53,9 @@ export class WebFetchCapabilityBackend implements CapabilityBackend {
       return ok({ dry_run: true, url: url.toString(), method: request.method });
     }
 
-    const signal = AbortSignal.timeout(request.timeoutSeconds * 1000);
+    if (parentSignal?.aborted === true) return cancelledRequest();
+    const timeoutSignal = AbortSignal.timeout(request.timeoutSeconds * 1000);
+    const signal = parentSignal === undefined ? timeoutSignal : AbortSignal.any([parentSignal, timeoutSignal]);
     let response: Response;
     try {
       response = await this.fetchImpl(url.toString(), {
@@ -64,6 +66,7 @@ export class WebFetchCapabilityBackend implements CapabilityBackend {
         signal,
       });
     } catch (error: unknown) {
+      if (signal.aborted) return cancelledRequest();
       const reason = error instanceof Error && error.name === 'TimeoutError' ? 'Request timed out' : 'Request failed';
       return err(appError('INTERNAL_ERROR', reason, true));
     }
@@ -98,6 +101,7 @@ export class WebFetchCapabilityBackend implements CapabilityBackend {
         bytes = Buffer.concat(chunks);
       }
     } catch {
+      if (signal.aborted) return cancelledRequest();
       return err(appError('INTERNAL_ERROR', 'Response body could not be read', true));
     }
 
@@ -125,6 +129,10 @@ interface WebFetchRequest {
   readonly maxBytes: number;
   readonly timeoutSeconds: number;
   readonly dryRun: boolean;
+}
+
+function cancelledRequest(): Result<never> {
+  return err(appError('PROCESS_TIMEOUT', 'Web request was cancelled or timed out', true));
 }
 
 function parseRequest(value: unknown): Result<WebFetchRequest> {

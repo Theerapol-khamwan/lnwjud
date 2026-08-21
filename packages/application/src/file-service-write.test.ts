@@ -43,6 +43,33 @@ function checkpointService(): CheckpointServicePort & { calls: string[][] } {
 }
 
 describe('FileService writes', () => {
+  it('does not write after cancellation wins during checkpoint creation', async () => {
+    const workspace = await createWorkspace();
+    const target = path.join(workspace.rootPath, 'src', 'file.txt');
+    await writeFile(target, 'before', 'utf8');
+    let releaseCheckpoint!: () => void;
+    let enterCheckpoint!: () => void;
+    const checkpointEntered = new Promise<void>((resolve) => { enterCheckpoint = resolve; });
+    const checkpointGate = new Promise<void>((resolve) => { releaseCheckpoint = resolve; });
+    const checkpoints: CheckpointServicePort = {
+      async createForFiles(): Promise<Result<Checkpoint>> {
+        enterCheckpoint();
+        await checkpointGate;
+        return ok({ id: 'checkpoint-1', workspaceId: workspace.id, createdAt: new Date(0).toISOString(), files: [] });
+      },
+    };
+    const service = new FileService(repository(workspace), undefined, undefined, { checkpointService: checkpoints });
+    const controller = new AbortController();
+
+    const writing = service.writeFile(actor, workspace.id, { path: 'src\\file.txt', content: 'after' }, controller.signal);
+    await checkpointEntered;
+    controller.abort();
+    releaseCheckpoint();
+
+    await expect(writing).resolves.toMatchObject({ ok: false, error: { code: 'PROCESS_TIMEOUT' } });
+    await expect(readFile(target, 'utf8')).resolves.toBe('before');
+  });
+
   it('returns PERMISSION_REQUIRED under Safe and leaves the file unchanged', async () => {
     const workspace = await createWorkspace();
     await writeFile(path.join(workspace.rootPath, 'src', 'file.txt'), 'before', 'utf8');
@@ -108,7 +135,21 @@ describe('FileService writes', () => {
       .deleteFile(actor, workspace.id, { path: 'src/file.txt' })).resolves.toMatchObject({ ok: false, error: { code: 'PERMISSION_REQUIRED' } });
   });
 
+  it('allows scoped deletion without per-call confirmation when the configured AI delete policy is enabled', async () => {
+    const workspace = await createWorkspace();
+    await writeFile(path.join(workspace.rootPath, 'src', 'policy-delete.txt'), 'delete me', 'utf8');
+    const service = new FileService(repository(workspace), undefined, undefined, {
+      profile: permissionProfiles.balanced,
+      allowDeleteWithoutConfirmation: (): boolean => true,
+    });
+
+    await expect(service.deleteFile(actor, workspace.id, { path: 'src/policy-delete.txt' })).resolves.toMatchObject({ ok: true });
+    await expect(readFile(path.join(workspace.rootPath, 'src', 'policy-delete.txt'), 'utf8')).rejects.toThrow();
+    await expect(service.deleteFile(actor, workspace.id, { path: '.' })).resolves.toMatchObject({ ok: false, error: { code: 'PERMISSION_DENIED' } });
+  });
+
   it('writes a nested file by creating missing parent directories', async () => {
+
     const workspace = await createWorkspace();
     const result = await new FileService(repository(workspace), undefined, undefined, { checkpointService: checkpointService() })
       .writeFile(actor, workspace.id, { path: 'docs\\superpowers\\plans\\plan.md', content: 'hello' });

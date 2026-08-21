@@ -84,24 +84,24 @@ export class WslCapabilityBackend implements CapabilityBackend {
     this.maxOutputBytes = Math.floor(clampNumber(options.maxOutputBytes ?? DEFAULT_MAX_OUTPUT_BYTES, 1, MAX_OUTPUT_BYTES));
   }
 
-  public async execute(input: unknown): Promise<Result<unknown>> {
+  public async execute(input: unknown, signal?: AbortSignal): Promise<Result<unknown>> {
     const parsed = parseWslRequest(input, this.defaultDistro, this.defaultTimeoutSeconds, this.maxOutputBytes);
     if (!parsed.ok) return parsed;
     if (parsed.value.operation === 'status' && parsed.value.taskId === undefined) return this.status();
     if (parsed.value.workspaceId === undefined) return err(appError('INVALID_INPUT', 'workspaceId is required for WSL task operations'));
 
-    if (parsed.value.operation === 'run') return this.run(parsed.value);
+    if (parsed.value.operation === 'run') return this.run(parsed.value, signal);
     const taskOwner = this.taskOwners.get(parsed.value.taskId ?? '');
     if (taskOwner === undefined) return err(appError('PROCESS_NOT_FOUND', 'WSL task was not found'));
     if (taskOwner.workspaceId !== parsed.value.workspaceId) return err(appError('PERMISSION_DENIED', 'WSL task belongs to another workspace'));
     if (taskOwner.distro !== parsed.value.distro) return err(appError('PERMISSION_DENIED', 'WSL task belongs to another distribution'));
 
     const forwarded = this.forwardTaskRequest(parsed.value);
-    const result = await this.runner.execute(forwarded);
+    const result = await this.runner.execute(forwarded, signal);
     return annotateResult(result, this.metadata(parsed.value.workspaceId, parsed.value.distro));
   }
 
-  private async run(request: WslRequest): Promise<Result<unknown>> {
+  private async run(request: WslRequest, signal?: AbortSignal): Promise<Result<unknown>> {
     if (this.platform !== 'win32') return ok({ available: false, ready: false, local: true, backend: 'wsl', reason: 'WSL is only available on Windows' });
     if (request.executable === undefined) return err(appError('INVALID_INPUT', 'WSL executable is required'));
     if (containsShellString(request.executable, request.arguments)) return err(appError('INVALID_INPUT', 'WSL execution accepts argv only; shell command strings are not allowed'));
@@ -129,7 +129,7 @@ export class WslCapabilityBackend implements CapabilityBackend {
       dry_run: request.dryRun,
       userConfirmed: request.userConfirmed,
     };
-    const result = await this.runner.execute(forwarded);
+    const result = await this.runner.execute(forwarded, signal);
     const annotated = annotateResult(result, {
       ...this.metadata(request.workspaceId, request.distro),
       linux_cwd: linuxCwd.value,

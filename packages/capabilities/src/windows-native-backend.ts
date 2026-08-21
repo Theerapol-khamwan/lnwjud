@@ -16,7 +16,7 @@ export type WindowsCapabilityName =
   | 'office';
 
 export interface WindowsCapabilityBridge {
-  execute(request: { readonly capability: WindowsCapabilityName; readonly input: unknown }): Promise<Result<unknown>>;
+  execute(request: { readonly capability: WindowsCapabilityName; readonly input: unknown }, signal?: AbortSignal): Promise<Result<unknown>>;
 }
 
 export interface WindowsNativeBackendOptions {
@@ -50,15 +50,17 @@ export class WindowsNativeCapabilityBackend implements CapabilityBackend {
     private readonly options: WindowsNativeBackendOptions = {},
   ) {}
 
-  public async execute(input: unknown): Promise<Result<unknown>> {
+  public async execute(input: unknown, signal?: AbortSignal): Promise<Result<unknown>> {
     if (this.platform !== 'win32') return err(appError('INTERNAL_ERROR', 'Windows capability is unavailable on this platform', true));
     if (!isRecord(input)) return err(appError('INVALID_INPUT', 'Native capability input must be an object'));
     if (input.dry_run === true) return ok({ dry_run: true, capability: this.capability });
+    if (isSignalAborted(signal)) return cancelledOperation();
 
     const pathCheck = await this.assertPathsAllowed(input);
     if (!pathCheck.ok) return pathCheck;
+    if (isSignalAborted(signal)) return cancelledOperation();
 
-    return this.bridge.execute({ capability: this.capability, input });
+    return this.bridge.execute({ capability: this.capability, input }, signal);
   }
 
   private async assertPathsAllowed(input: Record<string, unknown>): Promise<Result<void>> {
@@ -80,6 +82,14 @@ export class WindowsNativeCapabilityBackend implements CapabilityBackend {
     }
     return ok(undefined);
   }
+}
+
+function cancelledOperation(): Result<never> {
+  return err(appError('PROCESS_TIMEOUT', 'Windows capability operation was cancelled', true));
+}
+
+function isSignalAborted(signal: AbortSignal | undefined): boolean {
+  return signal?.aborted === true;
 }
 
 function isWithin(root: string, candidate: string): boolean {

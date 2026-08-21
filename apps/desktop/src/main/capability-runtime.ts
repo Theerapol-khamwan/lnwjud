@@ -44,11 +44,12 @@ export function createLocalCapabilityRuntime(
     allowedRoots: [dataPath],
     allowedRootsProvider: capabilityRootsProvider,
     unrestricted,
+    taskStateDirectory: path.join(dataPath, 'background-tasks'),
   });
   const browserProtocol = new NodeBrowserCdpProtocol({ profileDir: path.join(dataPath, 'browser-profile') });
   const browserBackend = new BrowserCdpBackend({
     protocol: browserProtocol,
-    launcher: (url: string | undefined): Promise<Result<unknown>> => browserProtocol.launch(url),
+    launcher: (url: string | undefined, signal?: AbortSignal): Promise<Result<unknown>> => browserProtocol.launch(url, signal),
   });
   const windowsBridge = new PowerShellWindowsCapabilityBridge({ scriptPath: capabilityBridgeScriptPath() });
   const nativeOptions = { allowedRootsProvider: workspaceRootsProvider, unrestricted };

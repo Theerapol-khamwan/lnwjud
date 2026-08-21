@@ -89,6 +89,18 @@ describe('production desktop IPC acceptance', () => {
     expect(services.stopTunnel).toHaveBeenCalledOnce();
   });
 
+  it('routes and validates AI delete and STDIO security policy changes', async () => {
+    const services = desktopServices();
+    registerIpcHandlers(() => ({}) as never, services);
+    const trusted = { senderFrame: { url: pathToFileURL(getRendererEntryPath()).href } };
+
+    await expect(requiredHandler(ipcChannels.setAiDeletePolicy)(trusted, { enabled: true })).resolves.toEqual({ enabled: true });
+    await expect(requiredHandler(ipcChannels.setStdioPolicy)(trusted, { profile: 'safe', strictRoots: true, allowedRoots: ['E:\\work'] }))
+      .resolves.toMatchObject({ profile: 'safe', strictRoots: true, allowedRoots: ['E:\\work'] });
+    await expect(requiredHandler(ipcChannels.setStdioPolicy)(trusted, { profile: 'safe', strictRoots: true, allowedRoots: [] }))
+      .rejects.toThrow(/requires at least one allowed root/);
+  });
+
   it('enforces the production IPC sender and payload guards before invoking services', async () => {
     const services = desktopServices();
     registerIpcHandlers(() => ({}) as never, services);
@@ -116,6 +128,8 @@ function desktopServices(): DesktopIpcServices {
     getDashboard: vi.fn(async () => { throw new Error('unused'); }),
     setPermissionProfile: vi.fn(async (request) => ({ profile: request.profile })),
     setUnrestrictedMode: vi.fn(async (request) => ({ unrestricted: request.enabled, restartRequired: false })),
+    setAiDeletePolicy: vi.fn(async (request) => ({ enabled: request.enabled })),
+    setStdioPolicy: vi.fn(async (request) => ({ profile: request.profile, strictRoots: request.strictRoots, allowedRoots: request.allowedRoots, restartRequired: false })),
     listProcesses: vi.fn(async () => []),
     startProcess: vi.fn(async () => { throw new Error('unused'); }),
     stopProcess: vi.fn(async () => ({ stopped: true })),

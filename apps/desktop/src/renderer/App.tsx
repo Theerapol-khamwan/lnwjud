@@ -179,6 +179,26 @@ export function App(): ReactElement {
     }
   }
 
+  async function setAiDeletePolicy(enabled: boolean): Promise<void> {
+    try {
+      await window.lnwjud.setAiDeletePolicy({ enabled });
+      await refresh();
+    } catch (cause: unknown) {
+      setError(errorMessage(cause, propsText(locale, 'ไม่สามารถเปลี่ยนนโยบายการลบได้', 'Could not change AI delete policy')));
+    }
+  }
+
+  async function setStdioPolicy(profile: PermissionProfileName, strictRoots: boolean, allowedRoots: readonly string[]): Promise<boolean> {
+    try {
+      const result = await window.lnwjud.setStdioPolicy({ profile, strictRoots, allowedRoots });
+      await refresh();
+      return result.restartRequired;
+    } catch (cause: unknown) {
+      setError(errorMessage(cause, propsText(locale, 'ไม่สามารถบันทึก STDIO policy ได้', 'Could not save STDIO policy')));
+      throw cause;
+    }
+  }
+
   async function stopMcp(): Promise<void> {
     try {
       setMcpBusy(true);
@@ -288,7 +308,6 @@ export function App(): ReactElement {
           onAddWorkspace={addWorkspace}
           onStartTunnel={startTunnel}
           onStopTunnel={stopTunnel}
-          onClearWorkLog={clearWorkLog}
           onCaptureIncident={captureIncident}
           incidentBusy={incidentBusy}
           incidentClassification={incidentClassification}
@@ -341,6 +360,8 @@ export function App(): ReactElement {
           onLocaleChange={changeLocale}
           onPermissionProfileChange={setPermissionProfile}
           onUnrestrictedChange={setUnrestrictedMode}
+          onAiDeleteChange={setAiDeletePolicy}
+          onStdioPolicyChange={setStdioPolicy}
           onSaveTunnelApiKey={saveTunnelApiKey}
           onSetTunnelClientPath={setTunnelClientPath}
         />
@@ -353,6 +374,10 @@ export function App(): ReactElement {
       ) : null}
     </AppShell>
   );
+}
+
+function propsText(locale: UiLocale, th: string, en: string): string {
+  return locale === 'th' ? th : en;
 }
 
 function errorMessage(cause: unknown, fallback: string): string {

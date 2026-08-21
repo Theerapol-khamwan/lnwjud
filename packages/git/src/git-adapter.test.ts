@@ -1,13 +1,13 @@
 import { describe, expect, it } from 'vitest';
-import type { GitRunResult, GitRunner } from './git-runner.js';
+import type { GitRunOptions, GitRunResult, GitRunner } from './git-runner.js';
 import { GitAdapter } from './git-adapter.js';
 
 class FakeGitRunner implements GitRunner {
-  public readonly calls: { args: readonly string[]; cwd: string }[] = [];
+  public readonly calls: { args: readonly string[]; cwd: string; options?: GitRunOptions }[] = [];
   public constructor(private readonly result: GitRunResult) {}
 
-  public async run(args: readonly string[], cwd: string): Promise<GitRunResult> {
-    this.calls.push({ args, cwd });
+  public async run(args: readonly string[], cwd: string, options?: GitRunOptions): Promise<GitRunResult> {
+    this.calls.push({ args, cwd, ...(options === undefined ? {} : { options }) });
     return this.result;
   }
 }
@@ -60,7 +60,24 @@ describe('GitAdapter', () => {
     const result = await new GitAdapter(runner).run('C:\\workspace', ['commit', '-m', 'empty']);
 
     expect(result).toEqual({ ok: true, value: { exitCode: 1, stdout: '', stderr: 'nothing to commit' } });
-    expect(runner.calls).toEqual([{ args: ['commit', '-m', 'empty'], cwd: 'C:\\workspace' }]);
+    expect(runner.calls).toEqual([{
+      args: ['commit', '-m', 'empty'],
+      cwd: 'C:\\workspace',
+      options: { timeoutMs: 60_000 },
+    }]);
+  });
+
+  it('forwards cancellation to every MCP-exposed Git command', async () => {
+    const runner = new FakeGitRunner({ exitCode: 0, stdout: '', stderr: '' });
+    const adapter = new GitAdapter(runner);
+    const signal = new AbortController().signal;
+
+    await adapter.status('C:\\workspace', signal);
+    await adapter.diff('C:\\workspace', {}, signal);
+    await adapter.log('C:\\workspace', {}, signal);
+    await adapter.run('C:\\workspace', ['status'], undefined, signal);
+
+    expect(runner.calls.map((call) => call.options?.signal)).toEqual([signal, signal, signal, signal]);
   });
 
   it('rejects an empty git argv', async () => {
