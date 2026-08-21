@@ -25,7 +25,7 @@ export function GitPage({
   const currentPath = gitSummary.repositoryPath ?? selectedWorkspace?.realRootPath ?? '—';
 
   return (
-    <div className="page-content">
+    <div className="page-content viewport-list-page git-page">
       <div className="page-heading">
         <div>
           <h1>{t('git.title')}</h1>

@@ -143,12 +143,9 @@ export class LogHub {
   }
 
   public clear(source: LogSource): void {
+    // Clear only the visible buffer. Keep delivery/dedup cursors so historical
+    // MCP and process entries do not get rehydrated on the next dashboard sync.
     this.lines.set(source, []);
-    this.seenKeys.set(source, new Set());
-    if (source === 'mcp') {
-      this.seenMcpDeliveries.clear();
-      this.mcpOccurrences.clear();
-    }
   }
 
   private feedMcpLifecycle(

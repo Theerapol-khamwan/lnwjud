@@ -10,6 +10,8 @@ interface SettingsPageProps {
   readonly onUnrestrictedChange: (enabled: boolean) => Promise<boolean>;
   readonly onAiDeleteChange: (enabled: boolean) => Promise<void>;
   readonly onStdioPolicyChange: (profile: PermissionProfileName, strictRoots: boolean, allowedRoots: readonly string[]) => Promise<boolean>;
+  readonly onCreateBackup: () => Promise<void>;
+  readonly onScheduleRestoreBackup: (backupId: string) => Promise<boolean>;
   readonly onSaveTunnelApiKey: (apiKey: string) => Promise<void>;
   readonly onSetTunnelClientPath: (clientPath: string) => Promise<void>;
 }
@@ -26,6 +28,9 @@ export function SettingsPage(props: SettingsPageProps): ReactElement {
   const [allowedRootsText, setAllowedRootsText] = useState(props.dashboard.stdioAllowedRoots.join('\n'));
   const [stdioMessage, setStdioMessage] = useState<string | null>(null);
   const [policyError, setPolicyError] = useState<string | null>(null);
+  const [backupMessage, setBackupMessage] = useState<string | null>(null);
+  const [backupError, setBackupError] = useState<string | null>(null);
+  const [backupBusy, setBackupBusy] = useState(false);
 
   const persistedRootsText = props.dashboard.stdioAllowedRoots.join('\n');
   useEffect(() => {
@@ -45,6 +50,34 @@ export function SettingsPage(props: SettingsPageProps): ReactElement {
     .split(/[;\r\n]+/)
     .map((root) => root.trim())
     .filter((root, index, all) => root.length > 0 && all.findIndex((entry) => entry.toLowerCase() === root.toLowerCase()) === index);
+
+  async function createBackupNow(): Promise<void> {
+    setBackupBusy(true);
+    setBackupError(null);
+    try {
+      await props.onCreateBackup();
+      setBackupMessage(props.locale === 'th' ? 'สำรองข้อมูลเรียบร้อยแล้ว' : 'Backup completed');
+    } catch (cause: unknown) {
+      setBackupError(cause instanceof Error ? cause.message : (props.locale === 'th' ? 'สำรองข้อมูลไม่สำเร็จ' : 'Backup failed'));
+    } finally {
+      setBackupBusy(false);
+    }
+  }
+
+  async function scheduleRestore(backupId: string): Promise<void> {
+    setBackupBusy(true);
+    setBackupError(null);
+    try {
+      const restartRequired = await props.onScheduleRestoreBackup(backupId);
+      setBackupMessage(restartRequired
+        ? (props.locale === 'th' ? 'เตรียม Restore แล้ว — ปิดและเปิด lnwjud ใหม่เพื่อใช้งานข้อมูลชุดนี้' : 'Restore scheduled — restart lnwjud to apply this backup')
+        : (props.locale === 'th' ? 'เตรียม Restore แล้ว' : 'Restore scheduled'));
+    } catch (cause: unknown) {
+      setBackupError(cause instanceof Error ? cause.message : (props.locale === 'th' ? 'เตรียม Restore ไม่สำเร็จ' : 'Could not schedule restore'));
+    } finally {
+      setBackupBusy(false);
+    }
+  }
 
   async function saveStdioPolicy(): Promise<void> {
     const roots = allowedRoots();
@@ -155,8 +188,8 @@ export function SettingsPage(props: SettingsPageProps): ReactElement {
         </div>
         <p className="hint">
           {props.locale === 'th'
-            ? 'ใช้กับ MCP STDIO ที่ OpenAI Secure Tunnel เปิดขึ้นมา ตาม Feature Request #2 โดยค่าเดิมยังเป็น Full + machine roots จนกว่าจะเปิด Strict Roots'
-            : 'Applies to MCP STDIO launched by the OpenAI Secure Tunnel, implementing Feature Request #2. Existing Full + machine-root behavior stays the default until Strict Roots is enabled.'}
+            ? 'กำหนดสิทธิ์ของ MCP STDIO ที่ OpenAI Secure Tunnel เปิดขึ้นมา ค่าเริ่มต้นเป็น Full และใช้ machine roots เดิม; เปิด Strict Roots เมื่อต้องการจำกัดการเข้าถึงไว้เฉพาะ Allowed Roots'
+            : 'Controls permissions for MCP STDIO launched by the OpenAI Secure Tunnel. The default remains Full with existing machine roots; enable Strict Roots to limit access to Allowed Roots only.'}
         </p>
         <div className="tunnel-config-grid">
           <div>
@@ -195,6 +228,52 @@ export function SettingsPage(props: SettingsPageProps): ReactElement {
         {stdioMessage === null ? null : <div className="toast-success-banner" role="status">✨ {stdioMessage}</div>}
       </section>
 
+      <section className="panel settings-card" aria-label="Backup and restore">
+        <div className="section-heading">
+          <div className="unrestricted-title-wrap">
+            <span className="settings-icon">💾</span>
+            <div>
+              <h2 className="settings-card-title">{props.locale === 'th' ? 'สำรองและกู้คืนข้อมูล' : 'Backup & Restore'}</h2>
+              <span className="page-subtitle">SQLite consistent snapshots</span>
+            </div>
+          </div>
+          <button type="button" className="btn-save-gold" disabled={backupBusy} onClick={() => { void createBackupNow(); }}>
+            {backupBusy ? (props.locale === 'th' ? 'กำลังทำงาน…' : 'Working…') : (props.locale === 'th' ? 'Backup ตอนนี้' : 'Backup Now')}
+          </button>
+        </div>
+        <p className="hint">
+          {props.locale === 'th'
+            ? 'lnwjud สำรองฐานข้อมูลอัตโนมัติประมาณวันละครั้ง และก่อนอัปเดต/ก่อน migration โดยใช้ SQLite snapshot ที่สอดคล้องกับ WAL ข้อมูล checkpoint ภายในฐานข้อมูลถูกเข้ารหัสแยกต่างหาก'
+            : 'lnwjud creates a consistent SQLite snapshot about once per day and before updates/migrations. Checkpoint payloads inside the database are encrypted separately.'}
+        </p>
+        {props.dashboard.backups.length === 0 ? (
+          <p className="hint">{props.locale === 'th' ? 'ยังไม่มี Backup' : 'No backups yet'}</p>
+        ) : (
+          <div className="backup-list">
+            {props.dashboard.backups.slice(0, 5).map((backup) => (
+              <div key={backup.id} className="backup-item">
+                <div>
+                  <strong>{new Date(backup.createdAt).toLocaleString(props.locale === 'th' ? 'th-TH' : 'en-US')}</strong>
+                  <p className="hint">{backup.reason} · {formatBytes(backup.sizeBytes)}</p>
+                </div>
+                <button
+                  type="button"
+                  disabled={backupBusy || props.dashboard.tunnel.state === 'running' || props.dashboard.mcp.running}
+                  onClick={() => { void scheduleRestore(backup.id); }}
+                >
+                  {props.locale === 'th' ? 'Restore ชุดนี้' : 'Restore'}
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+        {(props.dashboard.tunnel.state === 'running' || props.dashboard.mcp.running) ? (
+          <div className="alert-box-warning">⚠️ {props.locale === 'th' ? 'หยุด Tunnel และ Local MCP ก่อนเลือก Restore เพื่อไม่ให้ฐานข้อมูลถูกใช้งานระหว่างกู้คืน' : 'Stop Tunnel and local MCP before scheduling a restore.'}</div>
+        ) : null}
+        {backupError === null ? null : <div className="alert-box-warning" role="alert">⚠️ {backupError}</div>}
+        {backupMessage === null ? null : <div className="toast-success-banner" role="status">✨ {backupMessage}</div>}
+      </section>
+
       <section className="panel settings-card" aria-label={t('settings.tunnelTitle')}>
         <div className="section-heading">
           <h2 className="settings-card-title"><span className="settings-icon">☁️</span>{t('settings.tunnelTitle')}</h2>
@@ -225,4 +304,11 @@ export function SettingsPage(props: SettingsPageProps): ReactElement {
       </section>
     </div>
   );
+}
+
+function formatBytes(value: number): string {
+  if (!Number.isFinite(value) || value < 0) return '0 B';
+  if (value < 1024) return value + ' B';
+  if (value < 1024 * 1024) return (value / 1024).toFixed(1) + ' KB';
+  return (value / (1024 * 1024)).toFixed(1) + ' MB';
 }

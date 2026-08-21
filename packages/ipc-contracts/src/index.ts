@@ -10,6 +10,8 @@ export const ipcChannels = {
   setUnrestrictedMode: 'lnwjud:set-unrestricted-mode',
   setAiDeletePolicy: 'lnwjud:set-ai-delete-policy',
   setStdioPolicy: 'lnwjud:set-stdio-policy',
+  createBackup: 'lnwjud:create-backup',
+  scheduleRestoreBackup: 'lnwjud:schedule-restore-backup',
   listProcesses: 'lnwjud:list-processes',
   startProcess: 'lnwjud:start-process',
   stopProcess: 'lnwjud:stop-process',
@@ -155,6 +157,13 @@ export interface DashboardGitSummary {
   readonly entries?: readonly GitStatusEntrySummary[];
 }
 
+export interface BackupSummary {
+  readonly id: string;
+  readonly createdAt: string;
+  readonly reason: 'daily' | 'manual' | 'pre-update' | 'pre-migration';
+  readonly sizeBytes: number;
+}
+
 export interface DashboardSnapshot {
   readonly selectedWorkspace: WorkspaceSummary | null;
   readonly gitSummary: DashboardGitSummary;
@@ -181,6 +190,7 @@ export interface DashboardSnapshot {
   readonly stdioPermissionProfile: PermissionProfileName;
   readonly stdioStrictRoots: boolean;
   readonly stdioAllowedRoots: readonly string[];
+  readonly backups: readonly BackupSummary[];
   readonly connectionModes: ConnectionModes;
   readonly workLog: readonly WorkLogEntry[];
   readonly inFlight: readonly InFlightWorkItem[];
@@ -244,6 +254,10 @@ export interface SetStdioPolicyRequest {
   readonly allowedRoots: readonly string[];
 }
 
+export interface ScheduleRestoreBackupRequest {
+  readonly backupId: string;
+}
+
 export interface StartProcessRequest {
   readonly workspaceId: string;
   readonly mode: 'fixture' | 'project-dev';
@@ -290,6 +304,8 @@ export interface IpcRequestMap {
   readonly [ipcChannels.setUnrestrictedMode]: SetUnrestrictedModeRequest;
   readonly [ipcChannels.setAiDeletePolicy]: SetAiDeletePolicyRequest;
   readonly [ipcChannels.setStdioPolicy]: SetStdioPolicyRequest;
+  readonly [ipcChannels.createBackup]: undefined;
+  readonly [ipcChannels.scheduleRestoreBackup]: ScheduleRestoreBackupRequest;
   readonly [ipcChannels.listProcesses]: undefined;
   readonly [ipcChannels.startProcess]: StartProcessRequest;
   readonly [ipcChannels.stopProcess]: StopProcessRequest;
@@ -321,6 +337,8 @@ export interface IpcResponseMap {
   readonly [ipcChannels.setUnrestrictedMode]: { readonly unrestricted: boolean; readonly restartRequired: boolean };
   readonly [ipcChannels.setAiDeletePolicy]: { readonly enabled: boolean };
   readonly [ipcChannels.setStdioPolicy]: { readonly profile: PermissionProfileName; readonly strictRoots: boolean; readonly allowedRoots: readonly string[]; readonly restartRequired: boolean };
+  readonly [ipcChannels.createBackup]: BackupSummary;
+  readonly [ipcChannels.scheduleRestoreBackup]: { readonly scheduled: boolean; readonly restartRequired: boolean };
   readonly [ipcChannels.listProcesses]: readonly ProcessSummary[];
   readonly [ipcChannels.startProcess]: ProcessSummary;
   readonly [ipcChannels.stopProcess]: { readonly stopped: boolean };
@@ -352,6 +370,8 @@ export interface LnwjudApi {
   setUnrestrictedMode(request: SetUnrestrictedModeRequest): Promise<IpcResponseMap[typeof ipcChannels.setUnrestrictedMode]>;
   setAiDeletePolicy(request: SetAiDeletePolicyRequest): Promise<IpcResponseMap[typeof ipcChannels.setAiDeletePolicy]>;
   setStdioPolicy(request: SetStdioPolicyRequest): Promise<IpcResponseMap[typeof ipcChannels.setStdioPolicy]>;
+  createBackup(): Promise<IpcResponseMap[typeof ipcChannels.createBackup]>;
+  scheduleRestoreBackup(request: ScheduleRestoreBackupRequest): Promise<IpcResponseMap[typeof ipcChannels.scheduleRestoreBackup]>;
   listProcesses(): Promise<IpcResponseMap[typeof ipcChannels.listProcesses]>;
   startProcess(request: StartProcessRequest): Promise<IpcResponseMap[typeof ipcChannels.startProcess]>;
   stopProcess(request: StopProcessRequest): Promise<IpcResponseMap[typeof ipcChannels.stopProcess]>;

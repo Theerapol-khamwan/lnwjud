@@ -15,7 +15,7 @@ export function ProjectsPage(props: ProjectsPageProps): ReactElement {
   const [rootPath, setRootPath] = useState('');
 
   return (
-    <div className="page-content">
+    <div className="page-content viewport-list-page">
       <h1>{t('nav.projects')}</h1>
       <section className="panel">
         <label className="field-label" htmlFor="workspace-root">{t('project.add')}</label>

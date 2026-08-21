@@ -15,6 +15,7 @@ import {
   WindowsNativeCapabilityBackend,
   WindowsOcrCapabilityBackend,
   WindowsOcrProcessBridge,
+  WINDOWS_CAPABILITY_BRIDGE_SHA256,
   WslCapabilityBackend,
   WslFilesystemCapabilityBackend,
 } from '@lnwjud/capabilities';
@@ -51,7 +52,9 @@ export function createLocalCapabilityRuntime(
     protocol: browserProtocol,
     launcher: (url: string | undefined, signal?: AbortSignal): Promise<Result<unknown>> => browserProtocol.launch(url, signal),
   });
-  const windowsBridge = new PowerShellWindowsCapabilityBridge({ scriptPath: capabilityBridgeScriptPath() });
+  const windowsBridgeScript = capabilityBridgeScriptPath();
+  const expectedScriptSha256 = capabilityBridgeExpectedSha256();
+  const windowsBridge = new PowerShellWindowsCapabilityBridge({ scriptPath: windowsBridgeScript, expectedScriptSha256 });
   const nativeOptions = { allowedRootsProvider: workspaceRootsProvider, unrestricted };
   const accessibilityBackend = new WindowsNativeCapabilityBackend('accessibility', windowsBridge);
   const inputEventBackend = new WindowsNativeCapabilityBackend('input_event', windowsBridge);
@@ -145,6 +148,13 @@ function capabilityBridgeScriptPath(): string {
     path.join(path.dirname(process.execPath), 'windows-capability-bridge.ps1'),
   ].filter((candidate): candidate is string => candidate !== undefined);
   return candidates.find((candidate) => existsSync(candidate)) ?? candidates[0]!;
+}
+
+function capabilityBridgeExpectedSha256(): string {
+  const configuredScript = process.env.LNWJUD_CAPABILITY_BRIDGE_SCRIPT;
+  if (configuredScript === undefined || configuredScript.trim().length === 0) return WINDOWS_CAPABILITY_BRIDGE_SHA256;
+  const configuredHash = process.env.LNWJUD_CAPABILITY_BRIDGE_SHA256?.trim().toLowerCase();
+  return configuredHash !== undefined && /^[0-9a-f]{64}$/.test(configuredHash) ? configuredHash : 'missing';
 }
 
 function windowsOcrHelperPath(): string | undefined {

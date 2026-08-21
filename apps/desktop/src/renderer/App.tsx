@@ -80,6 +80,16 @@ export function App(): ReactElement {
     }
   }
 
+  async function clearAllLogs(): Promise<void> {
+    try {
+      await Promise.all((['tunnel', 'mcp', 'process'] as const).map((source) => window.lnwjud.clearLogBuffer({ source })));
+      logIds.current = new Set();
+      setLogLines([]);
+    } catch (cause: unknown) {
+      setError(errorMessage(cause, t('error.logBufferClear')));
+    }
+  }
+
   async function exportLogSource(source: LogSource): Promise<void> {
     try {
       await window.lnwjud.exportLogs({ source, filePath: '' });
@@ -256,6 +266,17 @@ export function App(): ReactElement {
     }
   }
 
+  async function createBackup(): Promise<void> {
+    await window.lnwjud.createBackup();
+    await refresh();
+  }
+
+  async function scheduleRestoreBackup(backupId: string): Promise<boolean> {
+    const result = await window.lnwjud.scheduleRestoreBackup({ backupId });
+    await refresh();
+    return result.restartRequired;
+  }
+
   async function saveTunnelApiKey(apiKey: string): Promise<void> {
     await window.lnwjud.saveTunnelApiKey({ apiKey });
     await refresh();
@@ -344,6 +365,7 @@ export function App(): ReactElement {
           tunnelLogPath={tunnelLogPath}
           tunnelLogExists={tunnelLogExists}
           onClear={clearLogSource}
+          onClearAll={clearAllLogs}
           onExport={exportLogSource}
           onPopOut={popOutLogViewer}
           onCaptureIncident={captureIncident}
@@ -362,6 +384,8 @@ export function App(): ReactElement {
           onUnrestrictedChange={setUnrestrictedMode}
           onAiDeleteChange={setAiDeletePolicy}
           onStdioPolicyChange={setStdioPolicy}
+          onCreateBackup={createBackup}
+          onScheduleRestoreBackup={scheduleRestoreBackup}
           onSaveTunnelApiKey={saveTunnelApiKey}
           onSetTunnelClientPath={setTunnelClientPath}
         />

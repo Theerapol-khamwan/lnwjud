@@ -9,6 +9,7 @@ interface LiveLogsPageProps {
   readonly tunnelLogPath: string | null;
   readonly tunnelLogExists: boolean;
   readonly onClear: (source: LogSource) => Promise<void>;
+  readonly onClearAll: () => Promise<void>;
   readonly onExport: (source: LogSource) => Promise<void>;
   readonly onPopOut: () => Promise<void>;
   readonly onCaptureIncident: () => Promise<void>;
@@ -33,6 +34,7 @@ export function LiveLogsPage(props: LiveLogsPageProps): ReactElement {
           <p className="page-subtitle">{t('live.subtitle')}</p>
         </div>
         <div className="heading-actions">
+          <button type="button" className="clear-all-logs-button" onClick={() => { void props.onClearAll(); }}>{props.locale === 'th' ? 'ล้าง Log ทั้งหมด' : 'Clear All Logs'}</button>
           <button type="button" disabled={props.incidentBusy} onClick={() => { void props.onCaptureIncident(); }}>{t('live.captureIncident')}</button>
           <button type="button" onClick={() => { void props.onPopOut(); }}>{t('live.popOut')}</button>
         </div>
@@ -67,6 +69,8 @@ export function LiveLogsPage(props: LiveLogsPageProps): ReactElement {
             clearLabel={t('workLog.clear')}
             exportLabel={t('live.export')}
             waitingLabel={source === 'tunnel' ? t('live.waitingTunnel') : t('live.waiting')}
+            copyLabel={t('mcp.copy')}
+            copiedLabel={t('mcp.copied')}
             onClear={() => props.onClear(source)}
             onExport={() => props.onExport(source)}
           />

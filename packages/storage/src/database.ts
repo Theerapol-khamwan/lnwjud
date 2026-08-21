@@ -1,6 +1,12 @@
+import { existsSync } from 'node:fs';
 import { DatabaseSync } from 'node:sqlite';
+import { createPreMigrationBackupSync } from './backup-service.js';
 import { AUDIT_MIGRATION_SQL } from './migrations/audit-migration.js';
 import { CHECKPOINT_MIGRATION_SQL } from './migrations/checkpoint-migration.js';
+
+export interface SqliteDatabaseOptions {
+  readonly backupDirectory?: string;
+}
 
 export interface Migration {
   readonly id: string;
@@ -24,8 +30,11 @@ CREATE TABLE IF NOT EXISTS settings (
 
 export class SqliteDatabase {
   public readonly connection: DatabaseSync;
+  private readonly existedBeforeOpen: boolean;
+  private preMigrationBackupCreated = false;
 
-  public constructor(filename: string) {
+  public constructor(private readonly filename: string, private readonly options: SqliteDatabaseOptions = {}) {
+    this.existedBeforeOpen = existsSync(filename);
     this.connection = new DatabaseSync(filename, { timeout: 5_000 });
     this.connection.exec('PRAGMA journal_mode = WAL;');
     this.connection.exec('PRAGMA busy_timeout = 5000;');
@@ -39,6 +48,7 @@ export class SqliteDatabase {
   public applyMigration(migration: Migration): void {
     const existing = this.connection.prepare('SELECT id FROM schema_migrations WHERE id = ?').get(migration.id);
     if (this.hasMigrationId(existing, migration.id)) return;
+    this.backupBeforeFirstPendingMigration();
 
     this.connection.exec('BEGIN;');
     try {
@@ -49,6 +59,12 @@ export class SqliteDatabase {
       this.connection.exec('ROLLBACK;');
       throw error;
     }
+  }
+
+  private backupBeforeFirstPendingMigration(): void {
+    if (this.preMigrationBackupCreated || !this.existedBeforeOpen || this.options.backupDirectory === undefined) return;
+    createPreMigrationBackupSync(this.connection, this.options.backupDirectory);
+    this.preMigrationBackupCreated = true;
   }
 
   public close(): void {

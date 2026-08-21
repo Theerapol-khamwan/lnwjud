@@ -4,6 +4,7 @@ import {
   pushChannels,
   type AddWorkspaceRequest,
   type AgentState,
+  type BackupSummary,
   type ClearLogBufferRequest,
   type DashboardSnapshot,
   type DoctorCheck,
@@ -19,6 +20,7 @@ import {
   type PermissionProfileName,
   type ProcessSummary,
   type SaveTunnelApiKeyRequest,
+  type ScheduleRestoreBackupRequest,
   type SelectWorkspaceRequest,
   type SetAiDeletePolicyRequest,
   type SetLocaleRequest,
@@ -191,6 +193,7 @@ function dashboard(value: unknown): DashboardSnapshot {
     stdioPermissionProfile: permissionProfile(value.stdioPermissionProfile),
     stdioStrictRoots: booleanField(value, 'stdioStrictRoots'),
     stdioAllowedRoots: stringList(value.stdioAllowedRoots),
+    backups: backupSummaries(value.backups),
     connectionModes: {
       httpUrl: nullableString(value.connectionModes.httpUrl),
       stdioCommand: stringField(value.connectionModes, 'stdioCommand'),
@@ -200,6 +203,16 @@ function dashboard(value: unknown): DashboardSnapshot {
     tunnel: tunnelStatus(value.tunnel),
     appVersion: stringField(value, 'appVersion'),
   };
+}
+
+function backupSummaries(value: unknown): readonly BackupSummary[] {
+  if (!Array.isArray(value)) throw new Error('Invalid IPC response');
+  return value.map((entry) => {
+    if (!isRecord(entry)) throw new Error('Invalid IPC response');
+    const reason = entry.reason;
+    if (reason !== 'daily' && reason !== 'manual' && reason !== 'pre-update' && reason !== 'pre-migration') throw new Error('Invalid IPC response');
+    return { id: stringField(entry, 'id'), createdAt: stringField(entry, 'createdAt'), reason, sizeBytes: numberField(entry, 'sizeBytes') };
+  });
 }
 
 function capabilitySummaries(value: unknown): DashboardSnapshot['capabilities'] {
@@ -346,6 +359,22 @@ function setStdioPolicy(request: SetStdioPolicyRequest): Promise<{ readonly prof
   return invoke(ipcChannels.setStdioPolicy, { profile, strictRoots: request.strictRoots, allowedRoots }).then((value: unknown) => {
     if (!isRecord(value)) throw new Error('Invalid IPC response');
     return { profile: permissionProfile(value.profile), strictRoots: booleanField(value, 'strictRoots'), allowedRoots: stringList(value.allowedRoots), restartRequired: booleanField(value, 'restartRequired') };
+  });
+}
+
+function createBackup(): Promise<BackupSummary> {
+  return invoke(ipcChannels.createBackup).then((value: unknown) => {
+    const [result] = backupSummaries([value]);
+    if (result === undefined) throw new Error('Invalid IPC response');
+    return result;
+  });
+}
+
+function scheduleRestoreBackup(request: ScheduleRestoreBackupRequest): Promise<{ readonly scheduled: boolean; readonly restartRequired: boolean }> {
+  if (!isRecord(request) || typeof request.backupId !== 'string' || request.backupId.trim().length === 0) return Promise.reject(new Error('Invalid IPC request'));
+  return invoke(ipcChannels.scheduleRestoreBackup, { backupId: request.backupId }).then((value: unknown) => {
+    if (!isRecord(value)) throw new Error('Invalid IPC response');
+    return { scheduled: booleanField(value, 'scheduled'), restartRequired: booleanField(value, 'restartRequired') };
   });
 }
 
@@ -503,6 +532,8 @@ const api: LnwjudApi = {
   setUnrestrictedMode,
   setAiDeletePolicy,
   setStdioPolicy,
+  createBackup,
+  scheduleRestoreBackup,
   listProcesses: () => invoke(ipcChannels.listProcesses).then(processList),
   startProcess,
   stopProcess,

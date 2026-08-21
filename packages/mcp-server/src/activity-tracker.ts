@@ -122,22 +122,22 @@ export class ActivityTracker {
 export function summarizeToolTarget(toolName: string, input: unknown): string | undefined {
   if (!isRecord(input)) return undefined;
   const pathValue = firstString(input, ['path', 'relativePath', 'filePath', 'targetPath', 'sourcePath', 'destinationPath']);
-  if (pathValue !== undefined) return truncate(pathValue, 160);
+  if (pathValue !== undefined) return summarizeForLog(pathValue);
   const query = firstString(input, ['query', 'pattern']);
-  if (query !== undefined) return truncate(query, 120);
+  if (query !== undefined) return summarizeForLog(query);
   const executable = firstString(input, ['executable', 'command']);
   if (executable !== undefined) {
     const args = Array.isArray(input.arguments)
-      ? input.arguments.filter((entry): entry is string => typeof entry === 'string').slice(0, 4).join(' ')
+      ? input.arguments.filter((entry): entry is string => typeof entry === 'string').join(' ')
       : Array.isArray(input.args)
-        ? input.args.filter((entry): entry is string => typeof entry === 'string').slice(0, 4).join(' ')
+        ? input.args.filter((entry): entry is string => typeof entry === 'string').join(' ')
         : '';
-    return truncate(args.length > 0 ? `${executable} ${args}` : executable, 160);
+    return summarizeForLog(args.length > 0 ? `${executable} ${args}` : executable);
   }
   const operation = firstString(input, ['operation', 'action', 'mode']);
-  if (operation !== undefined) return truncate(`${toolName}:${operation}`, 120);
+  if (operation !== undefined) return summarizeForLog(`${toolName}:${operation}`);
   const skillId = firstString(input, ['skillId', 'serverId', 'name']);
-  if (skillId !== undefined) return truncate(skillId, 120);
+  if (skillId !== undefined) return summarizeForLog(skillId);
   return undefined;
 }
 
@@ -165,6 +165,18 @@ function firstString(input: Readonly<Record<string, unknown>>, keys: readonly st
     if (typeof value === 'string' && value.trim().length > 0) return value;
   }
   return undefined;
+}
+
+const MAX_LOG_TARGET_CHARS = 4_096;
+
+function summarizeForLog(value: string): string {
+  return truncate(redactSensitiveLogText(value), MAX_LOG_TARGET_CHARS);
+}
+
+function redactSensitiveLogText(value: string): string {
+  return value
+    .replace(/(\bauthorization\s*:\s*bearer\s+)[^\s]+/gi, '$1[redacted]')
+    .replace(/\b(token|secret|password|api[_-]?key|private[_-]?key)\s*[:=]\s*[^\s]+/gi, '$1=[redacted]');
 }
 
 function truncate(value: string, max: number): string {

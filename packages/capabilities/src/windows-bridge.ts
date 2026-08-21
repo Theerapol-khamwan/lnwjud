@@ -1,4 +1,6 @@
+import { createHash } from 'node:crypto';
 import { spawn } from 'node:child_process';
+import { lstat, readFile, realpath } from 'node:fs/promises';
 import path from 'node:path';
 import { appError, err, ok, type AppErrorCode, type Result } from '@lnwjud/domain';
 import { WindowsProcessTree, type ProcessTreeTerminator } from '@lnwjud/process';
@@ -11,6 +13,7 @@ export interface PowerShellWindowsBridgeOptions {
   readonly maxOutputBytes?: number;
   readonly terminator?: ProcessTreeTerminator;
   readonly terminationRetryMs?: number;
+  readonly expectedScriptSha256?: string;
 }
 
 const DEFAULT_TIMEOUT_SECONDS = 600;
@@ -30,6 +33,7 @@ export class PowerShellWindowsCapabilityBridge implements WindowsCapabilityBridg
   private readonly maxOutputBytes: number;
   private readonly terminator: ProcessTreeTerminator;
   private readonly terminationRetryMs: number;
+  private readonly expectedScriptSha256: string | undefined;
 
   public constructor(options: PowerShellWindowsBridgeOptions) {
     this.scriptPath = path.resolve(options.scriptPath);
@@ -38,17 +42,20 @@ export class PowerShellWindowsCapabilityBridge implements WindowsCapabilityBridg
     this.maxOutputBytes = Math.max(1, Math.min(options.maxOutputBytes ?? DEFAULT_MAX_OUTPUT_BYTES, DEFAULT_MAX_OUTPUT_BYTES));
     this.terminator = options.terminator ?? new WindowsProcessTree();
     this.terminationRetryMs = Math.max(1, options.terminationRetryMs ?? DEFAULT_TERMINATION_RETRY_MS);
+    this.expectedScriptSha256 = options.expectedScriptSha256?.trim().toLowerCase();
   }
 
-  public execute(request: { readonly capability: WindowsCapabilityName; readonly input: unknown }, signal?: AbortSignal): Promise<Result<unknown>> {
+  public async execute(request: { readonly capability: WindowsCapabilityName; readonly input: unknown }, signal?: AbortSignal): Promise<Result<unknown>> {
     if (this.platform !== 'win32') return Promise.resolve(err(appError('INTERNAL_ERROR', 'Windows bridge is unavailable on this platform', true)));
     if (!path.isAbsolute(this.scriptPath)) return Promise.resolve(err(appError('INVALID_INPUT', 'Windows bridge script path must be absolute')));
-    if (signal?.aborted === true) return Promise.resolve(err(appError('PROCESS_TIMEOUT', 'Windows bridge operation was cancelled', true)));
+    if (signal?.aborted === true) return err(appError('PROCESS_TIMEOUT', 'Windows bridge operation was cancelled', true));
+    const integrity = await this.verifyIntegrity();
+    if (!integrity.ok) return err(integrity.error);
     let serialized: string;
     try {
       serialized = JSON.stringify(request);
     } catch {
-      return Promise.resolve(err(appError('INVALID_INPUT', 'Windows bridge input could not be serialized')));
+      return err(appError('INVALID_INPUT', 'Windows bridge input could not be serialized'));
     }
 
     return new Promise((resolve) => {
@@ -111,6 +118,28 @@ export class PowerShellWindowsCapabilityBridge implements WindowsCapabilityBridg
       };
       child.stdin?.end(serialized, 'utf8');
     });
+  }
+
+  private async verifyIntegrity(): Promise<Result<void>> {
+    if (this.expectedScriptSha256 === undefined) return ok(undefined);
+    if (!/^[0-9a-f]{64}$/.test(this.expectedScriptSha256)) {
+      return err(appError('INTERNAL_ERROR', 'Windows bridge integrity manifest is missing or invalid'));
+    }
+    try {
+      const info = await lstat(this.scriptPath);
+      if (!info.isFile() || info.isSymbolicLink()) return err(appError('INTERNAL_ERROR', 'Windows bridge script is not a trusted regular file'));
+      const canonical = await realpath(this.scriptPath);
+      if (process.platform === 'win32'
+        ? canonical.toLowerCase() !== this.scriptPath.toLowerCase()
+        : canonical !== this.scriptPath) {
+        return err(appError('INTERNAL_ERROR', 'Windows bridge script path resolves through a link or reparse point'));
+      }
+      const digest = createHash('sha256').update(await readFile(this.scriptPath)).digest('hex');
+      if (digest !== this.expectedScriptSha256) return err(appError('INTERNAL_ERROR', 'Windows bridge script integrity check failed'));
+      return ok(undefined);
+    } catch (error) {
+      return err(appError('INTERNAL_ERROR', error instanceof Error ? error.message : 'Windows bridge integrity check failed'));
+    }
   }
 }
 

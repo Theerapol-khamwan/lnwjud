@@ -52,6 +52,12 @@ export function StandaloneLogViewer(): ReactElement {
     setLines((previous) => previous.filter((line) => line.source !== source));
   }
 
+  async function clearAll(): Promise<void> {
+    await Promise.all(sources.map((source) => window.lnwjud.clearLogBuffer({ source }).catch(() => undefined)));
+    logIds.current = new Set();
+    setLines([]);
+  }
+
   async function exportLogs(source: LogSource): Promise<void> {
     await window.lnwjud.exportLogs({ source, filePath: '' }).catch(() => undefined);
   }
@@ -74,8 +80,9 @@ export function StandaloneLogViewer(): ReactElement {
       </header>
 
       <div className="log-viewer-shell">
-        <div className="log-tabs" role="tablist" aria-label="Live Logs">
-          {sources.map((source) => (
+        <div className="log-tabs-toolbar">
+          <div className="log-tabs" role="tablist" aria-label="Live Logs">
+            {sources.map((source) => (
             <button
               key={source}
               type="button"
@@ -86,7 +93,9 @@ export function StandaloneLogViewer(): ReactElement {
             >
               {source === 'tunnel' ? t('live.tabTunnel') : source === 'mcp' ? t('live.tabMcp') : t('live.tabProcess')}
             </button>
-          ))}
+            ))}
+          </div>
+          <button type="button" className="clear-all-logs-button" onClick={() => { void clearAll(); }}>ล้าง Log ทั้งหมด</button>
         </div>
         <LogStreamPanel
           title={tab === 'tunnel' ? t('live.tabTunnel') : tab === 'mcp' ? t('live.tabMcp') : t('live.tabProcess')}

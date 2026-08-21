@@ -595,7 +595,7 @@ async function decryptWithDpapi(encrypted: string): Promise<string> {
 
 function runPowerShellWithStdin(command: string, input: string): Promise<string> {
   return new Promise((resolve, reject) => {
-    const child = spawn('powershell.exe', ['-NoProfile', '-Command', command], {
+    const child = spawn('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', command], {
       windowsHide: true,
       stdio: ['pipe', 'pipe', 'pipe'],
     });

@@ -30,11 +30,12 @@ import {
   WindowsNativeCapabilityBackend,
   WindowsOcrCapabilityBackend,
   WindowsOcrProcessBridge,
+  WINDOWS_CAPABILITY_BRIDGE_SHA256,
   WslCapabilityBackend,
   WslFilesystemCapabilityBackend,
 } from '@lnwjud/capabilities';
 import type { Result } from '@lnwjud/domain';
-import { ALLOW_AI_DELETE_SETTING_KEY, parseBooleanSetting } from '@lnwjud/shared';
+import { ALLOW_AI_DELETE_SETTING_KEY, loadCheckpointEncryptionKey, parseBooleanSetting } from '@lnwjud/shared';
 import {
   EXTENSIONS_SETTINGS_KEY,
   createLocalExtensionsService,
@@ -43,6 +44,7 @@ import {
 import { ActivityTracker, SharedActivitySnapshotLease, composeActivitySinks, createFileActivitySink, currentSharedActivityOwner, mcpActivityLogPath, type ActivitySink, type ActivitySinkEvent, type McpApplicationServices } from '@lnwjud/mcp-server';
 import { permissionProfiles, type PermissionProfile, type PermissionProfileName } from '@lnwjud/permissions';
 import {
+  AesGcmCheckpointCipher,
   SqliteAuditRepository,
   SqliteCheckpointRepository,
   SqliteDatabase,
@@ -75,7 +77,8 @@ export function createStdioMcpRuntime(
   unrestricted: boolean = false,
   options: StdioMcpRuntimeOptions = {},
 ): StdioMcpRuntime {
-  const database = new SqliteDatabase(path.join(dataPath, 'lnwjud.sqlite'));
+  const databaseFilename = path.join(dataPath, 'lnwjud.sqlite');
+  const database = new SqliteDatabase(databaseFilename, { backupDirectory: path.join(dataPath, 'backups') });
   const rawWorkspaceRepository = new SqliteWorkspaceRepository(database);
   const workspaceRepository = options.strictAllowedRoots === undefined
     ? rawWorkspaceRepository
@@ -84,7 +87,7 @@ export function createStdioMcpRuntime(
   const settingsRepository = new SqliteSettingsRepository(database);
   const auditRepository = new SqliteAuditRepository(database);
   const auditService = new AuditService(auditRepository);
-  const checkpointRepository = new SqliteCheckpointRepository(database);
+  const checkpointRepository = new SqliteCheckpointRepository(database, new AesGcmCheckpointCipher(loadCheckpointEncryptionKey(dataPath)));
   const workspaceService = new WorkspaceService(workspaceRepository);
   const profileName = options.permissionProfile ?? 'full';
   const activeProfile = permissionProfiles[profileName];
@@ -234,7 +237,9 @@ function createStdioCapabilityService(
     protocol: browserProtocol,
     launcher: (url: string | undefined, signal?: AbortSignal): Promise<Result<unknown>> => browserProtocol.launch(url, signal),
   });
-  const windowsBridge = new PowerShellWindowsCapabilityBridge({ scriptPath: capabilityBridgeScriptPath() });
+  const windowsBridgeScript = capabilityBridgeScriptPath();
+  const expectedScriptSha256 = capabilityBridgeExpectedSha256();
+  const windowsBridge = new PowerShellWindowsCapabilityBridge({ scriptPath: windowsBridgeScript, expectedScriptSha256 });
   const nativeOptions = { allowedRootsProvider: workspaceRootsProvider, unrestricted };
   const accessibilityBackend = new WindowsNativeCapabilityBackend('accessibility', windowsBridge);
   const nativeVisionBackend = new WindowsNativeCapabilityBackend('vision', windowsBridge);
@@ -335,6 +340,13 @@ function resolveScriptDirectory(): string | undefined {
     // Bundled CJS may leave import.meta.url empty.
   }
   return undefined;
+}
+
+function capabilityBridgeExpectedSha256(): string {
+  const configuredScript = process.env.LNWJUD_CAPABILITY_BRIDGE_SCRIPT;
+  if (configuredScript === undefined || configuredScript.trim().length === 0) return WINDOWS_CAPABILITY_BRIDGE_SHA256;
+  const configuredHash = process.env.LNWJUD_CAPABILITY_BRIDGE_SHA256?.trim().toLowerCase();
+  return configuredHash !== undefined && /^[0-9a-f]{64}$/.test(configuredHash) ? configuredHash : 'missing';
 }
 
 function windowsOcrHelperPath(): string | undefined {

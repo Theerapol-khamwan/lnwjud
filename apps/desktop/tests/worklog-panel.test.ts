@@ -2,7 +2,7 @@ import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
 import type { InFlightWorkItem, WorkLogEntry } from '@lnwjud/ipc-contracts';
-import { WorkLogPanel } from '../src/renderer/features/worklog/WorkLogPanel.js';
+import { newestFirstWorkLogRows, WorkLogPanel } from '../src/renderer/features/worklog/WorkLogPanel.js';
 
 const mockInFlight: InFlightWorkItem[] = [
   {
@@ -83,5 +83,23 @@ describe('WorkLogPanel', () => {
     expect(markup).toContain('[ERROR]');
     expect(markup).toContain('Destructive operation requires explicit user confirmation');
     expect(markup).not.toContain('python -c &quot;print(1)&quot;');
+  });
+
+  it('renders search and copy controls and filters rows by full log details', () => {
+    const markup = renderToStaticMarkup(createElement(WorkLogPanel, {
+      title: 'บันทึกการทำงาน', emptyLabel: 'ยังไม่มีกิจกรรม', filterAllLabel: 'ทั้งหมด', filterErrorLabel: 'เฉพาะ error',
+      clearLabel: 'ล้างประวัติ', filter: 'all', onFilterChange: () => {}, onClear: async () => {}, entries: mockEntries, inFlight: mockInFlight,
+      searchPlaceholder: 'ค้นหาบันทึกการทำงาน...', copyLabel: 'คัดลอก', copiedLabel: 'คัดลอกแล้ว',
+    }));
+    expect(markup).toContain('type="search"');
+    expect(markup).toContain('ค้นหาบันทึกการทำงาน...');
+    expect(markup.match(/row-copy-button/g)?.length).toBe(3);
+
+    const resultMatches = newestFirstWorkLogRows(mockEntries, mockInFlight, 'all', 'print(1)');
+    expect(resultMatches).toHaveLength(1);
+    expect(resultMatches[0]?.id).toBe('entry-1');
+    const errorMatches = newestFirstWorkLogRows(mockEntries, mockInFlight, 'all', 'explicit user confirmation');
+    expect(errorMatches).toHaveLength(1);
+    expect(errorMatches[0]?.id).toBe('entry-2');
   });
 });

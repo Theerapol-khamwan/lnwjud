@@ -120,7 +120,18 @@ if (-not $env:LNWJUD_DATA_PATH) { $env:LNWJUD_DATA_PATH = Join-Path $env:APPDATA
 $env:MCP_CONNECTION_MAX_TTL = $mcpTtl
 $env:TUNNEL_CLIENT_PROFILE_DIR = $profileDir
 
-. (Join-Path $PSScriptRoot 'lib\lnwjud-tunnel-lock.ps1')
+$scriptRootResolved = (Resolve-Path -LiteralPath $PSScriptRoot -ErrorAction Stop).Path.TrimEnd([IO.Path]::DirectorySeparatorChar)
+$lockHelperRequested = Join-Path $PSScriptRoot 'lib\\lnwjud-tunnel-lock.ps1'
+$lockHelperResolved = (Resolve-Path -LiteralPath $lockHelperRequested -ErrorAction Stop).Path
+$lockHelperItem = Get-Item -LiteralPath $lockHelperResolved -Force -ErrorAction Stop
+$trustedPrefix = $scriptRootResolved + [IO.Path]::DirectorySeparatorChar
+if (-not $lockHelperResolved.StartsWith($trustedPrefix, [StringComparison]::OrdinalIgnoreCase)) {
+  throw 'Tunnel lock helper resolved outside the trusted script directory.'
+}
+if ($lockHelperItem.PSIsContainer -or (($lockHelperItem.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0)) {
+  throw 'Tunnel lock helper must be a trusted regular file, not a directory or reparse point.'
+}
+. $lockHelperResolved
 $lockOwner = $null
 $keyPointer = $null
 try {

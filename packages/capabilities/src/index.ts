@@ -51,3 +51,5 @@ export {
   type CapabilityDescriptor,
   type CapabilityPermission,
 } from './capability-descriptors.js';
+
+export { WINDOWS_CAPABILITY_BRIDGE_SHA256 } from './windows-capability-integrity.generated.js';

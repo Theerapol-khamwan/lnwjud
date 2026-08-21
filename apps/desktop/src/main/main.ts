@@ -8,6 +8,7 @@ import {
   ipcChannels,
   pushChannels,
   type AddWorkspaceRequest,
+  type BackupSummary,
   type ClearLogBufferRequest,
   type DashboardSnapshot,
   type DoctorReport,
@@ -19,6 +20,7 @@ import {
   type ProcessSummary,
   type PermissionProfileName,
   type SaveTunnelApiKeyRequest,
+  type ScheduleRestoreBackupRequest,
   type SelectWorkspaceRequest,
   type SetAiDeletePolicyRequest,
   type SetLocaleRequest,
@@ -35,6 +37,7 @@ import {
 } from '@lnwjud/ipc-contracts';
 import { readSharedActivitySnapshot, startMcpStdio } from '@lnwjud/mcp-server';
 import { resolveLnwjudDataPath } from '@lnwjud/shared';
+import { applyPendingSqliteRestoreSync } from '@lnwjud/storage';
 import { createDesktopRuntime, type DesktopRuntime } from './desktop-services.js';
 import { DesktopShutdownCoordinator } from './desktop-shutdown.js';
 import { shouldHoldSingleInstanceLock, wantsMcpStdio } from './instance-lock.js';
@@ -53,6 +56,8 @@ export interface DesktopIpcServices {
   setUnrestrictedMode(request: SetUnrestrictedModeRequest): Promise<{ readonly unrestricted: boolean; readonly restartRequired: boolean }>;
   setAiDeletePolicy(request: SetAiDeletePolicyRequest): Promise<{ readonly enabled: boolean }>;
   setStdioPolicy(request: SetStdioPolicyRequest): Promise<{ readonly profile: PermissionProfileName; readonly strictRoots: boolean; readonly allowedRoots: readonly string[]; readonly restartRequired: boolean }>;
+  createBackup(): Promise<BackupSummary>;
+  scheduleRestoreBackup(request: ScheduleRestoreBackupRequest): Promise<{ readonly scheduled: boolean; readonly restartRequired: boolean }>;
   listProcesses(): Promise<IpcResponseMap[typeof ipcChannels.listProcesses]>;
   startProcess(request: StartProcessRequest): Promise<IpcResponseMap[typeof ipcChannels.startProcess]>;
   stopProcess(request: StopProcessRequest): Promise<{ readonly stopped: boolean }>;
@@ -111,6 +116,7 @@ const defaultDesktopServices: DesktopIpcServices = {
     stdioPermissionProfile: 'full',
     stdioStrictRoots: false,
     stdioAllowedRoots: [],
+    backups: [],
     connectionModes: { httpUrl: null, stdioCommand: 'lnwjud.exe --mcp-stdio' },
     workLog: [],
     inFlight: [],
@@ -126,6 +132,8 @@ const defaultDesktopServices: DesktopIpcServices = {
   setStdioPolicy: async (request): Promise<{ readonly profile: PermissionProfileName; readonly strictRoots: boolean; readonly allowedRoots: readonly string[]; readonly restartRequired: boolean }> => ({
     profile: request.profile, strictRoots: request.strictRoots, allowedRoots: request.allowedRoots, restartRequired: false,
   }),
+  createBackup: async (): Promise<BackupSummary> => ({ id: 'unavailable', createdAt: new Date(0).toISOString(), reason: 'manual', sizeBytes: 0 }),
+  scheduleRestoreBackup: async (): Promise<{ readonly scheduled: boolean; readonly restartRequired: boolean }> => ({ scheduled: false, restartRequired: false }),
   listProcesses: async (): Promise<readonly ProcessSummary[]> => [],
   startProcess: async (): Promise<IpcResponseMap[typeof ipcChannels.startProcess]> => {
     throw new Error('Desktop services are not configured');
@@ -217,6 +225,15 @@ export function registerIpcHandlers(
   ipcMain.handle(ipcChannels.setStdioPolicy, async (event, payload: unknown) => {
     assertTrustedSender(event, getMainWindow());
     return services.setStdioPolicy(parseSetStdioPolicyRequest(payload));
+  });
+  ipcMain.handle(ipcChannels.createBackup, async (event, payload: unknown) => {
+    assertTrustedSender(event, getMainWindow());
+    assertNoPayload(payload);
+    return services.createBackup();
+  });
+  ipcMain.handle(ipcChannels.scheduleRestoreBackup, async (event, payload: unknown) => {
+    assertTrustedSender(event, getMainWindow());
+    return services.scheduleRestoreBackup(parseScheduleRestoreBackupRequest(payload));
   });
   ipcMain.handle(ipcChannels.listProcesses, async (event, payload: unknown) => {
     assertTrustedSender(event, getMainWindow());
@@ -343,6 +360,11 @@ function parseSetUnrestrictedModeRequest(payload: unknown): SetUnrestrictedModeR
 function parseSetAiDeletePolicyRequest(payload: unknown): SetAiDeletePolicyRequest {
   if (!isRecord(payload) || typeof payload.enabled !== 'boolean') throw new Error('Invalid IPC payload: enabled');
   return { enabled: payload.enabled };
+}
+
+function parseScheduleRestoreBackupRequest(payload: unknown): ScheduleRestoreBackupRequest {
+  if (!isRecord(payload)) throw new Error('Invalid IPC payload');
+  return { backupId: nonEmptyString(payload.backupId, 'backupId') };
 }
 
 function parseSetStdioPolicyRequest(payload: unknown): SetStdioPolicyRequest {
@@ -651,7 +673,11 @@ function initAutoUpdater(runtime: DesktopRuntime): void {
           : { state: snapshot.state, reason: snapshot.reason };
       },
       install: (): void => {
-        void desktopShutdownCoordinator?.requestQuit(() => autoUpdater.quitAndInstall(), 'install');
+        void runtime.createBackup('pre-update').catch((error: unknown) => {
+          console.error(`Pre-update backup failed: ${error instanceof Error ? error.message : 'unknown error'}`);
+        }).finally(() => {
+          void desktopShutdownCoordinator?.requestQuit(() => autoUpdater.quitAndInstall(), 'install');
+        });
       },
     });
     updateDownloadedDialogController = new UpdateDownloadedDialogController({
@@ -836,6 +862,9 @@ function configureDataPath(): string {
   app.setName(APP_NAME);
   const dataPath = resolveLnwjudDataPath(process.env, app.getPath('appData'));
   app.setPath('userData', dataPath);
+  const restore = applyPendingSqliteRestoreSync(path.join(dataPath, 'lnwjud.sqlite'), path.join(dataPath, 'backups'));
+  if (restore.error !== undefined) console.error(`Scheduled database restore failed: ${restore.error}`);
+  if (restore.applied) console.log(`Database restore applied from ${restore.backupId ?? 'scheduled backup'}`);
   return dataPath;
 }
 

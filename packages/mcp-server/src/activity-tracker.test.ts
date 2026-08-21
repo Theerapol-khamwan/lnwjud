@@ -47,6 +47,14 @@ describe('ActivityTracker', () => {
     expect(summarizeToolTarget('shell', { executable: 'node', arguments: ['-e', '1'] })).toBe('node -e 1');
   });
 
+  it('keeps long shell arguments copyable while redacting credential-like values', () => {
+    const args = ['-NoProfile', '-NonInteractive', '-Command', 'Write-Output', 'one', 'two', 'three', 'four', 'five', 'api_key=super-secret'];
+    const summary = summarizeToolTarget('shell', { executable: 'powershell.exe', arguments: args });
+    expect(summary).toContain('one two three four five');
+    expect(summary).toContain('api_key=[redacted]');
+    expect(summary).not.toContain('super-secret');
+  });
+
   it('propagates bounded trace context into audit events and in-flight state', async () => {
     const events: ActivitySinkEvent[] = [];
     const tracker = new ActivityTracker({ async record(event): Promise<void> { events.push(event); } });

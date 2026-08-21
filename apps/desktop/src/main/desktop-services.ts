@@ -52,12 +52,14 @@ import {
   parseBooleanSetting,
   parseStdioPermissionProfile,
   serializeAllowedRoots,
+  loadCheckpointEncryptionKey,
 } from '@lnwjud/shared';
-import { SqliteAuditRepository, SqliteCheckpointRepository, SqliteDatabase, SqliteSettingsRepository, SqliteWorkspaceRepository } from '@lnwjud/storage';
+import { AesGcmCheckpointCipher, SqliteAuditRepository, SqliteBackupService, SqliteCheckpointRepository, SqliteDatabase, SqliteSettingsRepository, SqliteWorkspaceRepository, type BackupReason, type BackupSummary } from '@lnwjud/storage';
 import type { Workspace } from '@lnwjud/workspace';
 import { machineRootPath, SecretPolicy, WorkspacePathGuard, WorkspaceService } from '@lnwjud/workspace';
 import {
   type AddWorkspaceRequest,
+  type BackupSummary as IpcBackupSummary,
   type AgentState,
   type AuditEventSummary,
   type ClearLogBufferRequest,
@@ -71,6 +73,7 @@ import {
   type PermissionProfileName as IpcPermissionProfileName,
   type ProcessSummary,
   type SaveTunnelApiKeyRequest,
+  type ScheduleRestoreBackupRequest,
   type SelectWorkspaceRequest,
   type SetAiDeletePolicyRequest,
   type SetLocaleRequest,
@@ -107,6 +110,7 @@ export interface DesktopRuntime {
   readonly mcpActor: FileActor;
   readonly activityTracker: ActivityTracker;
   readonly logHub: LogHub;
+  createBackup(reason?: BackupReason): Promise<BackupSummary>;
   ensureDefaultWorkspace(rootPath: string): Promise<string>;
   autoStartMcp(): Promise<McpConnectionStatus>;
   close(): Promise<void>;
@@ -117,13 +121,20 @@ export interface DesktopRuntimeOptions {
 }
 
 export function createDesktopRuntime(dataPath: string, options: DesktopRuntimeOptions = {}): DesktopRuntime {
-  const database = new SqliteDatabase(path.join(dataPath, 'lnwjud.sqlite'));
+  const databaseFilename = path.join(dataPath, 'lnwjud.sqlite');
+  const backupDirectory = path.join(dataPath, 'backups');
+  const database = new SqliteDatabase(databaseFilename, { backupDirectory });
   const workspaceRepository = new SqliteWorkspaceRepository(database);
   const workspaceIndex = new WorkspaceIndexService(workspaceRepository, new JsonWorkspaceIndexStore(path.join(dataPath, 'workspace-index')));
   const settingsRepository = new SqliteSettingsRepository(database);
   const auditRepository: AuditEventRepository = new SqliteAuditRepository(database);
   const auditService = new AuditService(auditRepository);
-  const checkpointRepository = new SqliteCheckpointRepository(database);
+  const checkpointCipher = new AesGcmCheckpointCipher(loadCheckpointEncryptionKey(dataPath));
+  const checkpointRepository = new SqliteCheckpointRepository(database, checkpointCipher);
+  const backupService = new SqliteBackupService(database, { backupDirectory, databaseFilename });
+  void backupService.ensureRecent().catch((error: unknown) => {
+    console.error(`Automatic database backup failed: ${error instanceof Error ? error.message : 'unknown error'}`);
+  });
   const workspaceService = new WorkspaceService(workspaceRepository);
   const gitService = new GitService(workspaceRepository);
   const codexDiscovery = new CodexDiscovery();
@@ -327,6 +338,7 @@ export function createDesktopRuntime(dataPath: string, options: DesktopRuntimeOp
       const workLog = await buildWorkLog(auditRepository, settingsRepository);
       const inFlight = activityTracker.listInFlight().map(toInFlightItem);
       const tunnel = await tunnelController.status();
+      const backups = await backupService.list();
       logHub.syncWorkLog(workLog, inFlight.map((item) => ({ callId: item.callId, toolName: item.toolName, targetSummary: item.targetSummary, startedAt: item.startedAt })));
       logHub.syncProcesses(processSummaries.map((summary) => ({
         id: summary.id,
@@ -353,6 +365,7 @@ export function createDesktopRuntime(dataPath: string, options: DesktopRuntimeOp
         stdioPermissionProfile: parseStdioPermissionProfile(settingsRepository.get(STDIO_PERMISSION_PROFILE_SETTING_KEY), 'full'),
         stdioStrictRoots: parseBooleanSetting(settingsRepository.get(STDIO_STRICT_ROOTS_SETTING_KEY), false),
         stdioAllowedRoots: parseAllowedRoots(settingsRepository.get(STDIO_ALLOWED_ROOTS_SETTING_KEY)),
+        backups: backups.map(toIpcBackupSummary),
         connectionModes: buildConnectionModes(mcp.url),
         workLog,
         inFlight,
@@ -382,6 +395,14 @@ export function createDesktopRuntime(dataPath: string, options: DesktopRuntimeOp
       settingsRepository.set(STDIO_ALLOWED_ROOTS_SETTING_KEY, serializeAllowedRoots(allowedRoots));
       const tunnelStatus = await tunnelController.status();
       return { profile: request.profile, strictRoots: request.strictRoots, allowedRoots, restartRequired: tunnelStatus.state === 'running' };
+    },
+    createBackup: async (): Promise<IpcBackupSummary> => toIpcBackupSummary(await backupService.create('manual')),
+    scheduleRestoreBackup: async (request: ScheduleRestoreBackupRequest): Promise<{ readonly scheduled: boolean; readonly restartRequired: boolean }> => {
+      const tunnelStatus = await tunnelController.status();
+      if (tunnelStatus.state === 'running') throw new Error('Stop Secure MCP Tunnel before scheduling a database restore');
+      if (mcpLifecycle.status().running) throw new Error('Stop local MCP before scheduling a database restore');
+      await backupService.scheduleRestore(request.backupId);
+      return { scheduled: true, restartRequired: true };
     },
     listProcesses: async (): Promise<readonly ProcessSummary[]> => listTrackedProcesses(processService, trackedProcesses),
     startProcess: async (request: StartProcessRequest): Promise<ProcessSummary> => {
@@ -488,6 +509,7 @@ export function createDesktopRuntime(dataPath: string, options: DesktopRuntimeOp
     mcpActor,
     activityTracker,
     logHub,
+    createBackup: (reason: BackupReason = 'manual'): Promise<BackupSummary> => backupService.create(reason),
     ensureDefaultWorkspace: async (rootPath: string): Promise<string> => {
       await ensureMachineRoots(rootPath);
       const existing = await workspaceService.list();
@@ -596,6 +618,10 @@ function toProcessSummary(processValue: ManagedProcess, workspaceId: string, log
     state: processValue.state,
     logSummary,
   };
+}
+
+function toIpcBackupSummary(value: BackupSummary): IpcBackupSummary {
+  return { id: value.id, createdAt: value.createdAt, reason: value.reason, sizeBytes: value.sizeBytes };
 }
 
 function toWorkspaceSummary(workspace: Workspace): WorkspaceSummary {

@@ -13,7 +13,7 @@ import {
   parseStdioPermissionProfile,
   resolveLnwjudDataPath,
 } from '@lnwjud/shared';
-import { SqliteDatabase, SqliteSettingsRepository, SqliteWorkspaceRepository } from '@lnwjud/storage';
+import { applyPendingSqliteRestoreSync, SqliteDatabase, SqliteSettingsRepository, SqliteWorkspaceRepository } from '@lnwjud/storage';
 import { machineRootPath, normalizeWorkspaceRoot, WorkspaceService, type Workspace } from '@lnwjud/workspace';
 import { createStdioMcpRuntime } from '../runtime/stdio-mcp-runtime.js';
 import { StrictWorkspaceRepository, canonicalizeAllowedRoots, requestedPathInsideAllowedRoot } from '../runtime/strict-workspace-repository.js';
@@ -46,8 +46,11 @@ function resolveDataPath(): string {
 async function main(): Promise<void> {
   const dataPath = resolveDataPath();
   fs.mkdirSync(dataPath, { recursive: true });
+  const restore = applyPendingSqliteRestoreSync(path.join(dataPath, 'lnwjud.sqlite'), path.join(dataPath, 'backups'));
+  if (restore.error !== undefined) process.stderr.write(`lnwjud MCP stdio: scheduled restore failed: ${restore.error}\n`);
+  if (restore.applied) process.stderr.write(`lnwjud MCP stdio: restored database from ${restore.backupId ?? 'scheduled backup'}\n`);
 
-  const database = new SqliteDatabase(path.join(dataPath, 'lnwjud.sqlite'));
+  const database = new SqliteDatabase(path.join(dataPath, 'lnwjud.sqlite'), { backupDirectory: path.join(dataPath, 'backups') });
   const rawWorkspaceRepository = new SqliteWorkspaceRepository(database);
   const settingsRepository = new SqliteSettingsRepository(database);
 

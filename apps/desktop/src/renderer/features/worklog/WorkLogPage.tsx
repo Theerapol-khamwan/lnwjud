@@ -13,7 +13,7 @@ export function WorkLogPage(props: WorkLogPageProps): ReactElement {
   const t = createTranslator(props.locale);
   const [filter, setFilter] = useState<WorkLogFilter>('all');
   return (
-    <div className="page-content">
+    <div className="page-content viewport-list-page worklog-page">
       <WorkLogPanel
         title={t('workLog.title')}
         emptyLabel={t('workLog.empty')}
@@ -25,6 +25,9 @@ export function WorkLogPage(props: WorkLogPageProps): ReactElement {
         onClear={props.onClearWorkLog}
         entries={props.dashboard.workLog}
         inFlight={props.dashboard.inFlight}
+        searchPlaceholder={props.locale === 'th' ? 'ค้นหาบันทึกการทำงาน...' : 'Search work log...'}
+        copyLabel={t('mcp.copy')}
+        copiedLabel={t('mcp.copied')}
       />
     </div>
   );

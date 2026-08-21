@@ -20,6 +20,8 @@ publish:
 extraResources:
   - from: ../../packages/capabilities/src/windows-capability-bridge.ps1
     to: windows-capability-bridge.ps1
+  - from: build/windows-capability-bridge.sha256
+    to: windows-capability-bridge.sha256
   - from: build/lnwjud-mcp-stdio.cjs
     to: lnwjud-mcp-stdio.cjs
   - from: build/lnwjud-mcp-stdio.cmd
