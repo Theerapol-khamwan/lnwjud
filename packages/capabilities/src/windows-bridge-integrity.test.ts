@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, realpath, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -53,7 +53,11 @@ describe('PowerShellWindowsCapabilityBridge integrity', () => {
 });
 
 async function temporaryRoot(): Promise<string> {
-  const root = await mkdtemp(path.join(os.tmpdir(), 'lnwjud-bridge-integrity-'));
+  // GitHub Hosted Windows runners may expose os.tmpdir() through an infrastructure
+  // junction. Canonicalize that parent first so the fixture itself is a regular,
+  // non-reparse path while production integrity checks remain fail-closed.
+  const canonicalTemp = await realpath(os.tmpdir());
+  const root = await mkdtemp(path.join(canonicalTemp, 'lnwjud-bridge-integrity-'));
   temporaryRoots.push(root);
   return root;
 }
