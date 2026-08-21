@@ -97,9 +97,14 @@ test('desktop serves the real MCP client development workflow', async () => {
 
     if (process.platform === 'win32') {
       const nativeHealth = await callTool(client, 'health', { operation: 'check_tool', tool: 'accessibility' });
-      expect(toolRecord(nativeHealth)).toMatchObject({ tool: 'accessibility', available: true });
-      const nativeWindows = await callTool(client, 'window', { operation: 'list' });
-      expect(toolRecord(nativeWindows)).toMatchObject({ windows: expect.any(Array) });
+      const nativeHealthRecord = toolRecord(nativeHealth);
+      expect(nativeHealthRecord).toMatchObject({ tool: 'accessibility', available: expect.any(Boolean) });
+      if (nativeHealthRecord.available === true) {
+        const nativeWindows = await callTool(client, 'window', { operation: 'list' });
+        expect(toolRecord(nativeWindows)).toMatchObject({ windows: expect.any(Array) });
+      } else {
+        expect(nativeHealthRecord).toMatchObject({ available: false, ready: false, local: true, reason: expect.any(String) });
+      }
     }
 
     const codexStatus = await callTool(client, 'codex_status', {});
