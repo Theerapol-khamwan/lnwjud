@@ -1,5 +1,5 @@
 import { execFile } from 'node:child_process';
-import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, realpath, rm, writeFile } from 'node:fs/promises';
 import { spawn, type ChildProcess } from 'node:child_process';
 import { createServer } from 'node:net';
 import os from 'node:os';
@@ -19,6 +19,7 @@ const packagedExecutable = process.env.LNWJUD_PACKAGED_EXECUTABLE;
 test('desktop serves the real MCP client development workflow', async () => {
   test.setTimeout(180_000);
   const fixtureRoot = await createFixture();
+  const fixtureRealRoot = await realpath(fixtureRoot);
   const dataRoot = await mkdtemp(path.join(os.tmpdir(), 'lnwjud-mcp-client-data-'));
   let electronProcess: ChildProcess | undefined;
   let browser: Awaited<ReturnType<typeof chromium.connectOverCDP>> | undefined;
@@ -56,7 +57,7 @@ test('desktop serves the real MCP client development workflow', async () => {
     if (page === undefined) throw new Error('Electron did not create a renderer page');
 
     await expect(page.getByRole('heading', { name: 'ศูนย์ควบคุม Agent' })).toBeVisible({ timeout: 30_000 });
-    await expect(page.getByTestId('workspace-real-root')).toHaveText(fixtureRoot, { timeout: 30_000 });
+    await expect(page.getByTestId('workspace-real-root')).toHaveText(fixtureRealRoot, { timeout: 30_000 });
     const workspaceId = (await page.getByTestId('workspace-id').textContent())?.trim();
     if (workspaceId === undefined || workspaceId.length === 0) throw new Error('Desktop did not expose the registered workspace ID');
 
@@ -112,7 +113,7 @@ test('desktop serves the real MCP client development workflow', async () => {
     expect(JSON.stringify(codexStatus)).not.toMatch(/password|token|credential|api[_-]?key/i);
 
     const info = await callTool(client, 'workspace_info', { workspaceId });
-    expect(toolRecord(info)).toMatchObject({ id: workspaceId, realRootPath: fixtureRoot });
+    expect(toolRecord(info)).toMatchObject({ id: workspaceId, realRootPath: fixtureRealRoot });
 
     const readBefore = await callTool(client, 'read_file', { workspaceId, path: 'src\\app.ts' });
     expect(toolRecord(readBefore)).toMatchObject({ content: "export const value = 'before';\n" });

@@ -1,4 +1,4 @@
-import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, realpath, rm, writeFile } from 'node:fs/promises';
 import { spawn, type ChildProcess } from 'node:child_process';
 import { createServer } from 'node:net';
 import os from 'node:os';
@@ -14,6 +14,7 @@ const packagedExecutable = process.env.LNWJUD_PACKAGED_EXECUTABLE;
 test('control center auto-starts MCP and supports project + doctor journey', async () => {
   test.setTimeout(90_000);
   const fixtureRoot = await mkdtemp(path.join(os.tmpdir(), 'lnwjud-dashboard-'));
+  const fixtureRealRoot = await realpath(fixtureRoot);
   const dataRoot = await mkdtemp(path.join(os.tmpdir(), 'lnwjud-dashboard-data-'));
   await writeFile(path.join(fixtureRoot, '.env'), 'SECRET_NOT_FOR_UI=do-not-display\n', 'utf8');
   const devToolsPort = await findEphemeralPort();
@@ -69,10 +70,10 @@ test('control center auto-starts MCP and supports project + doctor journey', asy
     await page.getByRole('button', { name: 'โปรเจกต์', exact: true }).click();
     await page.getByLabel('Workspace root').fill(path.join(fixtureRoot, 'missing-workspace'));
     await page.getByRole('button', { name: 'เพิ่มโปรเจกต์', exact: true }).click();
-    await expect(page.getByRole('alert')).toContainText(/Workspace (could not be added|root was not found)/);
+    await expect(page.getByRole('alert')).toContainText(/Workspace (could not be added|root was not found)/, { timeout: 15_000 });
 
     await page.getByRole('button', { name: 'หน้าหลัก', exact: true }).click();
-    await expect(page.getByTestId('workspace-real-root')).toContainText(fixtureRoot);
+    await expect(page.getByTestId('workspace-real-root')).toHaveText(fixtureRealRoot, { timeout: 30_000 });
 
     await page.getByRole('button', { name: 'Git', exact: true }).click();
     await expect(page.getByTestId('git-summary')).toContainText('Not a Git repository');

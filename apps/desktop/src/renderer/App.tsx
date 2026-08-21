@@ -152,7 +152,7 @@ export function App(): ReactElement {
       setDashboard(nextDashboard);
       setWorkspaces(nextWorkspaces);
       setLocale(nextDashboard.locale);
-      setError(null);
+
     } catch (cause: unknown) {
       setError(cause instanceof Error ? cause.message : createTranslator(locale)('error.desktopService'));
     }
@@ -178,6 +178,7 @@ export function App(): ReactElement {
   }
 
   async function addWorkspace(rootPath: string): Promise<void> {
+    setError(null);
     try {
       await window.lnwjud.addWorkspace({ rootPath });
       await refresh();
@@ -341,7 +342,10 @@ export function App(): ReactElement {
       mcpRunning={dashboard.mcp.running}
       updateStatus={updateStatus}
       screen={screen}
-      onNavigate={setScreen}
+      onNavigate={(nextScreen) => {
+        setError(null);
+        setScreen(nextScreen);
+      }}
       onLocaleChange={(next) => { void changeLocale(next); }}
       onUpdateAction={() => { void handleUpdateAction(); }}
     >
