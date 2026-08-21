@@ -3,16 +3,19 @@ import { spawnSync } from 'node:child_process';
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 
-const KEY_PREFIX = 'dpapi:v1:';
+const KEY_PREFIX_V2 = 'dpapi:v2:';
+const KEY_PREFIX_V1 = 'dpapi:v1:';
 const DEFAULT_MAX_BUFFER = 1024 * 1024;
 
 export function protectWithWindowsDpapi(plainText: string): string {
   if (plainText.length === 0) throw new Error('DPAPI plaintext must not be empty');
   const script = [
     '$ErrorActionPreference = "Stop"',
+    "[Reflection.Assembly]::Load('System.Security, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b03f5f7f11d50a3a') | Out-Null",
     '$plain = [Console]::In.ReadToEnd()',
-    '$secure = ConvertTo-SecureString -String $plain -AsPlainText -Force',
-    'ConvertFrom-SecureString -SecureString $secure',
+    '$bytes = [Text.Encoding]::UTF8.GetBytes($plain)',
+    '$protected = [Security.Cryptography.ProtectedData]::Protect($bytes, $null, [Security.Cryptography.DataProtectionScope]::CurrentUser)',
+    '[Convert]::ToBase64String($protected)',
   ].join('; ');
   return runPowerShellDpapi(script, plainText);
 }
@@ -21,10 +24,11 @@ export function unprotectWithWindowsDpapi(cipherText: string): string {
   if (cipherText.trim().length === 0) throw new Error('DPAPI ciphertext must not be empty');
   const script = [
     '$ErrorActionPreference = "Stop"',
+    "[Reflection.Assembly]::Load('System.Security, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b03f5f7f11d50a3a') | Out-Null",
     '$encrypted = [Console]::In.ReadToEnd().Trim()',
-    '$secure = ConvertTo-SecureString -String $encrypted',
-    '$bstr = [Runtime.InteropServices.Marshal]::SecureStringToBSTR($secure)',
-    'try { [Runtime.InteropServices.Marshal]::PtrToStringBSTR($bstr) } finally { [Runtime.InteropServices.Marshal]::ZeroFreeBSTR($bstr) }',
+    '$protected = [Convert]::FromBase64String($encrypted)',
+    '$bytes = [Security.Cryptography.ProtectedData]::Unprotect($protected, $null, [Security.Cryptography.DataProtectionScope]::CurrentUser)',
+    '[Text.Encoding]::UTF8.GetString($bytes)',
   ].join('; ');
   return runPowerShellDpapi(script, cipherText);
 }
@@ -34,13 +38,16 @@ export function loadOrCreateWindowsProtectedKey(filePath: string, byteLength = 3
   const absolutePath = path.resolve(filePath);
   mkdirSync(path.dirname(absolutePath), { recursive: true });
   try {
-    return decodeProtectedKey(readFileSync(absolutePath, 'utf8'), byteLength);
+    const stored = readFileSync(absolutePath, 'utf8');
+    const decoded = decodeProtectedKey(stored, byteLength);
+    if (stored.trim().startsWith(KEY_PREFIX_V1)) writeProtectedKeyV2(absolutePath, decoded);
+    return decoded;
   } catch (error) {
     if (!isMissingFile(error)) throw error;
   }
 
   const generated = randomBytes(byteLength);
-  const protectedValue = KEY_PREFIX + protectWithWindowsDpapi(generated.toString('base64'));
+  const protectedValue = encodeProtectedKeyV2(generated);
   try {
     writeFileSync(absolutePath, protectedValue, { encoding: 'utf8', flag: 'wx' });
     return generated;
@@ -60,13 +67,38 @@ export function loadCheckpointEncryptionKey(dataPath: string): Buffer {
   return loadOrCreateWindowsProtectedKey(path.join(dataPath, 'checkpoint-master.key'), 32);
 }
 
+function encodeProtectedKeyV2(key: Buffer): string {
+  return KEY_PREFIX_V2 + protectWithWindowsDpapi(key.toString('base64'));
+}
+
+function writeProtectedKeyV2(filePath: string, key: Buffer): void {
+  writeFileSync(filePath, encodeProtectedKeyV2(key), { encoding: 'utf8' });
+}
+
 function decodeProtectedKey(value: string, expectedLength: number): Buffer {
   const trimmed = value.trim();
-  if (!trimmed.startsWith(KEY_PREFIX)) throw new Error('Protected key file has an unsupported format');
-  const plain = unprotectWithWindowsDpapi(trimmed.slice(KEY_PREFIX.length));
+  let plain: string;
+  if (trimmed.startsWith(KEY_PREFIX_V2)) {
+    plain = unprotectWithWindowsDpapi(trimmed.slice(KEY_PREFIX_V2.length));
+  } else if (trimmed.startsWith(KEY_PREFIX_V1)) {
+    plain = unprotectLegacySecureString(trimmed.slice(KEY_PREFIX_V1.length));
+  } else {
+    throw new Error('Protected key file has an unsupported format');
+  }
   const key = Buffer.from(plain.trim(), 'base64');
   if (key.byteLength !== expectedLength) throw new Error('Protected key file has an invalid key length');
   return key;
+}
+
+function unprotectLegacySecureString(cipherText: string): string {
+  const script = [
+    '$ErrorActionPreference = "Stop"',
+    '$encrypted = [Console]::In.ReadToEnd().Trim()',
+    '$secure = ConvertTo-SecureString -String $encrypted',
+    '$bstr = [Runtime.InteropServices.Marshal]::SecureStringToBSTR($secure)',
+    'try { [Runtime.InteropServices.Marshal]::PtrToStringBSTR($bstr) } finally { [Runtime.InteropServices.Marshal]::ZeroFreeBSTR($bstr) }',
+  ].join('; ');
+  return runPowerShellDpapi(script, cipherText);
 }
 
 function runPowerShellDpapi(script: string, input: string): string {

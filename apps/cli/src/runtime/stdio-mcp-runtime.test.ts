@@ -1,13 +1,14 @@
 import { access, mkdtemp, readFile, realpath, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { SqliteDatabase, SqliteSettingsRepository, SqliteWorkspaceRepository } from '@lnwjud/storage';
 import { permissionProfiles } from '@lnwjud/permissions';
 import { createStdioMcpRuntime } from './stdio-mcp-runtime.js';
 import { sharedActivitySnapshotPath } from '@lnwjud/mcp-server';
 
 const temporaryRoots: string[] = [];
+const TEST_CHECKPOINT_KEY = Buffer.alloc(32, 0x46).toString('base64');
 
 const workspace = {
   id: 'workspace-1',
@@ -17,8 +18,13 @@ const workspace = {
   createdAt: '2026-08-10T00:00:00.000Z',
 };
 
+beforeEach(() => {
+  process.env.LNWJUD_CHECKPOINT_KEY_BASE64 = TEST_CHECKPOINT_KEY;
+});
+
 afterEach(async () => {
   delete process.env.TUNNEL_CLIENT_PROFILE_DIR;
+  delete process.env.LNWJUD_CHECKPOINT_KEY_BASE64;
   await Promise.all(temporaryRoots.splice(0).map((root) => rm(root, { recursive: true, force: true })));
 });
 
@@ -128,5 +134,5 @@ describe('stdio MCP runtime', () => {
       value: { task_id: taskId, state: 'completed', exit_code: 0, stdout: 'stdio-durable', durable: true },
     });
     await replacementRuntime.close();
-  });
+  }, 15_000);
 });
