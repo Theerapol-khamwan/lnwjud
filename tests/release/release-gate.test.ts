@@ -47,6 +47,16 @@ describe('MVP release verification gate', () => {
       expect(checklist.toLowerCase()).toContain(evidence.toLowerCase());
     }
   });
+  it('installs the Electron runtime before clean-machine desktop execution', async () => {
+    const rootPackage = JSON.parse(await readFile(path.join(repositoryRoot, 'package.json'), 'utf8')) as { scripts?: Record<string, string> };
+    const desktopPackage = JSON.parse(
+      await readFile(path.join(repositoryRoot, 'apps', 'desktop', 'package.json'), 'utf8'),
+    ) as { scripts?: Record<string, string> };
+    expect(desktopPackage.scripts?.['electron:install']).toBe('node node_modules/electron/install.js');
+    expect(desktopPackage.scripts?.['test:e2e']).toMatch(/^node node_modules\/electron\/install\.js && /);
+    expect(rootPackage.scripts?.desktop).toContain('--filter @lnwjud/desktop electron:install');
+  });
+
   it('rejects release tags that do not match the packaged application version', async () => {
     const workflow = await readFile(path.join(repositoryRoot, '.github', 'workflows', 'release.yml'), 'utf8');
     expect(workflow).toContain('github.ref_name');

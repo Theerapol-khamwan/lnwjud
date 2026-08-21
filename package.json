@@ -21,7 +21,7 @@
     "test:e2e": "corepack pnpm@10.15.0 -r --if-present test:e2e",
     "diagnose:electron": "node scripts/diagnose-electron-startup.mjs",
     "build": "corepack pnpm@10.15.0 -r --if-present build",
-    "desktop": "corepack pnpm@10.15.0 --filter @lnwjud/desktop build && corepack pnpm@10.15.0 --filter @lnwjud/desktop exec electron ./dist/main/main.js",
+    "desktop": "corepack pnpm@10.15.0 --filter @lnwjud/desktop electron:install && corepack pnpm@10.15.0 --filter @lnwjud/desktop build && corepack pnpm@10.15.0 --filter @lnwjud/desktop exec electron ./dist/main/main.js",
     "start": "corepack pnpm@10.15.0 desktop",
     "docs:tools": "corepack pnpm@10.15.0 --filter @lnwjud/mcp-server build && node scripts/generate-tool-catalog.mjs",
     "docs:tools:check": "corepack pnpm@10.15.0 --filter @lnwjud/mcp-server build && node scripts/generate-tool-catalog.mjs --check"
