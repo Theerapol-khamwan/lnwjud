@@ -35,7 +35,7 @@ import {
   WslFilesystemCapabilityBackend,
 } from '@lnwjud/capabilities';
 import type { Result } from '@lnwjud/domain';
-import { ALLOW_AI_DELETE_SETTING_KEY, loadCheckpointEncryptionKey, parseBooleanSetting } from '@lnwjud/shared';
+import { ALLOW_AI_DELETE_SETTING_KEY, DEFAULT_MCP_CALL_TIMEOUT_MS, DEFAULT_MCP_IDLE_TIMEOUT_MS, DEFAULT_PROCESS_TIMEOUT_MS, USER_SETTING_KEYS, loadCheckpointEncryptionKey, parseBooleanSetting, parseCustomPermissionSettings, parseIntegerSetting, parsePathList } from '@lnwjud/shared';
 import {
   EXTENSIONS_SETTINGS_KEY,
   createLocalExtensionsService,
@@ -90,7 +90,7 @@ export function createStdioMcpRuntime(
   const checkpointRepository = new SqliteCheckpointRepository(database, new AesGcmCheckpointCipher(loadCheckpointEncryptionKey(dataPath)));
   const workspaceService = new WorkspaceService(workspaceRepository);
   const profileName = options.permissionProfile ?? 'full';
-  const activeProfile = permissionProfiles[profileName];
+  const activeProfile = profileName === 'custom' ? customPermissionProfile(settingsRepository) : permissionProfiles[profileName];
   const strictRoots = options.strictAllowedRoots !== undefined;
   const effectiveUnrestricted = strictRoots ? false : unrestricted;
   const profileProvider = (): PermissionProfile => activeProfile;
@@ -100,6 +100,7 @@ export function createStdioMcpRuntime(
   const processService = new ProcessService(workspaceRepository, {
     projectService,
     profileProvider,
+    defaultTimeoutMsProvider: (): number => parseIntegerSetting(settingsRepository.get(USER_SETTING_KEYS.processTimeoutMs), DEFAULT_PROCESS_TIMEOUT_MS, 1_000, 4 * 60 * 60_000),
     unrestricted: effectiveUnrestricted,
   });
   const checkpointService = new CheckpointService(workspaceRepository, checkpointRepository, {
@@ -118,6 +119,8 @@ export function createStdioMcpRuntime(
   const extensions = createLocalExtensionsService({
     settingsJson: settingsRepository.get(EXTENSIONS_SETTINGS_KEY),
     workspaceRootProvider: async (): Promise<string> => workspace.realRootPath,
+    callTimeoutMs: parseIntegerSetting(settingsRepository.get(USER_SETTING_KEYS.mcpCallTimeoutMs), DEFAULT_MCP_CALL_TIMEOUT_MS, 1_000, 60 * 60_000),
+    idleTimeoutMs: parseIntegerSetting(settingsRepository.get(USER_SETTING_KEYS.mcpIdleTimeoutMs), DEFAULT_MCP_IDLE_TIMEOUT_MS, 30_000, 24 * 60 * 60_000),
   });
   const codexService = new CodexService(workspaceRepository, {
     auditService,
@@ -128,7 +131,7 @@ export function createStdioMcpRuntime(
     const roots = listed.map((entry) => entry.realRootPath);
     if (roots.length === 0) return effectiveUnrestricted ? [...allFixedDriveRoots()] : [workspace.realRootPath];
     return roots;
-  }, effectiveUnrestricted, options.strictAllowedRoots);
+  }, effectiveUnrestricted, options.strictAllowedRoots, () => parsePathList(settingsRepository.get(USER_SETTING_KEYS.capabilityRoots)));
   const actor: FileActor = { clientId: 'cli-mcp-stdio', clientName: 'lnwjud cli MCP' };
   const sharedActivityLease = createSharedActivityLease(process.env.TUNNEL_CLIENT_PROFILE_DIR);
   const activityReady = sharedActivityLease.then(async (lease) => lease?.initialize());
@@ -206,6 +209,15 @@ export function createStdioMcpRuntime(
   };
 }
 
+function customPermissionProfile(settingsRepository: SqliteSettingsRepository): PermissionProfile {
+  const custom = parseCustomPermissionSettings(settingsRepository.get(USER_SETTING_KEYS.customPermissionProfile));
+  return {
+    name: 'custom',
+    defaults: { READ: custom.read, WRITE: custom.write, EXECUTE: custom.execute, DANGEROUS: custom.dangerous },
+    allowedProjectExecutables: [...new Set([...permissionProfiles.custom.allowedProjectExecutables, ...custom.allowedExecutables])],
+  };
+}
+
 async function createSharedActivityLease(profileDirectory: string | undefined): Promise<SharedActivitySnapshotLease | null> {
   if (profileDirectory === undefined || profileDirectory.trim().length === 0) return null;
   return new SharedActivitySnapshotLease({ profileDirectory: path.resolve(profileDirectory), owner: await currentSharedActivityOwner() });
@@ -217,11 +229,12 @@ function createStdioCapabilityService(
   workspaceRootsProvider: () => Promise<readonly string[]>,
   unrestricted: boolean,
   strictAllowedRoots?: readonly string[],
+  configuredRootsProvider: () => readonly string[] = () => [],
 ): LocalCapabilityService {
   const capabilityRootsProvider = async (): Promise<readonly string[]> => {
     const workspaceRoots = await workspaceRootsProvider();
     if (strictAllowedRoots !== undefined) return workspaceRoots.length > 0 ? workspaceRoots : strictAllowedRoots;
-    const configuredRoots = readCapabilityRoots(process.env.LNWJUD_CAPABILITY_ROOTS);
+    const configuredRoots = [...readCapabilityRoots(process.env.LNWJUD_CAPABILITY_ROOTS), ...configuredRootsProvider()];
     const roots = [...workspaceRoots, ...configuredRoots, ...(unrestricted ? [...allFixedDriveRoots()] : [restrictedRoot])];
     return roots.length === 0 ? [dataPath] : roots;
   };
@@ -240,7 +253,7 @@ function createStdioCapabilityService(
   const windowsBridgeScript = capabilityBridgeScriptPath();
   const expectedScriptSha256 = capabilityBridgeExpectedSha256();
   const windowsBridge = new PowerShellWindowsCapabilityBridge({ scriptPath: windowsBridgeScript, expectedScriptSha256 });
-  const nativeOptions = { allowedRootsProvider: workspaceRootsProvider, unrestricted };
+  const nativeOptions = { allowedRootsProvider: capabilityRootsProvider, unrestricted };
   const accessibilityBackend = new WindowsNativeCapabilityBackend('accessibility', windowsBridge);
   const nativeVisionBackend = new WindowsNativeCapabilityBackend('vision', windowsBridge);
   const ocrHelperPath = windowsOcrHelperPath();

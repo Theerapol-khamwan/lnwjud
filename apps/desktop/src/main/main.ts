@@ -10,6 +10,7 @@ import {
   type AddWorkspaceRequest,
   type BackupSummary,
   type ClearLogBufferRequest,
+  type ConfigureTunnelProfileRequest,
   type DashboardSnapshot,
   type DoctorReport,
   type ExportLogsRequest,
@@ -28,11 +29,13 @@ import {
   type SetStdioPolicyRequest,
   type SetTunnelClientPathRequest,
   type SetUnrestrictedModeRequest,
+  type SetUserSettingsRequest,
   type StartMcpRequest,
   type StartProcessRequest,
   type StopProcessRequest,
   type TunnelStatus,
   type UiLocale,
+  type UserSettings,
   type UpdateStatus,
   type WorkspaceSummary,
 } from '@lnwjud/ipc-contracts';
@@ -75,6 +78,8 @@ export interface DesktopIpcServices {
   getTunnelStatus(): Promise<TunnelStatus>;
   setTunnelClientPath(request: SetTunnelClientPathRequest): Promise<{ readonly clientPath: string }>;
   setLocale(request: SetLocaleRequest): Promise<{ readonly locale: UiLocale }>;
+  setUserSettings(request: SetUserSettingsRequest): Promise<{ readonly settings: UserSettings; readonly restartRequired: boolean }>;
+  configureTunnelProfile(request: ConfigureTunnelProfileRequest): Promise<{ readonly configured: boolean; readonly profilePath: string }>;
   launchManagedBrowser(): Promise<ManagedBrowserStatus>;
   runDoctor(): Promise<DoctorReport>;
   getLogSnapshot(): Promise<LogSnapshot>;
@@ -86,6 +91,7 @@ export type MainWindowProvider = () => BrowserWindow | null;
 
 export interface DesktopIpcHooks {
   readonly onLocaleChanged?: (locale: UiLocale) => void;
+  readonly onUserSettingsChanged?: (settings: UserSettings) => void;
 }
 
 const emptyTunnel: TunnelStatus = {
@@ -96,6 +102,24 @@ const emptyTunnel: TunnelStatus = {
   profileExists: false,
   message: null,
   logPath: null,
+};
+const defaultUserSettings: UserSettings = {
+  customPermission: { read: 'ALLOW', write: 'ASK', execute: 'ASK', dangerous: 'DENY', allowedExecutables: [] },
+  mcpCallTimeoutMs: 60_000,
+  mcpIdleTimeoutMs: 5 * 60_000,
+  processTimeoutMs: 60 * 60_000,
+  capabilityRoots: [],
+  mcpHttpPort: 18_765,
+  updateAutoCheck: true,
+  updateCheckOnStartup: true,
+  updateIntervalMinutes: 30,
+  updateAutoDownload: true,
+  closeBehavior: 'tray',
+  launchAtStartup: false,
+  startMinimized: false,
+  tunnelAutoReconnect: true,
+  tunnelMaxAutoRestarts: 5,
+  extensions: { mode: 'enable_all', disabledServers: [], enabledServers: [], disabledSkillRoots: [], extraSkillRoots: [], extraMcpServers: [] },
 };
 
 const defaultDesktopServices: DesktopIpcServices = {
@@ -129,6 +153,7 @@ const defaultDesktopServices: DesktopIpcServices = {
     workLog: [],
     inFlight: [],
     tunnel: emptyTunnel,
+    settings: defaultUserSettings,
     appVersion: APP_VERSION,
   }),
   setPermissionProfile: async (request): Promise<{ readonly profile: PermissionProfileName }> => ({ profile: request.profile }),
@@ -157,6 +182,8 @@ const defaultDesktopServices: DesktopIpcServices = {
   getTunnelStatus: async (): Promise<TunnelStatus> => emptyTunnel,
   setTunnelClientPath: async (request): Promise<{ readonly clientPath: string }> => ({ clientPath: request.clientPath }),
   setLocale: async (request): Promise<{ readonly locale: UiLocale }> => ({ locale: request.locale }),
+  setUserSettings: async (request): Promise<{ readonly settings: UserSettings; readonly restartRequired: boolean }> => ({ settings: request.settings, restartRequired: false }),
+  configureTunnelProfile: async (): Promise<{ readonly configured: boolean; readonly profilePath: string }> => ({ configured: false, profilePath: '' }),
   launchManagedBrowser: async (): Promise<ManagedBrowserStatus> => ({ ready: false, port: 9222, launched: false }),
   runDoctor: async (): Promise<DoctorReport> => ({
     checks: [{ id: 'desktop', required: true, status: 'fail', message: 'Desktop services are not configured' }],
@@ -304,6 +331,28 @@ export function registerIpcHandlers(
     const result = await services.setLocale(parseSetLocaleRequest(payload));
     hooks.onLocaleChanged?.(result.locale);
     return result;
+  });
+  ipcMain.handle(ipcChannels.setUserSettings, async (event, payload: unknown) => {
+    assertTrustedSender(event, getMainWindow());
+    const result = await services.setUserSettings(parseSetUserSettingsRequest(payload));
+    hooks.onUserSettingsChanged?.(result.settings);
+    return result;
+  });
+  ipcMain.handle(ipcChannels.chooseTunnelClientPath, async (event, payload: unknown) => {
+    assertTrustedSender(event, getMainWindow());
+    assertNoPayload(payload);
+    const window = getMainWindow();
+    if (window === null) return { clientPath: null };
+    const result = await dialog.showOpenDialog(window, {
+      title: 'Select tunnel-client.exe',
+      properties: ['openFile'],
+      filters: [{ name: 'OpenAI Secure MCP Tunnel client', extensions: ['exe'] }],
+    });
+    return { clientPath: result.canceled ? null : (result.filePaths[0] ?? null) };
+  });
+  ipcMain.handle(ipcChannels.configureTunnelProfile, async (event, payload: unknown) => {
+    assertTrustedSender(event, getMainWindow());
+    return services.configureTunnelProfile(parseConfigureTunnelProfileRequest(payload));
   });
   ipcMain.handle(ipcChannels.launchManagedBrowser, async (event, payload: unknown) => {
     assertTrustedSender(event, getMainWindow());
@@ -484,6 +533,101 @@ function parseSetLocaleRequest(payload: unknown): SetLocaleRequest {
   return { locale: payload.locale };
 }
 
+function parseSetUserSettingsRequest(payload: unknown): SetUserSettingsRequest {
+  if (!isRecord(payload) || !isRecord(payload.settings)) throw new Error('Invalid IPC payload: settings');
+  return { settings: parseUserSettings(payload.settings) };
+}
+
+function parseUserSettings(record: Record<string, unknown>): UserSettings {
+  if (!isRecord(record.customPermission) || !isRecord(record.extensions)) throw new Error('Invalid IPC payload: settings');
+  const customPermission = record.customPermission;
+  const extensions = record.extensions;
+  const extraRaw = extensions.extraMcpServers;
+  if (!Array.isArray(extraRaw)) throw new Error('Invalid IPC payload: extraMcpServers');
+  return {
+    customPermission: {
+      read: permissionDecision(customPermission.read, 'customPermission.read'),
+      write: permissionDecision(customPermission.write, 'customPermission.write'),
+      execute: permissionDecision(customPermission.execute, 'customPermission.execute'),
+      dangerous: permissionDecision(customPermission.dangerous, 'customPermission.dangerous'),
+      allowedExecutables: stringArray(customPermission.allowedExecutables, 'customPermission.allowedExecutables', 256),
+    },
+    mcpCallTimeoutMs: boundedInteger(record.mcpCallTimeoutMs, 'mcpCallTimeoutMs', 1_000, 60 * 60_000),
+    mcpIdleTimeoutMs: boundedInteger(record.mcpIdleTimeoutMs, 'mcpIdleTimeoutMs', 30_000, 24 * 60 * 60_000),
+    processTimeoutMs: boundedInteger(record.processTimeoutMs, 'processTimeoutMs', 1_000, 4 * 60 * 60_000),
+    capabilityRoots: stringArray(record.capabilityRoots, 'capabilityRoots', 128),
+    mcpHttpPort: boundedInteger(record.mcpHttpPort, 'mcpHttpPort', 0, 65_535),
+    updateAutoCheck: booleanField(record.updateAutoCheck, 'updateAutoCheck'),
+    updateCheckOnStartup: booleanField(record.updateCheckOnStartup, 'updateCheckOnStartup'),
+    updateIntervalMinutes: boundedInteger(record.updateIntervalMinutes, 'updateIntervalMinutes', 5, 24 * 60),
+    updateAutoDownload: booleanField(record.updateAutoDownload, 'updateAutoDownload'),
+    closeBehavior: record.closeBehavior === 'tray' || record.closeBehavior === 'quit' ? record.closeBehavior : invalidField('closeBehavior'),
+    launchAtStartup: booleanField(record.launchAtStartup, 'launchAtStartup'),
+    startMinimized: booleanField(record.startMinimized, 'startMinimized'),
+    tunnelAutoReconnect: booleanField(record.tunnelAutoReconnect, 'tunnelAutoReconnect'),
+    tunnelMaxAutoRestarts: boundedInteger(record.tunnelMaxAutoRestarts, 'tunnelMaxAutoRestarts', 0, 50),
+    extensions: {
+      mode: extensions.mode === 'allowlist' || extensions.mode === 'enable_all' ? extensions.mode : invalidField('extensions.mode'),
+      disabledServers: stringArray(extensions.disabledServers, 'extensions.disabledServers', 256),
+      enabledServers: stringArray(extensions.enabledServers, 'extensions.enabledServers', 256),
+      disabledSkillRoots: stringArray(extensions.disabledSkillRoots, 'extensions.disabledSkillRoots', 256),
+      extraSkillRoots: stringArray(extensions.extraSkillRoots, 'extensions.extraSkillRoots', 256),
+      extraMcpServers: extraRaw.map((entry, index) => {
+        if (!isRecord(entry)) throw new Error(`Invalid IPC payload: extraMcpServers[${index}]`);
+        return {
+          name: nonEmptyString(entry.name, `extraMcpServers[${index}].name`).trim(),
+          command: nonEmptyString(entry.command, `extraMcpServers[${index}].command`).trim(),
+          args: stringArray(entry.args, `extraMcpServers[${index}].args`, 128),
+          cwd: typeof entry.cwd === 'string' ? entry.cwd.trim() : invalidField(`extraMcpServers[${index}].cwd`),
+          type: typeof entry.type === 'string' ? entry.type.trim().slice(0, 128) : invalidField(`extraMcpServers[${index}].type`),
+          env: stringRecord(entry.env, `extraMcpServers[${index}].env`, 128),
+        };
+      }),
+    },
+  };
+}
+
+function parseConfigureTunnelProfileRequest(payload: unknown): ConfigureTunnelProfileRequest {
+  if (!isRecord(payload)) throw new Error('Invalid IPC payload');
+  return { tunnelId: nonEmptyString(payload.tunnelId, 'tunnelId').trim() };
+}
+
+function boundedInteger(value: unknown, field: string, minimum: number, maximum: number): number {
+  if (!Number.isInteger(value) || (value as number) < minimum || (value as number) > maximum) throw new Error(`Invalid IPC payload: ${field}`);
+  return value as number;
+}
+
+function booleanField(value: unknown, field: string): boolean {
+  if (typeof value !== 'boolean') throw new Error(`Invalid IPC payload: ${field}`);
+  return value;
+}
+
+function permissionDecision(value: unknown, field: string): 'ALLOW' | 'ASK' | 'DENY' {
+  if (value === 'ALLOW' || value === 'ASK' || value === 'DENY') return value;
+  throw new Error(`Invalid IPC payload: ${field}`);
+}
+
+function stringArray(value: unknown, field: string, maxItems: number): readonly string[] {
+  if (!Array.isArray(value) || value.length > maxItems || !value.every((entry) => typeof entry === 'string' && entry.length <= 4096)) {
+    throw new Error(`Invalid IPC payload: ${field}`);
+  }
+  return [...new Set(value.map((entry) => entry.trim()).filter((entry) => entry.length > 0))];
+}
+
+function stringRecord(value: unknown, field: string, maxItems: number): Readonly<Record<string, string>> {
+  if (!isRecord(value) || Object.keys(value).length > maxItems) throw new Error(`Invalid IPC payload: ${field}`);
+  const entries: Array<[string, string]> = [];
+  for (const [key, entry] of Object.entries(value)) {
+    if (key.trim().length === 0 || key.length > 256 || typeof entry !== 'string' || entry.length > 16_384) throw new Error(`Invalid IPC payload: ${field}`);
+    entries.push([key.trim(), entry]);
+  }
+  return Object.fromEntries(entries);
+}
+
+function invalidField(field: string): never {
+  throw new Error(`Invalid IPC payload: ${field}`);
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
@@ -506,6 +650,8 @@ let logViewerWindow: BrowserWindow | null = null;
 let desktopRuntime: DesktopRuntime | null = null;
 let tray: Tray | null = null;
 let desktopLocale: UiLocale = 'th';
+let desktopUserSettings: UserSettings = defaultUserSettings;
+let autoUpdaterInitialized = false;
 let quitRequested = false;
 let desktopShutdownCoordinator: DesktopShutdownCoordinator | null = null;
 let updateInstallCoordinator: UpdateInstallCoordinator | null = null;
@@ -539,10 +685,10 @@ function openLogViewerWindow(): BrowserWindow | null {
   return viewer;
 }
 
-function createDesktopWindow(): void {
-  mainWindow = createMainWindow();
+function createDesktopWindow(forceShow = false): void {
+  mainWindow = createMainWindow(forceShow || !desktopUserSettings.startMinimized);
   mainWindow.on('close', (event) => {
-    if (!shouldHideMainWindowOnClose(quitRequested)) return;
+    if (!shouldHideMainWindowOnClose(quitRequested, desktopUserSettings.closeBehavior)) return;
     event.preventDefault();
     if (mainWindow !== null && !mainWindow.isDestroyed()) mainWindow.hide();
   });
@@ -553,7 +699,7 @@ function createDesktopWindow(): void {
 
 function revealMainWindow(): void {
   if (mainWindow === null || mainWindow.isDestroyed()) {
-    createDesktopWindow();
+    createDesktopWindow(true);
     return;
   }
   if (mainWindow.isMinimized()) mainWindow.restore();
@@ -592,7 +738,27 @@ function requestUpdateCheck(source: 'automatic' | 'tray' | 'renderer'): UpdateSt
     }
     return status;
   }
-  if (currentUpdateStatus.phase === 'available' || currentUpdateStatus.phase === 'downloading' || currentUpdateStatus.phase === 'ready' || currentUpdateStatus.phase === 'installing') return currentUpdateStatus;
+  if (currentUpdateStatus.phase === 'available') {
+    if (source !== 'automatic' && !desktopUserSettings.updateAutoDownload) {
+      const status = patchUpdateStatus({
+        phase: 'downloading',
+        progressPercent: 0,
+        message: nativeMessages(desktopLocale).updateDownloadingStatus(currentUpdateStatus.availableVersion, 0),
+        canInstall: false,
+      });
+      void autoUpdater.downloadUpdate().catch((error: unknown) => {
+        const message = error instanceof Error ? error.message : nativeMessages(desktopLocale).updaterCheckFailed;
+        patchUpdateStatus({ phase: 'error', message, canInstall: false });
+        if (source === 'tray') {
+          const currentMessages = nativeMessages(desktopLocale);
+          void dialog.showMessageBox({ type: 'error', title: currentMessages.updaterCheckTitle, message, buttons: [currentMessages.ok] });
+        }
+      });
+      return status;
+    }
+    return currentUpdateStatus;
+  }
+  if (currentUpdateStatus.phase === 'downloading' || currentUpdateStatus.phase === 'ready' || currentUpdateStatus.phase === 'installing') return currentUpdateStatus;
   if (pendingUpdateCheckSource !== null || currentUpdateStatus.phase === 'checking') {
     if (source === 'tray') {
       void dialog.showMessageBox({ type: 'info', title: messages.updaterCheckTitle, message: messages.updaterAlreadyChecking, buttons: [messages.ok] });
@@ -733,13 +899,40 @@ function bootstrapMcpStdio(): void {
   });
 }
 
+function applyDesktopUserSettings(settings: UserSettings): void {
+  desktopUserSettings = settings;
+  if (process.platform === 'win32' && app.isPackaged) {
+    try {
+      app.setLoginItemSettings({ openAtLogin: settings.launchAtStartup, path: process.execPath });
+    } catch (error: unknown) {
+      console.error(`Could not update Windows startup setting: ${error instanceof Error ? error.message : 'unknown error'}`);
+    }
+  }
+  if (autoUpdaterInitialized) {
+    autoUpdater.autoDownload = settings.updateAutoDownload;
+    configureUpdateCheckSchedule();
+  }
+}
+
+function configureUpdateCheckSchedule(): void {
+  updateCheckScheduler?.stop();
+  updateCheckScheduler = null;
+  if (!app.isPackaged || !desktopUserSettings.updateAutoCheck) return;
+  updateCheckScheduler = new UpdateCheckScheduler({
+    check: (): void => { requestUpdateCheck('automatic'); },
+    checkOnStartup: desktopUserSettings.updateCheckOnStartup,
+    intervalMs: desktopUserSettings.updateIntervalMinutes * 60_000,
+  });
+  updateCheckScheduler.start();
+}
+
 function initAutoUpdater(runtime: DesktopRuntime): void {
   if (!app.isPackaged) {
     patchUpdateStatus({ phase: 'unavailable', message: nativeMessages(desktopLocale).updaterUnavailablePackagedOnly, canInstall: false });
     return;
   }
   try {
-    autoUpdater.autoDownload = true;
+    autoUpdater.autoDownload = desktopUserSettings.updateAutoDownload;
     autoUpdater.autoInstallOnAppQuit = false;
     updateInstallCoordinator = new UpdateInstallCoordinator({
       activeCallCount: (): number => runtime.activityTracker.listInFlight().length,
@@ -882,11 +1075,9 @@ function initAutoUpdater(runtime: DesktopRuntime): void {
       });
     });
 
-    updateCheckScheduler?.stop();
-    updateCheckScheduler = new UpdateCheckScheduler({
-      check: (): void => { requestUpdateCheck('automatic'); },
-    });
-    updateCheckScheduler.start();
+    autoUpdaterInitialized = true;
+    configureUpdateCheckSchedule();
+
   } catch (err: unknown) {
     console.error('Failed to initialize auto updater:', err);
     patchUpdateStatus({ phase: 'error', message: err instanceof Error ? err.message : nativeMessages(desktopLocale).updaterCheckFailed, canInstall: false });
@@ -900,10 +1091,11 @@ function bootstrapDesktop(): void {
     const runtime = createDesktopRuntime(dataPath);
     desktopRuntime = runtime;
     setDesktopLocale(runtime.getLocale());
+    applyDesktopUserSettings(runtime.getUserSettings());
     configureDesktopShutdown(runtime);
     runtime.logHub.setOnLine((line) => broadcastToAllWindows(pushChannels.logEvent, line));
     runtime.logHub.start();
-    registerIpcHandlers(() => mainWindow, runtime.services, { onLocaleChanged: setDesktopLocale });
+    registerIpcHandlers(() => mainWindow, runtime.services, { onLocaleChanged: setDesktopLocale, onUserSettingsChanged: applyDesktopUserSettings });
     try {
       await runtime.autoStartMcp();
     } catch (error: unknown) {
@@ -913,7 +1105,7 @@ function bootstrapDesktop(): void {
     createDesktopTray();
     initAutoUpdater(runtime);
     app.on('activate', () => {
-      if (BrowserWindow.getAllWindows().length === 0) createDesktopWindow();
+      if (BrowserWindow.getAllWindows().length === 0) createDesktopWindow(true);
     });
   });
   app.on('before-quit', handleDesktopBeforeQuit);

@@ -35,6 +35,7 @@ export interface ProcessServiceDependencies {
   readonly commandPolicy?: CommandPolicy;
   readonly profile?: PermissionProfile;
   readonly profileProvider?: () => PermissionProfile;
+  readonly defaultTimeoutMsProvider?: () => number;
   /** Full-access mode: shell hosts are allowed and cwd may be any existing directory. */
   readonly unrestricted?: boolean;
 }
@@ -53,6 +54,7 @@ export class ProcessService {
   private readonly permissionEngine: PermissionEngine;
   private readonly commandPolicy: CommandPolicy;
   private readonly profileProvider: () => PermissionProfile;
+  private readonly defaultTimeoutMsProvider: (() => number) | undefined;
   private readonly unrestricted: boolean;
   private readonly owners = new Map<string, ProcessOwner>();
 
@@ -71,6 +73,7 @@ export class ProcessService {
     this.unrestricted = dependencies.unrestricted === true;
     this.commandPolicy = dependencies.commandPolicy ?? new CommandPolicy({ unrestricted: this.unrestricted });
     this.profileProvider = dependencies.profileProvider ?? ((): PermissionProfile => dependencies.profile ?? permissionProfiles.balanced);
+    this.defaultTimeoutMsProvider = dependencies.defaultTimeoutMsProvider;
   }
 
   public start(actor: FileActor, workspaceId: string, request: ProcessStartRequest, signal?: AbortSignal): Promise<Result<ManagedProcess>> {
@@ -139,11 +142,12 @@ export class ProcessService {
     if (commandDecision === 'ASK' || permissionDecision === 'ASK') return err(appError('PERMISSION_REQUIRED', 'Process execution requires permission'));
 
     if (isAborted(signal)) return cancelledStart();
+    const timeoutMs = request.timeoutMs ?? this.defaultTimeoutMsProvider?.();
     const started = await this.processManager.start({
       executable: request.executable,
       args: [...request.args],
       cwd: cwd.value,
-      ...(request.timeoutMs === undefined ? {} : { timeoutMs: request.timeoutMs }),
+      ...(timeoutMs === undefined ? {} : { timeoutMs }),
     }, signal, (process) => {
       this.owners.set(process.processId, { actorId: actor.clientId, workspaceId });
     });

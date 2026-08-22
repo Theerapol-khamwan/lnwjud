@@ -32,10 +32,11 @@ export function createLocalCapabilityRuntime(
   dataPath: string,
   workspaceRootsProvider: () => Promise<readonly string[]>,
   unrestricted: boolean = false,
+  configuredRootsProvider: () => readonly string[] = () => [],
 ): LocalCapabilityRuntime {
   const capabilityRootsProvider = async (): Promise<readonly string[]> => {
     const workspaceRoots = await workspaceRootsProvider();
-    const configuredRoots = readCapabilityRoots(process.env.LNWJUD_CAPABILITY_ROOTS);
+    const configuredRoots = [...readCapabilityRoots(process.env.LNWJUD_CAPABILITY_ROOTS), ...configuredRootsProvider()];
     const roots = unrestricted
       ? [...workspaceRoots, ...configuredRoots, ...allFixedDriveRoots()]
       : [...workspaceRoots, ...configuredRoots];
@@ -55,7 +56,7 @@ export function createLocalCapabilityRuntime(
   const windowsBridgeScript = capabilityBridgeScriptPath();
   const expectedScriptSha256 = capabilityBridgeExpectedSha256();
   const windowsBridge = new PowerShellWindowsCapabilityBridge({ scriptPath: windowsBridgeScript, expectedScriptSha256 });
-  const nativeOptions = { allowedRootsProvider: workspaceRootsProvider, unrestricted };
+  const nativeOptions = { allowedRootsProvider: capabilityRootsProvider, unrestricted };
   const accessibilityBackend = new WindowsNativeCapabilityBackend('accessibility', windowsBridge);
   const inputEventBackend = new WindowsNativeCapabilityBackend('input_event', windowsBridge);
   const nativeVisionBackend = new WindowsNativeCapabilityBackend('vision', windowsBridge);

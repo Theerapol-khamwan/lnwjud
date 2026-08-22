@@ -1,6 +1,6 @@
 {
   "name": "@lnwjud/desktop",
-  "version": "4.6.2",
+  "version": "4.7.0",
   "private": true,
   "description": "Windows-first local AI-agent runtime and MCP gateway with 210 tools.",
   "author": "Adisorn",

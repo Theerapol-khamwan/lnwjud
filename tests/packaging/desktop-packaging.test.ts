@@ -8,11 +8,11 @@ const desktopRoot = path.resolve(import.meta.dirname, '..', '..', 'apps', 'deskt
 const repositoryRoot = path.resolve(desktopRoot, '..', '..');
 
 describe('Windows desktop packaging', () => {
-  it('pins the product release to v4.6.2', async () => {
+  it('pins the product release to v4.7.0', async () => {
     const rootPackage = JSON.parse(await readFile(path.join(repositoryRoot, 'package.json'), 'utf8')) as { version?: unknown };
     const desktopPackage = JSON.parse(await readFile(path.join(desktopRoot, 'package.json'), 'utf8')) as { version?: unknown };
-    expect(rootPackage.version).toBe('4.6.2');
-    expect(desktopPackage.version).toBe('4.6.2');
+    expect(rootPackage.version).toBe('4.7.0');
+    expect(desktopPackage.version).toBe('4.7.0');
   });
 
   it('publishes complete desktop application metadata', async () => {

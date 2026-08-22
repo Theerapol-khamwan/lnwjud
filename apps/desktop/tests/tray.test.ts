@@ -89,9 +89,12 @@ describe('desktop tray behavior', () => {
     expect(createTrayToolTip('en')).toBe('lnwjud — running in background');
   });
 
-  it('hides on a normal close but allows an intentional quit', () => {
+  it('respects the configured close behavior while still allowing an intentional quit', () => {
     expect(shouldHideMainWindowOnClose(false)).toBe(true);
-    expect(shouldHideMainWindowOnClose(true)).toBe(false);
+    expect(shouldHideMainWindowOnClose(false, 'tray')).toBe(true);
+    expect(shouldHideMainWindowOnClose(false, 'quit')).toBe(false);
+    expect(shouldHideMainWindowOnClose(true, 'tray')).toBe(false);
+    expect(shouldHideMainWindowOnClose(true, 'quit')).toBe(false);
   });
 
   it('keeps manual update feedback localized in the native catalog', () => {

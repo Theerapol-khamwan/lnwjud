@@ -7,6 +7,7 @@ import type {
   PermissionProfileName,
   UiLocale,
   UpdateStatus,
+  UserSettings,
   IncidentClassification,
   WorkspaceSummary,
 } from '@lnwjud/ipc-contracts';
@@ -323,6 +324,28 @@ export function App(): ReactElement {
     await refresh();
   }
 
+  async function setUserSettings(settings: UserSettings): Promise<boolean> {
+    try {
+      const result = await window.lnwjud.setUserSettings({ settings });
+      await refresh();
+      return result.restartRequired;
+    } catch (cause: unknown) {
+      setError(errorMessage(cause, propsText(locale, 'ไม่สามารถบันทึกการตั้งค่าได้', 'Could not save settings')));
+      throw cause;
+    }
+  }
+
+  async function chooseTunnelClientPath(): Promise<string | null> {
+    const result = await window.lnwjud.chooseTunnelClientPath();
+    return result.clientPath;
+  }
+
+  async function configureTunnelProfile(tunnelId: string): Promise<string> {
+    const result = await window.lnwjud.configureTunnelProfile({ tunnelId });
+    await refresh();
+    return result.profilePath;
+  }
+
   async function runDoctor(): Promise<void> {
     try {
       setDoctor(await window.lnwjud.runDoctor());
@@ -423,6 +446,9 @@ export function App(): ReactElement {
           onScheduleRestoreBackup={scheduleRestoreBackup}
           onSaveTunnelApiKey={saveTunnelApiKey}
           onSetTunnelClientPath={setTunnelClientPath}
+          onUserSettingsChange={setUserSettings}
+          onChooseTunnelClientPath={chooseTunnelClientPath}
+          onConfigureTunnelProfile={configureTunnelProfile}
         />
       ) : null}
       {screen === 'doctor' ? (

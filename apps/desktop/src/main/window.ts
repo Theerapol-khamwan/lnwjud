@@ -41,13 +41,13 @@ export function isAllowedRendererUrl(navigationUrl: string, rendererEntryPath: s
   }
 }
 
-export function createMainWindow(): BrowserWindow {
+export function createMainWindow(showOnReady = true): BrowserWindow {
   const rendererEntryPath = getRendererEntryPath();
   const iconPath = getWindowIconPath();
   const mainWindow = new BrowserWindow({
     width: 1280,
     height: 800,
-    show: true,
+    show: showOnReady,
     autoHideMenuBar: true,
     titleBarStyle: 'hidden',
     titleBarOverlay: {
@@ -78,9 +78,11 @@ export function createMainWindow(): BrowserWindow {
     mainWindow.show();
     mainWindow.focus();
   };
-  mainWindow.once('ready-to-show', reveal);
-  // Fallback if ready-to-show never fires (blank/hung loads).
-  setTimeout(reveal, 1_500);
+  if (showOnReady) {
+    mainWindow.once('ready-to-show', reveal);
+    // Fallback if ready-to-show never fires (blank/hung loads).
+    setTimeout(reveal, 1_500);
+  }
   void mainWindow.loadFile(rendererEntryPath);
   return mainWindow;
 }

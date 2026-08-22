@@ -1,5 +1,5 @@
-﻿import type { MenuItemConstructorOptions } from 'electron';
-import type { UiLocale, UpdateStatus } from '@lnwjud/ipc-contracts';
+import type { MenuItemConstructorOptions } from 'electron';
+import type { CloseBehavior, UiLocale, UpdateStatus } from '@lnwjud/ipc-contracts';
 import { nativeMessages } from './native-i18n.js';
 
 export interface TrayMenuActions {
@@ -34,6 +34,6 @@ export function createTrayToolTip(locale: UiLocale): string {
   return nativeMessages(locale).trayTooltip;
 }
 
-export function shouldHideMainWindowOnClose(quitRequested: boolean): boolean {
-  return !quitRequested;
+export function shouldHideMainWindowOnClose(quitRequested: boolean, closeBehavior: CloseBehavior = 'tray'): boolean {
+  return !quitRequested && closeBehavior === 'tray';
 }

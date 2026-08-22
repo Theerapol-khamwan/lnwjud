@@ -54,6 +54,8 @@ export interface TunnelControllerOptions {
   readonly probeHealthEndpoint?: (host: string, port: number) => Promise<boolean>;
   readonly healthProbeTimeoutMs?: number;
   readonly inspectFileVersion?: (filePath: string) => Promise<string | null>;
+  readonly autoReconnect?: () => boolean;
+  readonly maxAutoRestarts?: () => number;
 }
 
 export class TunnelController {
@@ -120,6 +122,40 @@ export class TunnelController {
     await mkdir(this.profileDirectory(), { recursive: true });
     const encrypted = await encryptWithDpapi(trimmed);
     await writeFile(this.secretPath(), encrypted, 'utf8');
+  }
+
+  public async configureProfile(tunnelId: string): Promise<string> {
+    const normalizedTunnelId = tunnelId.trim();
+    if (!/^tunnel_[A-Za-z0-9_-]{8,128}$/.test(normalizedTunnelId)) throw new Error('Tunnel ID is invalid');
+    const clientPath = this.resolveClientPath();
+    if (clientPath === null || !existsSync(clientPath)) throw new Error('tunnel-client.exe was not found');
+    const launcher = this.options.getStdioLauncherPath?.() ?? null;
+    if (launcher === null || !existsSync(launcher)) throw new Error('Packaged lnwjud MCP stdio launcher was not found');
+    if (!(await this.hasApiKey())) throw new Error('Save a Runtime API key first');
+    const encryptedSecret = await readFile(this.secretPath(), 'utf8');
+    const apiKey = (await (this.options.decryptSecret?.(encryptedSecret) ?? decryptWithDpapi(encryptedSecret))).trim();
+    if (apiKey.length === 0) throw new Error('Saved Runtime API key is empty; save it again in Settings');
+    await mkdir(this.profileDirectory(), { recursive: true });
+    try {
+      await execFileAsync(clientPath, [
+        'init',
+        '--sample', 'sample_mcp_stdio_local',
+        '--profile', PROFILE_NAME,
+        '--tunnel-id', normalizedTunnelId,
+        '--mcp-command', launcher,
+      ], {
+        env: tunnelClientEnv(apiKey, this.profileDirectory(), this.options.getDataPath()),
+        windowsHide: true,
+        encoding: 'utf8',
+        timeout: 60_000,
+      });
+    } catch (error: unknown) {
+      const detail = extractExecDetail(error);
+      throw new Error(detail.length > 0 ? detail : 'tunnel-client init failed');
+    }
+    await this.preferPackagedStdioCommand();
+    await runTunnelDoctor(clientPath, apiKey, this.profileDirectory(), this.options.getDataPath());
+    return this.profilePath();
   }
 
   public setClientPath(clientPath: string): string {
@@ -498,8 +534,10 @@ export class TunnelController {
       this.restartAttempts = 0;
     }
     this.restartAttempts += 1;
-    if (this.restartAttempts > MAX_AUTO_RESTARTS) {
-      this.message = `${this.message} — automatic reconnect paused after ${MAX_AUTO_RESTARTS} rapid exits; press Start Tunnel to retry`;
+    if (!this.autoReconnectEnabled()) return;
+    const maxAutoRestarts = this.maxAutoRestarts();
+    if (this.restartAttempts > maxAutoRestarts) {
+      this.message = `${this.message} — automatic reconnect paused after ${maxAutoRestarts} rapid exits; press Start Tunnel to retry`;
       return;
     }
     this.scheduleRestart(clientPath);
@@ -516,7 +554,7 @@ export class TunnelController {
   }
 
   private scheduleRestart(clientPath: string): void {
-    if (this.intentionalStop) return;
+    if (this.intentionalStop || !this.autoReconnectEnabled()) return;
     this.clearRestartTimer();
     const delay = Math.min(RESTART_DELAY_MS * (2 ** Math.max(0, this.restartAttempts - 1)), 30_000);
     this.restartTimer = setTimeout(() => {
@@ -527,11 +565,20 @@ export class TunnelController {
           if (this.intentionalStop || this.lastApiKey === null) return;
           this.spawnRun(clientPath, this.lastApiKey);
           this.state = 'running';
-          this.message = `Tunnel reconnecting (attempt ${this.restartAttempts}/${MAX_AUTO_RESTARTS})…`;
+          this.message = `Tunnel reconnecting (attempt ${this.restartAttempts}/${this.maxAutoRestarts()})…`;
           this.scheduleStableReset();
         })
         .catch(() => undefined);
     }, delay);
+  }
+
+  private autoReconnectEnabled(): boolean {
+    return this.options.autoReconnect?.() ?? true;
+  }
+
+  private maxAutoRestarts(): number {
+    const configured = this.options.maxAutoRestarts?.() ?? MAX_AUTO_RESTARTS;
+    return Number.isInteger(configured) && configured >= 0 && configured <= 50 ? configured : MAX_AUTO_RESTARTS;
   }
 
   private clearRestartTimer(): void {

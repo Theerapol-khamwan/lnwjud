@@ -130,6 +130,91 @@ describe('DesktopRuntime persistence', () => {
     }
   }, 30_000);
 
+  it('persists user-configurable runtime settings and custom MCP server definitions', async () => {
+    const rawDataRoot = await mkdtemp(path.join(os.tmpdir(), 'lnwjud-runtime-user-settings-'));
+    temporaryRoots.push(rawDataRoot);
+    const dataRoot = await realpath(rawDataRoot);
+
+    const firstRuntime = createDesktopRuntime(dataRoot);
+    try {
+      const initial = firstRuntime.getUserSettings();
+      const next = {
+        ...initial,
+        mcpCallTimeoutMs: 120_000,
+        mcpIdleTimeoutMs: 10 * 60_000,
+        processTimeoutMs: 90 * 60_000,
+        capabilityRoots: ['D:\\Projects', 'E:\\Work'],
+        updateAutoCheck: false,
+        updateCheckOnStartup: false,
+        updateIntervalMinutes: 120,
+        updateAutoDownload: false,
+        closeBehavior: 'quit' as const,
+        launchAtStartup: true,
+        startMinimized: true,
+        tunnelAutoReconnect: false,
+        tunnelMaxAutoRestarts: 2,
+        customPermission: {
+          read: 'ALLOW' as const,
+          write: 'ALLOW' as const,
+          execute: 'ASK' as const,
+          dangerous: 'DENY' as const,
+          allowedExecutables: ['python.exe', 'docker.exe'],
+        },
+        extensions: {
+          ...initial.extensions,
+          mode: 'allowlist' as const,
+          enabledServers: ['demo'],
+          extraSkillRoots: ['D:\\Skills'],
+          extraMcpServers: [{
+            name: 'demo',
+            command: 'node.exe',
+            args: ['server.js'],
+            cwd: 'D:\\Mcp',
+            type: 'stdio',
+            env: { DEMO_MODE: '1' },
+          }],
+        },
+      };
+
+      await expect(firstRuntime.services.setUserSettings({ settings: next })).resolves.toMatchObject({
+        restartRequired: true,
+        settings: next,
+      });
+      await expect(firstRuntime.services.getDashboard()).resolves.toMatchObject({ settings: next });
+    } finally {
+      await firstRuntime.close();
+    }
+
+    const restarted = createDesktopRuntime(dataRoot);
+    try {
+      await expect(restarted.services.getDashboard()).resolves.toMatchObject({
+        settings: {
+          mcpCallTimeoutMs: 120_000,
+          mcpIdleTimeoutMs: 10 * 60_000,
+          processTimeoutMs: 90 * 60_000,
+          capabilityRoots: ['D:\\Projects', 'E:\\Work'],
+          updateAutoCheck: false,
+          updateCheckOnStartup: false,
+          updateIntervalMinutes: 120,
+          updateAutoDownload: false,
+          closeBehavior: 'quit',
+          launchAtStartup: true,
+          startMinimized: true,
+          tunnelAutoReconnect: false,
+          tunnelMaxAutoRestarts: 2,
+          customPermission: { allowedExecutables: ['python.exe', 'docker.exe'] },
+          extensions: {
+            mode: 'allowlist',
+            enabledServers: ['demo'],
+            extraSkillRoots: ['D:\\Skills'],
+            extraMcpServers: [{ name: 'demo', command: 'node.exe', args: ['server.js'], cwd: 'D:\\Mcp', type: 'stdio', env: { DEMO_MODE: '1' } }],
+          },
+        },
+      });
+    } finally {
+      await restarted.close();
+    }
+  }, 30_000);
   it('serves the local capability health tool through the desktop MCP listener', async () => {
     const rawDataRoot = await mkdtemp(path.join(os.tmpdir(), 'lnwjud-runtime-data-'));
     const rawWorkspaceRoot = await mkdtemp(path.join(os.tmpdir(), 'lnwjud-runtime-workspace-'));

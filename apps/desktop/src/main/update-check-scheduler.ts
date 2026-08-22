@@ -5,6 +5,7 @@ export interface UpdateCheckSchedulerOptions {
   readonly check: () => void;
   readonly startupDelayMs?: number;
   readonly intervalMs?: number;
+  readonly checkOnStartup?: boolean;
 }
 
 export class UpdateCheckScheduler {
@@ -17,10 +18,12 @@ export class UpdateCheckScheduler {
     if (this.startupTimer !== null || this.intervalTimer !== null) return;
     const startupDelayMs = this.options.startupDelayMs ?? AUTO_UPDATE_STARTUP_DELAY_MS;
     const intervalMs = this.options.intervalMs ?? AUTO_UPDATE_CHECK_INTERVAL_MS;
-    this.startupTimer = setTimeout(() => {
-      this.startupTimer = null;
-      this.options.check();
-    }, startupDelayMs);
+    if (this.options.checkOnStartup !== false) {
+      this.startupTimer = setTimeout(() => {
+        this.startupTimer = null;
+        this.options.check();
+      }, startupDelayMs);
+    }
     this.intervalTimer = setInterval(() => this.options.check(), intervalMs);
   }
 

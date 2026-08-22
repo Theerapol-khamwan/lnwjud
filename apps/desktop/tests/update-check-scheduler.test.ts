@@ -23,6 +23,20 @@ describe('automatic update check scheduler', () => {
     expect(check).toHaveBeenCalledTimes(3);
   });
 
+  it('can skip the startup check while keeping the recurring interval', async () => {
+    vi.useFakeTimers();
+    const check = vi.fn();
+    const scheduler = new UpdateCheckScheduler({ check, startupDelayMs: 10, intervalMs: 100, checkOnStartup: false });
+    scheduler.start();
+
+    await vi.advanceTimersByTimeAsync(99);
+    expect(check).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(1);
+    expect(check).toHaveBeenCalledTimes(1);
+    await vi.advanceTimersByTimeAsync(100);
+    expect(check).toHaveBeenCalledTimes(2);
+  });
+
   it('does not create duplicate timers and stops all future checks', async () => {
     vi.useFakeTimers();
     const check = vi.fn();

@@ -25,7 +25,9 @@ import type { Result } from '@lnwjud/domain';
 import {
   EXTENSIONS_SETTINGS_KEY,
   createLocalExtensionsService,
+  parseExtensionsSettings,
   type ExtensionsService,
+  type ExtensionsSettings,
 } from '@lnwjud/extensions';
 import {
   ActivityTracker,
@@ -43,15 +45,27 @@ import {
   ALLOW_AI_DELETE_SETTING_KEY,
   APP_NAME,
   APP_VERSION,
+  DEFAULT_MCP_CALL_TIMEOUT_MS,
+  DEFAULT_MCP_IDLE_TIMEOUT_MS,
+  DEFAULT_PROCESS_TIMEOUT_MS,
+  DEFAULT_TUNNEL_MAX_AUTO_RESTARTS,
+  DEFAULT_UPDATE_INTERVAL_MINUTES,
   STDIO_ALLOWED_ROOTS_SETTING_KEY,
   STDIO_PERMISSION_PROFILE_SETTING_KEY,
   STDIO_STRICT_ROOTS_SETTING_KEY,
   UNRESTRICTED_SETTING_KEY,
+  USER_SETTING_KEYS,
   isUnrestricted,
+  parseCloseBehavior,
+  parseCustomPermissionSettings,
+  parseIntegerSetting,
+  parsePathList,
   parseAllowedRoots,
   parseBooleanSetting,
   parseStdioPermissionProfile,
   serializeAllowedRoots,
+  serializeCustomPermissionSettings,
+  serializePathList,
   loadCheckpointEncryptionKey,
 } from '@lnwjud/shared';
 import { AesGcmCheckpointCipher, SqliteAuditRepository, SqliteBackupService, SqliteCheckpointRepository, SqliteDatabase, SqliteSettingsRepository, SqliteWorkspaceRepository, type BackupReason, type BackupSummary } from '@lnwjud/storage';
@@ -63,6 +77,7 @@ import {
   type AgentState,
   type AuditEventSummary,
   type ClearLogBufferRequest,
+  type ConfigureTunnelProfileRequest,
   type ConnectionModes,
   type DashboardSnapshot,
   type DoctorReport,
@@ -81,10 +96,12 @@ import {
   type SetStdioPolicyRequest,
   type SetTunnelClientPathRequest,
   type SetUnrestrictedModeRequest,
+  type SetUserSettingsRequest,
   type StartMcpRequest,
   type StartProcessRequest,
   type StopProcessRequest,
   type TunnelStatus,
+  type UserSettings,
   type UiLocale,
   type WorkLogEntry,
   type WorkspaceSummary,
@@ -111,6 +128,7 @@ export interface DesktopRuntime {
   readonly activityTracker: ActivityTracker;
   readonly logHub: LogHub;
   getLocale(): UiLocale;
+  getUserSettings(): UserSettings;
   createBackup(reason?: BackupReason): Promise<BackupSummary>;
   ensureDefaultWorkspace(rootPath: string): Promise<string>;
   autoStartMcp(): Promise<McpConnectionStatus>;
@@ -143,21 +161,26 @@ export function createDesktopRuntime(dataPath: string, options: DesktopRuntimeOp
   const storedProfile = settingsRepository.get(permissionSettingKey);
   let profileName: PermissionProfileName = options.permissionProfile ?? readPermissionProfile(storedProfile);
   if (options.permissionProfile === undefined && storedProfile === null) settingsRepository.set(permissionSettingKey, profileName);
+  const readSettings = (): UserSettings => readUserSettings(settingsRepository, process.env);
+  const activePermissionProfile = (): PermissionProfile => profileName === 'custom'
+    ? customPermissionProfile(settingsRepository)
+    : permissionProfiles[profileName];
   const unrestricted = isUnrestricted(process.env, settingsRepository.get(UNRESTRICTED_SETTING_KEY));
   const allowAiDeleteProvider = (): boolean => parseBooleanSetting(settingsRepository.get(ALLOW_AI_DELETE_SETTING_KEY), false);
   const projectService = new ProjectService(workspaceRepository);
   const processService = new ProcessService(workspaceRepository, {
     projectService,
-    profileProvider: (): PermissionProfile => permissionProfiles[profileName],
+    profileProvider: activePermissionProfile,
+    defaultTimeoutMsProvider: (): number => readSettings().processTimeoutMs,
     unrestricted,
   });
   const checkpointService = new CheckpointService(workspaceRepository, checkpointRepository, {
-    profileProvider: (): PermissionProfile => permissionProfiles[profileName],
+    profileProvider: activePermissionProfile,
   });
   const pathGuard = new WorkspacePathGuard(new SecretPolicy(), { unrestricted, trustedWorkspaceAccess: true });
   const fileService = new FileService(workspaceRepository, pathGuard, undefined, {
     checkpointService,
-    profileProvider: (): PermissionProfile => permissionProfiles[profileName],
+    profileProvider: activePermissionProfile,
     unrestricted,
     trustedWorkspaceAccess: true,
     allowDeleteWithoutConfirmation: allowAiDeleteProvider,
@@ -173,11 +196,11 @@ export function createDesktopRuntime(dataPath: string, options: DesktopRuntimeOp
   });
   const codexService = new CodexService(workspaceRepository, {
     auditService,
-    profileProvider: (): PermissionProfile => permissionProfiles[profileName],
+    profileProvider: activePermissionProfile,
   });
   const capabilityRuntime = createLocalCapabilityRuntime(dataPath, async (): Promise<readonly string[]> => (
     (await workspaceRepository.list()).map((workspace) => workspace.realRootPath)
-  ), unrestricted);
+  ), unrestricted, () => readSettings().capabilityRoots);
   // Start machine-root synchronization lazily so runtime construction cannot race
   // with the first workspace/database operation on slower Windows runners.
   const machineRootsReady = new Map<string, Promise<Workspace | null>>();
@@ -195,6 +218,8 @@ export function createDesktopRuntime(dataPath: string, options: DesktopRuntimeOp
       const selected = await resolveSelectedWorkspace(workspaceService, settingsRepository);
       return selected?.realRootPath;
     },
+    callTimeoutMs: readSettings().mcpCallTimeoutMs,
+    idleTimeoutMs: readSettings().mcpIdleTimeoutMs,
   });
   const mcpServices: McpApplicationServices = {
     runtimeStatePath: path.join(dataPath, 'upgrade-runtime.json'),
@@ -241,7 +266,7 @@ export function createDesktopRuntime(dataPath: string, options: DesktopRuntimeOp
       '[ERROR] MCP activity logging failed — ' + message,
     );
   });
-  const mcpPort = readMcpPort(process.env.LNWJUD_MCP_PORT);
+  const mcpPort = readMcpPort(process.env.LNWJUD_MCP_PORT ?? settingsRepository.get(USER_SETTING_KEYS.mcpHttpPort) ?? undefined);
   const mcpLifecycle = new DesktopMcpLifecycle({
     workspaceExists: async (workspaceId: string): Promise<boolean> => (await workspaceRepository.get(workspaceId)) !== null,
     createServerOptions: (): McpHttpServerOptions => ({
@@ -251,7 +276,7 @@ export function createDesktopRuntime(dataPath: string, options: DesktopRuntimeOp
       services: mcpServices,
       actor: mcpActor,
       activityTracker,
-      profileProvider: (): PermissionProfile => permissionProfiles[profileName],
+      profileProvider: activePermissionProfile,
       allowAiDeleteProvider,
     }),
   });
@@ -269,6 +294,8 @@ export function createDesktopRuntime(dataPath: string, options: DesktopRuntimeOp
       ]);
       return preferredTunnelMcpCommand(process.execPath, cmdPath);
     },
+    autoReconnect: (): boolean => readSettings().tunnelAutoReconnect,
+    maxAutoRestarts: (): number => readSettings().tunnelMaxAutoRestarts,
   });
   const logHub = new LogHub({
     tunnelLogPath: tunnelController.logPath(),
@@ -371,6 +398,7 @@ export function createDesktopRuntime(dataPath: string, options: DesktopRuntimeOp
         workLog,
         inFlight,
         tunnel,
+        settings: readSettings(),
         appVersion: APP_VERSION,
       };
     },
@@ -457,6 +485,16 @@ export function createDesktopRuntime(dataPath: string, options: DesktopRuntimeOp
       settingsRepository.set(localeSettingKey, request.locale);
       return { locale: request.locale };
     },
+    setUserSettings: async (request: SetUserSettingsRequest): Promise<{ readonly settings: UserSettings; readonly restartRequired: boolean }> => {
+      const previous = readSettings();
+      persistUserSettings(settingsRepository, request.settings);
+      const next = readSettings();
+      return { settings: next, restartRequired: runtimeRestartRequired(previous, next) };
+    },
+    configureTunnelProfile: async (request: ConfigureTunnelProfileRequest): Promise<{ readonly configured: boolean; readonly profilePath: string }> => ({
+      configured: true,
+      profilePath: await tunnelController.configureProfile(request.tunnelId),
+    }),
     launchManagedBrowser: async (): Promise<ManagedBrowserStatus> => {
       const result = await capabilityRuntime.service.execute('dom_cdp', { action: 'launch' });
       return toManagedBrowserStatus(unwrap(result, 'Managed Chrome could not be started'));
@@ -511,6 +549,7 @@ export function createDesktopRuntime(dataPath: string, options: DesktopRuntimeOp
     activityTracker,
     logHub,
     getLocale: (): UiLocale => readLocale(settingsRepository),
+    getUserSettings: (): UserSettings => readSettings(),
     createBackup: (reason: BackupReason = 'manual'): Promise<BackupSummary> => backupService.create(reason),
     ensureDefaultWorkspace: async (rootPath: string): Promise<string> => {
       await ensureMachineRoots(rootPath);
@@ -758,6 +797,96 @@ function buildConnectionModes(httpUrl: string | null): ConnectionModes {
     ? `${packaged} --mcp-stdio`
     : 'lnwjud.exe --mcp-stdio';
   return { httpUrl, stdioCommand };
+}
+
+function readUserSettings(settingsRepository: SqliteSettingsRepository, env: NodeJS.ProcessEnv): UserSettings {
+  const extensions = parseExtensionsSettings(settingsRepository.get(EXTENSIONS_SETTINGS_KEY));
+  return {
+    customPermission: parseCustomPermissionSettings(settingsRepository.get(USER_SETTING_KEYS.customPermissionProfile)),
+    mcpCallTimeoutMs: parseIntegerSetting(settingsRepository.get(USER_SETTING_KEYS.mcpCallTimeoutMs), DEFAULT_MCP_CALL_TIMEOUT_MS, 1_000, 60 * 60_000),
+    mcpIdleTimeoutMs: parseIntegerSetting(settingsRepository.get(USER_SETTING_KEYS.mcpIdleTimeoutMs), DEFAULT_MCP_IDLE_TIMEOUT_MS, 30_000, 24 * 60 * 60_000),
+    processTimeoutMs: parseIntegerSetting(settingsRepository.get(USER_SETTING_KEYS.processTimeoutMs), DEFAULT_PROCESS_TIMEOUT_MS, 1_000, 4 * 60 * 60_000),
+    capabilityRoots: parsePathList(settingsRepository.get(USER_SETTING_KEYS.capabilityRoots)),
+    mcpHttpPort: readMcpPort(env.LNWJUD_MCP_PORT ?? settingsRepository.get(USER_SETTING_KEYS.mcpHttpPort) ?? undefined),
+    updateAutoCheck: parseBooleanSetting(settingsRepository.get(USER_SETTING_KEYS.updateAutoCheck), true),
+    updateCheckOnStartup: parseBooleanSetting(settingsRepository.get(USER_SETTING_KEYS.updateCheckOnStartup), true),
+    updateIntervalMinutes: parseIntegerSetting(settingsRepository.get(USER_SETTING_KEYS.updateIntervalMinutes), DEFAULT_UPDATE_INTERVAL_MINUTES, 5, 24 * 60),
+    updateAutoDownload: parseBooleanSetting(settingsRepository.get(USER_SETTING_KEYS.updateAutoDownload), true),
+    closeBehavior: parseCloseBehavior(settingsRepository.get(USER_SETTING_KEYS.closeBehavior)),
+    launchAtStartup: parseBooleanSetting(settingsRepository.get(USER_SETTING_KEYS.launchAtStartup), false),
+    startMinimized: parseBooleanSetting(settingsRepository.get(USER_SETTING_KEYS.startMinimized), false),
+    tunnelAutoReconnect: parseBooleanSetting(settingsRepository.get(USER_SETTING_KEYS.tunnelAutoReconnect), true),
+    tunnelMaxAutoRestarts: parseIntegerSetting(settingsRepository.get(USER_SETTING_KEYS.tunnelMaxAutoRestarts), DEFAULT_TUNNEL_MAX_AUTO_RESTARTS, 0, 50),
+    extensions: toIpcExtensionsSettings(extensions),
+  };
+}
+
+function persistUserSettings(settingsRepository: SqliteSettingsRepository, settings: UserSettings): void {
+  settingsRepository.set(USER_SETTING_KEYS.customPermissionProfile, serializeCustomPermissionSettings(settings.customPermission));
+  settingsRepository.set(USER_SETTING_KEYS.mcpCallTimeoutMs, String(settings.mcpCallTimeoutMs));
+  settingsRepository.set(USER_SETTING_KEYS.mcpIdleTimeoutMs, String(settings.mcpIdleTimeoutMs));
+  settingsRepository.set(USER_SETTING_KEYS.processTimeoutMs, String(settings.processTimeoutMs));
+  settingsRepository.set(USER_SETTING_KEYS.capabilityRoots, serializePathList(settings.capabilityRoots));
+  settingsRepository.set(USER_SETTING_KEYS.mcpHttpPort, String(settings.mcpHttpPort));
+  settingsRepository.set(USER_SETTING_KEYS.updateAutoCheck, settings.updateAutoCheck ? 'true' : 'false');
+  settingsRepository.set(USER_SETTING_KEYS.updateCheckOnStartup, settings.updateCheckOnStartup ? 'true' : 'false');
+  settingsRepository.set(USER_SETTING_KEYS.updateIntervalMinutes, String(settings.updateIntervalMinutes));
+  settingsRepository.set(USER_SETTING_KEYS.updateAutoDownload, settings.updateAutoDownload ? 'true' : 'false');
+  settingsRepository.set(USER_SETTING_KEYS.closeBehavior, settings.closeBehavior);
+  settingsRepository.set(USER_SETTING_KEYS.launchAtStartup, settings.launchAtStartup ? 'true' : 'false');
+  settingsRepository.set(USER_SETTING_KEYS.startMinimized, settings.startMinimized ? 'true' : 'false');
+  settingsRepository.set(USER_SETTING_KEYS.tunnelAutoReconnect, settings.tunnelAutoReconnect ? 'true' : 'false');
+  settingsRepository.set(USER_SETTING_KEYS.tunnelMaxAutoRestarts, String(settings.tunnelMaxAutoRestarts));
+  const extraMcpServers = Object.fromEntries(settings.extensions.extraMcpServers.map((server) => [server.name, {
+    command: server.command,
+    ...(server.args.length === 0 ? {} : { args: [...server.args] }),
+    ...(server.cwd.trim().length === 0 ? {} : { cwd: server.cwd.trim() }),
+    ...(server.type.trim().length === 0 ? {} : { type: server.type.trim() }),
+    ...(Object.keys(server.env).length === 0 ? {} : { env: { ...server.env } }),
+  }]));
+  settingsRepository.set(EXTENSIONS_SETTINGS_KEY, JSON.stringify({
+    mode: settings.extensions.mode,
+    disabledServers: [...settings.extensions.disabledServers],
+    enabledServers: [...settings.extensions.enabledServers],
+    disabledSkillRoots: [...settings.extensions.disabledSkillRoots],
+    extraSkillRoots: [...settings.extensions.extraSkillRoots],
+    extraMcpServers,
+  }));
+}
+
+function toIpcExtensionsSettings(settings: ExtensionsSettings): UserSettings['extensions'] {
+  return {
+    mode: settings.mode,
+    disabledServers: [...settings.disabledServers],
+    enabledServers: [...settings.enabledServers],
+    disabledSkillRoots: [...settings.disabledSkillRoots],
+    extraSkillRoots: [...settings.extraSkillRoots],
+    extraMcpServers: Object.entries(settings.extraMcpServers).map(([name, config]) => ({
+      name,
+      command: config.command,
+      args: [...(config.args ?? [])],
+      cwd: config.cwd ?? '',
+      type: config.type ?? '',
+      env: { ...(config.env ?? {}) },
+    })),
+  };
+}
+
+function customPermissionProfile(settingsRepository: SqliteSettingsRepository): PermissionProfile {
+  const custom = parseCustomPermissionSettings(settingsRepository.get(USER_SETTING_KEYS.customPermissionProfile));
+  return {
+    name: 'custom',
+    defaults: { READ: custom.read, WRITE: custom.write, EXECUTE: custom.execute, DANGEROUS: custom.dangerous },
+    allowedProjectExecutables: [...new Set([...permissionProfiles.custom.allowedProjectExecutables, ...custom.allowedExecutables])],
+  };
+}
+
+function runtimeRestartRequired(previous: UserSettings, next: UserSettings): boolean {
+  return previous.mcpCallTimeoutMs !== next.mcpCallTimeoutMs
+    || previous.mcpIdleTimeoutMs !== next.mcpIdleTimeoutMs
+    || previous.mcpHttpPort !== next.mcpHttpPort
+    || JSON.stringify(previous.customPermission) !== JSON.stringify(next.customPermission)
+    || JSON.stringify(previous.extensions) !== JSON.stringify(next.extensions);
 }
 
 function readPermissionProfile(value: string | null): PermissionProfileName {

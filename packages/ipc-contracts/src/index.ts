@@ -1,5 +1,5 @@
 export const APP_NAME = 'lnwjud';
-export const APP_VERSION = '4.6.2';
+export const APP_VERSION = '4.7.0';
 
 export const ipcChannels = {
   listWorkspaces: 'lnwjud:list-workspaces',
@@ -25,6 +25,9 @@ export const ipcChannels = {
   getTunnelStatus: 'lnwjud:get-tunnel-status',
   setTunnelClientPath: 'lnwjud:set-tunnel-client-path',
   setLocale: 'lnwjud:set-locale',
+  setUserSettings: 'lnwjud:set-user-settings',
+  chooseTunnelClientPath: 'lnwjud:choose-tunnel-client-path',
+  configureTunnelProfile: 'lnwjud:configure-tunnel-profile',
   launchManagedBrowser: 'lnwjud:launch-managed-browser',
   runDoctor: 'lnwjud:run-doctor',
   getLogSnapshot: 'lnwjud:get-log-snapshot',
@@ -58,6 +61,54 @@ export interface UpdateStatus {
   readonly message: string | null;
   readonly canInstall: boolean;
 }
+
+export type CloseBehavior = 'tray' | 'quit';
+export type PermissionDecisionSetting = 'ALLOW' | 'ASK' | 'DENY';
+export type ExtensionMode = 'enable_all' | 'allowlist';
+
+export interface CustomPermissionSettings {
+  readonly read: PermissionDecisionSetting;
+  readonly write: PermissionDecisionSetting;
+  readonly execute: PermissionDecisionSetting;
+  readonly dangerous: PermissionDecisionSetting;
+  readonly allowedExecutables: readonly string[];
+}
+
+export interface ExtraMcpServerSettings {
+  readonly name: string;
+  readonly command: string;
+  readonly args: readonly string[];
+  readonly cwd: string;
+  readonly type: string;
+  readonly env: Readonly<Record<string, string>>;
+}
+
+export interface UserSettings {
+  readonly customPermission: CustomPermissionSettings;
+  readonly mcpCallTimeoutMs: number;
+  readonly mcpIdleTimeoutMs: number;
+  readonly processTimeoutMs: number;
+  readonly capabilityRoots: readonly string[];
+  readonly mcpHttpPort: number;
+  readonly updateAutoCheck: boolean;
+  readonly updateCheckOnStartup: boolean;
+  readonly updateIntervalMinutes: number;
+  readonly updateAutoDownload: boolean;
+  readonly closeBehavior: CloseBehavior;
+  readonly launchAtStartup: boolean;
+  readonly startMinimized: boolean;
+  readonly tunnelAutoReconnect: boolean;
+  readonly tunnelMaxAutoRestarts: number;
+  readonly extensions: {
+    readonly mode: ExtensionMode;
+    readonly disabledServers: readonly string[];
+    readonly enabledServers: readonly string[];
+    readonly disabledSkillRoots: readonly string[];
+    readonly extraSkillRoots: readonly string[];
+    readonly extraMcpServers: readonly ExtraMcpServerSettings[];
+  };
+}
+
 export interface WorkspaceSummary {
   readonly id: string;
   readonly displayName: string;
@@ -209,6 +260,7 @@ export interface DashboardSnapshot {
   readonly workLog: readonly WorkLogEntry[];
   readonly inFlight: readonly InFlightWorkItem[];
   readonly tunnel: TunnelStatus;
+  readonly settings: UserSettings;
   readonly appVersion: string;
 }
 
@@ -297,6 +349,14 @@ export interface SetLocaleRequest {
   readonly locale: UiLocale;
 }
 
+export interface SetUserSettingsRequest {
+  readonly settings: UserSettings;
+}
+
+export interface ConfigureTunnelProfileRequest {
+  readonly tunnelId: string;
+}
+
 export interface McpConnectionStatus {
   readonly running: boolean;
   readonly url: string | null;
@@ -333,6 +393,9 @@ export interface IpcRequestMap {
   readonly [ipcChannels.getTunnelStatus]: undefined;
   readonly [ipcChannels.setTunnelClientPath]: SetTunnelClientPathRequest;
   readonly [ipcChannels.setLocale]: SetLocaleRequest;
+  readonly [ipcChannels.setUserSettings]: SetUserSettingsRequest;
+  readonly [ipcChannels.chooseTunnelClientPath]: undefined;
+  readonly [ipcChannels.configureTunnelProfile]: ConfigureTunnelProfileRequest;
   readonly [ipcChannels.launchManagedBrowser]: undefined;
   readonly [ipcChannels.runDoctor]: undefined;
   readonly [ipcChannels.getLogSnapshot]: undefined;
@@ -369,6 +432,9 @@ export interface IpcResponseMap {
   readonly [ipcChannels.getTunnelStatus]: TunnelStatus;
   readonly [ipcChannels.setTunnelClientPath]: { readonly clientPath: string };
   readonly [ipcChannels.setLocale]: { readonly locale: UiLocale };
+  readonly [ipcChannels.setUserSettings]: { readonly settings: UserSettings; readonly restartRequired: boolean };
+  readonly [ipcChannels.chooseTunnelClientPath]: { readonly clientPath: string | null };
+  readonly [ipcChannels.configureTunnelProfile]: { readonly configured: boolean; readonly profilePath: string };
   readonly [ipcChannels.launchManagedBrowser]: ManagedBrowserStatus;
   readonly [ipcChannels.runDoctor]: DoctorReport;
   readonly [ipcChannels.getLogSnapshot]: LogSnapshot;
@@ -405,6 +471,9 @@ export interface LnwjudApi {
   getTunnelStatus(): Promise<IpcResponseMap[typeof ipcChannels.getTunnelStatus]>;
   setTunnelClientPath(request: SetTunnelClientPathRequest): Promise<IpcResponseMap[typeof ipcChannels.setTunnelClientPath]>;
   setLocale(request: SetLocaleRequest): Promise<IpcResponseMap[typeof ipcChannels.setLocale]>;
+  setUserSettings(request: SetUserSettingsRequest): Promise<IpcResponseMap[typeof ipcChannels.setUserSettings]>;
+  chooseTunnelClientPath(): Promise<IpcResponseMap[typeof ipcChannels.chooseTunnelClientPath]>;
+  configureTunnelProfile(request: ConfigureTunnelProfileRequest): Promise<IpcResponseMap[typeof ipcChannels.configureTunnelProfile]>;
   launchManagedBrowser(): Promise<IpcResponseMap[typeof ipcChannels.launchManagedBrowser]>;
   runDoctor(): Promise<IpcResponseMap[typeof ipcChannels.runDoctor]>;
   getLogSnapshot(): Promise<IpcResponseMap[typeof ipcChannels.getLogSnapshot]>;

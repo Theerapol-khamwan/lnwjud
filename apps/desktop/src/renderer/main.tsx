@@ -3,6 +3,7 @@ import { createRoot } from 'react-dom/client';
 import { App } from './App.js';
 import { StandaloneLogViewer } from './features/live/StandaloneLogViewer.js';
 import './styles.css';
+import './settings-extra.css';
 
 const root = document.getElementById('root');
 if (root === null) throw new Error('Renderer root is missing');
