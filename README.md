@@ -6,7 +6,7 @@
 
 <p align="center">
   <strong>Windows-first local AI-agent runtime and MCP gateway</strong><br />
-  <em>212 configurable tools for local files, Git, processes, Windows automation, WSL, browser control, indexing, observability, and extensibility; 206 are advertised by default because codex_* delegation is opt-in.</em>
+  <em>213 configurable tools for local files, Git, processes, Windows automation, WSL, browser control, indexing, observability, and extensibility; 207 are advertised by default because codex_* delegation is opt-in.</em>
 </p>
 
 <p align="center">
@@ -827,7 +827,7 @@ For workspace <workspace-id>, show the project snapshot, Git status, and the top
 
 After changing tool metadata or restarting the tunnel, refresh the connector and continue in the same chat. Start a new chat only if Refresh connector does not clear a stale schema.
 
-## Complete MCP tool catalog (212 configurable tools; 206 advertised by default)
+## Complete MCP tool catalog (213 configurable tools; 207 advertised by default)
 
 This index is generated from the current v4.8.3 `ToolRegistry`, not copied from an older release document. Optional/planned tools still appear in the advertised contract and report their availability/requirements at runtime where applicable.
 
