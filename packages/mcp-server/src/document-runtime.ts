@@ -192,8 +192,10 @@ export class DocumentRuntimeService {
     } catch {
       return err(appError('WORKSPACE_NOT_FOUND', 'Workspace root could not be resolved'));
     }
+    // Windows can expose the same physical location under an 8.3 short path
+    // while realpath() returns the long spelling. Do not make a lexical
+    // containment decision until the candidate (or its parent) is canonical.
     const candidate = path.win32.isAbsolute(requested) ? path.win32.normalize(requested) : path.win32.join(canonicalRoot, requested);
-    if (!isWithin(canonicalRoot, candidate)) return err(appError('PATH_OUTSIDE_WORKSPACE', `Document path is outside the registered workspace: ${requested}`));
 
     if (mustExist) {
       if (!existsSync(candidate)) return err(appError('FILE_NOT_FOUND', `File was not found: ${candidate}`));
