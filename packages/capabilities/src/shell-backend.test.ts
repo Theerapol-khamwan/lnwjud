@@ -29,6 +29,23 @@ describe('ShellCapabilityBackend', () => {
     expect(result).toMatchObject({ ok: true, value: { state: 'completed', exit_code: 0, stdout: 'hello' } });
   });
 
+  it('keeps the backend foreground wait independent from the MCP 5-second poll policy', async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), 'lnwjud-shell-'));
+    temporaryRoots.push(root);
+    const backend = new ShellCapabilityBackend({ allowedRoots: [root] });
+
+    const result = await backend.execute({
+      operation: 'run',
+      executable: process.execPath,
+      arguments: ['-e', "setTimeout(() => process.stdout.write('after-five-seconds'), 5500)"],
+      cwd: root,
+      execution: 'foreground',
+      timeout_seconds: 10,
+    });
+
+    expect(result).toMatchObject({ ok: true, value: { state: 'completed', exit_code: 0, stdout: 'after-five-seconds' } });
+  }, 10_000);
+
   it('rejects a working directory outside configured local roots', async () => {
     const root = await mkdtemp(path.join(os.tmpdir(), 'lnwjud-shell-'));
     const outside = await mkdtemp(path.join(os.tmpdir(), 'lnwjud-shell-outside-'));

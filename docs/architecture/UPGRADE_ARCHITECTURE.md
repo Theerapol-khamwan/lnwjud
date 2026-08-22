@@ -41,7 +41,7 @@ MCP clients (ChatGPT / Codex / Claude / other agents)
              MCP stdio or loopback Streamable HTTP
                          |
                          v
-                  ToolRegistry (210 tools: 184-tool baseline plus additive gateway contracts)
+                  ToolRegistry (213 configurable tools; 207 advertised by default)
                          |
        +-----------------+------------------+
        |                 |                  |
@@ -107,9 +107,10 @@ builds the high-impact slices on top of it:
 
 Long-running operations use the existing task handles where a concrete backend
 exists. Activity events now carry bounded `traceId`/`traceParent` values into
-NDJSON and SQLite audit metadata. The 184-tool snapshot remains a compatibility
-baseline; current transports advertise 210 tools because all additions are
-append-only.
+NDJSON and SQLite audit metadata. The 184-tool snapshot remains a historical
+compatibility baseline. Current transports support 213 configurable tools and
+advertise 207 by default because the six Codex delegation tools are opt-in;
+registry additions remain append-only.
 
 ## Request and side-effect pipeline
 
@@ -164,10 +165,10 @@ connection is considered healthy.
 - Workspace paths are normalized and checked against registered roots and
   reparse/junction traversal rules.
 - Secret-file policy is denied by default for sensitive filenames and paths.
-- Permission profiles are `safe`, `balanced`, `full`, and `custom`; the desktop
-  and packaged stdio runtimes intentionally run with the configured full local
-  capability profile so the upgrade does not reduce the existing working
-  product. A caller still cannot bypass hard blocks or path/ownership checks.
+- Permission profiles are `safe`, `balanced`, `full`, and `custom`. Desktop MCP
+  uses the selected profile; packaged stdio keeps `full` as the backward-compatible
+  default and can use a separately configured profile plus optional Strict Roots.
+  A caller still cannot bypass hard blocks or path/ownership checks.
 - `READ` is non-mutating, `WRITE` changes workspace data, `EXECUTE` starts or
   controls processes/commands, and `DANGEROUS` covers destructive, interactive,
   external, or full-access meta operations.

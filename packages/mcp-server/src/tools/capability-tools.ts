@@ -24,18 +24,36 @@ import {
   wslFilesystemCapabilitySchema,
 } from './schemas.js';
 
+const MCP_MAX_POLL_WAIT_SECONDS = 5;
+
+function normalizeNonBlockingCliInput(input: unknown): unknown {
+  if (typeof input !== 'object' || input === null || Array.isArray(input)) return input;
+  const request = input as Record<string, unknown>;
+  const operation = request.operation ?? 'run';
+  if (operation === 'run') return { ...request, execution: 'background' };
+  if (operation === 'wait') {
+    const requestedWait = typeof request.timeout_seconds === 'number' ? request.timeout_seconds : MCP_MAX_POLL_WAIT_SECONDS;
+    return { ...request, timeout_seconds: Math.min(requestedWait, MCP_MAX_POLL_WAIT_SECONDS) };
+  }
+  return input;
+}
+
 export function capabilityTools(context: McpToolContext): McpToolDefinition[] {
   const execute = (tool: Parameters<NonNullable<McpToolContext['services']['capabilities']>['execute']>[0], input: unknown, signal?: AbortSignal): Promise<Result<unknown>> => (
     context.services.capabilities === undefined
       ? Promise.resolve(missingService())
-      : context.services.capabilities.execute(tool, input, signal)
+      : context.services.capabilities.execute(
+        tool,
+        tool === 'shell' || tool === 'wsl_exec' ? normalizeNonBlockingCliInput(input) : input,
+        signal,
+      )
   );
   const setOfMarks = new SetOfMarksService(context.services.capabilities);
 
   return [
     defineTool({
       name: 'shell',
-      description: 'Default tool for system operations and CLI tasks. Destructive shell commands require explicit chat confirmation and userConfirmed: true. If a build, full test suite, installer/package job, or other command may exceed ~5 minutes, use execution=background immediately: it returns a durable task_id and the machine keeps working even after the AI run ends. Record that task_id in docs/PHASE_PROGRESS.md, then recover it in the next run with status/logs/result. Do not tight-poll; check only when useful. Auto mode also promotes unfinished work to a durable task.',
+      description: 'Non-blocking command runner for system operations and CLI tasks. MCP run calls are ALWAYS forced to execution=background, even if a client requests foreground or auto, so the call returns a task_id immediately instead of waiting for command completion. Follow with status/logs/result; wait is capped to a short 5-second poll. Never hold a tool call open waiting for a build, test, install, package, or other command to finish. Destructive shell commands still require explicit chat confirmation and userConfirmed: true.',
       permission: 'EXECUTE',
       annotations: { readOnlyHint: false, destructiveHint: true },
       inputSchema: shellCapabilitySchema,
@@ -179,7 +197,7 @@ export function capabilityTools(context: McpToolContext): McpToolDefinition[] {
     }),
     defineTool({
       name: 'wsl_exec',
-      description: 'Scoped WSL2 developer runner. Executes one Linux executable with argv, an explicit distribution, and a registered Windows workspace cwd. It never accepts shell command strings. For work expected to exceed ~5 minutes use background, record the durable task_id in the tracker, and retrieve status/logs/result in a later run instead of tight-polling.',
+      description: 'Non-blocking WSL2 developer runner. MCP run calls are ALWAYS forced to background and return a task_id immediately; foreground/auto requests are normalized by the server. Follow with status/logs/result; wait is capped to a short 5-second poll. It executes one Linux executable with argv, an explicit distribution, and a registered Windows workspace cwd, and never accepts shell command strings.',
       permission: 'EXECUTE',
       annotations: { readOnlyHint: false, destructiveHint: true },
       inputSchema: wslCapabilitySchema,

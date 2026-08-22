@@ -67,6 +67,34 @@ describe('MCP tool registry', () => {
     expect(byName.get('wsl_fs')?.parse({ operation: 'translate', workspaceId: 'workspace-1', direction: 'windows_to_wsl', path: 'C:\\workspace' })).toMatchObject({ ok: true });
   });
 
+  it('forces MCP command execution to return immediately and caps follow-up waits', async () => {
+    const calls: Array<{ tool: string; input: unknown }> = [];
+    const registry = new ToolRegistry({
+      capabilities: {
+        async execute(tool, input): Promise<ReturnType<typeof ok>> {
+          calls.push({ tool, input });
+          return ok({ accepted: true });
+        },
+      },
+    }, actor);
+    const byName = new Map(registry.list().map((tool) => [tool.name, tool]));
+
+    expect(byName.get('shell')?.description).toContain('ALWAYS forced to execution=background');
+    expect(byName.get('shell')?.parse({ operation: 'run', executable: 'node', arguments: [] })).toMatchObject({ ok: true, value: { execution: 'background' } });
+    expect(byName.get('wsl_exec')?.parse({ operation: 'run', workspaceId: 'workspace-1', executable: 'true', arguments: [] })).toMatchObject({ ok: true, value: { execution: 'background' } });
+
+    await registry.invoke('shell', { operation: 'run', executable: 'node', arguments: ['--version'], execution: 'foreground' });
+    await registry.invoke('shell', { operation: 'wait', task_id: 'task-1', timeout_seconds: 60 });
+    await registry.invoke('wsl_exec', { operation: 'run', workspaceId: 'workspace-1', executable: 'true', arguments: [], execution: 'foreground' });
+    await registry.invoke('wsl_exec', { operation: 'wait', workspaceId: 'workspace-1', task_id: 'task-2', timeout_seconds: 60 });
+
+    expect(calls).toHaveLength(4);
+    expect(calls[0]).toMatchObject({ tool: 'shell', input: { operation: 'run', execution: 'background' } });
+    expect(calls[1]).toMatchObject({ tool: 'shell', input: { operation: 'wait', timeout_seconds: 5 } });
+    expect(calls[2]).toMatchObject({ tool: 'wsl_exec', input: { operation: 'run', execution: 'background' } });
+    expect(calls[3]).toMatchObject({ tool: 'wsl_exec', input: { operation: 'wait', timeout_seconds: 5 } });
+  });
+
   it('blocks dangerous capability execution under the safe profile before reaching the backend', async () => {
     let executed = false;
     const registry = new ToolRegistry({

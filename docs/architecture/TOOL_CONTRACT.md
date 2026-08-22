@@ -8,7 +8,7 @@ Zod schemas in `packages/mcp-server/src/tools/` are the implementation source
 of truth. The existing human-oriented catalog remains useful for field details,
 while this document records the primitive/core contract, preserves the earlier
 compatibility baseline, and records policy class, annotations, and schema source.
-The current v4 runtime advertises 210 tools; the additive v4 entries are defined
+The full configurable v4 registry contains 213 tools; the default runtime advertises 207 because the six `codex_*` delegation tools are opt-in. The additive v4 entries are defined
 in `packages/mcp-server/src/upgrade-catalog.ts` and the exact runtime order is
 verified by `packages/mcp-server/src/tool-registry.test.ts`.
 
@@ -264,7 +264,7 @@ Destructive operations still require explicit chat confirmation by default. The 
 
 ## Core primitive runtime catalog
 
-The table below records the core primitive layer. The full **210-tool** runtime
+The table below records the core primitive layer. The full **213-tool** configurable runtime
 index is generated from `ToolRegistry` in the project README so it cannot be
 mistaken for this smaller primitive table. The `schema` column identifies the
 authoritative implementation file and the number of top-level input properties
@@ -429,7 +429,7 @@ capability backends. Important invariants are:
 - `vision`, `health`, and `system_info` remain truthful read-only diagnostics;
 - `web_fetch` remains HTTP(S)-only and bounded by explicit byte/timeout fields;
 - `skills_*` and `mcp_*` remain full-access bridge tools and do not silently
-  flatten child-server tools into the 210-tool catalog.
+  flatten child-server tools into the 213-tool configurable catalog.
 
 The additive Windows gateway contract is:
 

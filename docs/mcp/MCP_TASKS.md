@@ -48,7 +48,7 @@ Capability ที่ประกาศตอน initialize: `{ tasks: { list: {}
 
 สเปกกำหนดให้ `tasks/result` block จนกว่า task จะถึง terminal — แต่ durable tasks
 ของ lnwjud ออกแบบให้ทำงานยาวเกินระยะเวลารอที่สมเหตุสมผลของ request หนึ่งๆ
-ดังนั้น implementation นี้ block ได้สูงสุด ~50 วินาที แล้วตอบ `-32603`
+ดังนั้น implementation นี้ block ได้สูงสุด ~5 วินาที แล้วตอบ `-32603`
 พร้อมข้อความชี้ให้กลับไป poll `tasks/get` แล้วเรียก `tasks/result`ใหม่
 (กำกับไว้ในโค้ดที่ `packages/mcp-server/src/tasks-protocol.ts`)
 

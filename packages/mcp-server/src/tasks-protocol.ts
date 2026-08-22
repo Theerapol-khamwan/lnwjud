@@ -39,7 +39,7 @@ type TaskIdParams = { readonly taskId: string };
 type ListParams = { readonly cursor?: string | undefined };
 
 const DEFAULT_PAGE_SIZE = 50;
-const DEFAULT_MAX_RESULT_WAIT_MS = 50_000;
+const DEFAULT_MAX_RESULT_WAIT_MS = 5_000;
 const DEFAULT_POLL_INTERVAL_MS = 5_000;
 const DEFAULT_POLL_TICK_MS = 200;
 const CURSOR_PREFIX = 'lnwjud-tasks:';
@@ -151,7 +151,7 @@ export class TasksProtocol {
    * Returns the underlying shell task snapshot once the task reaches a
    * terminal status. The spec wants tasks/result to block until terminal,
    * but durable tasks are designed to outlive any reasonable request wait,
-   * so this implementation blocks for at most maxResultWaitMs and then
+   * so this implementation blocks only for a short bounded poll window (5s by default) and then
    * answers -32603 directing the client back to tasks/get polling
    * (documented deviation, see docs/mcp/MCP_TASKS.md).
    */

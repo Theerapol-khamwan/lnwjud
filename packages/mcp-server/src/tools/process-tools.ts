@@ -7,7 +7,7 @@ export function processTools(context: McpToolContext): McpToolDefinition[] {
   return [
     defineTool({
       name: 'process_start',
-      description: 'Start one policy-checked executable with separate arguments. Use for bounded interactive work. If the command may exceed ~5 minutes or must survive the AI run, use shell execution=background instead and record its durable task_id in the tracker.',
+      description: 'Immediate-return managed process launcher. Starts one policy-checked executable with separate arguments and returns processId as soon as the child is spawned; it never waits for command completion. Follow with process_status/process_logs/process_stop. For restart-safe durable work, use shell, whose MCP run mode is forced to background.',
       permission: 'EXECUTE',
       annotations: { readOnlyHint: false, destructiveHint: false },
       inputSchema: processStartSchema,
@@ -77,7 +77,7 @@ function projectCommandTools(context: McpToolContext): McpToolDefinition[] {
   ];
   return definitions.map(({ name, kind }) => defineTool({
     name,
-    description: `Run the detected project ${kind} command for normal targeted verification. Prefer project_* over manually discovering package scripts. If a full suite/package/install is expected to exceed ~5 minutes, launch the equivalent command with shell execution=background, record the durable task_id in docs/PHASE_PROGRESS.md, and retrieve it in a later run.`,
+    description: `Immediate-return launcher for the detected project ${kind} command. Returns processId after spawn and never waits for the command to finish; follow with process_status/process_logs. Prefer project_* over manually discovering package scripts. For restart-safe durable work, use shell, whose MCP run mode is forced to background.`,
     permission: 'EXECUTE',
     annotations: { readOnlyHint: false, destructiveHint: false },
     inputSchema: processHandleSchema.pick({ workspaceId: true }),
