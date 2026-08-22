@@ -6,7 +6,7 @@ export function filePageTools(engine: FilePageEngine): McpToolDefinition[] {
   return [
     defineTool({
       name: 'read_file_page',
-      description: 'Read a deterministic line chunk with explicit continuation instead of silently truncating a large file.',
+      description: 'Preferred reader for large files after search_text identifies the relevant area. Reads a deterministic line chunk with explicit continuation instead of silently truncating or loading the whole file.',
       permission: 'READ',
       annotations: { readOnlyHint: true, destructiveHint: false },
       inputSchema: readFilePageSchema,
@@ -20,7 +20,7 @@ export function filePageTools(engine: FilePageEngine): McpToolDefinition[] {
     }),
     defineTool({
       name: 'read_file_page_continue',
-      description: 'Continue read_file_page from the next deterministic line chunk.',
+      description: 'Continue read_file_page from the next deterministic line chunk only when more surrounding context is needed; avoid re-reading earlier pages.',
       permission: 'READ',
       annotations: { readOnlyHint: true, destructiveHint: false },
       inputSchema: readFilePageContinueSchema,

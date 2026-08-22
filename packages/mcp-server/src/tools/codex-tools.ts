@@ -1,6 +1,15 @@
 import { defineTool, missingService, type McpToolContext, type McpToolDefinition } from './tool-types.js';
 import { codexRunSchema, codexStatusSchema, codexTaskHandleSchema, codexTaskLogsSchema } from './schemas.js';
 
+export const CODEX_TOOL_NAMES = Object.freeze([
+  'codex_status',
+  'codex_run',
+  'codex_task_list',
+  'codex_task_status',
+  'codex_task_logs',
+  'codex_stop',
+] as const);
+
 export function codexTools(context: McpToolContext): McpToolDefinition[] {
   return [
     defineTool({

@@ -35,7 +35,7 @@ export function capabilityTools(context: McpToolContext): McpToolDefinition[] {
   return [
     defineTool({
       name: 'shell',
-      description: 'Default tool for system operations and CLI tasks. Destructive shell commands require explicit chat confirmation and userConfirmed: true. Use background for long-running work: it returns a durable task_id quickly and the job keeps running independently of the MCP call; use status, logs, wait, result, or cancel later. Auto mode also promotes unfinished work to a durable task.',
+      description: 'Default tool for system operations and CLI tasks. Destructive shell commands require explicit chat confirmation and userConfirmed: true. If a build, full test suite, installer/package job, or other command may exceed ~5 minutes, use execution=background immediately: it returns a durable task_id and the machine keeps working even after the AI run ends. Record that task_id in docs/PHASE_PROGRESS.md, then recover it in the next run with status/logs/result. Do not tight-poll; check only when useful. Auto mode also promotes unfinished work to a durable task.',
       permission: 'EXECUTE',
       annotations: { readOnlyHint: false, destructiveHint: true },
       inputSchema: shellCapabilitySchema,
@@ -179,7 +179,7 @@ export function capabilityTools(context: McpToolContext): McpToolDefinition[] {
     }),
     defineTool({
       name: 'wsl_exec',
-      description: 'Scoped WSL2 developer runner. Executes one Linux executable with argv, an explicit distribution, and a registered Windows workspace cwd. It never accepts shell command strings; background calls return the existing task_id contract.',
+      description: 'Scoped WSL2 developer runner. Executes one Linux executable with argv, an explicit distribution, and a registered Windows workspace cwd. It never accepts shell command strings. For work expected to exceed ~5 minutes use background, record the durable task_id in the tracker, and retrieve status/logs/result in a later run instead of tight-polling.',
       permission: 'EXECUTE',
       annotations: { readOnlyHint: false, destructiveHint: true },
       inputSchema: wslCapabilitySchema,

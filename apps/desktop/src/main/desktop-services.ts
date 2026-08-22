@@ -48,6 +48,7 @@ import {
   DEFAULT_MCP_CALL_TIMEOUT_MS,
   DEFAULT_MCP_IDLE_TIMEOUT_MS,
   DEFAULT_PROCESS_TIMEOUT_MS,
+  DEFAULT_CODEX_TOOLS_ENABLED,
   DEFAULT_TUNNEL_MAX_AUTO_RESTARTS,
   DEFAULT_UPDATE_INTERVAL_MINUTES,
   STDIO_ALLOWED_ROOTS_SETTING_KEY,
@@ -278,6 +279,7 @@ export function createDesktopRuntime(dataPath: string, options: DesktopRuntimeOp
       activityTracker,
       profileProvider: activePermissionProfile,
       allowAiDeleteProvider,
+      codexToolsEnabled: readSettings().codexToolsEnabled,
     }),
   });
   const tunnelController = new TunnelController({
@@ -808,6 +810,7 @@ function readUserSettings(settingsRepository: SqliteSettingsRepository, env: Nod
     processTimeoutMs: parseIntegerSetting(settingsRepository.get(USER_SETTING_KEYS.processTimeoutMs), DEFAULT_PROCESS_TIMEOUT_MS, 1_000, 4 * 60 * 60_000),
     capabilityRoots: parsePathList(settingsRepository.get(USER_SETTING_KEYS.capabilityRoots)),
     mcpHttpPort: readMcpPort(env.LNWJUD_MCP_PORT ?? settingsRepository.get(USER_SETTING_KEYS.mcpHttpPort) ?? undefined),
+    codexToolsEnabled: parseBooleanSetting(settingsRepository.get(USER_SETTING_KEYS.codexToolsEnabled), DEFAULT_CODEX_TOOLS_ENABLED),
     updateAutoCheck: parseBooleanSetting(settingsRepository.get(USER_SETTING_KEYS.updateAutoCheck), true),
     updateCheckOnStartup: parseBooleanSetting(settingsRepository.get(USER_SETTING_KEYS.updateCheckOnStartup), true),
     updateIntervalMinutes: parseIntegerSetting(settingsRepository.get(USER_SETTING_KEYS.updateIntervalMinutes), DEFAULT_UPDATE_INTERVAL_MINUTES, 5, 24 * 60),
@@ -828,6 +831,7 @@ function persistUserSettings(settingsRepository: SqliteSettingsRepository, setti
   settingsRepository.set(USER_SETTING_KEYS.processTimeoutMs, String(settings.processTimeoutMs));
   settingsRepository.set(USER_SETTING_KEYS.capabilityRoots, serializePathList(settings.capabilityRoots));
   settingsRepository.set(USER_SETTING_KEYS.mcpHttpPort, String(settings.mcpHttpPort));
+  settingsRepository.set(USER_SETTING_KEYS.codexToolsEnabled, settings.codexToolsEnabled ? 'true' : 'false');
   settingsRepository.set(USER_SETTING_KEYS.updateAutoCheck, settings.updateAutoCheck ? 'true' : 'false');
   settingsRepository.set(USER_SETTING_KEYS.updateCheckOnStartup, settings.updateCheckOnStartup ? 'true' : 'false');
   settingsRepository.set(USER_SETTING_KEYS.updateIntervalMinutes, String(settings.updateIntervalMinutes));
@@ -885,6 +889,7 @@ function runtimeRestartRequired(previous: UserSettings, next: UserSettings): boo
   return previous.mcpCallTimeoutMs !== next.mcpCallTimeoutMs
     || previous.mcpIdleTimeoutMs !== next.mcpIdleTimeoutMs
     || previous.mcpHttpPort !== next.mcpHttpPort
+    || previous.codexToolsEnabled !== next.codexToolsEnabled
     || JSON.stringify(previous.customPermission) !== JSON.stringify(next.customPermission)
     || JSON.stringify(previous.extensions) !== JSON.stringify(next.extensions);
 }

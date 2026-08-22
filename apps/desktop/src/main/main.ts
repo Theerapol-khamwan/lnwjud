@@ -110,6 +110,7 @@ const defaultUserSettings: UserSettings = {
   processTimeoutMs: 60 * 60_000,
   capabilityRoots: [],
   mcpHttpPort: 18_765,
+  codexToolsEnabled: false,
   updateAutoCheck: true,
   updateCheckOnStartup: true,
   updateIntervalMinutes: 30,
@@ -557,6 +558,7 @@ function parseUserSettings(record: Record<string, unknown>): UserSettings {
     processTimeoutMs: boundedInteger(record.processTimeoutMs, 'processTimeoutMs', 1_000, 4 * 60 * 60_000),
     capabilityRoots: stringArray(record.capabilityRoots, 'capabilityRoots', 128),
     mcpHttpPort: boundedInteger(record.mcpHttpPort, 'mcpHttpPort', 0, 65_535),
+    codexToolsEnabled: booleanField(record.codexToolsEnabled, 'codexToolsEnabled'),
     updateAutoCheck: booleanField(record.updateAutoCheck, 'updateAutoCheck'),
     updateCheckOnStartup: booleanField(record.updateCheckOnStartup, 'updateCheckOnStartup'),
     updateIntervalMinutes: boundedInteger(record.updateIntervalMinutes, 'updateIntervalMinutes', 5, 24 * 60),
@@ -870,6 +872,7 @@ function bootstrapMcpStdio(): void {
       services: runtime.mcpServices,
       actor: runtime.mcpActor,
       activityTracker: runtime.activityTracker,
+      codexToolsEnabled: runtime.getUserSettings().codexToolsEnabled,
       onError: (error): void => {
         if (/EPIPE|ECONNRESET|broken pipe/i.test(error.message)) {
           process.stderr.write(`lnwjud MCP stdio: peer closed (${error.message})\n`);

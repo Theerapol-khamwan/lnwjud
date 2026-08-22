@@ -11,7 +11,7 @@ const endMarker = '<!-- END GENERATED TOOL REGISTRY -->';
 const checkOnly = process.argv.includes('--check');
 
 const { ToolRegistry } = await import(pathToFileURL(registryModulePath).href);
-const registry = new ToolRegistry({}, { clientId: 'catalog-generator', clientName: 'catalog-generator' });
+const registry = new ToolRegistry({}, { clientId: 'catalog-generator', clientName: 'catalog-generator' }, { codexToolsEnabled: true });
 const tools = registry.list();
 const current = await readFile(contractPath, 'utf8');
 const newline = current.includes('\r\n') ? '\r\n' : '\n';

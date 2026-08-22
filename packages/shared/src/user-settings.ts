@@ -5,6 +5,7 @@ export const USER_SETTING_KEYS = Object.freeze({
   processTimeoutMs: 'process_timeout_ms',
   capabilityRoots: 'capability_roots',
   mcpHttpPort: 'mcp_http_port',
+  codexToolsEnabled: 'codex_tools_enabled',
   updateAutoCheck: 'update_auto_check',
   updateCheckOnStartup: 'update_check_on_startup',
   updateIntervalMinutes: 'update_interval_minutes',
@@ -19,6 +20,7 @@ export const USER_SETTING_KEYS = Object.freeze({
 export const DEFAULT_MCP_CALL_TIMEOUT_MS = 60_000;
 export const DEFAULT_MCP_IDLE_TIMEOUT_MS = 5 * 60_000;
 export const DEFAULT_PROCESS_TIMEOUT_MS = 60 * 60_000;
+export const DEFAULT_CODEX_TOOLS_ENABLED = false;
 export const DEFAULT_UPDATE_INTERVAL_MINUTES = 30;
 export const DEFAULT_TUNNEL_MAX_AUTO_RESTARTS = 5;
 

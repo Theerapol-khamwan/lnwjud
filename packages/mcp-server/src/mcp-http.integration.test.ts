@@ -50,7 +50,8 @@ describe('MCP localhost HTTP transport', () => {
       const first = await client.listTools();
       const second = await client.listTools();
 
-      expect(first.tools.map((tool) => tool.name)).toHaveLength(210);
+      expect(first.tools.map((tool) => tool.name)).toHaveLength(206);
+      expect(first.tools.some((tool) => tool.name.startsWith('codex_'))).toBe(false);
       expect(second.tools.map((tool) => tool.name)).toEqual(first.tools.map((tool) => tool.name));
     } finally {
       await client.close();
@@ -66,7 +67,8 @@ describe('MCP localhost HTTP transport', () => {
 
       expect(transport.sessionId).toEqual(expect.any(String));
       const tools = await client.listTools();
-      expect(tools.tools.map((tool) => tool.name)).toHaveLength(210);
+      expect(tools.tools.map((tool) => tool.name)).toHaveLength(206);
+      expect(tools.tools.some((tool) => tool.name.startsWith('codex_'))).toBe(false);
 
       const first = await client.callTool({ name: 'workspace_list', arguments: {} });
       const second = await client.callTool({ name: 'workspace_list', arguments: {} });

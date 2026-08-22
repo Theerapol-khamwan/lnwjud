@@ -80,8 +80,15 @@ test('control center auto-starts MCP and supports project + doctor journey', asy
 
     await page.getByRole('button', { name: 'ตั้งค่า', exact: true }).click();
     await expectNoHorizontalOverflow(page);
+    await page.getByRole('button', { name: /ความปลอดภัย|Security/ }).click();
     await page.getByLabel('Permission profile', { exact: true }).selectOption('balanced');
-    await expect(page.getByTestId('permission-profile')).toHaveText('FULL');
+    await expect(page.getByLabel('Permission profile', { exact: true })).toHaveValue('balanced');
+    await page.getByRole('button', { name: /^Tools/ }).click();
+    const codexSwitch = page.getByRole('switch', { name: /codex_\*/ });
+    await expect(codexSwitch).toHaveAttribute('aria-checked', 'false');
+    await codexSwitch.click();
+    await expect(codexSwitch).toHaveAttribute('aria-checked', 'true');
+    await expectNoHorizontalOverflow(page);
 
     await page.getByRole('button', { name: 'Doctor', exact: true }).click();
     await page.getByRole('button', { name: /รัน Doctor|Run doctor/ }).click();

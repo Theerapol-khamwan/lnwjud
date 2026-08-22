@@ -79,7 +79,7 @@ describe('Codex review flow', () => {
       process: processService,
       codex,
     };
-    const registry = new ToolRegistry(services, actor);
+    const registry = new ToolRegistry(services, actor, { codexToolsEnabled: true });
 
     try {
       const run = await registry.invoke('codex_run', { workspaceId, instruction: 'Review the fixture and update the permitted review file.', userConfirmed: true });

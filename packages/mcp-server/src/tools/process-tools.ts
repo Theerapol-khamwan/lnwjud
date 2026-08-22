@@ -7,7 +7,7 @@ export function processTools(context: McpToolContext): McpToolDefinition[] {
   return [
     defineTool({
       name: 'process_start',
-      description: 'Start one policy-checked executable with separate arguments.',
+      description: 'Start one policy-checked executable with separate arguments. Use for bounded interactive work. If the command may exceed ~5 minutes or must survive the AI run, use shell execution=background instead and record its durable task_id in the tracker.',
       permission: 'EXECUTE',
       annotations: { readOnlyHint: false, destructiveHint: false },
       inputSchema: processStartSchema,
@@ -32,7 +32,7 @@ export function processTools(context: McpToolContext): McpToolDefinition[] {
     }),
     defineTool({
       name: 'process_status',
-      description: 'Read status for an owned process handle.',
+      description: 'Read one status snapshot for an owned process handle. Do not tight-poll this tool; use project_* for normal project verification, or shell background + durable task_id for work expected to exceed ~5 minutes.',
       permission: 'READ',
       annotations: { readOnlyHint: true, destructiveHint: false },
       inputSchema: processHandleSchema,
@@ -42,7 +42,7 @@ export function processTools(context: McpToolContext): McpToolDefinition[] {
     }),
     defineTool({
       name: 'process_logs',
-      description: 'Read bounded logs for an owned process handle.',
+      description: 'Read bounded logs for an owned process handle. Prefer one bounded log read after meaningful progress rather than repeated status polling.',
       permission: 'READ',
       annotations: { readOnlyHint: true, destructiveHint: false },
       inputSchema: processLogsSchema,
@@ -77,7 +77,7 @@ function projectCommandTools(context: McpToolContext): McpToolDefinition[] {
   ];
   return definitions.map(({ name, kind }) => defineTool({
     name,
-    description: `Run the detected project ${kind} command.`,
+    description: `Run the detected project ${kind} command for normal targeted verification. Prefer project_* over manually discovering package scripts. If a full suite/package/install is expected to exceed ~5 minutes, launch the equivalent command with shell execution=background, record the durable task_id in docs/PHASE_PROGRESS.md, and retrieve it in a later run.`,
     permission: 'EXECUTE',
     annotations: { readOnlyHint: false, destructiveHint: false },
     inputSchema: processHandleSchema.pick({ workspaceId: true }),

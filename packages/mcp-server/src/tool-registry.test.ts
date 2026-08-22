@@ -3,6 +3,7 @@ import { appError, err, ok } from '@lnwjud/domain';
 import { permissionProfiles } from '@lnwjud/permissions';
 import type { ActivitySinkEvent } from './activity-tracker.js';
 import { ToolRegistry, type McpApplicationServices } from './tool-registry.js';
+import { CODEX_TOOL_NAMES } from './tools/codex-tools.js';
 import { UPGRADE_TOOL_CATALOG } from './upgrade-catalog.js';
 
 const actor = { clientId: 'client-1', clientName: 'test' };
@@ -20,9 +21,7 @@ describe('MCP tool registry', () => {
       'search_files', 'search_text', 'git_status', 'git_diff', 'git_log', 'git', 'write_file',
       'apply_patch', 'move_file', 'copy_file', 'delete_file', 'process_start', 'process_list', 'process_status',
       'process_logs', 'process_stop', 'project_dev', 'project_test', 'project_lint',
-      'project_typecheck', 'project_build', 'codex_status', 'codex_run', 'codex_task_list',
-      'codex_task_status', 'codex_task_logs', 'codex_stop',
-      'shell', 'dom_cdp', 'accessibility', 'input_event', 'vision', 'vision_annotated_capture', 'ui_target_action', 'window', 'health',
+      'project_typecheck', 'project_build', 'shell', 'dom_cdp', 'accessibility', 'input_event', 'vision', 'vision_annotated_capture', 'ui_target_action', 'window', 'health',
       'system_info', 'notification', 'file_dialog', 'clipboard', 'web_fetch',
       'audio', 'screen_record', 'office', 'scheduler',
       'wsl_exec', 'wsl_fs',
@@ -31,9 +30,19 @@ describe('MCP tool registry', () => {
       'workspace_snapshot', 'search_all', 'read_many_files',
       'read_file_page', 'read_file_page_continue',
       'workspace_index', 'workspace_index_status', 'workspace_index_watch', 'workspace_index_stop',
+      'session_handoff', 'verify_incremental',
       ...UPGRADE_TOOL_CATALOG.map((entry) => entry.name),
       'tool_batch',
     ]);
+  });
+
+  it('hides Codex delegation tools by default and exposes them only when explicitly enabled', () => {
+    const hidden = new ToolRegistry({}, actor);
+    const enabled = new ToolRegistry({}, actor, { codexToolsEnabled: true });
+
+    expect(hidden.list().filter((tool) => tool.name.startsWith('codex_'))).toHaveLength(0);
+    expect(enabled.list().filter((tool) => tool.name.startsWith('codex_')).map((tool) => tool.name)).toEqual([...CODEX_TOOL_NAMES]);
+    expect(enabled.list()).toHaveLength(hidden.list().length + CODEX_TOOL_NAMES.length);
   });
 
   it('does not advertise a fixed drive letter in workspace registration metadata', () => {
@@ -416,7 +425,7 @@ describe('MCP tool registry', () => {
       codex: {
         async run(): Promise<ReturnType<typeof ok>> { calls.push('codex_run'); return ok({ codexTaskId: 'c1' }); },
       } as McpApplicationServices['codex'],
-    }, actor);
+    }, actor, { codexToolsEnabled: true });
 
     await expect(registry.invoke('process_start', { workspaceId: 'workspace-1', executable: 'powershell', args: ['-Command', 'Remove-Item x.txt'] })).resolves.toMatchObject({ isError: true, structuredContent: { error: { code: 'PERMISSION_REQUIRED' } } });
     for (const command of ['rm', 'del']) {

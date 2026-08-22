@@ -79,8 +79,7 @@ test('desktop serves the real MCP client development workflow', async () => {
       'search_files', 'search_text', 'git_status', 'git_diff', 'git_log', 'git', 'write_file',
       'apply_patch', 'move_file', 'copy_file', 'delete_file', 'process_start', 'process_list', 'process_status',
       'process_logs', 'process_stop', 'project_dev', 'project_test', 'project_lint',
-      'project_typecheck', 'project_build', 'codex_status', 'codex_run', 'codex_task_list',
-      'codex_task_status', 'codex_task_logs', 'codex_stop',
+      'project_typecheck', 'project_build',
       'shell', 'dom_cdp', 'accessibility', 'input_event', 'vision', 'vision_annotated_capture', 'ui_target_action', 'window', 'health',
       'system_info', 'notification', 'file_dialog', 'clipboard', 'web_fetch',
       'audio', 'screen_record', 'office', 'scheduler', 'wsl_exec', 'wsl_fs',
@@ -88,12 +87,16 @@ test('desktop serves the real MCP client development workflow', async () => {
       'workspace_context', 'workspace_context_continue', 'workspace_full_scan', 'workspace_full_scan_continue',
       'workspace_snapshot', 'search_all', 'read_many_files', 'read_file_page', 'read_file_page_continue',
       'workspace_index', 'workspace_index_status', 'workspace_index_watch', 'workspace_index_stop',
+      'session_handoff', 'verify_incremental',
     ];
-    expect(tools.tools.map((tool) => tool.name)).toEqual([
+    const advertisedTools = tools.tools.map((tool) => tool.name);
+    expect(advertisedTools).toEqual([
       ...expectedCoreTools,
       ...UPGRADE_TOOL_CATALOG.map((entry) => entry.name),
       'tool_batch',
     ]);
+    expect(advertisedTools).toHaveLength(206);
+    expect(advertisedTools.some((name) => name.startsWith('codex_'))).toBe(false);
 
     if (process.platform === 'win32') {
       const nativeHealth = await callTool(client, 'health', { operation: 'check_tool', tool: 'accessibility' });
@@ -107,16 +110,6 @@ test('desktop serves the real MCP client development workflow', async () => {
       }
     }
 
-    const codexStatus = await callTool(client, 'codex_status', {});
-    const codexRecord = toolRecord(codexStatus);
-    if (typeof codexRecord.installed === 'boolean') {
-      expect(codexRecord.capabilities).toEqual(expect.any(Array));
-    } else {
-      expect(codexStatus).toMatchObject({ isError: true });
-      expect(codexRecord).toMatchObject({ error: { code: 'CODEX_NOT_AVAILABLE' } });
-    }
-    expect(JSON.stringify(codexStatus)).not.toMatch(/password|token|credential|api[_-]?key/i);
-
     const info = await callTool(client, 'workspace_info', { workspaceId });
     expect(toolRecord(info)).toMatchObject({ id: workspaceId, realRootPath: fixtureRealRoot });
 
@@ -128,6 +121,7 @@ test('desktop serves the real MCP client development workflow', async () => {
     const safeWrite = await callTool(client, 'write_file', { workspaceId, path: 'src\\safe-blocked.ts', content: 'blocked\n' });
     expect(toolRecord(safeWrite)).toMatchObject({ path: 'src\\safe-blocked.ts' });
     await page.getByRole('button', { name: 'ตั้งค่า', exact: true }).click();
+    await page.getByRole('button', { name: /ความปลอดภัย|Security/ }).click();
     await page.getByLabel('Permission profile', { exact: true }).selectOption('balanced');
     await expect(page.getByLabel('Permission profile', { exact: true })).toHaveValue('balanced');
     await page.getByRole('button', { name: 'หน้าหลัก', exact: true }).click();

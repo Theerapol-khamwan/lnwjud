@@ -112,6 +112,15 @@ describe('MCP development flow', () => {
       const gitDiff = await registry.invoke('git_diff', { workspaceId, path: 'src/app.ts' });
       expect(gitDiff).toMatchObject({ structuredContent: { patch: expect.stringContaining("-export const value = 'before';") } });
 
+      const handoff = await registry.invoke('session_handoff', { workspaceId });
+      expect(handoff).toMatchObject({
+        structuredContent: {
+          tracker_excerpt: expect.stringContaining('REAL-TRACKER-PROBE-42'),
+          changed_files: expect.arrayContaining(['src/app.ts']),
+          prompt: expect.stringContaining('Continue this run in the same chat'),
+        },
+      });
+
       const snapshot = await registry.invoke('project_snapshot', { workspaceId });
       expect(snapshot).toMatchObject({
         structuredContent: {
@@ -137,6 +146,8 @@ async function createFixture(): Promise<string> {
   temporaryRoots.push(rawRoot);
   const root = await realpath(rawRoot);
   await mkdir(path.join(root, 'src'));
+  await mkdir(path.join(root, 'docs'));
+  await writeFile(path.join(root, 'docs', 'PHASE_PROGRESS.md'), '# Phase tracker\n## Next chat startup probe\nREAL-TRACKER-PROBE-42\n', 'utf8');
   await writeFile(path.join(root, 'src', 'app.ts'), "export const value = 'before';\n", 'utf8');
   await writeFile(path.join(root, '.env'), 'SECRET_NOT_FOR_TOOLS=hidden\n', 'utf8');
   await writeFile(path.join(root, 'package.json'), JSON.stringify({

@@ -35,6 +35,7 @@ describe('Backup settings UI', () => {
   it('shows consistent backup controls and an available restore action', () => {
     const markup = renderToStaticMarkup(createElement(SettingsPage, {
       locale: 'en',
+      initialSection: 'backup',
       dashboard,
       onLocaleChange: noop,
       onPermissionProfileChange: noop,
@@ -56,6 +57,7 @@ describe('Backup settings UI', () => {
   it('disables restore while local MCP or Secure Tunnel is active', () => {
     const markup = renderToStaticMarkup(createElement(SettingsPage, {
       locale: 'en',
+      initialSection: 'backup',
       dashboard: { ...dashboard, mcp: { running: true, url: 'http://127.0.0.1:18765/mcp', workspaceId: null } },
       onLocaleChange: noop,
       onPermissionProfileChange: noop,

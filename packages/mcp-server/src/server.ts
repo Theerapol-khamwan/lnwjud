@@ -4,6 +4,8 @@ import type { PermissionProfile } from '@lnwjud/permissions';
 import { APP_NAME, APP_VERSION } from '@lnwjud/shared';
 import { readTraceContext, type ActivitySink, type ActivityTracker } from './activity-tracker.js';
 import { withProgressHeartbeat, type ProgressNotifyContext } from './progress-heartbeat.js';
+import { IncrementalVerifier } from './incremental-verifier.js';
+import { RunBudgetGuard, type RunBudgetContext } from './run-budget.js';
 import { ToolRegistry, type McpApplicationServices } from './tool-registry.js';
 
 export interface McpServerOptions {
@@ -14,6 +16,12 @@ export interface McpServerOptions {
   readonly activityTracker?: ActivityTracker;
   readonly profileProvider?: () => PermissionProfile;
   readonly allowAiDeleteProvider?: () => boolean;
+  /** Exposes quota-consuming Codex delegation tools. Disabled unless explicitly enabled. */
+  readonly codexToolsEnabled?: boolean;
+  /** Shared across per-request server factories so repeated diff fingerprints can hit cache. */
+  readonly incrementalVerifier?: IncrementalVerifier;
+  /** Shared across per-request server factories so the run clock starts at the first tool call. */
+  readonly runBudgetGuard?: RunBudgetGuard;
 }
 
 export function createMcpServer(options: McpServerOptions): McpServer {
@@ -23,7 +31,10 @@ export function createMcpServer(options: McpServerOptions): McpServer {
     ...(options.activityTracker === undefined ? {} : { activityTracker: options.activityTracker }),
     ...(options.profileProvider === undefined ? {} : { profileProvider: options.profileProvider }),
     ...(options.allowAiDeleteProvider === undefined ? {} : { allowAiDeleteProvider: options.allowAiDeleteProvider }),
+    ...(options.codexToolsEnabled === undefined ? {} : { codexToolsEnabled: options.codexToolsEnabled }),
+    ...(options.incrementalVerifier === undefined ? {} : { incrementalVerifier: options.incrementalVerifier }),
   });
+  const runBudgetGuard = options.runBudgetGuard ?? new RunBudgetGuard();
   const server = new McpServer({ name: APP_NAME, version: APP_VERSION }, { capabilities: { tools: {} } });
   for (const tool of registry.list()) {
     server.registerTool(tool.name, {
@@ -31,9 +42,12 @@ export function createMcpServer(options: McpServerOptions): McpServer {
       inputSchema: tool.inputSchema,
       annotations: tool.annotations,
     }, async (input: unknown, context): Promise<CallToolResult> => {
-      return withProgressHeartbeat(context as ProgressNotifyContext, tool.name, async () => (
+      const dispatchContext = context as ProgressNotifyContext & RunBudgetContext;
+      runBudgetGuard.begin(dispatchContext);
+      const result = await withProgressHeartbeat(dispatchContext, tool.name, async () => (
         registry.invoke(tool.name, input, readTraceContext(context)) as unknown as Promise<CallToolResult>
       ));
+      return runBudgetGuard.finish(dispatchContext, result);
     });
   }
   return server;

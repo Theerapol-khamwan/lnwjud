@@ -1,5 +1,7 @@
 import { serveStdio, type StdioServerHandle } from '@modelcontextprotocol/server/stdio';
 import { createMcpServer, type McpServerOptions } from './server.js';
+import { IncrementalVerifier } from './incremental-verifier.js';
+import { RunBudgetGuard } from './run-budget.js';
 
 export interface McpStdioOptions extends McpServerOptions {
   readonly onError?: (error: Error) => void;
@@ -18,8 +20,10 @@ function writeStdioDiagnostic(error: Error): void {
 }
 
 export function startMcpStdio(options: McpStdioOptions): StdioServerHandle {
+  const runBudgetGuard = options.runBudgetGuard ?? new RunBudgetGuard();
+  const incrementalVerifier = options.incrementalVerifier ?? new IncrementalVerifier();
   return serveStdio(
-    () => createMcpServer(options),
+    () => createMcpServer({ ...options, runBudgetGuard, incrementalVerifier }),
     { legacy: 'reject', onerror: options.onError ?? writeStdioDiagnostic },
   );
 }

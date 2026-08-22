@@ -10,6 +10,8 @@ import {
   type McpServer,
 } from '@modelcontextprotocol/server';
 import { createMcpServer, type McpServerOptions } from './server.js';
+import { IncrementalVerifier } from './incremental-verifier.js';
+import { RunBudgetGuard } from './run-budget.js';
 import { createOriginPolicy, type OriginPolicy } from './origin-policy.js';
 
 export const MAX_MCP_HTTP_BODY_BYTES = 1_048_576;
@@ -154,7 +156,9 @@ function sessionNotFoundResponse(): Response {
 }
 
 function createSessionfulMcpHandler(options: McpHttpServerOptions): McpHttpHandler {
-  const factory = (): McpServer => createMcpServer(options);
+  const runBudgetGuard = options.runBudgetGuard ?? new RunBudgetGuard();
+  const incrementalVerifier = options.incrementalVerifier ?? new IncrementalVerifier();
+  const factory = (): McpServer => createMcpServer({ ...options, runBudgetGuard, incrementalVerifier });
   const modernHandler = createMcpHandler(factory, { legacy: 'reject', onerror: writeDiagnostic });
   const sessions = new Map<string, LegacySession>();
   let closed = false;

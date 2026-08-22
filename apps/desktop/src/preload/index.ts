@@ -183,6 +183,7 @@ function userSettings(value: unknown): UserSettings {
     processTimeoutMs: integerField(value, 'processTimeoutMs'),
     capabilityRoots: stringList(value.capabilityRoots),
     mcpHttpPort: integerField(value, 'mcpHttpPort'),
+    codexToolsEnabled: booleanField(value, 'codexToolsEnabled'),
     updateAutoCheck: booleanField(value, 'updateAutoCheck'),
     updateCheckOnStartup: booleanField(value, 'updateCheckOnStartup'),
     updateIntervalMinutes: integerField(value, 'updateIntervalMinutes'),

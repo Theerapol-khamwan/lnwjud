@@ -35,7 +35,7 @@ import {
   WslFilesystemCapabilityBackend,
 } from '@lnwjud/capabilities';
 import type { Result } from '@lnwjud/domain';
-import { ALLOW_AI_DELETE_SETTING_KEY, DEFAULT_MCP_CALL_TIMEOUT_MS, DEFAULT_MCP_IDLE_TIMEOUT_MS, DEFAULT_PROCESS_TIMEOUT_MS, USER_SETTING_KEYS, loadCheckpointEncryptionKey, parseBooleanSetting, parseCustomPermissionSettings, parseIntegerSetting, parsePathList } from '@lnwjud/shared';
+import { ALLOW_AI_DELETE_SETTING_KEY, DEFAULT_CODEX_TOOLS_ENABLED, DEFAULT_MCP_CALL_TIMEOUT_MS, DEFAULT_MCP_IDLE_TIMEOUT_MS, DEFAULT_PROCESS_TIMEOUT_MS, USER_SETTING_KEYS, loadCheckpointEncryptionKey, parseBooleanSetting, parseCustomPermissionSettings, parseIntegerSetting, parsePathList } from '@lnwjud/shared';
 import {
   EXTENSIONS_SETTINGS_KEY,
   createLocalExtensionsService,
@@ -62,6 +62,7 @@ export interface StdioMcpRuntime {
   readonly activityReady: Promise<void>;
   readonly profileProvider: () => PermissionProfile;
   readonly allowAiDeleteProvider: () => boolean;
+  readonly codexToolsEnabled: boolean;
   close(): Promise<void>;
 }
 
@@ -200,6 +201,7 @@ export function createStdioMcpRuntime(
     activityReady,
     profileProvider,
     allowAiDeleteProvider,
+    codexToolsEnabled: parseBooleanSetting(settingsRepository.get(USER_SETTING_KEYS.codexToolsEnabled), DEFAULT_CODEX_TOOLS_ENABLED),
     close: async (): Promise<void> => {
       await (await sharedActivityLease)?.close();
       await extensions.close().catch(() => undefined);

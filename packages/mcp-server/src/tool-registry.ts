@@ -6,6 +6,7 @@ import { ContextEngine } from './context-engine.js';
 import { ContextEconomyRuntime } from './context-economy.js';
 import { hasExplicitUserConfirmation, inspectDestructiveOperation } from './destructive-policy.js';
 import { FilePageEngine } from './file-page-engine.js';
+import { IncrementalVerifier } from './incremental-verifier.js';
 import { mapError, mapResult, type McpToolResponse } from './result-mapper.js';
 import { batchTools } from './tools/batch-tools.js';
 import { contextTools } from './tools/context-tools.js';
@@ -19,6 +20,7 @@ import { fileTools } from './tools/file-tools.js';
 import { gitTools } from './tools/git-tools.js';
 import { mcpBridgeTools } from './tools/mcp-bridge-tools.js';
 import { processTools } from './tools/process-tools.js';
+import { sessionTools } from './tools/session-tools.js';
 import { searchTools } from './tools/search-tools.js';
 import { skillTools } from './tools/skill-tools.js';
 import { workspaceTools } from './tools/workspace-tools.js';
@@ -33,6 +35,9 @@ export interface ToolRegistryOptions {
   readonly profileProvider?: () => PermissionProfile;
   /** Allows only the scoped delete_file tool to delete without per-call chat confirmation. */
   readonly allowAiDeleteProvider?: () => boolean;
+  /** Exposes quota-consuming Codex delegation tools. Disabled unless explicitly enabled. */
+  readonly codexToolsEnabled?: boolean;
+  readonly incrementalVerifier?: IncrementalVerifier;
   readonly maxToolDurationMs?: number;
 }
 
@@ -63,6 +68,7 @@ export class ToolRegistry {
     const context: McpToolContext = { services, actor, contextEconomy };
     const contextEngine = new ContextEngine(services, actor, contextEconomy);
     const filePageEngine = new FilePageEngine(services, actor);
+    const incrementalVerifier = options.incrementalVerifier ?? new IncrementalVerifier();
     const workspace = workspaceTools(context);
     const files = fileTools(context);
     const baseTools: readonly McpToolDefinition[] = [
@@ -72,13 +78,14 @@ export class ToolRegistry {
       ...gitTools(context),
       ...files.slice(2),
       ...processTools(context),
-      ...codexTools(context),
+      ...(options.codexToolsEnabled === true ? codexTools(context) : []),
       ...capabilityTools(context),
       ...skillTools(context),
       ...mcpBridgeTools(context),
       ...contextTools(context, contextEngine),
       ...filePageTools(filePageEngine),
       ...workspaceIndexTools(context),
+      ...sessionTools(context, incrementalVerifier),
       ...upgradeTools(context),
     ];
     this.tools = [
