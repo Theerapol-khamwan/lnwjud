@@ -39,6 +39,7 @@ export interface ShellCapabilityOptions {
   readonly taskStateDirectory?: string;
   readonly autoWaitSeconds?: number;
   readonly maxSynchronousWaitSeconds?: number;
+  readonly maxSynchronousWaitSecondsProvider?: () => number;
   readonly maxOutputBytes?: number;
   /**
    * Full-access mode: cwd may be any existing directory, the full environment is
@@ -90,6 +91,7 @@ export class ShellCapabilityBackend implements CapabilityBackend {
   private readonly durableStore: DurableShellTaskStore | undefined;
   private readonly autoWaitSeconds: number;
   private readonly maxSynchronousWaitSeconds: number;
+  private readonly maxSynchronousWaitSecondsProvider: (() => number) | undefined;
   private readonly maxOutputBytes: number;
   private readonly unrestricted: boolean;
 
@@ -104,6 +106,7 @@ export class ShellCapabilityBackend implements CapabilityBackend {
     this.durableStore = options.taskStateDirectory === undefined ? undefined : new DurableShellTaskStore(path.resolve(options.taskStateDirectory));
     this.autoWaitSeconds = clampNumber(options.autoWaitSeconds ?? DEFAULT_AUTO_WAIT_SECONDS, 0, DEFAULT_TIMEOUT_SECONDS);
     this.maxSynchronousWaitSeconds = clampNumber(options.maxSynchronousWaitSeconds ?? DEFAULT_MAX_SYNCHRONOUS_WAIT_SECONDS, 0.01, 90);
+    this.maxSynchronousWaitSecondsProvider = options.maxSynchronousWaitSecondsProvider;
     this.maxOutputBytes = Math.floor(clampNumber(options.maxOutputBytes ?? DEFAULT_MAX_OUTPUT_BYTES, 1, MAX_OUTPUT_BYTES));
     this.unrestricted = options.unrestricted === true;
   }
@@ -209,8 +212,8 @@ export class ShellCapabilityBackend implements CapabilityBackend {
 
     if (request.execution === 'background') return ok(this.snapshot(record));
     const synchronousWait = request.execution === 'auto'
-      ? Math.min(this.autoWaitSeconds, this.maxSynchronousWaitSeconds)
-      : Math.min(request.timeoutSeconds, this.maxSynchronousWaitSeconds);
+      ? Math.min(this.autoWaitSeconds, this.currentMaxSynchronousWaitSeconds())
+      : Math.min(request.timeoutSeconds, this.currentMaxSynchronousWaitSeconds());
     await this.waitForForeground(record, synchronousWait, signal);
     return ok(this.snapshot(record));
   }
@@ -219,13 +222,19 @@ export class ShellCapabilityBackend implements CapabilityBackend {
     if (request.taskId === undefined) return err(appError('INVALID_INPUT', 'Task ID is required'));
     const record = this.tasks.get(request.taskId);
     if (record !== undefined) {
-      await this.waitFor(record, Math.min(request.timeoutSeconds, this.maxSynchronousWaitSeconds));
+      await this.waitFor(record, Math.min(request.timeoutSeconds, this.currentMaxSynchronousWaitSeconds()));
       return ok(this.snapshot(record, request.tailLines));
     }
     if (this.durableStore !== undefined) {
-      return this.durableStore.wait(request.taskId, Math.min(request.timeoutSeconds, this.maxSynchronousWaitSeconds), request.tailLines);
+      return this.durableStore.wait(request.taskId, Math.min(request.timeoutSeconds, this.currentMaxSynchronousWaitSeconds()), request.tailLines);
     }
     return err(appError('PROCESS_NOT_FOUND', 'Task was not found'));
+  }
+
+  private currentMaxSynchronousWaitSeconds(): number {
+    const configured = this.maxSynchronousWaitSecondsProvider?.();
+    if (configured === undefined || !Number.isFinite(configured)) return this.maxSynchronousWaitSeconds;
+    return clampNumber(configured, 0.01, 90);
   }
 
   private async waitFor(record: ShellTaskRecord, seconds: number): Promise<void> {
@@ -353,7 +362,7 @@ export class ShellCapabilityBackend implements CapabilityBackend {
       includeStderr: request.includeStderr,
     });
     if (!launched.ok || request.execution === 'background') return launched;
-    return this.durableStore.wait(taskId, Math.min(this.autoWaitSeconds, this.maxSynchronousWaitSeconds));
+    return this.durableStore.wait(taskId, Math.min(this.autoWaitSeconds, this.currentMaxSynchronousWaitSeconds()));
   }
 
   private async listTasks(): Promise<Result<unknown>> {

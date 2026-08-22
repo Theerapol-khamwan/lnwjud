@@ -181,6 +181,8 @@ function userSettings(value: unknown): UserSettings {
     mcpCallTimeoutMs: integerField(value, 'mcpCallTimeoutMs'),
     mcpIdleTimeoutMs: integerField(value, 'mcpIdleTimeoutMs'),
     processTimeoutMs: integerField(value, 'processTimeoutMs'),
+    mcpPollWaitSeconds: integerField(value, 'mcpPollWaitSeconds'),
+    shellSynchronousWaitSeconds: integerField(value, 'shellSynchronousWaitSeconds'),
     capabilityRoots: stringList(value.capabilityRoots),
     pdfProviderPath: stringField(value, 'pdfProviderPath'),
     lspCommands: stringRecordResponse(value.lspCommands),

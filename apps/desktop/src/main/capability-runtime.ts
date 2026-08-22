@@ -22,6 +22,7 @@ import {
 } from '@lnwjud/capabilities';
 import type { Result } from '@lnwjud/domain';
 import type { DashboardSnapshot } from '@lnwjud/ipc-contracts';
+import { DEFAULT_SHELL_SYNCHRONOUS_WAIT_SECONDS } from '@lnwjud/shared';
 import { allFixedDriveRoots } from '@lnwjud/workspace';
 
 export interface LocalCapabilityRuntime {
@@ -34,6 +35,7 @@ export function createLocalCapabilityRuntime(
   workspaceRootsProvider: () => Promise<readonly string[]>,
   unrestricted: boolean = false,
   configuredRootsProvider: () => readonly string[] = () => [],
+  synchronousWaitSecondsProvider: () => number = () => DEFAULT_SHELL_SYNCHRONOUS_WAIT_SECONDS,
 ): LocalCapabilityRuntime {
   const capabilityRootsProvider = async (): Promise<readonly string[]> => {
     const workspaceRoots = await workspaceRootsProvider();
@@ -48,6 +50,7 @@ export function createLocalCapabilityRuntime(
     allowedRootsProvider: capabilityRootsProvider,
     unrestricted,
     taskStateDirectory: path.join(dataPath, 'background-tasks'),
+    maxSynchronousWaitSecondsProvider: synchronousWaitSecondsProvider,
   });
   const browserProtocol = new NodeBrowserCdpProtocol({ profileDir: path.join(dataPath, 'browser-profile') });
   const browserBackend = new BrowserCdpBackend({

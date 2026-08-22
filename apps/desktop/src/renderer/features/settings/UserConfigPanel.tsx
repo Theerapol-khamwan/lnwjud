@@ -21,6 +21,8 @@ const DEFAULT_USER_SETTINGS: UserSettings = {
   mcpCallTimeoutMs: 60_000,
   mcpIdleTimeoutMs: 5 * 60_000,
   processTimeoutMs: 60 * 60_000,
+  mcpPollWaitSeconds: 5,
+  shellSynchronousWaitSeconds: 60,
   capabilityRoots: [],
   pdfProviderPath: '',
   lspCommands: {},
@@ -184,8 +186,11 @@ export function UserConfigPanel({ locale, settings, section, onSave }: UserConfi
               <NumberField label={locale === 'th' ? 'External MCP Tool Timeout (วินาที)' : 'External MCP Tool Timeout (seconds)'} value={Math.round(draft.mcpCallTimeoutMs / 1000)} min={1} max={3600} onChange={(value) => patch({ mcpCallTimeoutMs: value * 1000 })} />
               <NumberField label={locale === 'th' ? 'External MCP Idle Timeout (นาที)' : 'External MCP Idle Timeout (minutes)'} value={Math.round(draft.mcpIdleTimeoutMs / 60_000)} min={1} max={1440} onChange={(value) => patch({ mcpIdleTimeoutMs: value * 60_000 })} />
               <NumberField label={locale === 'th' ? 'Process Default Timeout (นาที)' : 'Process Default Timeout (minutes)'} value={Math.round(draft.processTimeoutMs / 60_000)} min={1} max={240} onChange={(value) => patch({ processTimeoutMs: value * 60_000 })} />
+              <NumberField label={locale === 'th' ? 'MCP Poll / Tool Wait (วินาที)' : 'MCP Poll / Tool Wait (seconds)'} value={draft.mcpPollWaitSeconds} min={5} max={60} onChange={(value) => patch({ mcpPollWaitSeconds: value })} />
+              <NumberField label={locale === 'th' ? 'Foreground Shell Wait (วินาที)' : 'Foreground Shell Wait (seconds)'} value={draft.shellSynchronousWaitSeconds} min={5} max={60} onChange={(value) => patch({ shellSynchronousWaitSeconds: value })} />
               <NumberField label="Local MCP HTTP Port" value={draft.mcpHttpPort} min={0} max={65535} onChange={(value) => patch({ mcpHttpPort: value })} />
             </div>
+            <p className="hint">{locale === 'th' ? 'ช่วงที่ตั้งได้ 5–60 วินาที ค่าเริ่มต้นคือ MCP Poll 5 วินาที และ Foreground Shell 60 วินาที ค่านี้จำกัดเวลารอต่อครั้งเท่านั้น ไม่ได้หยุดงาน background' : 'Allowed range: 5–60 seconds. Defaults are 5 seconds for MCP polling and 60 seconds for foreground shell waits. These values only bound each wait; background tasks keep running.'}</p>
           </section>
 
           <section className="panel settings-card settings-card-polished" aria-label="Capability roots">

@@ -8,11 +8,11 @@ const desktopRoot = path.resolve(import.meta.dirname, '..', '..', 'apps', 'deskt
 const repositoryRoot = path.resolve(desktopRoot, '..', '..');
 
 describe('Windows desktop packaging', () => {
-  it('pins the product release to v4.8.4', async () => {
+  it('pins the product release to v4.8.5', async () => {
     const rootPackage = JSON.parse(await readFile(path.join(repositoryRoot, 'package.json'), 'utf8')) as { version?: unknown };
     const desktopPackage = JSON.parse(await readFile(path.join(desktopRoot, 'package.json'), 'utf8')) as { version?: unknown };
-    expect(rootPackage.version).toBe('4.8.4');
-    expect(desktopPackage.version).toBe('4.8.4');
+    expect(rootPackage.version).toBe('4.8.5');
+    expect(desktopPackage.version).toBe('4.8.5');
   });
 
   it('publishes complete desktop application metadata', async () => {
@@ -62,12 +62,14 @@ describe('Windows desktop packaging', () => {
     await access(path.join(desktopRoot, 'dist', 'renderer', 'index.html'));
 
     const mainBundle = await readFile(path.join(desktopRoot, 'dist', 'main', 'main.js'), 'utf8');
-    expect(mainBundle).toContain('webSecurity: true');
-    expect(mainBundle).not.toContain('webSecurity: false');
+    const windowBundle = await readFile(path.join(desktopRoot, 'dist', 'main', 'window.js'), 'utf8');
+    const tunnelBundle = await readFile(path.join(desktopRoot, 'dist', 'main', 'tunnel-controller.js'), 'utf8');
+    expect(windowBundle).toContain('webSecurity: true');
+    expect(windowBundle).not.toContain('webSecurity: false');
     expect(mainBundle).toMatch(/setName\(["']lnwjud["']|setName\(APP_NAME\)/);
-    expect(mainBundle).toContain('LNWJUD_DATA_PATH');
-    expect(mainBundle).toContain('LNWJUD_UNRESTRICTED');
-    expect(mainBundle).toContain('setPath("userData"');
+    expect(tunnelBundle).toContain('LNWJUD_DATA_PATH');
+    expect(tunnelBundle).toContain('LNWJUD_UNRESTRICTED');
+    expect(mainBundle).toMatch(/setPath\(["']userData["']/);
   });
 
   it('runs the stdio launcher with the bundled Node runtime even when PATH contains no system Node', async () => {

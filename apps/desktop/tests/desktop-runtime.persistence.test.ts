@@ -143,6 +143,8 @@ describe('DesktopRuntime persistence', () => {
         mcpCallTimeoutMs: 120_000,
         mcpIdleTimeoutMs: 10 * 60_000,
         processTimeoutMs: 90 * 60_000,
+        mcpPollWaitSeconds: 25,
+        shellSynchronousWaitSeconds: 45,
         capabilityRoots: ['D:\\Projects', 'E:\\Work'],
         pdfProviderPath: 'C:\\Tools\\pdftotext.exe',
         lspCommands: { typescript: '["typescript-language-server","--stdio"]', python: '["pyright-langserver","--stdio"]' },
@@ -195,6 +197,8 @@ describe('DesktopRuntime persistence', () => {
           mcpCallTimeoutMs: 120_000,
           mcpIdleTimeoutMs: 10 * 60_000,
           processTimeoutMs: 90 * 60_000,
+          mcpPollWaitSeconds: 25,
+          shellSynchronousWaitSeconds: 45,
           capabilityRoots: ['D:\\Projects', 'E:\\Work'],
           pdfProviderPath: 'C:\\Tools\\pdftotext.exe',
           lspCommands: { typescript: '["typescript-language-server","--stdio"]', python: '["pyright-langserver","--stdio"]' },
@@ -221,6 +225,25 @@ describe('DesktopRuntime persistence', () => {
       await restarted.close();
     }
   }, 30_000);
+  it('applies MCP poll and foreground wait settings live without requiring a runtime restart', async () => {
+    const rawDataRoot = await mkdtemp(path.join(os.tmpdir(), 'lnwjud-runtime-live-waits-'));
+    temporaryRoots.push(rawDataRoot);
+    const dataRoot = await realpath(rawDataRoot);
+    const runtime = createDesktopRuntime(dataRoot);
+    try {
+      const initial = runtime.getUserSettings();
+      expect(initial).toMatchObject({ mcpPollWaitSeconds: 5, shellSynchronousWaitSeconds: 60 });
+      const next = { ...initial, mcpPollWaitSeconds: 20, shellSynchronousWaitSeconds: 40 };
+      await expect(runtime.services.setUserSettings({ settings: next })).resolves.toMatchObject({
+        restartRequired: false,
+        settings: { mcpPollWaitSeconds: 20, shellSynchronousWaitSeconds: 40 },
+      });
+      expect(runtime.getUserSettings()).toMatchObject({ mcpPollWaitSeconds: 20, shellSynchronousWaitSeconds: 40 });
+    } finally {
+      await runtime.close();
+    }
+  }, 30_000);
+
   it('serves the local capability health tool through the desktop MCP listener', async () => {
     const rawDataRoot = await mkdtemp(path.join(os.tmpdir(), 'lnwjud-runtime-data-'));
     const rawWorkspaceRoot = await mkdtemp(path.join(os.tmpdir(), 'lnwjud-runtime-workspace-'));

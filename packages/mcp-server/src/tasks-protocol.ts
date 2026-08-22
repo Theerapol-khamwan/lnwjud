@@ -1,5 +1,6 @@
 import { ProtocolError, ProtocolErrorCode, RELATED_TASK_META_KEY, type McpServer } from '@modelcontextprotocol/server';
 import type { AppError, Result } from '@lnwjud/domain';
+import { DEFAULT_MCP_POLL_WAIT_SECONDS, MAX_CONFIGURABLE_WAIT_SECONDS, MIN_CONFIGURABLE_WAIT_SECONDS } from '@lnwjud/shared';
 import { z } from 'zod';
 import type { McpApplicationServices } from './tool-registry.js';
 
@@ -39,8 +40,8 @@ type TaskIdParams = { readonly taskId: string };
 type ListParams = { readonly cursor?: string | undefined };
 
 const DEFAULT_PAGE_SIZE = 50;
-const DEFAULT_MAX_RESULT_WAIT_MS = 5_000;
-const DEFAULT_POLL_INTERVAL_MS = 5_000;
+const DEFAULT_MAX_RESULT_WAIT_MS = DEFAULT_MCP_POLL_WAIT_SECONDS * 1_000;
+const DEFAULT_POLL_INTERVAL_MS = DEFAULT_MCP_POLL_WAIT_SECONDS * 1_000;
 const DEFAULT_POLL_TICK_MS = 200;
 const CURSOR_PREFIX = 'lnwjud-tasks:';
 const TERMINAL_STATUSES: ReadonlySet<ProtocolTask['status']> = new Set(['completed', 'failed', 'cancelled']);
@@ -127,8 +128,9 @@ export class TasksProtocol {
   public async listTasks(params: ListParams): Promise<{ tasks: ProtocolTask[]; nextCursor?: string }> {
     const offset = params.cursor === undefined ? 0 : decodeCursor(params.cursor);
     const snapshots = await this.listSnapshots();
+    const pollIntervalMs = this.currentPollIntervalMs();
     const mapped = snapshots
-      .map((snapshot) => toProtocolTask(snapshot, this.pollIntervalMs))
+      .map((snapshot) => toProtocolTask(snapshot, pollIntervalMs))
       .filter((task): task is ProtocolTask => task !== undefined);
     const tasks = mapped.slice(offset, offset + this.pageSize);
     const nextOffset = offset + tasks.length;
@@ -142,7 +144,7 @@ export class TasksProtocol {
     }
     const cancelled = await this.executeShell('cancel', params.taskId);
     if (!cancelled.ok) throw this.shellError(cancelled.error);
-    const task = toProtocolTask(this.snapshot(cancelled.value), this.pollIntervalMs);
+    const task = toProtocolTask(this.snapshot(cancelled.value), this.currentPollIntervalMs());
     if (task === undefined) throw invalidParams(`Task not found: ${params.taskId}`);
     return task;
   }
@@ -151,17 +153,18 @@ export class TasksProtocol {
    * Returns the underlying shell task snapshot once the task reaches a
    * terminal status. The spec wants tasks/result to block until terminal,
    * but durable tasks are designed to outlive any reasonable request wait,
-   * so this implementation blocks only for a short bounded poll window (5s by default) and then
-   * answers -32603 directing the client back to tasks/get polling
-   * (documented deviation, see docs/mcp/MCP_TASKS.md).
+   * so this implementation blocks only for the configured MCP poll window
+   * (5-60 seconds, 5 seconds by default) and then answers -32603 directing
+   * the client back to tasks/get polling (documented deviation, see
+   * docs/mcp/MCP_TASKS.md).
    */
   public async taskResult(params: TaskIdParams): Promise<TaskResultPayload> {
-    const waitDeadline = Date.now() + this.maxResultWaitMs;
+    const waitDeadline = Date.now() + this.currentMaxResultWaitMs();
     for (;;) {
       const result = await this.executeShell('status', params.taskId);
       if (!result.ok) throw this.shellError(result.error);
       const snapshot = this.snapshot(result.value);
-      const task = toProtocolTask(snapshot, this.pollIntervalMs);
+      const task = toProtocolTask(snapshot, this.currentPollIntervalMs());
       if (task === undefined) throw invalidParams(`Task not found: ${params.taskId}`);
       if (TERMINAL_STATUSES.has(task.status)) {
         return {
@@ -171,7 +174,7 @@ export class TasksProtocol {
         };
       }
       if (Date.now() >= waitDeadline) {
-        throw internalError(`Task ${params.taskId} is still ${task.status}; keep polling tasks/get and retry tasks/result later`);
+        throw internalError(`Task ${params.taskId} is still ${task.status}; poll tasks/get later. Do not repeatedly poll in the same chat turn; preserve the taskId and return control while the durable task keeps running`);
       }
       await sleep(this.pollTickMs);
     }
@@ -180,9 +183,24 @@ export class TasksProtocol {
   private async protocolTask(taskId: string): Promise<ProtocolTask> {
     const result = await this.executeShell('status', taskId);
     if (!result.ok) throw this.shellError(result.error);
-    const task = toProtocolTask(this.snapshot(result.value), this.pollIntervalMs);
+    const task = toProtocolTask(this.snapshot(result.value), this.currentPollIntervalMs());
     if (task === undefined) throw invalidParams(`Task not found: ${taskId}`);
     return task;
+  }
+
+  private currentConfiguredPollWaitMs(): number | undefined {
+    const configured = this.services.runtimeTiming?.().mcpPollWaitSeconds;
+    if (configured === undefined || !Number.isFinite(configured)) return undefined;
+    const seconds = Math.max(MIN_CONFIGURABLE_WAIT_SECONDS, Math.min(MAX_CONFIGURABLE_WAIT_SECONDS, configured));
+    return Math.round(seconds * 1_000);
+  }
+
+  private currentMaxResultWaitMs(): number {
+    return this.currentConfiguredPollWaitMs() ?? this.maxResultWaitMs;
+  }
+
+  private currentPollIntervalMs(): number {
+    return this.currentConfiguredPollWaitMs() ?? this.pollIntervalMs;
   }
 
   private async listSnapshots(): Promise<ShellSnapshot[]> {

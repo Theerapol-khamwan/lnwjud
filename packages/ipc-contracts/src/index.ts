@@ -1,5 +1,5 @@
 export const APP_NAME = 'lnwjud';
-export const APP_VERSION = '4.8.4';
+export const APP_VERSION = '4.8.5';
 
 export const ipcChannels = {
   listWorkspaces: 'lnwjud:list-workspaces',
@@ -88,6 +88,8 @@ export interface UserSettings {
   readonly mcpCallTimeoutMs: number;
   readonly mcpIdleTimeoutMs: number;
   readonly processTimeoutMs: number;
+  readonly mcpPollWaitSeconds: number;
+  readonly shellSynchronousWaitSeconds: number;
   readonly capabilityRoots: readonly string[];
   readonly pdfProviderPath: string;
   readonly lspCommands: Readonly<Record<string, string>>;

@@ -61,6 +61,21 @@ describe('TasksProtocol', () => {
     expect(tasks.every((task) => task.pollInterval === 5_000)).toBe(true);
   });
 
+  it('advertises the live configured poll interval with the 5-60 second guardrails', async () => {
+    let configured = 30;
+    const services: McpApplicationServices = {
+      ...servicesWithTasks({ 'task-running': runningDurable }),
+      runtimeTiming: () => ({ mcpPollWaitSeconds: configured }),
+    };
+    const protocol = new TasksProtocol(services);
+
+    expect((await protocol.getTask({ taskId: 'task-running' })).pollInterval).toBe(30_000);
+    configured = 1;
+    expect((await protocol.getTask({ taskId: 'task-running' })).pollInterval).toBe(5_000);
+    configured = 999;
+    expect((await protocol.getTask({ taskId: 'task-running' })).pollInterval).toBe(60_000);
+  });
+
   it('derives ttl from deadline_at and falls back to unlimited', async () => {
     const protocol = new TasksProtocol(servicesWithTasks({ 'task-running': runningDurable }));
     const task = await protocol.getTask({ taskId: 'task-running' });

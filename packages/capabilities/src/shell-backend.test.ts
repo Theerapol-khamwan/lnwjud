@@ -46,6 +46,27 @@ describe('ShellCapabilityBackend', () => {
     expect(result).toMatchObject({ ok: true, value: { state: 'completed', exit_code: 0, stdout: 'after-five-seconds' } });
   }, 10_000);
 
+  it('applies a live synchronous-wait provider without changing the backend default contract', async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), 'lnwjud-shell-'));
+    temporaryRoots.push(root);
+    let waitSeconds = 0.05;
+    const backend = new ShellCapabilityBackend({ allowedRoots: [root], maxSynchronousWaitSecondsProvider: (): number => waitSeconds });
+
+    const first = await backend.execute({
+      operation: 'run', executable: process.execPath, arguments: ['-e', "setTimeout(() => process.stdout.write('late'), 300)"],
+      cwd: root, execution: 'foreground', timeout_seconds: 5,
+    });
+    expect(first).toMatchObject({ ok: true, value: { state: 'running', task_id: expect.any(String) } });
+    if (first.ok) await backend.execute({ operation: 'cancel', task_id: first.value.task_id });
+
+    waitSeconds = 1;
+    const second = await backend.execute({
+      operation: 'run', executable: process.execPath, arguments: ['-e', "setTimeout(() => process.stdout.write('done'), 80)"],
+      cwd: root, execution: 'foreground', timeout_seconds: 5,
+    });
+    expect(second).toMatchObject({ ok: true, value: { state: 'completed', stdout: 'done' } });
+  });
+
   it('rejects a working directory outside configured local roots', async () => {
     const root = await mkdtemp(path.join(os.tmpdir(), 'lnwjud-shell-'));
     const outside = await mkdtemp(path.join(os.tmpdir(), 'lnwjud-shell-outside-'));

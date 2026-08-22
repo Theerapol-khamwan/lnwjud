@@ -3,6 +3,8 @@ export const USER_SETTING_KEYS = Object.freeze({
   mcpCallTimeoutMs: 'mcp_call_timeout_ms',
   mcpIdleTimeoutMs: 'mcp_idle_timeout_ms',
   processTimeoutMs: 'process_timeout_ms',
+  mcpPollWaitSeconds: 'mcp_poll_wait_seconds',
+  shellSynchronousWaitSeconds: 'shell_synchronous_wait_seconds',
   capabilityRoots: 'capability_roots',
   pdfProviderPath: 'pdf_provider_path',
   lspCommands: 'lsp_commands',
@@ -22,6 +24,10 @@ export const USER_SETTING_KEYS = Object.freeze({
 export const DEFAULT_MCP_CALL_TIMEOUT_MS = 60_000;
 export const DEFAULT_MCP_IDLE_TIMEOUT_MS = 5 * 60_000;
 export const DEFAULT_PROCESS_TIMEOUT_MS = 60 * 60_000;
+export const DEFAULT_MCP_POLL_WAIT_SECONDS = 5;
+export const DEFAULT_SHELL_SYNCHRONOUS_WAIT_SECONDS = 60;
+export const MIN_CONFIGURABLE_WAIT_SECONDS = 5;
+export const MAX_CONFIGURABLE_WAIT_SECONDS = 60;
 export const DEFAULT_CODEX_TOOLS_ENABLED = false;
 export const DEFAULT_UPDATE_INTERVAL_MINUTES = 30;
 export const DEFAULT_TUNNEL_MAX_AUTO_RESTARTS = 5;

@@ -40,12 +40,31 @@ The tunnel is outbound-only: `tunnel-client` runs beside lnwjud, reaches OpenAI
 over outbound HTTPS, forwards MCP work to the local stdio server, and returns the
 response without opening a public inbound port on the Windows machine.
 
-## Current release: v4.8.4
+## Current release: v4.8.5
 
-The current published installer and runtime contract are `v4.8.4`. The runtime
+The current published installer and runtime contract are `v4.8.5`. The runtime
 advertises **213 MCP tools**. The earlier 184-tool snapshot remains only as the
 compatibility baseline used by the v4 architecture; new v4 gateway capabilities
 are additive.
+
+### What's new in v4.8.5
+
+- Adds two user-configurable wait controls under **Settings → Tools & Timeouts**.
+  **MCP Poll / Tool Wait** is adjustable from 5–60 seconds with a 5-second
+  default, while **Foreground Shell Wait** is adjustable from 5–60 seconds
+  with a 60-second default. Both limits are validated by the desktop IPC
+  boundary and persisted in the local SQLite settings store.
+- Applies both wait settings live to the Desktop HTTP runtime and direct STDIO /
+  Secure Tunnel runtime. Changing only these timing controls does not require a
+  Local MCP restart; shell foreground/wait paths read the current value through a
+  provider and MCP `shell`/`wsl_exec` polling reads the current poll window per call.
+- Uses the same configurable MCP poll window for experimental `tasks/result` and
+  advertised task `pollInterval`, while preserving the durable background-task
+  contract: reaching the wait limit never kills the command running on the machine.
+- Strengthens agent guidance for long-running work: after one or two checks still
+  report `running`, preserve the task ID and return control instead of tight-polling
+  inside one ChatGPT turn. This reduces message-delivery timeouts without losing
+  the background build, test, install, or packaging task.
 
 ### What's new in v4.8.4
 
@@ -255,7 +274,7 @@ stops the current local HTTP listener.
 
 1. Download the latest published installer from
    [GitHub Releases](https://github.com/engasnm111/lnwjud/releases/latest).
-   The current release is `lnwjud-Setup-4.8.4.exe`.
+   The current release is `lnwjud-Setup-4.8.5.exe`.
 2. Run the NSIS installer and launch **lnwjud Agent Control Center**.
 3. Add or select the project/workspace you want lnwjud to operate on.
 4. Review **Settings** before attaching an AI client, especially Permission
@@ -501,7 +520,7 @@ corepack pnpm@10.15.0 package:windows
 The x64 NSIS installer is written to:
 
 ```text
-apps/desktop/dist/installers/lnwjud-Setup-4.8.4.exe
+apps/desktop/dist/installers/lnwjud-Setup-4.8.5.exe
 ```
 
 The installer is per-user by default. A common installed executable path is:
@@ -852,7 +871,7 @@ After changing tool metadata or restarting the tunnel, refresh the connector and
 
 ## Complete MCP tool catalog (213 configurable tools; 207 advertised by default)
 
-This index is generated from the current v4.8.4 `ToolRegistry`, not copied from an older release document. Optional/planned tools still appear in the advertised contract and report their availability/requirements at runtime where applicable.
+This index is generated from the current v4.8.5 `ToolRegistry`, not copied from an older release document. Optional/planned tools still appear in the advertised contract and report their availability/requirements at runtime where applicable.
 
 | # | Tool | Permission | Runtime description |
 | ---: | --- | --- | --- |
@@ -890,7 +909,7 @@ This index is generated from the current v4.8.4 `ToolRegistry`, not copied from 
 | 32 | `codex_task_status` | READ | Read status for an owned Codex task. |
 | 33 | `codex_task_logs` | READ | Read bounded logs for an owned Codex task. |
 | 34 | `codex_stop` | EXECUTE | Stop an owned Codex task process. |
-| 35 | `shell` | EXECUTE | Non-blocking command runner. MCP `run` calls are forced to background and return `task_id` immediately; use status/logs/result afterward. `wait` is capped to a short 5-second poll. |
+| 35 | `shell` | EXECUTE | Non-blocking command runner. MCP `run` calls are forced to background and return `task_id` immediately; `wait` uses the configurable 5–60 second poll window (default 5s). After 1–2 running checks, preserve `task_id` and return control instead of tight-polling. |
 | 36 | `dom_cdp` | DANGEROUS | Default for web-page DOM work inside managed Chrome: inspect content, query selectors, click, type, navigate, evaluate JavaScript, wait, manage tabs, and capture screenshots. Use steps to batch related DOM actions in one call. |
 | 37 | `accessibility` | DANGEROUS | Semantic native Windows UI tool. Inspect UI trees and named controls, then click, focus, read or set values, select controls and menus, or manage a native element. Prefer shell for direct system work and dom_cdp for web pages. |
 | 38 | `input_event` | DANGEROUS | Low-level keyboard and pointer fallback. Use only when DOM/CDP and Accessibility cannot operate the target. Supports text, keys, mouse movement, clicks, drag, scroll, held buttons, release_all, and batched sequences. |
@@ -908,7 +927,7 @@ This index is generated from the current v4.8.4 `ToolRegistry`, not copied from 
 | 50 | `screen_record` | DANGEROUS | Record the screen to an MP4 using ffmpeg gdigrab (requires ffmpeg on PATH). start spawns a background capture, status checks it, stop finalizes the file. Recording stops automatically after 3600 seconds. |
 | 51 | `office` | DANGEROUS | Automate Excel or Word through COM. Mutating actions (write, replace, save_as) require explicit chat confirmation and userConfirmed: true. Requires Microsoft Office installed. |
 | 52 | `scheduler` | DANGEROUS | Manage Windows scheduled tasks with schtasks.exe. list enumerates tasks, create registers a new task, run starts one immediately. delete requires the user to confirm in chat first, then pass userConfirmed: true. |
-| 53 | `wsl_exec` | EXECUTE | Scoped WSL2 developer runner. MCP `run` calls are forced to background and return `task_id` immediately; `wait` is capped to a short 5-second poll. |
+| 53 | `wsl_exec` | EXECUTE | Scoped WSL2 developer runner. MCP `run` calls are forced to background and return `task_id` immediately; `wait` uses the configurable 5–60 second poll window (default 5s). After 1–2 running checks, preserve `task_id` and return control instead of tight-polling. |
 | 54 | `wsl_fs` | READ | Translate paths and inspect metadata between a registered Windows workspace and WSL without exposing raw \\wsl$ read/write access. |
 | 55 | `skills_list` | DANGEROUS | List local agent skills discovered from Cursor, Claude, Agents, workspace skill roots, and lnwjud settings. Filter with query or source. |
 | 56 | `skills_read` | DANGEROUS | Read a local skill SKILL.md (or a relative file inside the skill folder). Follow the skill instructions with lnwjud tools and mcp_call. |

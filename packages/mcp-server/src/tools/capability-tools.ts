@@ -1,5 +1,6 @@
 import { defineTool, missingService, type McpToolContext, type McpToolDefinition } from './tool-types.js';
 import type { Result } from '@lnwjud/domain';
+import { DEFAULT_MCP_POLL_WAIT_SECONDS, MAX_CONFIGURABLE_WAIT_SECONDS, MIN_CONFIGURABLE_WAIT_SECONDS } from '@lnwjud/shared';
 import { SetOfMarksService } from '../set-of-marks-service.js';
 import {
   accessibilityCapabilitySchema,
@@ -24,16 +25,20 @@ import {
   wslFilesystemCapabilitySchema,
 } from './schemas.js';
 
-const MCP_MAX_POLL_WAIT_SECONDS = 5;
+function currentMcpPollWaitSeconds(context: McpToolContext): number {
+  const configured = context.services.runtimeTiming?.().mcpPollWaitSeconds ?? DEFAULT_MCP_POLL_WAIT_SECONDS;
+  if (!Number.isFinite(configured)) return DEFAULT_MCP_POLL_WAIT_SECONDS;
+  return Math.max(MIN_CONFIGURABLE_WAIT_SECONDS, Math.min(MAX_CONFIGURABLE_WAIT_SECONDS, configured));
+}
 
-function normalizeNonBlockingCliInput(input: unknown): unknown {
+function normalizeNonBlockingCliInput(input: unknown, maxPollWaitSeconds: number): unknown {
   if (typeof input !== 'object' || input === null || Array.isArray(input)) return input;
   const request = input as Record<string, unknown>;
   const operation = request.operation ?? 'run';
   if (operation === 'run') return { ...request, execution: 'background' };
   if (operation === 'wait') {
-    const requestedWait = typeof request.timeout_seconds === 'number' ? request.timeout_seconds : MCP_MAX_POLL_WAIT_SECONDS;
-    return { ...request, timeout_seconds: Math.min(requestedWait, MCP_MAX_POLL_WAIT_SECONDS) };
+    const requestedWait = typeof request.timeout_seconds === 'number' ? request.timeout_seconds : maxPollWaitSeconds;
+    return { ...request, timeout_seconds: Math.min(requestedWait, maxPollWaitSeconds) };
   }
   return input;
 }
@@ -44,7 +49,9 @@ export function capabilityTools(context: McpToolContext): McpToolDefinition[] {
       ? Promise.resolve(missingService())
       : context.services.capabilities.execute(
         tool,
-        tool === 'shell' || tool === 'wsl_exec' ? normalizeNonBlockingCliInput(input) : input,
+        tool === 'shell' || tool === 'wsl_exec'
+          ? normalizeNonBlockingCliInput(input, currentMcpPollWaitSeconds(context))
+          : input,
         signal,
       )
   );
@@ -53,7 +60,7 @@ export function capabilityTools(context: McpToolContext): McpToolDefinition[] {
   return [
     defineTool({
       name: 'shell',
-      description: 'Non-blocking command runner for system operations and CLI tasks. MCP run calls are ALWAYS forced to execution=background, even if a client requests foreground or auto, so the call returns a task_id immediately instead of waiting for command completion. Follow with status/logs/result; wait is capped to a short 5-second poll. Never hold a tool call open waiting for a build, test, install, package, or other command to finish. Destructive shell commands still require explicit chat confirmation and userConfirmed: true.',
+      description: 'Non-blocking command runner for system operations and CLI tasks. MCP run calls are ALWAYS forced to execution=background, even if a client requests foreground or auto, so the call returns a task_id immediately instead of waiting for command completion. Follow with status/logs/result; wait uses the user-configurable MCP poll window (5-60 seconds, default 5). After one or two checks still show running, do not keep polling in the same chat turn: preserve task_id and return control so the durable task can continue without risking a ChatGPT turn timeout. Destructive shell commands still require explicit chat confirmation and userConfirmed: true.',
       permission: 'EXECUTE',
       annotations: { readOnlyHint: false, destructiveHint: true },
       inputSchema: shellCapabilitySchema,
@@ -197,7 +204,7 @@ export function capabilityTools(context: McpToolContext): McpToolDefinition[] {
     }),
     defineTool({
       name: 'wsl_exec',
-      description: 'Non-blocking WSL2 developer runner. MCP run calls are ALWAYS forced to background and return a task_id immediately; foreground/auto requests are normalized by the server. Follow with status/logs/result; wait is capped to a short 5-second poll. It executes one Linux executable with argv, an explicit distribution, and a registered Windows workspace cwd, and never accepts shell command strings.',
+      description: 'Non-blocking WSL2 developer runner. MCP run calls are ALWAYS forced to background and return a task_id immediately; foreground/auto requests are normalized by the server. Follow with status/logs/result; wait uses the user-configurable MCP poll window (5-60 seconds, default 5). After one or two checks still show running, do not keep polling in the same chat turn: preserve task_id and return control so the durable task can continue without risking a ChatGPT turn timeout. It executes one Linux executable with argv, an explicit distribution, and a registered Windows workspace cwd, and never accepts shell command strings.',
       permission: 'EXECUTE',
       annotations: { readOnlyHint: false, destructiveHint: true },
       inputSchema: wslCapabilitySchema,

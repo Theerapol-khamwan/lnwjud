@@ -35,8 +35,13 @@ export interface ProjectSnapshotPort {
   snapshot(actor: FileActor, workspaceId: string): Promise<Result<unknown>>;
 }
 
+export interface McpRuntimeTiming {
+  readonly mcpPollWaitSeconds: number;
+}
+
 export interface McpApplicationServices {
   readonly runtimeStatePath?: string;
+  readonly runtimeTiming?: () => McpRuntimeTiming;
   readonly localProviders?: () => { readonly pdfProvider?: string; readonly lspCommands?: Readonly<Record<string, string>> };
   readonly capabilities?: CapabilityService;
   readonly extensions?: ExtensionsService;

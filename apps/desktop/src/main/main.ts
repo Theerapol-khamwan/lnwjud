@@ -40,7 +40,7 @@ import {
   type WorkspaceSummary,
 } from '@lnwjud/ipc-contracts';
 import { readSharedActivitySnapshot, startMcpStdio } from '@lnwjud/mcp-server';
-import { resolveLnwjudDataPath } from '@lnwjud/shared';
+import { DEFAULT_MCP_POLL_WAIT_SECONDS, DEFAULT_SHELL_SYNCHRONOUS_WAIT_SECONDS, MAX_CONFIGURABLE_WAIT_SECONDS, MIN_CONFIGURABLE_WAIT_SECONDS, resolveLnwjudDataPath } from '@lnwjud/shared';
 import { applyPendingSqliteRestoreSync } from '@lnwjud/storage';
 import { createDesktopRuntime, type DesktopRuntime } from './desktop-services.js';
 import { DesktopShutdownCoordinator } from './desktop-shutdown.js';
@@ -108,6 +108,8 @@ const defaultUserSettings: UserSettings = {
   mcpCallTimeoutMs: 60_000,
   mcpIdleTimeoutMs: 5 * 60_000,
   processTimeoutMs: 60 * 60_000,
+  mcpPollWaitSeconds: DEFAULT_MCP_POLL_WAIT_SECONDS,
+  shellSynchronousWaitSeconds: DEFAULT_SHELL_SYNCHRONOUS_WAIT_SECONDS,
   capabilityRoots: [],
   pdfProviderPath: '',
   lspCommands: {},
@@ -558,6 +560,8 @@ function parseUserSettings(record: Record<string, unknown>): UserSettings {
     mcpCallTimeoutMs: boundedInteger(record.mcpCallTimeoutMs, 'mcpCallTimeoutMs', 1_000, 60 * 60_000),
     mcpIdleTimeoutMs: boundedInteger(record.mcpIdleTimeoutMs, 'mcpIdleTimeoutMs', 30_000, 24 * 60 * 60_000),
     processTimeoutMs: boundedInteger(record.processTimeoutMs, 'processTimeoutMs', 1_000, 4 * 60 * 60_000),
+    mcpPollWaitSeconds: boundedInteger(record.mcpPollWaitSeconds, 'mcpPollWaitSeconds', MIN_CONFIGURABLE_WAIT_SECONDS, MAX_CONFIGURABLE_WAIT_SECONDS),
+    shellSynchronousWaitSeconds: boundedInteger(record.shellSynchronousWaitSeconds, 'shellSynchronousWaitSeconds', MIN_CONFIGURABLE_WAIT_SECONDS, MAX_CONFIGURABLE_WAIT_SECONDS),
     capabilityRoots: stringArray(record.capabilityRoots, 'capabilityRoots', 128),
     pdfProviderPath: typeof record.pdfProviderPath === 'string' ? record.pdfProviderPath.trim() : invalidField('pdfProviderPath'),
     lspCommands: stringRecord(record.lspCommands, 'lspCommands', 32),

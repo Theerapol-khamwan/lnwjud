@@ -95,6 +95,30 @@ describe('MCP tool registry', () => {
     expect(calls[3]).toMatchObject({ tool: 'wsl_exec', input: { operation: 'wait', timeout_seconds: 5 } });
   });
 
+  it('uses the live configured MCP poll window and clamps it to the supported 5-60 second range', async () => {
+    const waits: number[] = [];
+    let configured = 30;
+    const registry = new ToolRegistry({
+      runtimeTiming: (): { mcpPollWaitSeconds: number } => ({ mcpPollWaitSeconds: configured }),
+      capabilities: {
+        async execute(_tool, input): Promise<ReturnType<typeof ok>> {
+          const request = input as { operation?: string; timeout_seconds?: number };
+          if (request.operation === 'wait' && request.timeout_seconds !== undefined) waits.push(request.timeout_seconds);
+          return ok({ accepted: true });
+        },
+      },
+    }, actor);
+
+    await registry.invoke('shell', { operation: 'wait', task_id: 'task-1', timeout_seconds: 60 });
+    configured = 1;
+    await registry.invoke('shell', { operation: 'wait', task_id: 'task-1', timeout_seconds: 60 });
+    configured = 999;
+    await registry.invoke('wsl_exec', { operation: 'wait', workspaceId: 'workspace-1', task_id: 'task-2', timeout_seconds: 60 });
+
+    expect(waits).toEqual([30, 5, 60]);
+    expect(registry.list().find((tool) => tool.name === 'shell')?.description).toContain('do not keep polling in the same chat turn');
+  });
+
   it('blocks dangerous capability execution under the safe profile before reaching the backend', async () => {
     let executed = false;
     const registry = new ToolRegistry({

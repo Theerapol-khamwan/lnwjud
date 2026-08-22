@@ -15,7 +15,7 @@ lnwjud เปิดดู durable background tasks ผ่านเมธอด�
 - **การสร้าง task ยังทำผ่าน tool เดิม**: `shell { execution: "background" }`
   — Tasks surface เป็นฝั่งอ่าน/เก็บผล/ยกเลิกเท่านั้น
 - **ไม่ประกาศ `tasks.requests.tools.call`** ตามความตั้งใจ: client จึงจะไม่ส่ง
-  task-augmented `tools/call` มา (Phase B — ด้วยท้ายเอกสาร)
+  task-augmented `tools/call` มา (Phase B — ดูท้ายเอกสาร)
 - **ไม่ส่ง `notifications/tasks/status`** (optional ตามสเปก) — client ต้อง poll `tasks/get`
 
 ## เมธอดที่รองรับ
@@ -37,19 +37,28 @@ Capability ที่ประกาศตอน initialize: `{ tasks: { list: {}
 | `completed` | `completed` |
 | `failed` | `failed` (+`statusMessage` จาก error) |
 | `timed_out` | `failed` (+`statusMessage`) |
-| `termination_unverified` | `failed` (+`statusMessage`) |
+| `termination_unverified` | `working` (+`statusMessage` เพราะ process อาจยังมีชีวิต) |
 | `cancelled` | `cancelled` |
 
 ฟิลด์สังเคราะห์: `createdAt` = `started_at`, `lastUpdatedAt` = `finished_at ?? started_at`,
-`ttl` = `deadline_at - started_at` (`null` ถ้าไม่มี deadline เช่น task แบบ in-memory),
-`pollInterval` = 5000ms
+`ttl` = `deadline_at - started_at` (`null` ถ้าไม่มี deadline เช่น task แบบ in-memory)
+
+`pollInterval` ใช้ค่า **MCP Poll / Tool Wait** จาก Settings: ตั้งได้ 5–60 วินาที
+และค่าเริ่มต้นคือ 5 วินาที ค่าเดียวกันนี้ใช้เป็น request window ของ `tasks/result`
+เพื่อให้พฤติกรรมการ poll ของ tool และ MCP Tasks สอดคล้องกัน
 
 ## Deviation ที่รู้ไว้ (เจตนา)
 
 สเปกกำหนดให้ `tasks/result` block จนกว่า task จะถึง terminal — แต่ durable tasks
-ของ lnwjud ออกแบบให้ทำงานยาวเกินระยะเวลารอที่สมเหตุสมผลของ request หนึ่งๆ
-ดังนั้น implementation นี้ block ได้สูงสุด ~5 วินาที แล้วตอบ `-32603`
-พร้อมข้อความชี้ให้กลับไป poll `tasks/get` แล้วเรียก `tasks/result`ใหม่
+ของ lnwjud ออกแบบให้ทำงานยาวเกินระยะเวลารอที่สมเหตุสมผลของ request หนึ่ง ๆ
+ดังนั้น implementation นี้ block ได้สูงสุดตามค่า **MCP Poll / Tool Wait** ที่ผู้ใช้ตั้ง
+(5–60 วินาที, ค่าเริ่มต้น 5 วินาที) แล้วตอบ `-32603` ถ้างานยังไม่ terminal
+พร้อมข้อความชี้ให้กลับไป poll `tasks/get` ภายหลัง
+
+เมื่อยังเป็น `working` หลังตรวจ 1–2 ครั้งใน ChatGPT turn เดียว ไม่ควร tight-poll ต่อเนื่อง
+ให้เก็บ `taskId` ไว้แล้วคืน control ก่อน งาน durable จะยังทำต่อบนเครื่องและรอบถัดไป
+สามารถใช้ task ID เดิมเพื่ออ่านสถานะ/log/result ได้ การหมด wait window ไม่ใช่การ cancel task
+
 (กำกับไว้ในโค้ดที่ `packages/mcp-server/src/tasks-protocol.ts`)
 
 ## ความปลอดภัย
