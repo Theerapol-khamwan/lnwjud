@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import { ok, type Result } from '@lnwjud/domain';
+import { appError, err, ok, type Result } from '@lnwjud/domain';
 import type { CapabilityBackend } from './local-capability-service.js';
-import { VisionCapabilityBackend, WindowsOcrCapabilityBackend } from './windows-ocr-backend.js';
+import { createOcrPackageIdentityProbe, VisionCapabilityBackend, WindowsOcrCapabilityBackend } from './windows-ocr-backend.js';
 
 describe('WindowsOcrCapabilityBackend', () => {
   it('returns a truthful unavailable state when WinRT package identity is absent', async () => {
@@ -62,5 +62,43 @@ describe('WindowsOcrCapabilityBackend', () => {
 
     await expect(pending).resolves.toMatchObject({ ok: false, error: { code: 'PROCESS_TIMEOUT' } });
     expect(helperCalled).toBe(false);
+  });
+});
+
+describe('createOcrPackageIdentityProbe', () => {
+  it('probes the helper once and caches a successful identity result', async () => {
+    const calls: unknown[] = [];
+    const helper = {
+      execute: async (input: unknown): Promise<Result<unknown>> => {
+        calls.push(input);
+        return ok({ available: true, package_identity: true });
+      },
+    };
+    const probe = createOcrPackageIdentityProbe(helper);
+
+    await expect(probe()).resolves.toEqual({ ok: true, value: true });
+    await expect(probe()).resolves.toEqual({ ok: true, value: true });
+    expect(calls).toEqual([{ op: 'probe' }]);
+  });
+
+  it('maps a probe without identity to false without failing', async () => {
+    const probe = createOcrPackageIdentityProbe({
+      execute: async (): Promise<Result<unknown>> => ok({ available: false, package_identity: false, reason: 'package_identity_required' }),
+    });
+    await expect(probe()).resolves.toEqual({ ok: true, value: false });
+  });
+
+  it('does not cache helper failures so transient errors cannot disable OCR permanently', async () => {
+    let failures = 0;
+    const probe = createOcrPackageIdentityProbe({
+      execute: async (): Promise<Result<unknown>> => {
+        failures += 1;
+        return failures === 1
+          ? err(appError('INTERNAL_ERROR', 'helper not ready', true))
+          : ok({ package_identity: true });
+      },
+    });
+    await expect(probe()).resolves.toMatchObject({ ok: false, error: { code: 'INTERNAL_ERROR' } });
+    await expect(probe()).resolves.toEqual({ ok: true, value: true });
   });
 });

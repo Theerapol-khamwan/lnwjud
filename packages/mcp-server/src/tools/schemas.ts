@@ -344,10 +344,13 @@ export const screenRecordCapabilitySchema = z.object({
 }).strict();
 
 export const officeCapabilitySchema = z.object({
-  app: z.enum(['excel', 'word']),
-  action: z.enum(['read', 'write', 'read_text', 'replace', 'save_as']),
-  file_path: z.string().max(MAX_PATH_LENGTH),
+  app: z.enum(['excel', 'word', 'powerpoint', 'outlook']),
+  action: z.enum(['read', 'write', 'read_text', 'replace', 'save_as', 'sheets', 'merge', 'list_folders', 'list_messages']),
+  file_path: z.string().max(MAX_PATH_LENGTH).optional(),
   target_path: z.string().max(MAX_PATH_LENGTH).optional(),
+  merge_paths: z.array(z.string().max(MAX_PATH_LENGTH)).max(32).optional(),
+  folder: z.string().max(512).optional(),
+  max_messages: z.number().int().min(1).max(100).optional(),
   sheet: z.string().max(256).optional(),
   range: z.string().max(256).optional(),
   values: capabilityParametersSchema.optional(),

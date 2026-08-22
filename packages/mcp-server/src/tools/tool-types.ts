@@ -37,6 +37,7 @@ export interface ProjectSnapshotPort {
 
 export interface McpApplicationServices {
   readonly runtimeStatePath?: string;
+  readonly localProviders?: () => { readonly pdfProvider?: string; readonly lspCommands?: Readonly<Record<string, string>> };
   readonly capabilities?: CapabilityService;
   readonly extensions?: ExtensionsService;
   readonly workspaceInfo?: WorkspaceInfoPort;

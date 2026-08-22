@@ -15,7 +15,7 @@ verified by `packages/mcp-server/src/tool-registry.test.ts`.
 <!-- BEGIN GENERATED TOOL REGISTRY -->
 ## Generated live ToolRegistry index
 
-This block is generated from the built `ToolRegistry`. Current count: **212 tools**.
+This block is generated from the built `ToolRegistry`. Current count: **213 tools**.
 Run `pnpm docs:tools` after intentionally changing the registry; CI runs `pnpm docs:tools:check` and fails on drift.
 
 | # | Tool | Permission | Read-only | Destructive |
@@ -221,17 +221,18 @@ Run `pnpm docs:tools` after intentionally changing the registry; CI runs `pnpm d
 | 199 | `debug_attach` | EXECUTE | no | no |
 | 200 | `debug_step` | EXECUTE | no | no |
 | 201 | `git_worktree_spawn` | DANGEROUS | no | yes |
-| 202 | `db_inspect` | READ | yes | no |
-| 203 | `db_query` | DANGEROUS | no | yes |
-| 204 | `office_ppt` | DANGEROUS | no | yes |
-| 205 | `office_outlook` | DANGEROUS | no | yes |
-| 206 | `pdf_extract_tables` | READ | yes | no |
-| 207 | `docx_merge` | WRITE | no | no |
-| 208 | `self_heal_plan` | READ | yes | no |
-| 209 | `self_heal_apply` | DANGEROUS | no | yes |
-| 210 | `skills_import` | WRITE | no | no |
-| 211 | `agent_swarm_run` | EXECUTE | no | no |
-| 212 | `tool_batch` | DANGEROUS | no | yes |
+| 202 | `git_worktree_remove` | DANGEROUS | no | yes |
+| 203 | `db_inspect` | READ | yes | no |
+| 204 | `db_query` | DANGEROUS | no | yes |
+| 205 | `office_ppt` | DANGEROUS | no | yes |
+| 206 | `office_outlook` | READ | yes | no |
+| 207 | `pdf_extract_tables` | READ | yes | no |
+| 208 | `docx_merge` | WRITE | no | no |
+| 209 | `self_heal_plan` | READ | yes | no |
+| 210 | `self_heal_apply` | DANGEROUS | no | yes |
+| 211 | `skills_import` | WRITE | no | no |
+| 212 | `agent_swarm_run` | EXECUTE | no | no |
+| 213 | `tool_batch` | DANGEROUS | no | yes |
 <!-- END GENERATED TOOL REGISTRY -->
 
 ## Protocol and result rules

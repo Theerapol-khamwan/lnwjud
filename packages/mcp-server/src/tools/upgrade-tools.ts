@@ -22,6 +22,6 @@ export function upgradeTools(context: McpToolContext): McpToolDefinition[] {
       destructiveHint: entry.permission === 'DANGEROUS',
     },
     inputSchema: upgradeInputSchema,
-    handler: async (input) => runtime.execute(entry.name, input),
+    handler: async (input, signal) => runtime.execute(entry.name, input, signal),
   }));
 }

@@ -32,6 +32,27 @@ const APP_ERROR_CODES: readonly AppErrorCode[] = [
   'EXECUTABLE_NOT_FOUND', 'GIT_NOT_REPOSITORY', 'CODEX_NOT_AVAILABLE', 'INTERNAL_ERROR',
 ];
 
+/**
+ * Builds a host-side package-identity probe that asks the helper itself
+ * (`{"op":"probe"}`) instead of assuming identity from the exe's presence.
+ * Successful probes are cached for the process lifetime; failures are not,
+ * so a transient helper error cannot permanently disable OCR.
+ */
+export function createOcrPackageIdentityProbe(helper: WindowsOcrHelper, timeoutSeconds = 10): () => Promise<Result<boolean>> {
+  let cached: Result<boolean> | undefined;
+  return async (): Promise<Result<boolean>> => {
+    if (cached !== undefined) return cached;
+    const probe = await Promise.race([
+      helper.execute({ op: 'probe' }),
+      new Promise<Result<never>>((resolve) => setTimeout(() => resolve(err(appError('PROCESS_TIMEOUT', 'Windows OCR identity probe timed out', true))), Math.max(1, timeoutSeconds) * 1_000)),
+    ]);
+    if (!probe.ok) return probe;
+    const identity = isRecord(probe.value) && probe.value.package_identity === true;
+    cached = ok(identity);
+    return cached;
+  };
+}
+
 export class WindowsOcrCapabilityBackend implements CapabilityBackend {
   private readonly platform: NodeJS.Platform;
   private readonly packageIdentity: (() => Promise<Result<boolean>>) | undefined;

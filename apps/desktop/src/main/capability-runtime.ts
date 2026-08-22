@@ -15,6 +15,7 @@ import {
   WindowsNativeCapabilityBackend,
   WindowsOcrCapabilityBackend,
   WindowsOcrProcessBridge,
+  createOcrPackageIdentityProbe,
   WINDOWS_CAPABILITY_BRIDGE_SHA256,
   WslCapabilityBackend,
   WslFilesystemCapabilityBackend,
@@ -64,8 +65,7 @@ export function createLocalCapabilityRuntime(
   const ocrHelper = ocrHelperPath === undefined ? undefined : new WindowsOcrProcessBridge({ helperPath: ocrHelperPath });
   const visionBackend = new VisionCapabilityBackend(nativeVisionBackend, new WindowsOcrCapabilityBackend({
     platform: process.platform,
-    ...(ocrHelper === undefined ? {} : { helper: ocrHelper }),
-    ...(ocrHelper === undefined ? {} : { packageIdentity: async (): Promise<Result<boolean>> => ({ ok: true, value: true }) }),
+    ...(ocrHelper === undefined ? {} : { helper: ocrHelper, packageIdentity: createOcrPackageIdentityProbe(ocrHelper) }),
   }));
   const windowBackend = new WindowsNativeCapabilityBackend('window', windowsBridge);
   const systemInfoBackend = new WindowsNativeCapabilityBackend('system_info', windowsBridge);

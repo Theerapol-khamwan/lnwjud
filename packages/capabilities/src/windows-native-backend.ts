@@ -39,7 +39,7 @@ const PATH_FIELDS: Readonly<Record<WindowsCapabilityName, readonly string[]>> = 
   clipboard: [],
   audio: ['file_path', 'output_path'],
   screen_record: ['output_path'],
-  office: ['file_path', 'target_path'],
+  office: ['file_path', 'target_path', 'merge_paths'],
 };
 
 export class WindowsNativeCapabilityBackend implements CapabilityBackend {
@@ -70,6 +70,11 @@ export class WindowsNativeCapabilityBackend implements CapabilityBackend {
     for (const field of fields) {
       const value = input[field];
       if (typeof value === 'string' && value.trim().length > 0) targets.push(path.resolve(value.trim()));
+      if (Array.isArray(value)) {
+        for (const entry of value) {
+          if (typeof entry === 'string' && entry.trim().length > 0) targets.push(path.resolve(entry.trim()));
+        }
+      }
     }
     if (targets.length === 0) return ok(undefined);
 

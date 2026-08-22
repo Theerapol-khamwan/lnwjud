@@ -120,6 +120,40 @@ describe('upgrade runtime', () => {
     await expect(runtime.execute('git_worktree_spawn', { workspaceId: 'ws-1', worktreePath: '.worktrees/agent-1', ref: 'main', dryRun: false })).resolves.toMatchObject({ ok: false, error: { code: 'PERMISSION_REQUIRED' } });
     await expect(runtime.execute('git_worktree_spawn', { workspaceId: 'ws-1', worktreePath: '.worktrees/agent-1', ref: 'main', dryRun: false, userConfirmed: true })).resolves.toMatchObject({ ok: true, value: { status: 'completed', sideEffectsStarted: true } });
     expect(calls).toEqual([{ workspaceId: 'ws-1', args: ['worktree', 'add', '--detach', '.worktrees/agent-1', 'main'] }]);
+
+    await expect(runtime.execute('git_worktree_remove', { workspaceId: 'ws-1', worktreePath: '.worktrees/unknown' })).resolves.toMatchObject({ ok: false, error: { code: 'PROCESS_NOT_FOUND' } });
+    await expect(runtime.execute('git_worktree_remove', { workspaceId: 'ws-1', worktreePath: '.worktrees/agent-1' })).resolves.toMatchObject({ ok: true, value: { dryRun: true } });
+    await expect(runtime.execute('git_worktree_remove', { workspaceId: 'ws-1', worktreePath: '.worktrees/agent-1', dryRun: false })).resolves.toMatchObject({ ok: false, error: { code: 'PERMISSION_REQUIRED' } });
+    await expect(runtime.execute('git_worktree_remove', { workspaceId: 'ws-1', worktreePath: '.worktrees/agent-1', dryRun: false, userConfirmed: true })).resolves.toMatchObject({ ok: true, value: { status: 'completed' } });
+    expect(calls.at(-1)).toMatchObject({ args: ['worktree', 'remove', '.worktrees/agent-1'] });
+    await expect(runtime.execute('git_worktree_remove', { workspaceId: 'ws-1', worktreePath: '.worktrees/agent-1', dryRun: false, userConfirmed: true })).resolves.toMatchObject({ ok: false, error: { code: 'PROCESS_NOT_FOUND' } });
+  });
+
+  it('routes PowerPoint and Outlook upgrade tools into the Office capability', async () => {
+    const calls: Record<string, unknown>[] = [];
+    const runtime = new UpgradeRuntimeService({
+      capabilities: {
+        async execute(tool: string, request: Record<string, unknown>): Promise<ReturnType<typeof ok>> {
+          expect(tool).toBe('office');
+          calls.push(request);
+          return ok({ app: request.app, action: request.action, ok: true });
+        },
+      },
+    }, actor);
+
+    await expect(runtime.execute('office_ppt', { action: 'read', file_path: 'C:\\work\\deck.pptx' })).resolves.toMatchObject({
+      ok: true, value: { executed: true, action: 'read' },
+    });
+    await expect(runtime.execute('office_ppt', { action: 'save_as', file_path: 'C:\\work\\deck.pptx', target_path: 'C:\\work\\copy.pptx' })).resolves.toMatchObject({
+      ok: true, value: { dryRun: true, executed: false },
+    });
+    await expect(runtime.execute('office_outlook', { action: 'list_messages', folder: '\\Mailbox\\Inbox', max_messages: 250 })).resolves.toMatchObject({
+      ok: true, value: { available: true, action: 'list_messages' },
+    });
+    expect(calls).toEqual([
+      { app: 'powerpoint', action: 'read', file_path: 'C:\\work\\deck.pptx' },
+      { app: 'outlook', action: 'list_messages', folder: '\\Mailbox\\Inbox', max_messages: 100 },
+    ]);
   });
 
   it('keeps the 50-prompt routing golden set in the top-20 with a local p95 budget', async () => {
@@ -164,3 +198,55 @@ describe('upgrade runtime', () => {
     const p95 = sorted[Math.min(sorted.length - 1, Math.ceil(sorted.length * 0.95) - 1)] ?? Number.POSITIVE_INFINITY;
     expect(p95).toBeLessThan(50);
   });
+
+describe('self-healing (Wave 8)', () => {
+  it('plans safe reversible fixes from live evidence', async () => {
+    const staleStart = new Date(Date.now() - 48 * 60 * 60 * 1_000).toISOString();
+    const runtime = new UpgradeRuntimeService({
+      workspaceIndex: {
+        async status(): Promise<ReturnType<typeof ok>> { return ok({ indexed: false, snapshot: null }); },
+        async indexWorkspace(): Promise<ReturnType<typeof ok>> { return ok({ entries: [] }); },
+      },
+      capabilities: {
+        async execute(_tool: string, request: { operation?: string }): Promise<ReturnType<typeof ok>> {
+          if (request.operation === 'list') {
+            return ok({ tasks: [
+              { task_id: 'stale-1', state: 'running', durable: true, started_at: staleStart },
+              { task_id: 'fresh-1', state: 'running', durable: true, started_at: new Date().toISOString() },
+              { task_id: 'done-1', state: 'completed', durable: true, started_at: staleStart },
+            ] });
+          }
+          expect(request.operation).toBe('cancel');
+          return ok({ task_id: request.task_id, state: 'cancelled' });
+        },
+      },
+    }, actor);
+
+    const plan = await runtime.execute('self_heal_plan', { workspaceId: 'ws-1' });
+    expect(plan).toMatchObject({ ok: true, value: {
+      tool: 'self_heal_plan', applied: false, planId: expect.any(String), mutationRequired: true, automaticDestructiveRetry: false,
+      evidence: { index: { indexed: false }, durableTasks: { staleOlderThan24h: 1 } },
+      safeReversibleFixes: [
+        expect.objectContaining({ id: 'reindex-workspace', kind: 'reindex_workspace', requiresConfirmation: false }),
+        expect.objectContaining({ id: 'cancel-stale-task-stale-1', kind: 'cancel_stale_task', requiresConfirmation: true }),
+      ],
+    } });
+
+    await expect(runtime.execute('self_heal_apply', { workspaceId: 'ws-1' })).resolves.toMatchObject({ ok: true, value: { dryRun: true, applied: [] } });
+    await expect(runtime.execute('self_heal_apply', { workspaceId: 'ws-1', dryRun: false })).resolves.toMatchObject({ ok: false, error: { code: 'PERMISSION_REQUIRED' } });
+    await expect(runtime.execute('self_heal_apply', { workspaceId: 'ws-1', dryRun: false, userConfirmed: true })).resolves.toMatchObject({ ok: false, error: { code: 'PERMISSION_REQUIRED' } });
+    if (!plan.ok) throw new Error('plan should be available');
+    const planId = String((plan.value as { planId: string }).planId);
+    const applied = await runtime.execute('self_heal_apply', { workspaceId: 'ws-1', planId, dryRun: false, userConfirmed: true, fixIds: ['cancel-stale-task-stale-1'] });
+    expect(applied).toMatchObject({ ok: true, value: {
+      dryRun: false, automaticDestructiveRetry: false,
+      applied: [expect.objectContaining({ id: 'cancel-stale-task-stale-1', ok: true })],
+    } });
+  });
+
+  it('reports an empty plan when everything is healthy', async () => {
+    const runtime = new UpgradeRuntimeService({}, actor);
+    const plan = await runtime.execute('self_heal_plan', {});
+    expect(plan).toMatchObject({ ok: true, value: { safeReversibleFixes: [], mutationRequired: false } });
+  });
+});

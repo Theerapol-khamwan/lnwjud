@@ -3,10 +3,14 @@ import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { appError, err, ok, type Result } from '@lnwjud/domain';
 import type { FileActor } from '@lnwjud/application';
-import { capabilityDescriptors, type CapabilityDescriptor } from '@lnwjud/capabilities';
+import { capabilityDescriptors, EventLogCapabilityBackend, type CapabilityDescriptor } from '@lnwjud/capabilities';
 import type { McpApplicationServices } from './tools/tool-types.js';
 import { ContextEngine } from './context-engine.js';
 import { ContextEconomyRuntime } from './context-economy.js';
+import { DatabaseRuntimeService } from './database-runtime.js';
+import { DocumentRuntimeService } from './document-runtime.js';
+import { LspRuntimeService } from './lsp-runtime.js';
+import { SandboxRuntimeService } from './sandbox-runtime.js';
 import { UPGRADE_TOOL_CATALOG, type UpgradeToolCatalogEntry } from './upgrade-catalog.js';
 
 interface RuntimeTask {
@@ -51,11 +55,30 @@ interface RankedToolCandidate {
   readonly phase: number;
 }
 
+interface WorktreeLedgerEntry {
+  readonly workspaceId: string;
+  readonly worktreePath: string;
+  readonly ref: string;
+  readonly owner: string;
+  readonly createdAt: string;
+}
+
+interface SelfHealFix {
+  readonly id: string;
+  readonly kind: 'reindex_workspace' | 'cancel_stale_task';
+  readonly tool: string;
+  readonly args: Record<string, unknown>;
+  readonly description: string;
+  readonly reversible: boolean;
+  readonly requiresConfirmation: boolean;
+}
+
 interface PersistedRuntimeState {
   readonly tasks?: readonly RuntimeTask[];
   readonly checkpoints?: readonly SessionCheckpoint[];
   readonly plugins?: readonly { readonly name: string; readonly enabled: boolean }[];
   readonly session?: readonly [string, unknown][];
+  readonly worktrees?: readonly WorktreeLedgerEntry[];
 }
 
 const PRIMITIVE_SEARCH_ENTRIES: readonly SearchCatalogEntry[] = [
@@ -92,6 +115,12 @@ export class UpgradeRuntimeService {
   private readonly plugins = new Map<string, { readonly name: string; enabled: boolean }>();
   private readonly cache: CacheCounters = { hits: 0, misses: 0, bytesSaved: 0 };
   private readonly session = new Map<string, unknown>();
+  private readonly worktrees: WorktreeLedgerEntry[] = [];
+  private readonly eventLog: EventLogCapabilityBackend;
+  private readonly sandbox: SandboxRuntimeService;
+  private readonly database: DatabaseRuntimeService;
+  private readonly lsp: LspRuntimeService;
+  private readonly documents: DocumentRuntimeService;
   private loaded = false;
 
   public constructor(
@@ -102,9 +131,14 @@ export class UpgradeRuntimeService {
     this.actor = actor;
     this.contextEconomy = contextEconomy;
     this.contextEngine = new ContextEngine(services, actor, contextEconomy);
+    this.eventLog = new EventLogCapabilityBackend();
+    this.sandbox = new SandboxRuntimeService(services, actor);
+    this.database = new DatabaseRuntimeService(services, actor);
+    this.lsp = new LspRuntimeService(services, actor);
+    this.documents = new DocumentRuntimeService(services, actor);
   }
 
-  public async execute(name: string, input: Record<string, unknown>): Promise<Result<unknown>> {
+  public async execute(name: string, input: Record<string, unknown>, signal?: AbortSignal): Promise<Result<unknown>> {
     await this.loadState();
     switch (name) {
       case 'tool_search':
@@ -237,9 +271,38 @@ export class UpgradeRuntimeService {
       case 'mcp_hub':
         return ok({ tool: name, status: 'optional', available: this.services.extensions !== undefined, flattenChildTools: false, credentialsStoredInRepository: false, statelessTransport: true, tasksExtension: true, cacheMetadata: true, tracePropagation: true, authorizationUnchanged: true });
       case 'self_heal_plan':
-        return ok({ tool: name, status: 'ready', available: true, applied: false, mutationRequired: false, safeReversibleFixes: [], automaticDestructiveRetry: false, auditTarget: 'recovery-plan' });
+        return this.selfHealPlan(input);
+      case 'self_heal_apply':
+        return this.selfHealApply(input);
       case 'git_worktree_spawn':
         return this.gitWorktreeSpawn(input);
+      case 'event_watch':
+      case 'crash_trace':
+        return this.eventLogQuery(name, input, signal);
+      case 'sandbox_exec':
+        return this.sandbox.execute(input, signal);
+      case 'db_inspect':
+        return this.database.inspect(input);
+      case 'db_query':
+        return this.database.query(input);
+      case 'lsp_diagnostics':
+        return this.lsp.diagnostics(input);
+      case 'lsp_rename':
+        return this.lsp.renamePlan(input);
+      case 'git_worktree_remove':
+        return this.gitWorktreeRemove(input);
+      case 'pdf_extract_tables':
+        return this.documents.extractTables(input, signal);
+      case 'inspect_pdf':
+        return this.documents.inspectPdf(input, signal);
+      case 'inspect_workbook':
+        return this.documents.inspectWorkbook(input);
+      case 'docx_merge':
+        return this.documents.docxMerge(input);
+      case 'office_ppt':
+        return this.officePowerPoint(input);
+      case 'office_outlook':
+        return this.officeOutlook(input);
       case 'handoff_context':
         return ok({ goal: summarize(readString(input, 'prompt') ?? readString(input, 'goal') ?? ''), workspaceId: readString(input, 'workspaceId') ?? null, branch: null, filesChanged: [], filesInspected: [], tests: [], failures: [], decisions: [], openQuestions: [], recommendedNextActions: ['inspect current status', 'continue with primitive tools'] });
       case 'benchmark_run':
@@ -288,11 +351,6 @@ export class UpgradeRuntimeService {
       case 'dom_snapshot':
       case 'layout_metadata':
       case 'visual_context':
-      case 'inspect_workbook':
-      case 'compare_workbook_layout':
-      case 'render_excel_preview':
-      case 'inspect_pdf':
-      case 'compare_pdf_pages':
         return ok({ tool: name, status: 'ready', executed: [], primitiveFallbacks: ['read_file', 'search_text', 'workspace_tree'], metadataOnly: true, inputKeys: Object.keys(input).sort() });
       case 'run_affected_tests':
         return ok({ tool: name, started: false, affectedTests: [], fullRunStillAvailable: true, command: null });
@@ -389,6 +447,138 @@ export class UpgradeRuntimeService {
     return { cancelled: true, id };
   }
 
+  private async selfHealPlan(input: Record<string, unknown>): Promise<Result<unknown>> {
+    const workspaceId = readString(input, 'workspaceId');
+    const evidence: Record<string, unknown> = {};
+    const fixes: SelfHealFix[] = [];
+
+    if (workspaceId !== undefined && this.services.workspaceIndex !== undefined) {
+      const status = await this.services.workspaceIndex.status(workspaceId);
+      if (status.ok) {
+        evidence.index = { indexed: status.value.indexed, entries: status.value.snapshot?.entries?.length ?? 0 };
+        if (status.value.indexed !== true) {
+          fixes.push({
+            id: 'reindex-workspace', kind: 'reindex_workspace', tool: 'workspace_index', args: { workspaceId },
+            description: 'Rebuild the persistent workspace index (read-only re-scan)', reversible: true, requiresConfirmation: false,
+          });
+        }
+      }
+    }
+
+    if (this.services.capabilities !== undefined) {
+      const list = await this.services.capabilities.execute('shell', { operation: 'list' });
+      if (list.ok && typeof list.value === 'object' && list.value !== null && Array.isArray((list.value as { tasks?: unknown }).tasks)) {
+        const tasks = (list.value as { tasks: Record<string, unknown>[] }).tasks;
+        const cutoff = Date.now() - 24 * 60 * 60 * 1_000;
+        const stale = tasks.filter((task) => task.durable === true && task.state === 'running' && typeof task.started_at === 'string' && Date.parse(task.started_at) < cutoff);
+        evidence.durableTasks = { total: tasks.length, staleOlderThan24h: stale.length };
+        for (const task of stale.slice(0, 10)) {
+          fixes.push({
+            id: `cancel-stale-task-${String(task.task_id)}`, kind: 'cancel_stale_task', tool: 'shell',
+            args: { operation: 'cancel', task_id: task.task_id },
+            description: `Cancel durable task ${String(task.task_id)} that has been running for over 24 hours`, reversible: false, requiresConfirmation: true,
+          });
+        }
+      }
+    }
+
+    const planId = digest({ workspaceId: workspaceId ?? null, evidence, fixes: fixes.map((fix) => ({ id: fix.id, kind: fix.kind, args: fix.args })) });
+    return ok({
+      tool: 'self_heal_plan', status: 'ready', available: true, applied: false,
+      planId,
+      mutationRequired: fixes.some((fix) => fix.requiresConfirmation),
+      safeReversibleFixes: fixes,
+      automaticDestructiveRetry: false,
+      auditTarget: 'recovery-plan',
+      evidence,
+    });
+  }
+
+  private async selfHealApply(input: Record<string, unknown>): Promise<Result<unknown>> {
+    const plan = await this.selfHealPlan(input);
+    if (!plan.ok) return plan;
+    const planValue = plan.value as { planId: string; safeReversibleFixes: SelfHealFix[] };
+    const requested = Array.isArray(input.fixIds) ? input.fixIds.map(String) : undefined;
+    const selected = planValue.safeReversibleFixes.filter((fix) => requested === undefined || requested.includes(fix.id));
+    const preview = {
+      tool: 'self_heal_apply',
+      planId: planValue.planId,
+      selected: selected.map((fix) => ({ id: fix.id, kind: fix.kind, description: fix.description, requiresConfirmation: fix.requiresConfirmation })),
+      automaticDestructiveRetry: false,
+      auditTarget: 'recovery-mutation',
+    };
+    if (input.dryRun !== false && input.dry_run !== false) return ok({ ...preview, dryRun: true, applied: [] });
+    if (input.userConfirmed !== true) {
+      return err(appError('PERMISSION_REQUIRED', 'Applying a recovery plan requires explicit chat confirmation. Review self_heal_plan first, then retry with userConfirmed: true'));
+    }
+    const approvedPlanId = readString(input, 'planId');
+    if (approvedPlanId === undefined) {
+      return err(appError('PERMISSION_REQUIRED', 'Applying a recovery plan requires the planId returned by self_heal_plan'));
+    }
+    if (approvedPlanId !== planValue.planId) {
+      return err(appError('INVALID_INPUT', 'Recovery evidence changed after preview. Run self_heal_plan again and review the new plan before applying it'));
+    }
+
+    const applied: Record<string, unknown>[] = [];
+    for (const fix of selected) {
+      if (fix.kind === 'reindex_workspace' && this.services.workspaceIndex !== undefined) {
+        const result = await this.services.workspaceIndex.indexWorkspace(String(fix.args.workspaceId));
+        applied.push({ id: fix.id, kind: fix.kind, ok: result.ok, ...(result.ok ? {} : { error: result.error.message }) });
+      } else if (fix.kind === 'cancel_stale_task' && this.services.capabilities !== undefined) {
+        const result = await this.services.capabilities.execute('shell', fix.args);
+        applied.push({ id: fix.id, kind: fix.kind, ok: result.ok, ...(result.ok ? {} : { error: result.error.message }) });
+      } else {
+        applied.push({ id: fix.id, kind: fix.kind, ok: false, error: 'unsupported-fix-kind' });
+      }
+    }
+    return ok({ ...preview, dryRun: false, applied, automaticDestructiveRetry: false });
+  }
+
+  private async officePowerPoint(input: Record<string, unknown>): Promise<Result<unknown>> {
+    const capabilities = this.services.capabilities;
+    if (capabilities === undefined) return ok({ tool: 'office_ppt', status: 'optional', available: false, reason: 'Office capability is not configured' });
+    const action = readString(input, 'action') ?? 'read';
+    if (action !== 'read' && action !== 'save_as') return err(appError('INVALID_INPUT', 'office_ppt action must be read or save_as'));
+    const filePath = readString(input, 'file_path') ?? readString(input, 'path');
+    if (filePath === undefined) return err(appError('INVALID_INPUT', 'office_ppt requires file_path'));
+    const targetPath = readString(input, 'target_path') ?? readString(input, 'target');
+    if (action === 'save_as' && targetPath === undefined) return err(appError('INVALID_INPUT', 'office_ppt save_as requires target_path'));
+    const plan = { tool: 'office_ppt', status: 'ready', available: true, app: 'powerpoint', action, file_path: filePath, ...(targetPath === undefined ? {} : { target_path: targetPath }) };
+    if (action === 'save_as' && input.dryRun !== false && input.dry_run !== false) return ok({ ...plan, dryRun: true, executed: false });
+    if (action === 'save_as' && input.userConfirmed !== true) return err(appError('PERMISSION_REQUIRED', 'PowerPoint save_as requires explicit user confirmation'));
+    const result = await capabilities.execute('office', { app: 'powerpoint', action, file_path: filePath, ...(targetPath === undefined ? {} : { target_path: targetPath }) });
+    return result.ok ? ok({ ...plan, dryRun: false, executed: true, result: result.value }) : result;
+  }
+
+  private async officeOutlook(input: Record<string, unknown>): Promise<Result<unknown>> {
+    const capabilities = this.services.capabilities;
+    if (capabilities === undefined) return ok({ tool: 'office_outlook', status: 'optional', available: false, reason: 'Office capability is not configured' });
+    const action = readString(input, 'action') ?? 'list_messages';
+    if (action !== 'list_folders' && action !== 'list_messages') return err(appError('INVALID_INPUT', 'office_outlook action must be list_folders or list_messages'));
+    const folder = readString(input, 'folder');
+    const maxMessages = typeof input.max_messages === 'number' ? Math.min(100, Math.max(1, Math.trunc(input.max_messages))) : undefined;
+    const result = await capabilities.execute('office', { app: 'outlook', action, ...(folder === undefined ? {} : { folder }), ...(maxMessages === undefined ? {} : { max_messages: maxMessages }) });
+    return result.ok ? ok({ tool: 'office_outlook', status: 'ready', available: true, action, result: result.value }) : result;
+  }
+
+  private async eventLogQuery(name: string, input: Record<string, unknown>, signal?: AbortSignal): Promise<Result<unknown>> {
+    const result = await this.eventLog.execute({
+      operation: name === 'crash_trace' ? 'crashes' : 'query',
+      ...(readString(input, 'log_name') === undefined && readString(input, 'logName') === undefined ? {} : { log_name: readString(input, 'log_name') ?? readString(input, 'logName') }),
+      ...(readString(input, 'provider') === undefined ? {} : { provider: readString(input, 'provider') }),
+      ...(readString(input, 'since') === undefined ? {} : { since: readString(input, 'since') }),
+      ...(typeof input.hours === 'number' ? { hours: input.hours } : {}),
+      ...(typeof input.max_events === 'number' ? { max_events: input.max_events } : {}),
+    }, signal);
+    if (!result.ok) return result;
+    const payload = result.value as Record<string, unknown>;
+    return ok({
+      tool: name,
+      status: payload.available === false ? 'optional' : 'ready',
+      ...payload,
+    });
+  }
+
   private async gitWorktreeSpawn(input: Record<string, unknown>): Promise<Result<unknown>> {
     const workspaceId = readString(input, 'workspaceId');
     if (workspaceId === undefined) return err(appError('INVALID_INPUT', 'workspaceId is required for a Git worktree'));
@@ -419,6 +609,34 @@ export class UpgradeRuntimeService {
       ...(typeof input.timeoutMs === 'number' ? { timeoutMs: input.timeoutMs } : {}),
     });
     if (!result.ok) return result;
+    this.worktrees.push({ workspaceId, worktreePath: normalizedPath, ref, owner: this.actor.clientId, createdAt: new Date().toISOString() });
+    await this.persistState();
+    return ok({ ...plan, dryRun: false, sideEffectsStarted: true, status: 'completed', result: result.value, ownershipLedger: true });
+  }
+
+  private async gitWorktreeRemove(input: Record<string, unknown>): Promise<Result<unknown>> {
+    const workspaceId = readString(input, 'workspaceId');
+    const worktreePath = readString(input, 'worktreePath')?.replaceAll('\\', '/');
+    if (workspaceId === undefined || worktreePath === undefined) return err(appError('INVALID_INPUT', 'workspaceId and worktreePath are required'));
+    const entry = this.worktrees.find((candidate) => candidate.workspaceId === workspaceId && candidate.worktreePath === worktreePath);
+    if (entry === undefined) return err(appError('PROCESS_NOT_FOUND', 'Worktree is not in the ownership ledger; refusing to remove unknown worktrees'));
+    const plan = {
+      tool: 'git_worktree_remove', workspaceId, worktreePath,
+      owner: entry.owner,
+      mutationPolicy: 'explicit-confirmation-and-dry-run',
+    };
+    if (input.dryRun !== false && input.dry_run !== false) return ok({ ...plan, dryRun: true });
+    if (input.userConfirmed !== true) return err(appError('PERMISSION_REQUIRED', 'Removing a Git worktree requires explicit user confirmation'));
+    if (this.services.git === undefined) return ok({ ...plan, dryRun: false, status: 'optional', available: false, reason: 'Git service is not configured' });
+    const result = await this.services.git.run(this.actor, {
+      workspaceId,
+      args: ['worktree', 'remove', worktreePath],
+      ...(typeof input.timeoutMs === 'number' ? { timeoutMs: input.timeoutMs } : {}),
+    });
+    if (!result.ok) return result;
+    const index = this.worktrees.indexOf(entry);
+    if (index !== -1) this.worktrees.splice(index, 1);
+    await this.persistState();
     return ok({ ...plan, dryRun: false, sideEffectsStarted: true, status: 'completed', result: result.value });
   }
 
@@ -488,6 +706,11 @@ export class UpgradeRuntimeService {
       for (const checkpoint of state.checkpoints ?? []) if (isCheckpoint(checkpoint)) this.checkpoints.push(checkpoint);
       for (const plugin of state.plugins ?? []) if (isPlugin(plugin)) this.plugins.set(plugin.name, { ...plugin });
       for (const pair of state.session ?? []) if (Array.isArray(pair) && pair.length === 2 && typeof pair[0] === 'string') this.session.set(pair[0], pair[1]);
+      for (const worktree of state.worktrees ?? []) {
+        if (typeof worktree.workspaceId === 'string' && typeof worktree.worktreePath === 'string' && typeof worktree.ref === 'string' && typeof worktree.owner === 'string' && typeof worktree.createdAt === 'string') {
+          this.worktrees.push(worktree);
+        }
+      }
     } catch {
       // A corrupt optional state file is recoverable; the next mutation writes a fresh state.
     }
@@ -503,6 +726,7 @@ export class UpgradeRuntimeService {
         checkpoints: this.checkpoints,
         plugins: [...this.plugins.values()],
         session: [...this.session.entries()],
+        worktrees: this.worktrees,
       })}\n`, 'utf8');
     } catch {
       // State persistence must never break the MCP operation itself.

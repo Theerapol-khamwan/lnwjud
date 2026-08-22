@@ -22,6 +22,8 @@ const DEFAULT_USER_SETTINGS: UserSettings = {
   mcpIdleTimeoutMs: 5 * 60_000,
   processTimeoutMs: 60 * 60_000,
   capabilityRoots: [],
+  pdfProviderPath: '',
+  lspCommands: {},
   mcpHttpPort: 18_765,
   codexToolsEnabled: false,
   updateAutoCheck: true,
@@ -192,6 +194,26 @@ export function UserConfigPanel({ locale, settings, section, onSave }: UserConfi
             <textarea id="capability-roots" className="settings-textarea" rows={5} value={draft.capabilityRoots.join('\n')} placeholder={'D:\\Projects\nE:\\Work'} onChange={(event) => patch({ capabilityRoots: splitList(event.target.value) })} />
             <p className="hint">{locale === 'th' ? 'ใช้กับ Shell, Office, Screen Record และ WSL โดยไม่ต้องแก้ environment variable เอง' : 'Used by Shell, Office, screen recording, and WSL without editing environment variables.'}</p>
           </section>
+
+          <section className="panel settings-card settings-card-polished" aria-label="Local providers">
+            <CardHeading icon="◫" title={locale === 'th' ? 'Local Providers' : 'Local Providers'} subtitle={locale === 'th' ? 'ตั้งค่า PDF และ Language Server โดยไม่ต้องแก้ Environment Variable' : 'Configure PDF and language-server providers without environment variables'} badge="ADVANCED" />
+            <div className="setting-grid two-col">
+              <Field
+                label={locale === 'th' ? 'PDF Provider (pdftotext.exe)' : 'PDF Provider (pdftotext.exe)'}
+                value={draft.pdfProviderPath}
+                placeholder={'C:\\Program Files\\poppler\\Library\\bin\\pdftotext.exe'}
+                onChange={(value) => patch({ pdfProviderPath: value })}
+              />
+              <TextArea
+                label={locale === 'th' ? 'LSP Commands — LANGUAGE=COMMAND' : 'LSP Commands — LANGUAGE=COMMAND'}
+                value={stringMapToText(draft.lspCommands)}
+                onChange={(value) => patch({ lspCommands: stringMapFromText(value) })}
+              />
+            </div>
+            <p className="hint">{locale === 'th'
+              ? 'ตัวอย่าง: typescript=["typescript-language-server","--stdio"]  |  python=["pyright-langserver","--stdio"] — ต้อง Restart Local MCP / Tunnel หลังเปลี่ยน'
+              : 'Example: typescript=["typescript-language-server","--stdio"]  |  python=["pyright-langserver","--stdio"]. Restart Local MCP / Tunnel after changing providers.'}</p>
+          </section>
         </>
       ) : null}
 
@@ -297,6 +319,22 @@ function splitList(value: string): readonly string[] {
 
 function splitLines(value: string): readonly string[] {
   return value.split(/\r?\n/).map((entry) => entry.trim()).filter((entry) => entry.length > 0);
+}
+
+function stringMapFromText(value: string): Readonly<Record<string, string>> {
+  const result: Record<string, string> = {};
+  for (const line of value.split(/\r?\n/)) {
+    const separator = line.indexOf('=');
+    if (separator <= 0) continue;
+    const key = line.slice(0, separator).trim().toLowerCase();
+    const entry = line.slice(separator + 1).trim();
+    if (key.length > 0 && entry.length > 0) result[key] = entry;
+  }
+  return result;
+}
+
+function stringMapToText(value: Readonly<Record<string, string>>): string {
+  return Object.entries(value).map(([key, entry]) => `${key}=${entry}`).join('\n');
 }
 
 function envFromText(value: string): Readonly<Record<string, string>> {

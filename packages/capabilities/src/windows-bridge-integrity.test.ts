@@ -1,7 +1,8 @@
 import { createHash } from 'node:crypto';
-import { mkdtemp, realpath, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, readFile, realpath, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { afterEach, describe, expect, it } from 'vitest';
 import { PowerShellWindowsCapabilityBridge } from './windows-bridge.js';
 
@@ -38,6 +39,18 @@ describe('PowerShellWindowsCapabilityBridge integrity', () => {
       error: { code: 'INTERNAL_ERROR', message: 'Windows bridge script integrity check failed' },
     });
   }, 15_000);
+
+  it('never quits the user Outlook instance from read-only bridge actions', async () => {
+    const scriptPath = path.join(path.dirname(fileURLToPath(import.meta.url)), 'windows-capability-bridge.ps1');
+    const script = await readFile(scriptPath, 'utf8');
+    const outlookStart = script.indexOf("if ($App -eq 'outlook')");
+    const outlookEnd = script.indexOf('throw "Unsupported office app: $App"', outlookStart);
+    expect(outlookStart).toBeGreaterThanOrEqual(0);
+    expect(outlookEnd).toBeGreaterThan(outlookStart);
+    const outlookSection = script.slice(outlookStart, outlookEnd);
+    expect(outlookSection).not.toContain('$outlook.Quit()');
+    expect(outlookSection).toContain('Release-ComObject $outlook');
+  });
 
   it('rejects a missing or malformed expected hash before starting PowerShell', async () => {
     const root = await temporaryRoot();

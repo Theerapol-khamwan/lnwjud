@@ -626,6 +626,24 @@ function Invoke-OfficeAction {
             return [ordered]@{ app = 'excel'; action = 'save_as'; source = $filePath; target = $target; saved = $true }
           } finally { $workbook.Close($false) }
         }
+        'sheets' {
+          if ($filePath.Length -eq 0) { throw 'file_path is required' }
+          if (-not (Test-Path $filePath -PathType Leaf)) { throw 'Excel file was not found' }
+          $workbook = $excel.Workbooks.Open($filePath, 0, $true)
+          try {
+            $sheets = @()
+            foreach ($worksheet in $workbook.Worksheets) {
+              $used = $worksheet.UsedRange
+              $sheets += [ordered]@{
+                name = [string]$worksheet.Name
+                used_range = [string]$used.Address($false, $false)
+                rows = [int]$used.Rows.Count
+                columns = [int]$used.Columns.Count
+              }
+            }
+            return [ordered]@{ app = 'excel'; action = 'sheets'; file_path = $filePath; sheets = $sheets }
+          } finally { $workbook.Close($false) }
+        }
         default { throw "Unsupported excel action: $Action" }
       }
     } finally {
@@ -668,10 +686,143 @@ function Invoke-OfficeAction {
             return [ordered]@{ app = 'word'; action = 'save_as'; source = $filePath; target = $target; saved = $true }
           } finally { $document.Close($false) }
         }
+        'merge' {
+          if ($filePath.Length -eq 0) { throw 'file_path is required' }
+          if (-not (Test-Path $filePath -PathType Leaf)) { throw 'Word file was not found' }
+          $target = [string](Get-Field $Parameters 'target_path'); if ($target.Length -eq 0) { throw 'target_path is required' }
+          $mergePaths = @(Get-Field $Parameters 'merge_paths')
+          if ($mergePaths.Count -eq 0) { throw 'merge_paths is required' }
+          $document = $word.Documents.Open($filePath)
+          try {
+            foreach ($mergePath in $mergePaths) {
+              $source = [string]$mergePath
+              if ($source.Length -eq 0) { continue }
+              if (-not (Test-Path $source -PathType Leaf)) { throw "Merge source was not found: $source" }
+              $endRange = $document.Content
+              $endRange.Collapse(0)
+              $endRange.InsertFile($source)
+            }
+            $document.SaveAs($target)
+            return [ordered]@{ app = 'word'; action = 'merge'; source = $filePath; merged = @($mergePaths); target = $target; saved = $true }
+          } finally { $document.Close($false) }
+        }
         default { throw "Unsupported word action: $Action" }
       }
     } finally {
       if ($null -ne $word) { try { $word.Quit() } catch { }; Release-ComObject $word }
+    }
+  }
+  if ($App -eq 'powerpoint') {
+    $powerpoint = $null
+    try {
+      $powerpoint = New-Object -ComObject PowerPoint.Application
+      switch ($Action) {
+        'read' {
+          if ($filePath.Length -eq 0) { throw 'file_path is required' }
+          if (-not (Test-Path $filePath -PathType Leaf)) { throw 'PowerPoint file was not found' }
+          $presentation = $powerpoint.Presentations.Open($filePath, $true, $false, $false)
+          try {
+            $slides = @()
+            $index = 0
+            foreach ($slide in $presentation.Slides) {
+              $index += 1
+              $texts = @()
+              foreach ($shape in $slide.Shapes) {
+                if ($shape.HasTextFrame -and $shape.TextFrame.HasText) {
+                  $texts += [string]$shape.TextFrame.TextRange.Text
+                }
+              }
+              $slides += [ordered]@{ slide = $index; texts = $texts }
+            }
+            return [ordered]@{ app = 'powerpoint'; action = 'read'; file_path = $filePath; slide_count = $index; slides = $slides }
+          } finally { $presentation.Close() }
+        }
+        'save_as' {
+          if ($filePath.Length -eq 0) { throw 'file_path is required' }
+          if (-not (Test-Path $filePath -PathType Leaf)) { throw 'PowerPoint file was not found' }
+          $presentation = $powerpoint.Presentations.Open($filePath, $true, $false, $false)
+          try {
+            $target = [string](Get-Field $Parameters 'target_path'); if ($target.Length -eq 0) { throw 'target_path is required' }
+            $presentation.SaveAs($target)
+            return [ordered]@{ app = 'powerpoint'; action = 'save_as'; source = $filePath; target = $target; saved = $true }
+          } finally { $presentation.Close() }
+        }
+        default { throw "Unsupported powerpoint action: $Action" }
+      }
+    } finally {
+      if ($null -ne $powerpoint) { try { $powerpoint.Quit() } catch { }; Release-ComObject $powerpoint }
+    }
+  }
+  if ($App -eq 'outlook') {
+    # Read-only header access: subjects/senders/timestamps only. Message
+    # bodies are intentionally never returned through this bridge. Outlook
+    # is a single-instance COM server, so never call Quit() here: doing so can
+    # close the user's already-open Outlook window.
+    $outlook = $null
+    $namespace = $null
+    try {
+      $outlook = New-Object -ComObject Outlook.Application
+      $namespace = $outlook.GetNamespace('MAPI')
+      switch ($Action) {
+        'list_folders' {
+          $folders = @()
+          foreach ($store in $namespace.Folders) {
+            foreach ($folder in $store.Folders) {
+              $folders += [ordered]@{
+                store = [string]$store.Name
+                name = [string]$folder.Name
+                path = [string]$folder.FolderPath
+                item_count = [int]$folder.Items.Count
+              }
+            }
+          }
+          return [ordered]@{ app = 'outlook'; action = 'list_folders'; folders = $folders }
+        }
+        'list_messages' {
+          $folderPath = [string](Get-Field $Parameters 'folder')
+          $maxMessages = [int](Get-Field $Parameters 'max_messages')
+          if ($maxMessages -le 0) { $maxMessages = 20 }
+          if ($maxMessages -gt 100) { $maxMessages = 100 }
+          $folder = $null
+          if ($folderPath.Length -eq 0) {
+            $folder = $namespace.GetDefaultFolder(6)
+          } else {
+            $segments = @($folderPath.Trim('\').Split('\') | Where-Object { $_.Length -gt 0 })
+            if ($segments.Count -ge 2) {
+              try {
+                $folder = $namespace.Folders.Item([string]$segments[0])
+                for ($index = 1; $index -lt $segments.Count; $index += 1) {
+                  $folder = $folder.Folders.Item([string]$segments[$index])
+                }
+              } catch { $folder = $null }
+            }
+            if ($null -eq $folder -and $segments.Count -eq 1) {
+              foreach ($store in $namespace.Folders) {
+                try { $folder = $store.Folders.Item([string]$segments[0]); if ($null -ne $folder) { break } } catch { }
+              }
+            }
+            if ($null -eq $folder) { throw "Outlook folder was not found: $folderPath" }
+          }
+          $items = $folder.Items
+          $items.Sort('[ReceivedTime]', $true)
+          $messages = @()
+          $count = 0
+          foreach ($item in $items) {
+            if ($count -ge $maxMessages) { break }
+            $count += 1
+            $messages += [ordered]@{
+              subject = [string]$item.Subject
+              sender = [string]$item.SenderName
+              received = try { $item.ReceivedTime.ToString('o') } catch { '' }
+            }
+          }
+          return [ordered]@{ app = 'outlook'; action = 'list_messages'; folder = if ($folderPath.Length -eq 0) { 'Inbox' } else { $folderPath }; messages = $messages }
+        }
+        default { throw "Unsupported outlook action: $Action" }
+      }
+    } finally {
+      if ($null -ne $namespace) { Release-ComObject $namespace }
+      if ($null -ne $outlook) { Release-ComObject $outlook }
     }
   }
   throw "Unsupported office app: $App"

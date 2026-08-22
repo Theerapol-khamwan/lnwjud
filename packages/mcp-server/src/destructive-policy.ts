@@ -25,6 +25,12 @@ export function inspectDestructiveOperation(toolName: string, input: unknown): D
       return inspectGit(value);
     case 'git_worktree_spawn':
       return destructive('creating an isolated Git worktree writes workspace state');
+    case 'sandbox_exec':
+      return destructive('detonating an executable in Windows Sandbox runs untrusted code');
+    case 'self_heal_apply':
+      return destructive('applying a recovery plan executes state-changing fixes');
+    case 'office_ppt':
+      return String(value.action ?? 'read') === 'read' ? { destructive: false } : destructive('PowerPoint save_as writes document data');
     case 'shell':
       return inspectShell(value);
     case 'wsl_exec':
@@ -44,7 +50,7 @@ export function inspectDestructiveOperation(toolName: string, input: unknown): D
     case 'scheduler':
       return value.action === 'delete' ? destructive('scheduled task deletion') : { destructive: false };
     case 'office':
-      return value.action === 'write' || value.action === 'replace' || value.action === 'save_as'
+      return value.action === 'write' || value.action === 'replace' || value.action === 'save_as' || value.action === 'merge'
         ? destructive('Office mutation can overwrite document data')
         : { destructive: false };
     case 'window':

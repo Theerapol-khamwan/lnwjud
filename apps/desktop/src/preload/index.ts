@@ -182,6 +182,8 @@ function userSettings(value: unknown): UserSettings {
     mcpIdleTimeoutMs: integerField(value, 'mcpIdleTimeoutMs'),
     processTimeoutMs: integerField(value, 'processTimeoutMs'),
     capabilityRoots: stringList(value.capabilityRoots),
+    pdfProviderPath: stringField(value, 'pdfProviderPath'),
+    lspCommands: stringRecordResponse(value.lspCommands),
     mcpHttpPort: integerField(value, 'mcpHttpPort'),
     codexToolsEnabled: booleanField(value, 'codexToolsEnabled'),
     updateAutoCheck: booleanField(value, 'updateAutoCheck'),

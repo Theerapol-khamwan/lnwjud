@@ -4,6 +4,8 @@ export const USER_SETTING_KEYS = Object.freeze({
   mcpIdleTimeoutMs: 'mcp_idle_timeout_ms',
   processTimeoutMs: 'process_timeout_ms',
   capabilityRoots: 'capability_roots',
+  pdfProviderPath: 'pdf_provider_path',
+  lspCommands: 'lsp_commands',
   mcpHttpPort: 'mcp_http_port',
   codexToolsEnabled: 'codex_tools_enabled',
   updateAutoCheck: 'update_auto_check',
@@ -70,6 +72,25 @@ export function parsePathList(value: string | null | undefined): readonly string
 
 export function serializePathList(values: readonly string[]): string {
   return parsePathList(values.join(';')).join(';');
+}
+
+export function parseStringRecordSetting(value: string | null | undefined): Readonly<Record<string, string>> {
+  if (value === null || value === undefined || value.trim().length === 0) return {};
+  try {
+    const parsed: unknown = JSON.parse(value);
+    if (!isRecord(parsed)) return {};
+    return Object.fromEntries(Object.entries(parsed)
+      .filter((entry): entry is [string, string] => typeof entry[1] === 'string' && entry[0].trim().length > 0 && entry[1].trim().length > 0)
+      .map(([key, entry]) => [key.trim().toLowerCase(), entry.trim()]));
+  } catch {
+    return {};
+  }
+}
+
+export function serializeStringRecordSetting(value: Readonly<Record<string, string>>): string {
+  return JSON.stringify(Object.fromEntries(Object.entries(value)
+    .filter(([key, entry]) => key.trim().length > 0 && entry.trim().length > 0)
+    .map(([key, entry]) => [key.trim().toLowerCase(), entry.trim()])));
 }
 
 export function parseCustomPermissionSettings(value: string | null | undefined): CustomPermissionSettings {

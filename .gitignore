@@ -52,6 +52,9 @@ docs/
 !docs/
 docs/*
 !docs/CHATGPT_LONG_SESSION.md
+!docs/mcp/
+docs/mcp/*
+!docs/mcp/MCP_TASKS.md
 !docs/architecture/
 docs/architecture/*
 !docs/architecture/UPGRADE_ARCHITECTURE.md

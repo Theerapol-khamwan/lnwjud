@@ -30,12 +30,13 @@ import {
   WindowsNativeCapabilityBackend,
   WindowsOcrCapabilityBackend,
   WindowsOcrProcessBridge,
+  createOcrPackageIdentityProbe,
   WINDOWS_CAPABILITY_BRIDGE_SHA256,
   WslCapabilityBackend,
   WslFilesystemCapabilityBackend,
 } from '@lnwjud/capabilities';
 import type { Result } from '@lnwjud/domain';
-import { ALLOW_AI_DELETE_SETTING_KEY, DEFAULT_CODEX_TOOLS_ENABLED, DEFAULT_MCP_CALL_TIMEOUT_MS, DEFAULT_MCP_IDLE_TIMEOUT_MS, DEFAULT_PROCESS_TIMEOUT_MS, USER_SETTING_KEYS, loadCheckpointEncryptionKey, parseBooleanSetting, parseCustomPermissionSettings, parseIntegerSetting, parsePathList } from '@lnwjud/shared';
+import { ALLOW_AI_DELETE_SETTING_KEY, DEFAULT_CODEX_TOOLS_ENABLED, DEFAULT_MCP_CALL_TIMEOUT_MS, DEFAULT_MCP_IDLE_TIMEOUT_MS, DEFAULT_PROCESS_TIMEOUT_MS, USER_SETTING_KEYS, loadCheckpointEncryptionKey, parseBooleanSetting, parseCustomPermissionSettings, parseIntegerSetting, parsePathList, parseStringRecordSetting } from '@lnwjud/shared';
 import {
   EXTENSIONS_SETTINGS_KEY,
   createLocalExtensionsService,
@@ -174,6 +175,10 @@ export function createStdioMcpRuntime(
   });
   const services: McpApplicationServices = {
     runtimeStatePath: path.join(dataPath, 'upgrade-runtime.json'),
+    localProviders: () => ({
+      ...(settingsRepository.get(USER_SETTING_KEYS.pdfProviderPath)?.trim() ? { pdfProvider: settingsRepository.get(USER_SETTING_KEYS.pdfProviderPath)!.trim() } : {}),
+      lspCommands: parseStringRecordSetting(settingsRepository.get(USER_SETTING_KEYS.lspCommands)),
+    }),
     capabilities: capabilityService,
     extensions,
     workspaceInfo: new WorkspaceInfoService(workspaceRepository, workspaceService, effectiveUnrestricted),
@@ -262,8 +267,7 @@ function createStdioCapabilityService(
   const ocrHelper = ocrHelperPath === undefined ? undefined : new WindowsOcrProcessBridge({ helperPath: ocrHelperPath });
   const visionBackend = new VisionCapabilityBackend(nativeVisionBackend, new WindowsOcrCapabilityBackend({
     platform: process.platform,
-    ...(ocrHelper === undefined ? {} : { helper: ocrHelper }),
-    ...(ocrHelper === undefined ? {} : { packageIdentity: async (): Promise<Result<boolean>> => ({ ok: true, value: true }) }),
+    ...(ocrHelper === undefined ? {} : { helper: ocrHelper, packageIdentity: createOcrPackageIdentityProbe(ocrHelper) }),
   }));
   const wslAvailabilityProbe = async (): Promise<Result<unknown>> => {
     const probeRoots = await capabilityRootsProvider();

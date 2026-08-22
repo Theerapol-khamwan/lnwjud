@@ -38,6 +38,16 @@ internal static class Program
 
     private static async Task<object> RecognizeAsync(JsonElement input)
     {
+        if (input.ValueKind == JsonValueKind.Object && input.TryGetProperty("op", out var opElement)
+            && opElement.ValueKind == JsonValueKind.String && opElement.GetString() == "probe")
+        {
+            var identity = HasPackageIdentity();
+            object payload = identity
+                ? new { available = true, ready = true, backend = "Windows.Media.Ocr", package_identity = true }
+                : new { available = false, ready = false, backend = "Windows.Media.Ocr", package_identity = false, reason = "package_identity_required" };
+            return Success(payload);
+        }
+
         if (!HasPackageIdentity())
         {
             return Success(new

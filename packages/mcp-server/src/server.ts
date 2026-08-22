@@ -6,6 +6,7 @@ import { readTraceContext, type ActivitySink, type ActivityTracker } from './act
 import { withProgressHeartbeat, type ProgressNotifyContext } from './progress-heartbeat.js';
 import { IncrementalVerifier } from './incremental-verifier.js';
 import { RunBudgetGuard, type RunBudgetContext } from './run-budget.js';
+import { registerTasksProtocol } from './tasks-protocol.js';
 import { ToolRegistry, type McpApplicationServices } from './tool-registry.js';
 
 export interface McpServerOptions {
@@ -35,7 +36,17 @@ export function createMcpServer(options: McpServerOptions): McpServer {
     ...(options.incrementalVerifier === undefined ? {} : { incrementalVerifier: options.incrementalVerifier }),
   });
   const runBudgetGuard = options.runBudgetGuard ?? new RunBudgetGuard();
-  const server = new McpServer({ name: APP_NAME, version: APP_VERSION }, { capabilities: { tools: {} } });
+  // tasks capability (MCP spec 2025-11-25) exposes existing durable shell
+  // background tasks via tasks/get/result/list/cancel. requests.tools.call is
+  // intentionally not declared, so clients will not send task-augmented
+  // tool calls.
+  const server = new McpServer({ name: APP_NAME, version: APP_VERSION }, {
+    capabilities: {
+      tools: {},
+      tasks: { list: {}, cancel: {} },
+    },
+  });
+  registerTasksProtocol(server, options.services);
   for (const tool of registry.list()) {
     server.registerTool(tool.name, {
       description: tool.description,

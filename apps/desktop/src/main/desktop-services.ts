@@ -61,12 +61,14 @@ import {
   parseCustomPermissionSettings,
   parseIntegerSetting,
   parsePathList,
+  parseStringRecordSetting,
   parseAllowedRoots,
   parseBooleanSetting,
   parseStdioPermissionProfile,
   serializeAllowedRoots,
   serializeCustomPermissionSettings,
   serializePathList,
+  serializeStringRecordSetting,
   loadCheckpointEncryptionKey,
 } from '@lnwjud/shared';
 import { AesGcmCheckpointCipher, SqliteAuditRepository, SqliteBackupService, SqliteCheckpointRepository, SqliteDatabase, SqliteSettingsRepository, SqliteWorkspaceRepository, type BackupReason, type BackupSummary } from '@lnwjud/storage';
@@ -224,6 +226,13 @@ export function createDesktopRuntime(dataPath: string, options: DesktopRuntimeOp
   });
   const mcpServices: McpApplicationServices = {
     runtimeStatePath: path.join(dataPath, 'upgrade-runtime.json'),
+    localProviders: () => {
+      const settings = readSettings();
+      return {
+        ...(settings.pdfProviderPath.trim().length === 0 ? {} : { pdfProvider: settings.pdfProviderPath }),
+        lspCommands: settings.lspCommands,
+      };
+    },
     capabilities: capabilityRuntime.service,
     extensions: extensionsService,
     workspaceInfo: workspaceInfoService,
@@ -809,6 +818,8 @@ function readUserSettings(settingsRepository: SqliteSettingsRepository, env: Nod
     mcpIdleTimeoutMs: parseIntegerSetting(settingsRepository.get(USER_SETTING_KEYS.mcpIdleTimeoutMs), DEFAULT_MCP_IDLE_TIMEOUT_MS, 30_000, 24 * 60 * 60_000),
     processTimeoutMs: parseIntegerSetting(settingsRepository.get(USER_SETTING_KEYS.processTimeoutMs), DEFAULT_PROCESS_TIMEOUT_MS, 1_000, 4 * 60 * 60_000),
     capabilityRoots: parsePathList(settingsRepository.get(USER_SETTING_KEYS.capabilityRoots)),
+    pdfProviderPath: settingsRepository.get(USER_SETTING_KEYS.pdfProviderPath)?.trim() ?? '',
+    lspCommands: parseStringRecordSetting(settingsRepository.get(USER_SETTING_KEYS.lspCommands)),
     mcpHttpPort: readMcpPort(env.LNWJUD_MCP_PORT ?? settingsRepository.get(USER_SETTING_KEYS.mcpHttpPort) ?? undefined),
     codexToolsEnabled: parseBooleanSetting(settingsRepository.get(USER_SETTING_KEYS.codexToolsEnabled), DEFAULT_CODEX_TOOLS_ENABLED),
     updateAutoCheck: parseBooleanSetting(settingsRepository.get(USER_SETTING_KEYS.updateAutoCheck), true),
@@ -830,6 +841,8 @@ function persistUserSettings(settingsRepository: SqliteSettingsRepository, setti
   settingsRepository.set(USER_SETTING_KEYS.mcpIdleTimeoutMs, String(settings.mcpIdleTimeoutMs));
   settingsRepository.set(USER_SETTING_KEYS.processTimeoutMs, String(settings.processTimeoutMs));
   settingsRepository.set(USER_SETTING_KEYS.capabilityRoots, serializePathList(settings.capabilityRoots));
+  settingsRepository.set(USER_SETTING_KEYS.pdfProviderPath, settings.pdfProviderPath.trim());
+  settingsRepository.set(USER_SETTING_KEYS.lspCommands, serializeStringRecordSetting(settings.lspCommands));
   settingsRepository.set(USER_SETTING_KEYS.mcpHttpPort, String(settings.mcpHttpPort));
   settingsRepository.set(USER_SETTING_KEYS.codexToolsEnabled, settings.codexToolsEnabled ? 'true' : 'false');
   settingsRepository.set(USER_SETTING_KEYS.updateAutoCheck, settings.updateAutoCheck ? 'true' : 'false');
@@ -890,6 +903,8 @@ function runtimeRestartRequired(previous: UserSettings, next: UserSettings): boo
     || previous.mcpIdleTimeoutMs !== next.mcpIdleTimeoutMs
     || previous.mcpHttpPort !== next.mcpHttpPort
     || previous.codexToolsEnabled !== next.codexToolsEnabled
+    || previous.pdfProviderPath !== next.pdfProviderPath
+    || JSON.stringify(previous.lspCommands) !== JSON.stringify(next.lspCommands)
     || JSON.stringify(previous.customPermission) !== JSON.stringify(next.customPermission)
     || JSON.stringify(previous.extensions) !== JSON.stringify(next.extensions);
 }

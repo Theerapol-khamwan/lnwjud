@@ -40,12 +40,60 @@ The tunnel is outbound-only: `tunnel-client` runs beside lnwjud, reaches OpenAI
 over outbound HTTPS, forwards MCP work to the local stdio server, and returns the
 response without opening a public inbound port on the Windows machine.
 
-## Current release: v4.7.1
+## Current release: v4.8.0
 
-The current published installer and runtime contract are `v4.7.1`. The runtime
-advertises **210 MCP tools**. The earlier 184-tool snapshot remains only as the
+The current published installer and runtime contract are `v4.8.0`. The runtime
+advertises **213 MCP tools**. The earlier 184-tool snapshot remains only as the
 compatibility baseline used by the v4 architecture; new v4 gateway capabilities
 are additive.
+
+### Unreleased: MCP Tasks protocol surface + God-Tier waves 3–8
+
+- Durable background tasks (shell/wsl_exec `execution=background`) are exposed
+  through the experimental MCP Tasks utility (spec 2025-11-25): `tasks/get`,
+  `tasks/result`, `tasks/list`, and `tasks/cancel`, advertised as
+  `capabilities.tasks { list, cancel }`. Task creation stays with the `shell`
+  tool; task-augmented `tools/call` is intentionally not declared yet. See
+  `docs/mcp/MCP_TASKS.md` for the state mapping and known deviations.
+- Wave 3: the WinRT OCR helper gained build/sign/register scripts
+  (`scripts/build-windows-ocr.ps1`, `scripts/register-windows-ocr.ps1` with a
+  self-signed dev path), real cached host-side identity probing, packaging
+  assets, and installer shipping (`windows-ocr` extra resource).
+- Wave 5: `event_watch`/`crash_trace` serve bounded allowlisted `Get-WinEvent`
+  queries; `sandbox_exec` stages the artifact-only WSB plan, launches
+  `WindowsSandbox.exe`, and retrieves stdout/stderr/exit-code behind dry-run
+  and confirmation gating.
+- Wave 6: read-only SQLite `db_inspect`/`db_query` (workspace-confined,
+  single SELECT/PRAGMA), a minimal stdio LSP client behind
+  `lsp_diagnostics`/`lsp_rename` (`LNWJUD_LSP_<LANGUAGE>_COMMAND`), and a
+  persisted Git worktree ownership ledger with `git_worktree_remove`.
+  DAP stays contract-only by design.
+- Wave 7: PowerPoint `read`/`save_as` and read-only Outlook folder/message
+  headers joined the Office COM boundary; `pdf_extract_tables`/`inspect_pdf`
+  run through an optional local PDF provider; `docx_merge` and
+  `inspect_workbook` use Word/Excel COM; the phase-37 compare/preview
+  adapters now report truthful optional availability.
+- Wave 8: `self_heal_plan` proposes allowlisted reversible fixes from live
+  evidence and `self_heal_apply` executes them behind dry-run + explicit
+  confirmation with no automatic destructive retry. `agent_swarm_run`
+  remains planned (the only local subagent provider is Codex, which the
+  chat-quota-only policy keeps off-limits).
+
+### What's new in v4.7.1
+
+- Resilient long-session workflows for chat-quota runs: a run budget guard
+  appends near-limit warnings to tool results, `session_handoff` builds a
+  same-chat continuation prompt from the tracker, Git state, and durable task
+  IDs, and `verify_incremental` caches typecheck results keyed by the Git diff.
+- Codex delegation tools (`codex_*`) are disabled unless explicitly enabled,
+  keeping the separate Codex work quota untouched. The long-session guide is
+  `docs/CHATGPT_LONG_SESSION.md`.
+
+### What's new in v4.7.0
+
+- End-user configuration: the desktop Settings page gained a user config panel
+  with persisted preferences, plus tray, tunnel-controller, and update-check
+  scheduler refinements backed by new persistence tests.
 
 ### What's new in v4.6.0
 
@@ -165,7 +213,7 @@ stops the current local HTTP listener.
 
 1. Download the latest published installer from
    [GitHub Releases](https://github.com/engasnm111/lnwjud/releases/latest).
-   The current release is `lnwjud-Setup-4.7.1.exe`.
+   The current release is `lnwjud-Setup-4.8.0.exe`.
 2. Run the NSIS installer and launch **lnwjud Agent Control Center**.
 3. Add or select the project/workspace you want lnwjud to operate on.
 4. Review **Settings** before attaching an AI client, especially Permission
@@ -411,7 +459,7 @@ corepack pnpm@10.15.0 package:windows
 The x64 NSIS installer is written to:
 
 ```text
-apps/desktop/dist/installers/lnwjud-Setup-4.7.1.exe
+apps/desktop/dist/installers/lnwjud-Setup-4.8.0.exe
 ```
 
 The installer is per-user by default. A common installed executable path is:
@@ -760,7 +808,7 @@ After changing tool metadata or restarting the tunnel, refresh the connector and
 
 ## Complete MCP tool catalog (212 configurable tools; 206 advertised by default)
 
-This index is generated from the current v4.7.1 `ToolRegistry`, not copied from an older release document. Optional/planned tools still appear in the advertised contract and report their availability/requirements at runtime where applicable.
+This index is generated from the current v4.8.0 `ToolRegistry`, not copied from an older release document. Optional/planned tools still appear in the advertised contract and report their availability/requirements at runtime where applicable.
 
 | # | Tool | Permission | Runtime description |
 | ---: | --- | --- | --- |
