@@ -117,7 +117,7 @@ describe('Codex review flow', () => {
     } finally {
       database.close();
     }
-  });
+  }, 20_000);
 });
 
 function fakeCodexAdapter(fakeCodexPath: string): CodexAdapter {

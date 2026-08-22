@@ -138,7 +138,7 @@ describe('MCP development flow', () => {
     } finally {
       database.close();
     }
-  });
+  }, 20_000);
 });
 
 async function createFixture(): Promise<string> {

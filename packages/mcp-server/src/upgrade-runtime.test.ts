@@ -26,7 +26,7 @@ describe('upgrade runtime', () => {
       expect(response).toBeDefined();
       expect(response.structuredContent).toBeDefined();
     }
-  });
+  }, 20_000);
 
   it('routes prompts and searches capabilities without an LLM', async () => {
     const runtime = new UpgradeRuntimeService({}, actor);

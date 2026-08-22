@@ -40,14 +40,26 @@ The tunnel is outbound-only: `tunnel-client` runs beside lnwjud, reaches OpenAI
 over outbound HTTPS, forwards MCP work to the local stdio server, and returns the
 response without opening a public inbound port on the Windows machine.
 
-## Current release: v4.8.1
+## Current release: v4.8.2
 
-The current published installer and runtime contract are `v4.8.1`. The runtime
+The current published installer and runtime contract are `v4.8.2`. The runtime
 advertises **213 MCP tools**. The earlier 184-tool snapshot remains only as the
 compatibility baseline used by the v4 architecture; new v4 gateway capabilities
 are additive.
 
-### Unreleased: MCP Tasks protocol surface + God-Tier waves 3–8
+### What's new in v4.8.2
+
+- Hardened the v4.8 release line for clean Windows CI/release runners: document
+  workspace-boundary checks now compare canonical paths so Windows 8.3 aliases
+  do not produce false outside-workspace failures while junction/symlink escapes
+  remain rejected.
+- Increased the Vitest budget only for the three process/I/O-heavy smoke and
+  integration tests that legitimately exceed the 5-second default on hosted
+  Windows runners. Performance assertions remain separate and unchanged.
+- Version metadata, packaging assertions, installer naming, and the generated
+  213-tool runtime contract are synchronized to `4.8.2`.
+
+### What's new in v4.8.0
 
 - Durable background tasks (shell/wsl_exec `execution=background`) are exposed
   through the experimental MCP Tasks utility (spec 2025-11-25): `tasks/get`,
@@ -78,7 +90,6 @@ are additive.
   confirmation with no automatic destructive retry. `agent_swarm_run`
   remains planned (the only local subagent provider is Codex, which the
   chat-quota-only policy keeps off-limits).
-
 ### What's new in v4.7.1
 
 - Resilient long-session workflows for chat-quota runs: a run budget guard
@@ -213,7 +224,7 @@ stops the current local HTTP listener.
 
 1. Download the latest published installer from
    [GitHub Releases](https://github.com/engasnm111/lnwjud/releases/latest).
-   The current release is `lnwjud-Setup-4.8.1.exe`.
+   The current release is `lnwjud-Setup-4.8.2.exe`.
 2. Run the NSIS installer and launch **lnwjud Agent Control Center**.
 3. Add or select the project/workspace you want lnwjud to operate on.
 4. Review **Settings** before attaching an AI client, especially Permission
@@ -459,7 +470,7 @@ corepack pnpm@10.15.0 package:windows
 The x64 NSIS installer is written to:
 
 ```text
-apps/desktop/dist/installers/lnwjud-Setup-4.8.1.exe
+apps/desktop/dist/installers/lnwjud-Setup-4.8.2.exe
 ```
 
 The installer is per-user by default. A common installed executable path is:
@@ -808,7 +819,7 @@ After changing tool metadata or restarting the tunnel, refresh the connector and
 
 ## Complete MCP tool catalog (212 configurable tools; 206 advertised by default)
 
-This index is generated from the current v4.8.1 `ToolRegistry`, not copied from an older release document. Optional/planned tools still appear in the advertised contract and report their availability/requirements at runtime where applicable.
+This index is generated from the current v4.8.2 `ToolRegistry`, not copied from an older release document. Optional/planned tools still appear in the advertised contract and report their availability/requirements at runtime where applicable.
 
 | # | Tool | Permission | Runtime description |
 | ---: | --- | --- | --- |
