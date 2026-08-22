@@ -40,12 +40,22 @@ The tunnel is outbound-only: `tunnel-client` runs beside lnwjud, reaches OpenAI
 over outbound HTTPS, forwards MCP work to the local stdio server, and returns the
 response without opening a public inbound port on the Windows machine.
 
-## Current release: v4.8.2
+## Current release: v4.8.3
 
-The current published installer and runtime contract are `v4.8.2`. The runtime
+The current published installer and runtime contract are `v4.8.3`. The runtime
 advertises **213 MCP tools**. The earlier 184-tool snapshot remains only as the
 compatibility baseline used by the v4 architecture; new v4 gateway capabilities
 are additive.
+
+### What's new in v4.8.3
+
+- Hardened the real desktop MCP E2E flow for hosted Windows runners by allowing
+  the managed project-test process up to 60 seconds to publish its terminal
+  status. The test already has a 180-second scenario budget; this change only
+  removes the overly strict 15-second inner poll and keeps the same terminal
+  state assertions.
+- Keeps the v4.8.2 canonical-path fix and targeted Vitest timeout budgets intact;
+  no runtime permission, process, or MCP behavior is relaxed by this patch.
 
 ### What's new in v4.8.2
 
@@ -224,7 +234,7 @@ stops the current local HTTP listener.
 
 1. Download the latest published installer from
    [GitHub Releases](https://github.com/engasnm111/lnwjud/releases/latest).
-   The current release is `lnwjud-Setup-4.8.2.exe`.
+   The current release is `lnwjud-Setup-4.8.3.exe`.
 2. Run the NSIS installer and launch **lnwjud Agent Control Center**.
 3. Add or select the project/workspace you want lnwjud to operate on.
 4. Review **Settings** before attaching an AI client, especially Permission
@@ -470,7 +480,7 @@ corepack pnpm@10.15.0 package:windows
 The x64 NSIS installer is written to:
 
 ```text
-apps/desktop/dist/installers/lnwjud-Setup-4.8.2.exe
+apps/desktop/dist/installers/lnwjud-Setup-4.8.3.exe
 ```
 
 The installer is per-user by default. A common installed executable path is:
@@ -819,7 +829,7 @@ After changing tool metadata or restarting the tunnel, refresh the connector and
 
 ## Complete MCP tool catalog (212 configurable tools; 206 advertised by default)
 
-This index is generated from the current v4.8.2 `ToolRegistry`, not copied from an older release document. Optional/planned tools still appear in the advertised contract and report their availability/requirements at runtime where applicable.
+This index is generated from the current v4.8.3 `ToolRegistry`, not copied from an older release document. Optional/planned tools still appear in the advertised contract and report their availability/requirements at runtime where applicable.
 
 | # | Tool | Permission | Runtime description |
 | ---: | --- | --- | --- |

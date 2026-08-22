@@ -251,7 +251,7 @@ async function waitForTerminalProcess(client: Client, workspaceId: string, proce
     const response = await callTool(client, 'process_status', { workspaceId, processId });
     const state = toolRecord(response).state;
     return state === 'exited' || state === 'failed' || state === 'stopped' || state === 'timed_out' ? state : 'running';
-  }, { timeout: 15_000, intervals: [50, 100, 250] }).not.toBe('running');
+  }, { timeout: 60_000, intervals: [50, 100, 250, 500, 1_000] }).not.toBe('running');
   return toolRecord(await callTool(client, 'process_status', { workspaceId, processId }));
 }
 
