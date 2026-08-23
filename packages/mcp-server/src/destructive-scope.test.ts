@@ -33,14 +33,14 @@ describe('scoped destructive auto approval', () => {
     const current = policy(['delete_file', 'git_rm', 'shell_rm_unlink', 'wsl_rm_unlink']);
     expect(allowed('delete_file', { workspaceId: 'workspace-1', path: '.env' }, current)).toBe(false);
     expect(allowed('git', { workspaceId: 'workspace-1', args: ['rm', '--', 'package.json'] }, current)).toBe(false);
-    expect(allowed('shell', { operation: 'run', executable: 'rm', arguments: ['secrets.json'] }, current)).toBe(false);
+    expect(allowed('shell', { workspaceId: 'workspace-1', operation: 'run', executable: 'rm', arguments: ['secrets.json'] }, current)).toBe(false);
     expect(allowed('wsl_exec', { workspaceId: 'workspace-1', operation: 'run', executable: 'rm', arguments: ['credentials.json'] }, current)).toBe(false);
   });
 
   it('falls back to approval for recursive, wildcard, broad clean and hard reset while critical protection is enabled', () => {
     const current = policy(['git_clean', 'git_reset_restore', 'shell_rm_unlink']);
-    expect(allowed('shell', { operation: 'run', executable: 'rm', arguments: ['-rf', 'src'] }, current)).toBe(false);
-    expect(allowed('shell', { operation: 'run', executable: 'rm', arguments: ['*.tmp'] }, current)).toBe(false);
+    expect(allowed('shell', { workspaceId: 'workspace-1', operation: 'run', executable: 'rm', arguments: ['-rf', 'src'] }, current)).toBe(false);
+    expect(allowed('shell', { workspaceId: 'workspace-1', operation: 'run', executable: 'rm', arguments: ['*.tmp'] }, current)).toBe(false);
     expect(allowed('git', { workspaceId: 'workspace-1', args: ['clean', '-fd'] }, current)).toBe(false);
     expect(allowed('git', { workspaceId: 'workspace-1', args: ['reset', '--hard'] }, current)).toBe(false);
     expect(allowed('git', { workspaceId: 'workspace-1', args: ['restore', '--', 'src\\safe.ts'] }, current)).toBe(true);

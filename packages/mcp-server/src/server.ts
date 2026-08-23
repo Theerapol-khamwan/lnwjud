@@ -7,7 +7,7 @@ import { withProgressHeartbeat, type ProgressNotifyContext } from './progress-he
 import { IncrementalVerifier } from './incremental-verifier.js';
 import { RunBudgetGuard, type RunBudgetContext } from './run-budget.js';
 import { registerTasksProtocol } from './tasks-protocol.js';
-import { ToolRegistry, type ActiveProjectScope, type McpApplicationServices } from './tool-registry.js';
+import { ToolRegistry, type ActiveProjectScope, type McpApplicationServices, type WorkspaceScope } from './tool-registry.js';
 
 export interface McpServerOptions {
   readonly services: McpApplicationServices;
@@ -18,6 +18,8 @@ export interface McpServerOptions {
   readonly profileProvider?: () => PermissionProfile;
   readonly allowAiDeleteProvider?: () => boolean;
   readonly destructivePolicyProvider?: () => DestructiveAutoApprovalPolicy;
+  readonly workspaceScopeResolver?: (workspaceId: string) => WorkspaceScope | null | Promise<WorkspaceScope | null>;
+  /** @deprecated Compatibility only. Prefer workspaceScopeResolver. */
   readonly activeProjectProvider?: () => ActiveProjectScope | null;
   /** Exposes quota-consuming Codex delegation tools. Disabled unless explicitly enabled. */
   readonly codexToolsEnabled?: boolean;
@@ -35,6 +37,7 @@ export function createMcpServer(options: McpServerOptions): McpServer {
     ...(options.profileProvider === undefined ? {} : { profileProvider: options.profileProvider }),
     ...(options.allowAiDeleteProvider === undefined ? {} : { allowAiDeleteProvider: options.allowAiDeleteProvider }),
     ...(options.destructivePolicyProvider === undefined ? {} : { destructivePolicyProvider: options.destructivePolicyProvider }),
+    ...(options.workspaceScopeResolver === undefined ? {} : { workspaceScopeResolver: options.workspaceScopeResolver }),
     ...(options.activeProjectProvider === undefined ? {} : { activeProjectProvider: options.activeProjectProvider }),
     ...(options.codexToolsEnabled === undefined ? {} : { codexToolsEnabled: options.codexToolsEnabled }),
     ...(options.incrementalVerifier === undefined ? {} : { incrementalVerifier: options.incrementalVerifier }),

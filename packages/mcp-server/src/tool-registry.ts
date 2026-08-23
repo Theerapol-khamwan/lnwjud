@@ -6,7 +6,7 @@ import { ActivityTracker, type ActivitySink, type TraceContext } from './activit
 import { ContextEngine } from './context-engine.js';
 import { ContextEconomyRuntime } from './context-economy.js';
 import { hasExplicitUserConfirmation, inspectDestructiveOperation } from './destructive-policy.js';
-import { isScopedAutoApprovalAllowed, type ActiveProjectScope } from './destructive-scope.js';
+import { isScopedAutoApprovalAllowed, type WorkspaceScope } from './destructive-scope.js';
 import { FilePageEngine } from './file-page-engine.js';
 import { IncrementalVerifier } from './incremental-verifier.js';
 import { mapError, mapResult, type McpToolResponse } from './result-mapper.js';
@@ -29,7 +29,7 @@ import { workspaceTools } from './tools/workspace-tools.js';
 import type { McpApplicationServices, McpToolContext, McpToolDefinition } from './tools/tool-types.js';
 
 export type { McpApplicationServices } from './tools/tool-types.js';
-export type { ActiveProjectScope } from './destructive-scope.js';
+export type { ActiveProjectScope, WorkspaceScope } from './destructive-scope.js';
 
 export interface ToolRegistryOptions {
   readonly diagnostic?: DiagnosticLogger;
@@ -40,8 +40,10 @@ export interface ToolRegistryOptions {
   readonly allowAiDeleteProvider?: () => boolean;
   /** Fine-grained local destructive auto-approval policy. */
   readonly destructivePolicyProvider?: () => DestructiveAutoApprovalPolicy;
-  /** Active project boundary used for every auto-approved destructive operation. */
-  readonly activeProjectProvider?: () => ActiveProjectScope | null;
+  /** Resolves the registered workspace boundary for the workspaceId carried by this invocation. */
+  readonly workspaceScopeResolver?: (workspaceId: string) => WorkspaceScope | null | Promise<WorkspaceScope | null>;
+  /** @deprecated Compatibility only. New callers must use request-scoped workspace resolution. */
+  readonly activeProjectProvider?: () => WorkspaceScope | null;
   /** Exposes quota-consuming Codex delegation tools. Disabled unless explicitly enabled. */
   readonly codexToolsEnabled?: boolean;
   readonly incrementalVerifier?: IncrementalVerifier;
@@ -63,7 +65,7 @@ export class ToolRegistry {
   private readonly permissionEngine = new DefaultPermissionEngine();
   private readonly profileProvider: () => PermissionProfile;
   private readonly destructivePolicyProvider: () => DestructiveAutoApprovalPolicy;
-  private readonly activeProjectProvider: () => ActiveProjectScope | null;
+  private readonly workspaceScopeResolver: (workspaceId: string) => Promise<WorkspaceScope | null>;
   private readonly maxToolDurationMs: number | null;
 
   public constructor(services: McpApplicationServices, actor: FileActor, options: ToolRegistryOptions = {}) {
@@ -71,7 +73,7 @@ export class ToolRegistry {
     this.activity = options.activityTracker ?? new ActivityTracker(options.activity);
     this.profileProvider = options.profileProvider ?? ((): PermissionProfile => permissionProfiles.full);
     this.destructivePolicyProvider = options.destructivePolicyProvider ?? ((): DestructiveAutoApprovalPolicy => legacyDeletePolicy(options.allowAiDeleteProvider?.() === true));
-    this.activeProjectProvider = options.activeProjectProvider ?? ((): ActiveProjectScope | null => null);
+    this.workspaceScopeResolver = normalizeWorkspaceScopeResolver(services, actor, options);
     this.maxToolDurationMs = normalizeToolResponseBudget(options.maxToolDurationMs);
     const contextEconomy = new ContextEconomyRuntime();
     const context: McpToolContext = { services, actor, contextEconomy };
@@ -142,8 +144,13 @@ export class ToolRegistry {
       }
       const destructiveDecision = inspectDestructiveOperation(tool.name, parsed.value);
       const policy = this.destructivePolicyProvider();
+      const destructiveWorkspaceId = readExplicitWorkspaceId(parsed.value);
+      const workspaceScope = destructiveDecision.destructive && destructiveWorkspaceId !== undefined
+        ? await this.resolveWorkspaceScope(destructiveWorkspaceId)
+        : null;
       const policyAllowsScopedDestructive = destructiveDecision.destructive
-        && isScopedAutoApprovalAllowed(tool.name, parsed.value, destructiveDecision, policy, this.activeProjectProvider());
+        && destructiveWorkspaceId !== undefined
+        && isScopedAutoApprovalAllowed(tool.name, parsed.value, destructiveDecision, policy, workspaceScope);
       if (destructiveDecision.destructive && !hasExplicitUserConfirmation(parsed.value) && !policyAllowsScopedDestructive) {
         const message = `Destructive operation requires explicit user confirmation${destructiveDecision.reason === undefined ? '' : `: ${destructiveDecision.reason}`}. Ask the user in chat first, then retry with userConfirmed: true`;
         const response = mapError(appError('PERMISSION_REQUIRED', message, true));
@@ -191,6 +198,14 @@ export class ToolRegistry {
     }
   }
 
+  private async resolveWorkspaceScope(workspaceId: string): Promise<WorkspaceScope | null> {
+    try {
+      return await this.workspaceScopeResolver(workspaceId);
+    } catch {
+      // Scope lookup failures must fail closed to normal confirmation, not widen authorization.
+      return null;
+    }
+  }
   private async executeWithinResponseBudget(tool: McpToolDefinition, input: unknown, parentSignal?: AbortSignal): Promise<BudgetedToolExecution> {
     const controller = new AbortController();
     let timer: ReturnType<typeof setTimeout> | undefined;
@@ -269,6 +284,40 @@ function normalizeToolResponseBudget(value: number | undefined): number | null {
     : DEFAULT_MCP_TOOL_RESPONSE_BUDGET_MS;
 }
 
+type WorkspaceScopeResolverOptions = Pick<ToolRegistryOptions, 'workspaceScopeResolver' | 'activeProjectProvider'>;
+
+function normalizeWorkspaceScopeResolver(
+  services: McpApplicationServices,
+  actor: FileActor,
+  options: WorkspaceScopeResolverOptions,
+): (workspaceId: string) => Promise<WorkspaceScope | null> {
+  if (options.workspaceScopeResolver !== undefined) {
+    return async (workspaceId: string): Promise<WorkspaceScope | null> => options.workspaceScopeResolver!(workspaceId);
+  }
+  if (options.activeProjectProvider !== undefined) {
+    return async (workspaceId: string): Promise<WorkspaceScope | null> => {
+      const scope = options.activeProjectProvider!();
+      return scope !== null && scope.workspaceId === workspaceId ? scope : null;
+    };
+  }
+  return async (workspaceId: string): Promise<WorkspaceScope | null> => {
+    const infoPort = services.workspaceInfo;
+    if (infoPort === undefined) return null;
+    const result = await infoPort.info(actor, workspaceId);
+    if (!result.ok || typeof result.value !== 'object' || result.value === null || Array.isArray(result.value)) return null;
+    const info = result.value as Record<string, unknown>;
+    if (info.id !== workspaceId) return null;
+    const realRootPath = typeof info.realRootPath === 'string' && info.realRootPath.trim().length > 0 ? info.realRootPath : undefined;
+    const rootPath = realRootPath ?? (typeof info.rootPath === 'string' && info.rootPath.trim().length > 0 ? info.rootPath : undefined);
+    return rootPath === undefined ? null : { workspaceId, rootPath };
+  };
+}
+
+function readExplicitWorkspaceId(input: unknown): string | undefined {
+  if (typeof input !== 'object' || input === null || !('workspaceId' in input)) return undefined;
+  const value = (input as { workspaceId?: unknown }).workspaceId;
+  return typeof value === 'string' && value.trim().length > 0 ? value : undefined;
+}
 function readWorkspaceId(input: unknown): string {
   if (typeof input === 'object' && input !== null && 'workspaceId' in input) {
     const value = (input as { workspaceId?: unknown }).workspaceId;

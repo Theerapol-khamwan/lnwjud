@@ -305,9 +305,7 @@ export function createDesktopRuntime(dataPath: string, options: DesktopRuntimeOp
       profileProvider: activePermissionProfile,
       allowAiDeleteProvider,
       destructivePolicyProvider,
-      // M1 deliberately fails destructive auto-approval closed. M2 replaces this
-      // compatibility provider with a request-scoped registered-workspace resolver.
-      activeProjectProvider: () => null,
+
       codexToolsEnabled: readSettings().codexToolsEnabled,
     }),
   });

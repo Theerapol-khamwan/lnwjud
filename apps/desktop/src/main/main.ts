@@ -903,11 +903,8 @@ function bootstrapMcpStdio(): void {
     const workspacePath = readArgValue('--workspace')
       ?? process.env.LNWJUD_WORKSPACE
       ?? process.cwd();
-    let activeProject: { readonly workspaceId: string; readonly rootPath: string } | null = null;
     try {
       const workspaceId = await runtime.ensureDefaultWorkspace(workspacePath);
-      const registered = (await runtime.services.listWorkspaces()).find((entry) => entry.id === workspaceId);
-      if (registered !== undefined) activeProject = { workspaceId, rootPath: registered.rootPath };
       process.stderr.write(`lnwjud MCP stdio ready workspace=${workspaceId}\n`);
     } catch (error: unknown) {
       process.stderr.write(`lnwjud MCP stdio workspace warning: ${error instanceof Error ? error.message : 'unknown'}\n`);
@@ -917,7 +914,6 @@ function bootstrapMcpStdio(): void {
       actor: runtime.mcpActor,
       activityTracker: runtime.activityTracker,
       destructivePolicyProvider: () => runtime.getDestructivePolicy(),
-      activeProjectProvider: () => activeProject,
       codexToolsEnabled: runtime.getUserSettings().codexToolsEnabled,
       onError: (error): void => {
         if (/EPIPE|ECONNRESET|broken pipe/i.test(error.message)) {

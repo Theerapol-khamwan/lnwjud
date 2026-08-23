@@ -2,22 +2,25 @@ import path from 'node:path';
 import { isProtectedCriticalPath, type DestructiveAutoApprovalPolicy } from '@lnwjud/shared';
 import type { DestructivePolicyDecision } from './destructive-policy.js';
 
-export interface ActiveProjectScope {
+export interface WorkspaceScope {
   readonly workspaceId: string;
   readonly rootPath: string;
 }
 
 /**
  * Auto-approval is intentionally narrower than normal confirmed execution.
- * If the target cannot be proven to remain inside the active project, this
+ * If the target cannot be proven to remain inside the call workspace, this
  * returns false and the normal chat-confirmation path is used instead.
  */
+/** @deprecated Use WorkspaceScope for request-scoped resolution. */
+export type ActiveProjectScope = WorkspaceScope;
+
 export function isScopedAutoApprovalAllowed(
   toolName: string,
   input: unknown,
   decision: DestructivePolicyDecision,
   policy: DestructiveAutoApprovalPolicy,
-  scope: ActiveProjectScope | null,
+  scope: WorkspaceScope | null,
 ): boolean {
   if (decision.approvalKey === undefined || policy.approvals[decision.approvalKey] !== true || scope === null) return false;
   const root = path.win32.resolve(scope.rootPath);

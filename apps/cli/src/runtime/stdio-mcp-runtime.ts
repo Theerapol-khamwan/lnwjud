@@ -64,7 +64,6 @@ export interface StdioMcpRuntime {
   readonly profileProvider: () => PermissionProfile;
   readonly allowAiDeleteProvider: () => boolean;
   readonly destructivePolicyProvider: () => DestructiveAutoApprovalPolicy;
-  readonly activeProjectProvider: () => { readonly workspaceId: string; readonly rootPath: string };
   readonly codexToolsEnabled: boolean;
   close(): Promise<void>;
 }
@@ -220,7 +219,6 @@ export function createStdioMcpRuntime(
     profileProvider,
     allowAiDeleteProvider,
     destructivePolicyProvider,
-    activeProjectProvider: () => ({ workspaceId: workspace.id, rootPath: workspace.realRootPath }),
     codexToolsEnabled: parseBooleanSetting(settingsRepository.get(USER_SETTING_KEYS.codexToolsEnabled), DEFAULT_CODEX_TOOLS_ENABLED),
     close: async (): Promise<void> => {
       await (await sharedActivityLease)?.close();

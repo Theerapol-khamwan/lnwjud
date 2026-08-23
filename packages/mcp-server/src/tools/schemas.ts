@@ -154,6 +154,7 @@ const capabilityRequestSchema = {
 };
 
 export const shellCapabilitySchema = z.object({
+  workspaceId: optionalWorkspaceIdSchema,
   operation: z.enum(['run', 'list', 'status', 'wait', 'logs', 'result', 'cancel', 'resume', 'approve', 'deny']).default('run'),
   executable: z.string().trim().min(1).max(1024).optional(),
   arguments: z.array(z.string().max(32_768)).max(128).optional(),

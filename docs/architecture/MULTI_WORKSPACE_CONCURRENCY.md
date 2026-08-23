@@ -216,7 +216,7 @@ Use atomic temp-write + rename and bounded cleanup. Plugins/settings that are ac
 | --- | --- | --- |
 | M0 | **complete** | Audit current concurrency model, choose invariants, record file-level plan |
 | M1 | **complete** | Decouple desktop-selected workspace from MCP lifecycle |
-| M2 | planned | Make destructive/project scope request-scoped by `workspaceId` |
+| M2 | **complete** | Make destructive/project scope request-scoped by `workspaceId` |
 | M3 | planned | Add stable MCP session identity and session-aware ownership |
 | M4 | planned | Make STDIO shared activity and persisted runtime state multi-owner safe |
 | M5 | planned | Propagate workspace/session metadata through audit + Live Logs |
@@ -483,6 +483,16 @@ Add a dedicated concurrency acceptance test instead of relying only on unit test
 - verified one connected HTTP MCP client remains usable while the desktop selection switches A -> B -> A and concurrent `workspace_info` calls for A/B both complete;
 - architecture deviation recorded: request-scoped destructive resolution belongs to M2, so M1 intentionally supplies no Active Project to Desktop HTTP destructive auto-approval. This fails closed to normal confirmation instead of inheriting the UI-selected workspace;
 - verification: `mcp-lifecycle.test.ts` 4/4, targeted `desktop-runtime.persistence.test.ts` 7/7, desktop typecheck, and targeted ESLint all passed.
+### 2026-08-24 — M2 complete
+
+- replaced the selected/startup Active Project dependency with request-scoped registered-workspace resolution inside `ToolRegistry`;
+- destructive auto-approval now requires an explicit non-empty `workspaceId` on the invocation and resolves that workspace through the registered `workspaceInfo` service;
+- resolver failures, missing workspace IDs, unknown workspaces, cross-workspace absolute targets, machine-root scopes, wildcards, recursive deletes, and protected critical targets all fail closed to normal confirmation;
+- added optional `workspaceId` to the `shell` schema for backwards compatibility; confirmed shell execution remains available without it, but destructive auto-approval does not;
+- Desktop HTTP, packaged Desktop STDIO, and CLI STDIO no longer close destructive authorization over a startup/selected workspace;
+- kept `activeProjectProvider` as deprecated internal API compatibility only; current lnwjud runtimes no longer use it;
+- updated destructive tool descriptions and regenerated the 214-tool catalog;
+- verification: MCP targeted tests 29/29, CLI STDIO runtime 4/4, Desktop persistence 7/7, MCP/CLI/Desktop typechecks, targeted ESLint, and `docs:tools:check` all passed.
 ## Progress update rules
 
 When implementation starts, update this file in the same commit as each phase change:

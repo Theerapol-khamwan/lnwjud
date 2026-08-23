@@ -84,7 +84,7 @@ export function fileTools(context: McpToolContext): McpToolDefinition[] {
     }),
     defineTool({
       name: 'delete_file',
-      description: 'Delete one file or an empty directory inside its workspace. Fine-grained desktop policy may auto-approve only inside the Active Project. Protected Critical Files remain approval-gated; when Recovery Trash is enabled the result includes a recoveryId. Workspace-root deletion remains blocked.',
+      description: 'Delete one file or an empty directory inside its workspace. Fine-grained policy may auto-approve only when this call supplies a registered workspaceId and the target is proven inside that workspace. Protected Critical Files remain approval-gated; when Recovery Trash is enabled the result includes a recoveryId. Workspace-root deletion remains blocked.',
       permission: 'DANGEROUS',
       annotations: { readOnlyHint: false, destructiveHint: true },
       inputSchema: deleteFileSchema,
