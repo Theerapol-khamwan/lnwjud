@@ -88,6 +88,7 @@ import {
   type AgentState,
   type AuditEventSummary,
   type ClearLogBufferRequest,
+  type ClearWorkLogRequest,
   type ConfigureTunnelProfileRequest,
   type ConnectionModes,
   type DashboardSnapshot,
@@ -122,6 +123,7 @@ import { buildCapabilitySummary, createLocalCapabilityRuntime } from './capabili
 import { LogHub } from './log-hub.js';
 import { buildIncidentReport, collectRelevantListeners, collectRelevantProcessTree, type IncidentReport } from './incident-report.js';
 import { DesktopMcpLifecycle } from './mcp-lifecycle.js';
+import { WorkLogViewState } from './work-log-view-state.js';
 import { CLIENT_PATH_SETTING, TunnelController } from './tunnel-controller.js';
 import { packagedStdioLauncherCandidates, preferredTunnelMcpCommand, resolveStdioLauncherPath } from './tunnel-profile.js';
 
@@ -158,6 +160,7 @@ export function createDesktopRuntime(dataPath: string, options: DesktopRuntimeOp
   const workspaceRepository = new SqliteWorkspaceRepository(database);
   const workspaceIndex = new WorkspaceIndexService(workspaceRepository, new JsonWorkspaceIndexStore(path.join(dataPath, 'workspace-index')));
   const settingsRepository = new SqliteSettingsRepository(database);
+  const workLogViewState = new WorkLogViewState(settingsRepository);
   const auditRepository: AuditEventRepository = new SqliteAuditRepository(database);
   const auditService = new AuditService(auditRepository);
   const checkpointCipher = new AesGcmCheckpointCipher(loadCheckpointEncryptionKey(dataPath));
@@ -388,7 +391,7 @@ export function createDesktopRuntime(dataPath: string, options: DesktopRuntimeOp
       const processSummaries = await listTrackedProcesses(processService, trackedProcesses);
       const capabilities = await buildCapabilitySummary(capabilityRuntime.health);
       const mcp = mcpLifecycle.status();
-      const workLog = await buildWorkLog(auditRepository, settingsRepository);
+      const workLog = await buildWorkLog(auditRepository, workLogViewState);
       const inFlight = activityTracker.listInFlight().map(toInFlightItem);
       const tunnel = await tunnelController.status();
       const backups = await backupService.list();
@@ -496,8 +499,8 @@ export function createDesktopRuntime(dataPath: string, options: DesktopRuntimeOp
       await ensureMachineRoots();
       return mcpLifecycle.restart();
     },
-    clearWorkLog: async (): Promise<{ readonly cleared: boolean }> => {
-      settingsRepository.set(workLogClearedSettingKey, new Date().toISOString());
+    clearWorkLog: async (request: ClearWorkLogRequest = {}): Promise<{ readonly cleared: boolean }> => {
+      workLogViewState.clear(request);
       return { cleared: true };
     },
     saveTunnelApiKey: async (request: SaveTunnelApiKeyRequest): Promise<{ readonly saved: boolean }> => {
@@ -534,7 +537,7 @@ export function createDesktopRuntime(dataPath: string, options: DesktopRuntimeOp
     },
     getLogSnapshot: async (): Promise<LogSnapshot> => {
       await ensureMachineRoots();
-      const workLog = await buildWorkLog(auditRepository, settingsRepository);
+      const workLog = await buildWorkLog(auditRepository, workLogViewState);
       const inFlight = activityTracker.listInFlight().map(toInFlightItem);
       const processSummaries = await listTrackedProcesses(processService, trackedProcesses);
       logHub.syncWorkLog(workLog, inFlight.map((item) => ({ callId: item.callId, toolName: item.toolName, targetSummary: item.targetSummary, startedAt: item.startedAt, workspaceId: item.workspaceId, sessionId: item.sessionId })));
@@ -550,7 +553,7 @@ export function createDesktopRuntime(dataPath: string, options: DesktopRuntimeOp
       return logHub.snapshot();
     },
     clearLogBuffer: async (request: ClearLogBufferRequest): Promise<{ readonly cleared: boolean }> => {
-      logHub.clear(request.source);
+      logHub.clear(request.source, request);
       return { cleared: true };
     },
     captureIncident: async (updaterEvents: readonly string[] = []): Promise<IncidentReport> => {
@@ -760,9 +763,9 @@ async function buildAuditSummary(
 
 async function buildWorkLog(
   repository: AuditEventRepository,
-  settingsRepository: SqliteSettingsRepository,
+  viewState: WorkLogViewState,
 ): Promise<readonly WorkLogEntry[]> {
-  const events = await listVisibleMcpEvents(repository, settingsRepository, 100);
+  const events = await listVisibleMcpEvents(repository, viewState, 100);
   return events.map((event) => {
     const toolName = typeof event.metadata.toolName === 'string' ? event.metadata.toolName : event.action.replace(/^mcp_tool:/, '');
     const phase = event.metadata.phase === 'started' ? 'started' : 'completed';
@@ -790,13 +793,11 @@ async function buildWorkLog(
 
 async function listVisibleMcpEvents(
   repository: AuditEventRepository,
-  settingsRepository: SqliteSettingsRepository,
+  viewState: WorkLogViewState,
   limit: number,
 ): Promise<readonly AuditEvent[]> {
-  const clearedAt = settingsRepository.get(workLogClearedSettingKey);
-  const events = await repository.listByActionPrefix('mcp_tool:', limit);
-  if (clearedAt === null) return events;
-  return events.filter((event) => event.timestamp > clearedAt);
+  const events = await repository.listScoped({ actionPrefix: 'mcp_tool:' }, 500);
+  return events.filter((event) => viewState.isVisible(event)).slice(0, limit);
 }
 
 async function listVisibleAuditEvents(

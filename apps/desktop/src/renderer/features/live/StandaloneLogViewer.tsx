@@ -2,9 +2,10 @@ import { useCallback, useEffect, useRef, useState, type ReactElement } from 'rea
 import type { LogLine, LogSource } from '@lnwjud/ipc-contracts';
 import { createTranslator } from '../../i18n/index.js';
 import { applyLogSnapshot } from './log-buffer.js';
-import { LogStreamPanel } from './LogStreamPanel.js';
+import { LogStreamPanel, type LogScopeSelection } from './LogStreamPanel.js';
 
 const MAX_CLIENT_LOG_LINES = 4_000;
+const sources: readonly LogSource[] = ['tunnel', 'mcp', 'process'];
 
 export function StandaloneLogViewer(): ReactElement {
   const t = createTranslator('th');
@@ -36,7 +37,6 @@ export function StandaloneLogViewer(): ReactElement {
       appendLine(line);
       if (line.source === 'tunnel') setTunnelLogExists(true);
     });
-    // Polling the dashboard keeps the work-log and process feeds flowing into the log hub.
     const interval = window.setInterval(() => {
       void window.lnwjud.getDashboard().catch(() => undefined);
     }, 1_000);
@@ -47,9 +47,14 @@ export function StandaloneLogViewer(): ReactElement {
     };
   }, [appendLine]);
 
-  async function clear(source: LogSource): Promise<void> {
-    await window.lnwjud.clearLogBuffer({ source }).catch(() => undefined);
-    setLines((previous) => previous.filter((line) => line.source !== source));
+  async function clear(source: LogSource, scope: LogScopeSelection): Promise<void> {
+    const request = {
+      source,
+      ...(scope.workspaceId === null ? {} : { workspaceId: scope.workspaceId }),
+      ...(scope.sessionId === null ? {} : { sessionId: scope.sessionId }),
+    };
+    await window.lnwjud.clearLogBuffer(request).catch(() => undefined);
+    setLines((previous) => previous.filter((line) => line.source !== source || !lineMatchesScope(line, scope)));
   }
 
   async function clearAll(): Promise<void> {
@@ -58,11 +63,15 @@ export function StandaloneLogViewer(): ReactElement {
     setLines([]);
   }
 
-  async function exportLogs(source: LogSource): Promise<void> {
-    await window.lnwjud.exportLogs({ source, filePath: '' }).catch(() => undefined);
+  async function exportLogs(source: LogSource, scope: LogScopeSelection, query: string): Promise<void> {
+    await window.lnwjud.exportLogs({
+      source,
+      filePath: '',
+      ...(scope.workspaceId === null ? {} : { workspaceId: scope.workspaceId }),
+      ...(scope.sessionId === null ? {} : { sessionId: scope.sessionId }),
+      ...(query.trim().length === 0 ? {} : { query: query.trim() }),
+    }).catch(() => undefined);
   }
-
-  const sources: readonly LogSource[] = ['tunnel', 'mcp', 'process'];
 
   return (
     <div className="window-container log-viewer-window">
@@ -83,16 +92,16 @@ export function StandaloneLogViewer(): ReactElement {
         <div className="log-tabs-toolbar">
           <div className="log-tabs" role="tablist" aria-label="Live Logs">
             {sources.map((source) => (
-            <button
-              key={source}
-              type="button"
-              role="tab"
-              aria-selected={tab === source}
-              className={tab === source ? 'log-tab active' : 'log-tab'}
-              onClick={() => setTab(source)}
-            >
-              {source === 'tunnel' ? t('live.tabTunnel') : source === 'mcp' ? t('live.tabMcp') : t('live.tabProcess')}
-            </button>
+              <button
+                key={source}
+                type="button"
+                role="tab"
+                aria-selected={tab === source}
+                className={tab === source ? 'log-tab active' : 'log-tab'}
+                onClick={() => setTab(source)}
+              >
+                {source === 'tunnel' ? t('live.tabTunnel') : source === 'mcp' ? t('live.tabMcp') : t('live.tabProcess')}
+              </button>
             ))}
           </div>
           <button type="button" className="clear-all-logs-button" onClick={() => { void clearAll(); }}>ล้าง Log ทั้งหมด</button>
@@ -106,13 +115,24 @@ export function StandaloneLogViewer(): ReactElement {
           pauseLabel={t('live.pause')}
           followLabel={t('live.follow')}
           filterPlaceholder={t('live.filter')}
-          clearLabel={t('workLog.clear')}
+          clearLabel={t('live.clearTab')}
+          clearSessionLabel={t('scope.clearSession')}
+          clearWorkspaceLabel={t('scope.clearWorkspace')}
           exportLabel={t('live.export')}
           waitingLabel={tab === 'tunnel' ? t('live.waitingTunnel') : t('live.waiting')}
-          onClear={() => clear(tab)}
-          onExport={() => exportLogs(tab)}
+          workspaceLabel={t('scope.workspace')}
+          sessionLabel={t('scope.session')}
+          scopeAllLabel={t('scope.all')}
+          onClear={(scope) => clear(tab, scope)}
+          onExport={(scope, query) => exportLogs(tab, scope, query)}
         />
       </div>
     </div>
   );
+}
+
+function lineMatchesScope(line: Pick<LogLine, 'workspaceId' | 'sessionId'>, scope: LogScopeSelection): boolean {
+  if (scope.workspaceId !== null && line.workspaceId !== scope.workspaceId) return false;
+  if (scope.sessionId !== null && line.sessionId !== scope.sessionId) return false;
+  return true;
 }

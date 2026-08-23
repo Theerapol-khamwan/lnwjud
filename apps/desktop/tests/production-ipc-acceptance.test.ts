@@ -23,7 +23,7 @@ vi.mock('electron', () => ({
     public static getAllWindows(): unknown[] { return []; }
   },
   dialog: {
-    showSaveDialog: vi.fn(),
+    showSaveDialog: vi.fn(async () => ({ canceled: true, filePath: undefined })),
     showMessageBox: vi.fn(async () => ({ response: 1 })),
   },
   ipcMain: {
@@ -128,6 +128,22 @@ describe('production desktop IPC acceptance', () => {
       accepted: false,
       status: { phase: 'unavailable' },
     });
+  });
+
+  it('routes and validates scoped work-log, live-log, and export requests', async () => {
+    const services = desktopServices();
+    registerIpcHandlers(() => ({}) as never, services);
+    const trusted = { senderFrame: { url: pathToFileURL(getRendererEntryPath()).href } };
+
+    await expect(requiredHandler(ipcChannels.clearWorkLog)(trusted, { workspaceId: 'ws-a', sessionId: 'session-a' })).resolves.toEqual({ cleared: true });
+    expect(services.clearWorkLog).toHaveBeenCalledWith({ workspaceId: 'ws-a', sessionId: 'session-a' });
+
+    await expect(requiredHandler(ipcChannels.clearLogBuffer)(trusted, { source: 'mcp', workspaceId: 'ws-a', sessionId: 'session-a' })).resolves.toEqual({ cleared: true });
+    expect(services.clearLogBuffer).toHaveBeenCalledWith({ source: 'mcp', workspaceId: 'ws-a', sessionId: 'session-a' });
+
+    await expect(requiredHandler(ipcChannels.clearLogBuffer)(trusted, { source: 'mcp', sessionId: '' })).rejects.toThrow(/sessionId/);
+    await expect(requiredHandler(ipcChannels.exportLogs)(trusted, { source: 'mcp', filePath: '', workspaceId: 'ws-a', sessionId: 'session-a', query: 'needle' })).resolves.toEqual({ exported: false });
+    await expect(requiredHandler(ipcChannels.exportLogs)(trusted, { source: 'mcp', filePath: '', workspaceId: '' })).rejects.toThrow(/workspaceId/);
   });
 
   it('enforces the production IPC sender and payload guards before invoking services', async () => {

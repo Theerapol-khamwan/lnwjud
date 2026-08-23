@@ -10,6 +10,7 @@ import {
   type AddWorkspaceRequest,
   type BackupSummary,
   type ClearLogBufferRequest,
+  type ClearWorkLogRequest,
   type ConfigureTunnelProfileRequest,
   type DashboardSnapshot,
   type DestructiveDeletePolicy,
@@ -72,7 +73,7 @@ export interface DesktopIpcServices {
   startMcp(request: StartMcpRequest): Promise<McpConnectionStatus>;
   stopMcp(): Promise<McpConnectionStatus>;
   restartMcp(): Promise<McpConnectionStatus>;
-  clearWorkLog(): Promise<{ readonly cleared: boolean }>;
+  clearWorkLog(request?: ClearWorkLogRequest): Promise<{ readonly cleared: boolean }>;
   saveTunnelApiKey(request: SaveTunnelApiKeyRequest): Promise<{ readonly saved: boolean }>;
   startTunnel(): Promise<TunnelStatus>;
   stopTunnel(): Promise<TunnelStatus>;
@@ -320,8 +321,7 @@ export function registerIpcHandlers(
   });
   ipcMain.handle(ipcChannels.clearWorkLog, async (event, payload: unknown) => {
     assertTrustedSender(event, getMainWindow());
-    assertNoPayload(payload);
-    return services.clearWorkLog();
+    return services.clearWorkLog(parseClearWorkLogRequest(payload));
   });
   ipcMain.handle(ipcChannels.saveTunnelApiKey, async (event, payload: unknown) => {
     assertTrustedSender(event, getMainWindow());
@@ -489,19 +489,39 @@ function parseSetStdioPolicyRequest(payload: unknown): SetStdioPolicyRequest {
   return { profile: payload.profile, strictRoots: payload.strictRoots, allowedRoots };
 }
 
+function parseClearWorkLogRequest(payload: unknown): ClearWorkLogRequest {
+  if (payload === undefined) return {};
+  if (!isRecord(payload)) throw new Error('Invalid IPC payload');
+  const workspaceId = optionalScopeId(payload.workspaceId, 'workspaceId');
+  const sessionId = optionalScopeId(payload.sessionId, 'sessionId');
+  return { ...(workspaceId === undefined ? {} : { workspaceId }), ...(sessionId === undefined ? {} : { sessionId }) };
+}
+
 function parseClearLogBufferRequest(payload: unknown): ClearLogBufferRequest {
   if (!isRecord(payload) || !isLogSource(payload.source)) throw new Error('Invalid IPC payload: source');
-  return { source: payload.source };
+  const workspaceId = optionalScopeId(payload.workspaceId, 'workspaceId');
+  const sessionId = optionalScopeId(payload.sessionId, 'sessionId');
+  return { source: payload.source, ...(workspaceId === undefined ? {} : { workspaceId }), ...(sessionId === undefined ? {} : { sessionId }) };
 }
 
 function parseExportLogsRequest(payload: unknown): ExportLogsRequest {
   if (!isRecord(payload) || !isLogSource(payload.source)) {
     throw new Error('Invalid IPC payload');
   }
+  const workspaceId = optionalScopeId(payload.workspaceId, 'workspaceId');
+  const sessionId = optionalScopeId(payload.sessionId, 'sessionId');
   return {
     source: payload.source,
     filePath: typeof payload.filePath === 'string' ? payload.filePath : '',
+    ...(workspaceId === undefined ? {} : { workspaceId }),
+    ...(sessionId === undefined ? {} : { sessionId }),
+    ...(typeof payload.query === 'string' && payload.query.trim().length > 0 ? { query: payload.query.trim().slice(0, 512) } : {}),
   };
+}
+
+function optionalScopeId(value: unknown, key: string): string | undefined {
+  if (value === undefined) return undefined;
+  return nonEmptyString(value, key).trim();
 }
 
 function isLogSource(value: unknown): value is 'tunnel' | 'mcp' | 'process' {
@@ -523,8 +543,13 @@ async function exportLogsToFile(
     return { exported: false };
   }
   const snapshot = await services.getLogSnapshot();
+  const query = request.query?.toLowerCase() ?? '';
   const content = snapshot.lines
     .filter((line) => line.source === request.source)
+    .filter((line) => request.workspaceId === undefined || line.workspaceId === request.workspaceId)
+    .filter((line) => request.sessionId === undefined || line.sessionId === request.sessionId)
+    .filter((line) => query.length === 0 || line.text.toLowerCase().includes(query))
+    .sort((left, right) => right.id - left.id)
     .map((line) => `[${line.timestamp}] [${line.level.toUpperCase()}] ${line.text}`)
     .join('\r\n');
   await atomicWrite(result.filePath, content.length === 0 ? '' : `${content}\r\n`);

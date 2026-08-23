@@ -6,6 +6,7 @@ import {
   type AgentState,
   type BackupSummary,
   type ClearLogBufferRequest,
+  type ClearWorkLogRequest,
   type ConfigureTunnelProfileRequest,
   type DashboardSnapshot,
   type DestructiveDeletePolicy,
@@ -529,8 +530,10 @@ function restartMcp(): Promise<McpConnectionStatus> {
   return invoke(ipcChannels.restartMcp).then(mcpStatus);
 }
 
-function clearWorkLog(): Promise<{ readonly cleared: boolean }> {
-  return invoke(ipcChannels.clearWorkLog).then((value: unknown) => {
+function clearWorkLog(request: ClearWorkLogRequest = {}): Promise<{ readonly cleared: boolean }> {
+  if (!isRecord(request)) return Promise.reject(new Error('Invalid IPC request'));
+  const payload = scopePayload(request);
+  return invoke(ipcChannels.clearWorkLog, payload).then((value: unknown) => {
     if (!isRecord(value)) throw new Error('Invalid IPC response');
     return { cleared: booleanField(value, 'cleared') };
   });
@@ -625,9 +628,15 @@ function isLogLevel(value: unknown): value is 'info' | 'warn' | 'error' {
   return value === 'info' || value === 'warn' || value === 'error';
 }
 
+function scopePayload(request: { readonly workspaceId?: string; readonly sessionId?: string }): { readonly workspaceId?: string; readonly sessionId?: string } {
+  const workspaceId = typeof request.workspaceId === 'string' && request.workspaceId.trim().length > 0 ? request.workspaceId.trim() : undefined;
+  const sessionId = typeof request.sessionId === 'string' && request.sessionId.trim().length > 0 ? request.sessionId.trim() : undefined;
+  return { ...(workspaceId === undefined ? {} : { workspaceId }), ...(sessionId === undefined ? {} : { sessionId }) };
+}
+
 function clearLogBuffer(request: ClearLogBufferRequest): Promise<{ readonly cleared: boolean }> {
   if (!isRecord(request) || !isLogSource(request.source)) return Promise.reject(new Error('Invalid IPC request'));
-  return invoke(ipcChannels.clearLogBuffer, { source: request.source }).then((value: unknown) => {
+  return invoke(ipcChannels.clearLogBuffer, { source: request.source, ...scopePayload(request) }).then((value: unknown) => {
     if (!isRecord(value)) throw new Error('Invalid IPC response');
     return { cleared: booleanField(value, 'cleared') };
   });
@@ -637,7 +646,7 @@ function exportLogs(request: ExportLogsRequest): Promise<{ readonly exported: bo
   if (!isRecord(request) || !isLogSource(request.source)) {
     return Promise.reject(new Error('Invalid IPC request'));
   }
-  return invoke(ipcChannels.exportLogs, { source: request.source, filePath: request.filePath ?? '' }).then((value: unknown) => {
+  return invoke(ipcChannels.exportLogs, { source: request.source, filePath: request.filePath ?? '', ...scopePayload(request), ...(typeof request.query === 'string' && request.query.trim().length > 0 ? { query: request.query.trim().slice(0, 512) } : {}) }).then((value: unknown) => {
     if (!isRecord(value)) throw new Error('Invalid IPC response');
     return { exported: booleanField(value, 'exported') };
   });

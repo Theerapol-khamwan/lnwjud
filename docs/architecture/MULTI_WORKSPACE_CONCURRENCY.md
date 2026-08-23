@@ -220,7 +220,7 @@ Use atomic temp-write + rename and bounded cleanup. Plugins/settings that are ac
 | M3 | **complete** | Add stable MCP session identity and session-aware ownership |
 | M4 | **complete** | Make STDIO shared activity and persisted runtime state multi-owner safe |
 | M5 | **complete** | Propagate workspace/session metadata through audit + Live Logs |
-| M6 | planned | Add workspace/session filters, scoped clear/export, UI badges/tabs |
+| M6 | **complete** | Add workspace/session filters, scoped clear/export, UI badges/tabs |
 | M7 | planned | Concurrency, isolation, updater, packaging, and release stress gates |
 
 ## Phase M1 — global MCP lifecycle

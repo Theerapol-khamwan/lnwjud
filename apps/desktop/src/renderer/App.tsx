@@ -18,6 +18,7 @@ import { ProjectsPage } from './features/projects/ProjectsPage.js';
 import { GitPage } from './features/git/GitPage.js';
 import { WorkLogPage } from './features/worklog/WorkLogPage.js';
 import { LiveLogsPage } from './features/live/LiveLogsPage.js';
+import type { LogScopeSelection } from './features/live/LogStreamPanel.js';
 import { applyLogSnapshot } from './features/live/log-buffer.js';
 import { SettingsPage } from './features/settings/SettingsPage.js';
 import { DoctorPanel } from './features/doctor/DoctorPanel.js';
@@ -89,10 +90,14 @@ export function App(): ReactElement {
     };
   }, [appendLogLine]);
 
-  async function clearLogSource(source: LogSource): Promise<void> {
+  async function clearLogSource(source: LogSource, scope: LogScopeSelection): Promise<void> {
     try {
-      await window.lnwjud.clearLogBuffer({ source });
-      setLogLines((previous) => previous.filter((line) => line.source !== source));
+      await window.lnwjud.clearLogBuffer({
+        source,
+        ...(scope.workspaceId === null ? {} : { workspaceId: scope.workspaceId }),
+        ...(scope.sessionId === null ? {} : { sessionId: scope.sessionId }),
+      });
+      setLogLines((previous) => previous.filter((line) => line.source !== source || !lineMatchesScope(line, scope)));
     } catch (cause: unknown) {
       setError(errorMessage(cause, t('error.logBufferClear')));
     }
@@ -108,9 +113,15 @@ export function App(): ReactElement {
     }
   }
 
-  async function exportLogSource(source: LogSource): Promise<void> {
+  async function exportLogSource(source: LogSource, scope: LogScopeSelection, query: string): Promise<void> {
     try {
-      await window.lnwjud.exportLogs({ source, filePath: '' });
+      await window.lnwjud.exportLogs({
+        source,
+        filePath: '',
+        ...(scope.workspaceId === null ? {} : { workspaceId: scope.workspaceId }),
+        ...(scope.sessionId === null ? {} : { sessionId: scope.sessionId }),
+        ...(query.trim().length === 0 ? {} : { query: query.trim() }),
+      });
     } catch (cause: unknown) {
       setError(errorMessage(cause, t('error.logExport')));
     }
@@ -265,9 +276,12 @@ export function App(): ReactElement {
     }
   }
 
-  async function clearWorkLog(): Promise<void> {
+  async function clearWorkLog(scope: LogScopeSelection): Promise<void> {
     try {
-      await window.lnwjud.clearWorkLog();
+      await window.lnwjud.clearWorkLog({
+        ...(scope.workspaceId === null ? {} : { workspaceId: scope.workspaceId }),
+        ...(scope.sessionId === null ? {} : { sessionId: scope.sessionId }),
+      });
       await refresh();
     } catch (cause: unknown) {
       setError(errorMessage(cause, t('error.workLogClear')));
@@ -415,7 +429,7 @@ export function App(): ReactElement {
         />
       ) : null}
       {screen === 'worklog' ? (
-        <WorkLogPage locale={locale} dashboard={dashboard} onClearWorkLog={clearWorkLog} />
+        <WorkLogPage locale={locale} dashboard={dashboard} workspaces={workspaces} onClearWorkLog={clearWorkLog} />
       ) : null}
       {screen === 'live' ? (
         <LiveLogsPage
@@ -432,6 +446,7 @@ export function App(): ReactElement {
           incidentClassification={incidentClassification}
           incidentCapturedAt={incidentCapturedAt}
           incidentNotice={incidentNotice}
+          workspaces={workspaces}
         />
       ) : null}
       {screen === 'settings' ? (
@@ -468,4 +483,10 @@ function propsText(locale: UiLocale, th: string, en: string): string {
 
 function errorMessage(cause: unknown, fallback: string): string {
   return cause instanceof Error && cause.message.trim().length > 0 ? cause.message : fallback;
+}
+
+function lineMatchesScope(line: Pick<LogLine, 'workspaceId' | 'sessionId'>, scope: LogScopeSelection): boolean {
+  if (scope.workspaceId !== null && line.workspaceId !== scope.workspaceId) return false;
+  if (scope.sessionId !== null && line.sessionId !== scope.sessionId) return false;
+  return true;
 }

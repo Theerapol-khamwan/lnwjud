@@ -109,5 +109,5 @@ activity, and logs.
 | M3 | complete | Stable HTTP/STDIO session identity; Process/Codex/Shell/WSL/Tasks ownership is isolated by client + session + workspace, with explicit stateless-HTTP fallback |
 | M4 | complete | Multi-owner STDIO activity v2 + aggregate updater safety; session-namespaced atomic runtime state with locked shared plugin/worktree ledger |
 | M5 | complete | Session-aware audit persistence/query, scoped IPC/process metadata, and Live Log propagation/dedup isolation |
-| M6 | planned | Workspace/session filters, badges, scoped clear/export |
+| M6 | complete | Workspace/session filters/badges plus session/workspace/all clear cursors and filtered Live Log export |
 | M7 | planned | Parallel A/B workspace and same-workspace session-isolation release gates |

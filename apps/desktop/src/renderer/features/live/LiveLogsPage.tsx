@@ -1,22 +1,23 @@
 import { useState, type ReactElement } from 'react';
-import type { IncidentClassification, LogLine, LogSource, UiLocale } from '@lnwjud/ipc-contracts';
+import type { IncidentClassification, LogLine, LogSource, UiLocale, WorkspaceSummary } from '@lnwjud/ipc-contracts';
 import { createTranslator } from '../../i18n/index.js';
-import { LogStreamPanel } from './LogStreamPanel.js';
+import { LogStreamPanel, type LogScopeSelection } from './LogStreamPanel.js';
 
 interface LiveLogsPageProps {
   readonly locale: UiLocale;
   readonly lines: readonly LogLine[];
   readonly tunnelLogPath: string | null;
   readonly tunnelLogExists: boolean;
-  readonly onClear: (source: LogSource) => Promise<void>;
+  readonly onClear: (source: LogSource, scope: LogScopeSelection) => Promise<void>;
   readonly onClearAll: () => Promise<void>;
-  readonly onExport: (source: LogSource) => Promise<void>;
+  readonly onExport: (source: LogSource, scope: LogScopeSelection, query: string) => Promise<void>;
   readonly onPopOut: () => Promise<void>;
   readonly onCaptureIncident: () => Promise<void>;
   readonly incidentBusy: boolean;
   readonly incidentClassification: IncidentClassification | null;
   readonly incidentCapturedAt: string | null;
   readonly incidentNotice: string | null;
+  readonly workspaces: readonly WorkspaceSummary[];
 }
 
 type LogTab = LogSource;
@@ -66,13 +67,19 @@ export function LiveLogsPage(props: LiveLogsPageProps): ReactElement {
             pauseLabel={t('live.pause')}
             followLabel={t('live.follow')}
             filterPlaceholder={t('live.filter')}
-            clearLabel={t('workLog.clear')}
+            clearLabel={t('live.clearTab')}
+            clearSessionLabel={t('scope.clearSession')}
+            clearWorkspaceLabel={t('scope.clearWorkspace')}
             exportLabel={t('live.export')}
             waitingLabel={source === 'tunnel' ? t('live.waitingTunnel') : t('live.waiting')}
             copyLabel={t('mcp.copy')}
             copiedLabel={t('mcp.copied')}
-            onClear={() => props.onClear(source)}
-            onExport={() => props.onExport(source)}
+            workspaces={props.workspaces}
+            workspaceLabel={t('scope.workspace')}
+            sessionLabel={t('scope.session')}
+            scopeAllLabel={t('scope.all')}
+            onClear={(scope) => props.onClear(source, scope)}
+            onExport={(scope, query) => props.onExport(source, scope, query)}
           />
         ) : null
       ))}

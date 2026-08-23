@@ -1,10 +1,15 @@
 import { useEffect, useMemo, useRef, useState, type ReactElement } from 'react';
-import type { LogLevel, LogLine, LogSource } from '@lnwjud/ipc-contracts';
+import type { LogLevel, LogLine, LogSource, WorkspaceSummary } from '@lnwjud/ipc-contracts';
 import { copyTextToClipboard } from '../../clipboard.js';
 import type { MessageKey } from '../../i18n/messages.js';
 
 export type LogTab = LogSource;
 export type LogEventKind = 'task' | 'result' | 'error';
+
+export interface LogScopeSelection {
+  readonly workspaceId: string | null;
+  readonly sessionId: string | null;
+}
 
 interface LogStreamPanelProps {
   readonly title: string;
@@ -16,13 +21,20 @@ interface LogStreamPanelProps {
   readonly followLabel: string;
   readonly filterPlaceholder: string;
   readonly clearLabel: string;
+  readonly clearSessionLabel: string;
+  readonly clearWorkspaceLabel: string;
   readonly exportLabel: string;
   readonly waitingLabel: string;
   readonly copyLabel?: string;
   readonly copiedLabel?: string;
-  readonly onClear: () => Promise<void>;
-  readonly onExport: () => Promise<void>;
+  readonly onClear: (scope: LogScopeSelection) => Promise<void>;
+  readonly onExport: (scope: LogScopeSelection, query: string) => Promise<void>;
+  readonly workspaces?: readonly WorkspaceSummary[];
+  readonly workspaceLabel?: string;
+  readonly sessionLabel?: string;
+  readonly scopeAllLabel?: string;
 }
+
 
 const MAX_VISIBLE_LINES = 1_000;
 
@@ -30,12 +42,16 @@ export function LogStreamPanel(props: LogStreamPanelProps): ReactElement {
   const [paused, setPaused] = useState(false);
   const [filter, setFilter] = useState('');
   const [copiedId, setCopiedId] = useState<number | null>(null);
+  const [workspaceId, setWorkspaceId] = useState<string | null>(null);
+  const [sessionId, setSessionId] = useState<string | null>(null);
   const streamRef = useRef<HTMLDivElement | null>(null);
-  const filtered = useMemo(() => (
-    filter.length === 0
-      ? props.lines
-      : props.lines.filter((line) => line.text.toLowerCase().includes(filter.toLowerCase()))
-  ), [props.lines, filter]);
+  const workspaceOptions = useMemo(() => collectWorkspaceOptions(props.lines, props.workspaces), [props.lines, props.workspaces]);
+  const sessionOptions = useMemo(() => collectSessionOptions(props.lines, workspaceId), [props.lines, workspaceId]);
+  useEffect(() => {
+    if (sessionId !== null && !sessionOptions.includes(sessionId)) setSessionId(null);
+  }, [sessionId, sessionOptions]);
+  const scope = useMemo<LogScopeSelection>(() => ({ workspaceId, sessionId }), [workspaceId, sessionId]);
+  const filtered = useMemo(() => filterLogLinesByScope(props.lines, scope, filter), [props.lines, scope, filter]);
   const visible = [...filtered].sort(compareLogLinesNewestFirst).slice(0, MAX_VISIBLE_LINES);
 
   useEffect(() => {
@@ -59,9 +75,27 @@ export function LogStreamPanel(props: LogStreamPanelProps): ReactElement {
           <button type="button" className={paused ? 'active' : undefined} onClick={() => setPaused((value) => !value)}>
             {paused ? props.followLabel : props.pauseLabel}
           </button>
-          <button type="button" onClick={() => { void props.onClear(); }}>{props.clearLabel}</button>
-          <button type="button" onClick={() => { void props.onExport(); }}>{props.exportLabel}</button>
+          <button type="button" disabled={sessionId === null} onClick={() => { if (sessionId !== null) void props.onClear({ workspaceId: null, sessionId }); }}>{props.clearSessionLabel}</button>
+          <button type="button" disabled={workspaceId === null} onClick={() => { if (workspaceId !== null) void props.onClear({ workspaceId, sessionId: null }); }}>{props.clearWorkspaceLabel}</button>
+          <button type="button" onClick={() => { void props.onClear({ workspaceId: null, sessionId: null }); }}>{props.clearLabel}</button>
+          <button type="button" onClick={() => { void props.onExport(scope, filter); }}>{props.exportLabel}</button>
         </div>
+      </div>
+      <div className="scope-filter-bar">
+        <label>
+          <span>{props.workspaceLabel ?? 'Workspace'}</span>
+          <select value={workspaceId ?? ''} onChange={(event) => setWorkspaceId(event.target.value.length === 0 ? null : event.target.value)}>
+            <option value="">{props.scopeAllLabel ?? 'All'}</option>
+            {workspaceOptions.map((option) => <option key={option.id} value={option.id}>{option.label}</option>)}
+          </select>
+        </label>
+        <label>
+          <span>{props.sessionLabel ?? 'Session'}</span>
+          <select value={sessionId ?? ''} onChange={(event) => setSessionId(event.target.value.length === 0 ? null : event.target.value)}>
+            <option value="">{props.scopeAllLabel ?? 'All'}</option>
+            {sessionOptions.map((value) => <option key={value} value={value}>{shortScopeId(value)}</option>)}
+          </select>
+        </label>
       </div>
       <input
         type="text"
@@ -88,7 +122,7 @@ export function LogStreamPanel(props: LogStreamPanelProps): ReactElement {
               <time>{formatTime(line.timestamp)}</time>
               <span className="tag level-tag">[{line.level.toUpperCase()}]</span>
               {display.kind === null ? null : <span className={`event-tag ${display.kind}`}>[{display.kind.toUpperCase()}]</span>}
-              <span className="log-message">{display.detail}</span>
+              <span className="log-message"><ScopeBadges line={line} showWorkspace={workspaceId === null} showSession={sessionId === null} workspaces={props.workspaces} />{display.detail}</span>
               <button
                 type="button"
                 className="row-copy-button"
@@ -108,6 +142,45 @@ export function LogStreamPanel(props: LogStreamPanelProps): ReactElement {
 
 export function filterLines(lines: readonly LogLine[], source: LogSource): readonly LogLine[] {
   return lines.filter((line) => line.source === source);
+}
+
+export function filterLogLinesByScope(lines: readonly LogLine[], scope: LogScopeSelection, search = ''): readonly LogLine[] {
+  const needle = search.trim().toLowerCase();
+  return lines.filter((line) => {
+    if (scope.workspaceId !== null && line.workspaceId !== scope.workspaceId) return false;
+    if (scope.sessionId !== null && line.sessionId !== scope.sessionId) return false;
+    return needle.length === 0 || line.text.toLowerCase().includes(needle);
+  });
+}
+
+function collectWorkspaceOptions(lines: readonly LogLine[], workspaces: readonly WorkspaceSummary[] | undefined): readonly { readonly id: string; readonly label: string }[] {
+  const labels = new Map<string, string>();
+  for (const workspace of workspaces ?? []) labels.set(workspace.id, workspace.displayName);
+  for (const line of lines) if (line.workspaceId !== null && !labels.has(line.workspaceId)) labels.set(line.workspaceId, shortScopeId(line.workspaceId));
+  return [...labels.entries()].map(([id, label]) => ({ id, label })).sort((a, b) => a.label.localeCompare(b.label));
+}
+
+function collectSessionOptions(lines: readonly LogLine[], workspaceId: string | null): readonly string[] {
+  const values = new Set<string>();
+  for (const line of lines) {
+    if (workspaceId !== null && line.workspaceId !== workspaceId) continue;
+    if (line.sessionId !== null) values.add(line.sessionId);
+  }
+  return [...values].sort();
+}
+
+function ScopeBadges(props: { readonly line: LogLine; readonly showWorkspace: boolean; readonly showSession: boolean; readonly workspaces: readonly WorkspaceSummary[] | undefined }): ReactElement | null {
+  const workspaceLabel = props.line.workspaceId === null ? null : props.workspaces?.find((workspace) => workspace.id === props.line.workspaceId)?.displayName ?? shortScopeId(props.line.workspaceId);
+  const sessionLabel = props.line.sessionId === null ? null : shortScopeId(props.line.sessionId);
+  if ((!props.showWorkspace || workspaceLabel === null) && (!props.showSession || sessionLabel === null)) return null;
+  return <span className="scope-badges">
+    {props.showWorkspace && workspaceLabel !== null ? <span className="scope-badge workspace">{workspaceLabel}</span> : null}
+    {props.showSession && sessionLabel !== null ? <span className="scope-badge session">{sessionLabel}</span> : null}
+  </span>;
+}
+
+function shortScopeId(value: string): string {
+  return value.length <= 14 ? value : value.slice(0, 8) + '…' + value.slice(-4);
 }
 
 export function logLevelFor(line: LogLine): LogLevel {

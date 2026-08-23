@@ -50,6 +50,27 @@ describe('LogHub', () => {
     expect(snapshot.lines.map((line) => line.source)).toEqual(['mcp']);
   });
 
+  it('clears only the requested MCP workspace/session scope', () => {
+    const hub = new LogHub({ tunnelLogPath: 'Z:\\missing\\lnwjud-tunnel.log' });
+    const timestamp = '2026-08-20T00:00:01.000Z';
+    hub.syncWorkLog([
+      { id: 'a', timestamp, kind: 'result', toolName: 'read_file', resultCode: 'SUCCESS', targetSummary: null, workspaceId: 'ws-a', sessionId: 'session-a' },
+      { id: 'b', timestamp, kind: 'result', toolName: 'read_file', resultCode: 'SUCCESS', targetSummary: null, workspaceId: 'ws-a', sessionId: 'session-b' },
+      { id: 'c', timestamp, kind: 'result', toolName: 'read_file', resultCode: 'SUCCESS', targetSummary: null, workspaceId: 'ws-b', sessionId: 'session-c' },
+    ], []);
+
+    hub.clear('mcp', { workspaceId: 'ws-a', sessionId: 'session-a' });
+    expect(hub.snapshot().lines.filter((line) => line.source === 'mcp').map((line) => [line.workspaceId, line.sessionId])).toEqual([
+      ['ws-a', 'session-b'],
+      ['ws-b', 'session-c'],
+    ]);
+
+    hub.clear('mcp', { workspaceId: 'ws-a' });
+    expect(hub.snapshot().lines.filter((line) => line.source === 'mcp').map((line) => [line.workspaceId, line.sessionId])).toEqual([
+      ['ws-b', 'session-c'],
+    ]);
+  });
+
   it('tails an appended tunnel log file', async () => {
     vi.useFakeTimers();
     const root = await mkdtemp(path.join(os.tmpdir(), 'lnwjud-loghub-'));

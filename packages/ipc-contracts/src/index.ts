@@ -212,13 +212,21 @@ export interface LogSnapshot {
   readonly tunnelLogExists: boolean;
 }
 
-export interface ClearLogBufferRequest {
+export interface LogScopeRequest {
+  readonly workspaceId?: string;
+  readonly sessionId?: string;
+}
+
+export type ClearWorkLogRequest = LogScopeRequest;
+
+export interface ClearLogBufferRequest extends LogScopeRequest {
   readonly source: LogSource;
 }
 
-export interface ExportLogsRequest {
+export interface ExportLogsRequest extends LogScopeRequest {
   readonly source: LogSource;
   readonly filePath: string;
+  readonly query?: string;
 }
 
 export type IncidentClassification = 'local_tool_failed' | 'tunnel_disconnected' | 'remote_turn_stopped' | 'healthy_or_inconclusive';
@@ -415,7 +423,7 @@ export interface IpcRequestMap {
   readonly [ipcChannels.startMcp]: StartMcpRequest;
   readonly [ipcChannels.stopMcp]: undefined;
   readonly [ipcChannels.restartMcp]: undefined;
-  readonly [ipcChannels.clearWorkLog]: undefined;
+  readonly [ipcChannels.clearWorkLog]: ClearWorkLogRequest | undefined;
   readonly [ipcChannels.saveTunnelApiKey]: SaveTunnelApiKeyRequest;
   readonly [ipcChannels.startTunnel]: undefined;
   readonly [ipcChannels.stopTunnel]: undefined;
@@ -493,7 +501,7 @@ export interface LnwjudApi {
   startMcp(request: StartMcpRequest): Promise<IpcResponseMap[typeof ipcChannels.startMcp]>;
   stopMcp(): Promise<IpcResponseMap[typeof ipcChannels.stopMcp]>;
   restartMcp(): Promise<IpcResponseMap[typeof ipcChannels.restartMcp]>;
-  clearWorkLog(): Promise<IpcResponseMap[typeof ipcChannels.clearWorkLog]>;
+  clearWorkLog(request?: ClearWorkLogRequest): Promise<IpcResponseMap[typeof ipcChannels.clearWorkLog]>;
   saveTunnelApiKey(request: SaveTunnelApiKeyRequest): Promise<IpcResponseMap[typeof ipcChannels.saveTunnelApiKey]>;
   startTunnel(): Promise<IpcResponseMap[typeof ipcChannels.startTunnel]>;
   stopTunnel(): Promise<IpcResponseMap[typeof ipcChannels.stopTunnel]>;

@@ -45,6 +45,12 @@ export type MessageKey =
   | 'workLog.filterError'
   | 'workLog.clear'
   | 'workLog.empty'
+  | 'scope.all'
+  | 'scope.workspace'
+  | 'scope.session'
+  | 'scope.clearSession'
+  | 'scope.clearWorkspace'
+  | 'scope.clearAll'
   | 'settings.title'
   | 'settings.subtitle'
   | 'settings.generalTitle'
@@ -87,6 +93,7 @@ export type MessageKey =
   | 'live.follow'
   | 'live.filter'
   | 'live.export'
+  | 'live.clearTab'
   | 'live.captureIncident'
   | 'live.incident.localToolFailed'
   | 'live.incident.tunnelDisconnected'
@@ -175,6 +182,12 @@ export const th: Messages = {
   'workLog.filterError': 'เฉพาะ error',
   'workLog.clear': 'ล้างประวัติ',
   'workLog.empty': 'ยังไม่มีกิจกรรม',
+  'scope.all': 'ทั้งหมด',
+  'scope.workspace': 'Workspace',
+  'scope.session': 'Session',
+  'scope.clearSession': 'ล้าง Session นี้',
+  'scope.clearWorkspace': 'ล้าง Workspace นี้',
+  'scope.clearAll': 'ล้างทั้งหมด',
   'settings.title': 'ตั้งค่า',
   'settings.subtitle': 'ปรับแต่งภาษา สิทธิ์ความปลอดภัย และการเชื่อมต่อ Remote Tunnel สำหรับ AI Agent',
   'settings.generalTitle': 'ภาษาและการตั้งค่าทั่วไป',
@@ -217,6 +230,7 @@ export const th: Messages = {
   'live.follow': 'ตามต่อ (follow)',
   'live.filter': 'กรองข้อความ...',
   'live.export': 'ส่งออกไฟล์',
+  'live.clearTab': 'ล้าง Tab นี้',
   'live.captureIncident': 'บันทึกหลักฐานปัญหา',
   'live.incident.localToolFailed': 'เครื่องมือในเครื่องล้มเหลว',
   'live.incident.tunnelDisconnected': 'Tunnel หลุดการเชื่อมต่อ',
@@ -304,6 +318,12 @@ export const en: Messages = {
   'workLog.filterError': 'Errors only',
   'workLog.clear': 'Clear history',
   'workLog.empty': 'No activity yet',
+  'scope.all': 'All',
+  'scope.workspace': 'Workspace',
+  'scope.session': 'Session',
+  'scope.clearSession': 'Clear this session',
+  'scope.clearWorkspace': 'Clear this workspace',
+  'scope.clearAll': 'Clear all',
   'settings.title': 'Settings',
   'settings.subtitle': 'Configure system preferences, security profiles, and remote tunnel connections',
   'settings.generalTitle': 'Language & General Preferences',
@@ -346,6 +366,7 @@ export const en: Messages = {
   'live.follow': 'Follow',
   'live.filter': 'Filter text...',
   'live.export': 'Export file',
+  'live.clearTab': 'Clear tab',
   'live.captureIncident': 'Capture incident evidence',
   'live.incident.localToolFailed': 'Local tool failed',
   'live.incident.tunnelDisconnected': 'Tunnel disconnected',

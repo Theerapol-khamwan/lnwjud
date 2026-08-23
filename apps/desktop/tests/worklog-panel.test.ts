@@ -10,7 +10,8 @@ const mockInFlight: InFlightWorkItem[] = [
     toolName: 'shell',
     startedAt: '2026-08-19T14:00:00.000Z',
     targetSummary: 'npm test',
-    workspaceId: null,
+    workspaceId: 'workspace-1',
+    sessionId: 'session-a',
   },
 ];
 
@@ -24,7 +25,8 @@ const mockEntries: WorkLogEntry[] = [
     errorMessage: null,
     targetSummary: 'python -c "print(1)"',
     durationMs: 71,
-    workspaceId: null,
+    workspaceId: 'workspace-1',
+    sessionId: 'session-a',
   },
   {
     id: 'entry-2',
@@ -35,7 +37,8 @@ const mockEntries: WorkLogEntry[] = [
     errorMessage: 'Destructive operation requires explicit user confirmation',
     targetSummary: 'powershell -NoProfile -Command Remove-Item test',
     durationMs: 12,
-    workspaceId: null,
+    workspaceId: 'workspace-1',
+    sessionId: 'session-a',
   },
 ];
 
@@ -46,7 +49,7 @@ describe('WorkLogPanel', () => {
       emptyLabel: 'ยังไม่มีกิจกรรม',
       filterAllLabel: 'ทั้งหมด',
       filterErrorLabel: 'เฉพาะ error',
-      clearLabel: 'ล้างประวัติ',
+      clearSessionLabel: 'ล้าง Session นี้', clearWorkspaceLabel: 'ล้าง Workspace นี้', clearAllLabel: 'ล้างทั้งหมด',
       filter: 'all',
       onFilterChange: () => {},
       onClear: async () => {},
@@ -72,7 +75,7 @@ describe('WorkLogPanel', () => {
       emptyLabel: 'ยังไม่มีกิจกรรม',
       filterAllLabel: 'ทั้งหมด',
       filterErrorLabel: 'เฉพาะ error',
-      clearLabel: 'ล้างประวัติ',
+      clearSessionLabel: 'ล้าง Session นี้', clearWorkspaceLabel: 'ล้าง Workspace นี้', clearAllLabel: 'ล้างทั้งหมด',
       filter: 'error',
       onFilterChange: () => {},
       onClear: async () => {},
@@ -88,7 +91,7 @@ describe('WorkLogPanel', () => {
   it('renders search and copy controls and filters rows by full log details', () => {
     const markup = renderToStaticMarkup(createElement(WorkLogPanel, {
       title: 'บันทึกการทำงาน', emptyLabel: 'ยังไม่มีกิจกรรม', filterAllLabel: 'ทั้งหมด', filterErrorLabel: 'เฉพาะ error',
-      clearLabel: 'ล้างประวัติ', filter: 'all', onFilterChange: () => {}, onClear: async () => {}, entries: mockEntries, inFlight: mockInFlight,
+      clearSessionLabel: 'ล้าง Session นี้', clearWorkspaceLabel: 'ล้าง Workspace นี้', clearAllLabel: 'ล้างทั้งหมด', filter: 'all', onFilterChange: () => {}, onClear: async () => {}, entries: mockEntries, inFlight: mockInFlight,
       searchPlaceholder: 'ค้นหาบันทึกการทำงาน...', copyLabel: 'คัดลอก', copiedLabel: 'คัดลอกแล้ว',
     }));
     expect(markup).toContain('type="search"');
@@ -102,4 +105,18 @@ describe('WorkLogPanel', () => {
     expect(errorMatches).toHaveLength(1);
     expect(errorMatches[0]?.id).toBe('entry-2');
   });
+  it('filters by workspace and session without collapsing identical in-flight call IDs', () => {
+    const inFlight: InFlightWorkItem[] = [
+      { ...mockInFlight[0]!, callId: 'same-call', workspaceId: 'workspace-1', sessionId: 'session-a' },
+      { ...mockInFlight[0]!, callId: 'same-call', workspaceId: 'workspace-1', sessionId: 'session-b' },
+      { ...mockInFlight[0]!, callId: 'other-call', workspaceId: 'workspace-2', sessionId: 'session-c' },
+    ];
+    const allWorkspaceOne = newestFirstWorkLogRows([], inFlight, 'all', '', { workspaceId: 'workspace-1', sessionId: null });
+    expect(allWorkspaceOne).toHaveLength(2);
+    expect(new Set(allWorkspaceOne.map((row) => row.id)).size).toBe(2);
+    const oneSession = newestFirstWorkLogRows([], inFlight, 'all', '', { workspaceId: 'workspace-1', sessionId: 'session-b' });
+    expect(oneSession).toHaveLength(1);
+    expect(oneSession[0]?.item.sessionId).toBe('session-b');
+  });
+
 });

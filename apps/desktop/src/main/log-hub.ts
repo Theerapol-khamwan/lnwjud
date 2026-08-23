@@ -2,7 +2,7 @@ import { closeSync, existsSync, openSync, readSync, statSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import { StringDecoder } from 'node:string_decoder';
 import type { AppErrorCode } from '@lnwjud/domain';
-import { type LogCorrelation, type LogLevel, type LogLine, type LogSnapshot, type LogSource, type TunnelLifecycleCategory } from '@lnwjud/ipc-contracts';
+import { type LogCorrelation, type LogLevel, type LogLine, type LogScopeRequest, type LogSnapshot, type LogSource, type TunnelLifecycleCategory } from '@lnwjud/ipc-contracts';
 
 const MAX_LINES_PER_SOURCE = 2_000;
 const MAX_SEEN_KEYS_PER_SOURCE = 4_000;
@@ -152,10 +152,15 @@ export class LogHub {
     };
   }
 
-  public clear(source: LogSource): void {
+  public clear(source: LogSource, scope: LogScopeRequest = {}): void {
     // Clear only the visible buffer. Keep delivery/dedup cursors so historical
     // MCP and process entries do not get rehydrated on the next dashboard sync.
-    this.lines.set(source, []);
+    const buffer = this.lines.get(source) ?? [];
+    if (scope.workspaceId === undefined && scope.sessionId === undefined) {
+      this.lines.set(source, []);
+      return;
+    }
+    this.lines.set(source, buffer.filter((line) => !matchesLogScope(line, scope)));
   }
 
   private feedMcpLifecycle(
@@ -466,6 +471,12 @@ function rememberBounded(values: Set<string>, value: string): void {
     if (oldest === undefined) break;
     values.delete(oldest);
   }
+}
+
+function matchesLogScope(line: Pick<LogLine, 'workspaceId' | 'sessionId'>, scope: LogScopeRequest): boolean {
+  if (scope.workspaceId !== undefined && line.workspaceId !== scope.workspaceId) return false;
+  if (scope.sessionId !== undefined && line.sessionId !== scope.sessionId) return false;
+  return true;
 }
 
 function normalizeMcpResultCode(value: string): 'SUCCESS' | 'FAILED' | 'FATAL' | 'UNKNOWN' {
