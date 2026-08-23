@@ -42,6 +42,7 @@ export interface ProcessServiceDependencies {
 
 interface ProcessOwner {
   readonly actorId: string;
+  readonly sessionId: string;
   readonly workspaceId: string;
 }
 
@@ -100,7 +101,7 @@ export class ProcessService {
     const processes = this.processManager.list?.() ?? [];
     return ok(processes.filter((process) => {
       const owner = this.owners.get(process.processId);
-      return owner?.actorId === actor.clientId && owner.workspaceId === workspace.value.id;
+      return owner?.actorId === actor.clientId && owner.sessionId === actorSessionId(actor) && owner.workspaceId === workspace.value.id;
     }));
   }
 
@@ -149,9 +150,9 @@ export class ProcessService {
       cwd: cwd.value,
       ...(timeoutMs === undefined ? {} : { timeoutMs }),
     }, signal, (process) => {
-      this.owners.set(process.processId, { actorId: actor.clientId, workspaceId });
+      this.owners.set(process.processId, { actorId: actor.clientId, sessionId: actorSessionId(actor), workspaceId });
     });
-    if (started.ok) this.owners.set(started.value.processId, { actorId: actor.clientId, workspaceId });
+    if (started.ok) this.owners.set(started.value.processId, { actorId: actor.clientId, sessionId: actorSessionId(actor), workspaceId });
     return started;
   }
 
@@ -192,7 +193,7 @@ export class ProcessService {
   private authorizeHandle(actor: FileActor, workspaceId: string, processId: string): Result<void> {
     const owner = this.owners.get(processId);
     if (owner === undefined) return err(appError('PROCESS_NOT_FOUND', 'Process was not found'));
-    if (owner.actorId !== actor.clientId || owner.workspaceId !== workspaceId) {
+    if (owner.actorId !== actor.clientId || owner.sessionId !== actorSessionId(actor) || owner.workspaceId !== workspaceId) {
       return err(appError('PERMISSION_DENIED', 'Process handle is not owned by this client and workspace'));
     }
     return ok(undefined);
@@ -202,6 +203,10 @@ export class ProcessService {
     const workspace = await this.workspaces.get(workspaceId);
     return workspace === null ? err(appError('WORKSPACE_NOT_FOUND', 'Workspace was not found')) : ok(workspace);
   }
+}
+
+function actorSessionId(actor: FileActor): string {
+  return actor.sessionId?.trim() || actor.clientId;
 }
 
 function cancelledStart(): Result<never> {

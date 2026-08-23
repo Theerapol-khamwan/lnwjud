@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { ok, type Result } from '@lnwjud/domain';
 import type { CapabilityBackend } from './local-capability-service.js';
 import { WslCapabilityBackend, WslFilesystemCapabilityBackend } from './wsl-backend.js';
+import { CAPABILITY_TASK_OWNER_METADATA_KEY } from './task-ownership.js';
 
 describe('WslCapabilityBackend', () => {
   it('maps a scoped Windows workspace to WSL argv without creating a shell string', async () => {
@@ -85,6 +86,15 @@ describe('WslCapabilityBackend', () => {
       ready: false,
       reason: 'distro_missing',
     } });
+  });
+
+  it('rejects same-workspace WSL task access from another session', async () => {
+    const runner: CapabilityBackend = { execute: async (): Promise<Result<unknown>> => ok({ task_id: 'task-session', state: 'running' }) };
+    const backend = new WslCapabilityBackend({ platform: 'win32', runner, allowedRoots: ['C:\\workspace'] });
+    const metadata = (sessionId: string): Record<string, unknown> => ({ [CAPABILITY_TASK_OWNER_METADATA_KEY]: { clientId: 'client-1', sessionId, workspaceId: 'ws-1' } });
+    await backend.execute({ operation: 'run', workspaceId: 'ws-1', executable: 'node', arguments: [], cwd: 'C:\\workspace', execution: 'background', metadata: metadata('session-a') });
+    await expect(backend.execute({ operation: 'status', workspaceId: 'ws-1', task_id: 'task-session', metadata: metadata('session-b') })).resolves.toMatchObject({ ok: false, error: { code: 'PERMISSION_DENIED' } });
+    await expect(backend.execute({ operation: 'status', workspaceId: 'ws-1', task_id: 'task-session', metadata: metadata('session-a') })).resolves.toMatchObject({ ok: true });
   });
 });
 

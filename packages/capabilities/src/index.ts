@@ -29,6 +29,7 @@ export interface CapabilityService {
 
 export { LocalCapabilityService, type CapabilityBackend, type LocalCapabilityBackends } from './local-capability-service.js';
 export { ShellCapabilityBackend, type ShellCapabilityOptions } from './shell-backend.js';
+export { CAPABILITY_TASK_OWNER_METADATA_KEY, capabilityTaskOwnerMatches, legacyCapabilityTaskOwner, readCapabilityTaskOwner, type CapabilityTaskOwner } from './task-ownership.js';
 export { BrowserCdpBackend, type BrowserCdpProtocol, type BrowserCdpTab } from './browser-cdp-backend.js';
 export { NodeBrowserCdpProtocol } from './browser-cdp-protocol.js';
 export { HealthCapabilityBackend } from './health-backend.js';

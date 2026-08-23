@@ -10,6 +10,7 @@ import {
   type McpServer,
 } from '@modelcontextprotocol/server';
 import { createMcpServer, type McpServerOptions } from './server.js';
+import { createHttpRequestScope, createProtocolHttpRequestScope } from './request-scope.js';
 import { IncrementalVerifier } from './incremental-verifier.js';
 import { RunBudgetGuard } from './run-budget.js';
 import { createOriginPolicy, type OriginPolicy } from './origin-policy.js';
@@ -158,8 +159,14 @@ function sessionNotFoundResponse(): Response {
 function createSessionfulMcpHandler(options: McpHttpServerOptions): McpHttpHandler {
   const runBudgetGuard = options.runBudgetGuard ?? new RunBudgetGuard();
   const incrementalVerifier = options.incrementalVerifier ?? new IncrementalVerifier();
-  const factory = (): McpServer => createMcpServer({ ...options, runBudgetGuard, incrementalVerifier });
-  const modernHandler = createMcpHandler(factory, { legacy: 'reject', onerror: writeDiagnostic });
+  const endpointFallbackSessionId = randomUUID();
+  const factory = (request?: Request): McpServer => createMcpServer({
+    ...options,
+    runBudgetGuard,
+    incrementalVerifier,
+    requestScope: createHttpRequestScope({ ...(request === undefined ? {} : { request }), fallbackSessionId: endpointFallbackSessionId }),
+  });
+  const modernHandler = createMcpHandler((context) => factory(context.requestInfo), { legacy: 'reject', onerror: writeDiagnostic });
   const sessions = new Map<string, LegacySession>();
   let closed = false;
 
@@ -171,10 +178,16 @@ function createSessionfulMcpHandler(options: McpHttpServerOptions): McpHttpHandl
   const createLegacySession = async (request: Request): Promise<Response> => {
     if (closed) return sessionNotFoundResponse();
 
-    const server = factory();
+    const protocolSessionId = randomUUID();
+    const server = createMcpServer({
+      ...options,
+      runBudgetGuard,
+      incrementalVerifier,
+      requestScope: createProtocolHttpRequestScope(protocolSessionId),
+    });
     let registeredSessionId: string | undefined;
     const transport = new WebStandardStreamableHTTPServerTransport({
-      sessionIdGenerator: randomUUID,
+      sessionIdGenerator: (): string => protocolSessionId,
       onsessioninitialized(sessionId): void {
         registeredSessionId = sessionId;
         sessions.set(sessionId, { server, transport });

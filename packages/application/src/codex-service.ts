@@ -34,6 +34,7 @@ export interface CodexServiceDependencies {
 
 interface CodexTaskOwner {
   readonly actorId: string;
+  readonly sessionId: string;
   readonly workspaceId: string;
   readonly processId: string;
 }
@@ -96,7 +97,7 @@ export class CodexService {
     if (isAborted(signal)) return cancelledCodexRun();
     const codexTaskId = this.taskIdFactory();
     const registerOwner = (process: ManagedProcess): void => {
-      this.owners.set(codexTaskId, { actorId: actor.clientId, workspaceId, processId: process.processId });
+      this.owners.set(codexTaskId, { actorId: actor.clientId, sessionId: actorSessionId(actor), workspaceId, processId: process.processId });
     };
     const started = await this.adapter.start(root.value.realPath ?? root.value.absolutePath, instruction, signal, registerOwner);
     if (!started.ok) return started;
@@ -120,7 +121,7 @@ export class CodexService {
     if (!workspace.ok) return workspace;
     const tasks: CodexTaskListItem[] = [];
     for (const [codexTaskId, owner] of this.owners) {
-      if (owner.actorId !== actor.clientId || owner.workspaceId !== workspaceId) continue;
+      if (owner.actorId !== actor.clientId || owner.sessionId !== actorSessionId(actor) || owner.workspaceId !== workspaceId) continue;
       const process = this.adapter.statusProcess(owner.processId);
       if (process.ok) tasks.push({ codexTaskId, process: process.value });
     }
@@ -152,7 +153,7 @@ export class CodexService {
   private authorize(actor: FileActor, workspaceId: string, codexTaskId: string): Result<CodexTaskOwner> {
     const owner = this.owners.get(codexTaskId);
     if (owner === undefined) return err(appError('PROCESS_NOT_FOUND', 'Codex task was not found'));
-    if (owner.actorId !== actor.clientId || owner.workspaceId !== workspaceId) return err(appError('PERMISSION_DENIED', 'Codex task is not owned by this client and workspace'));
+    if (owner.actorId !== actor.clientId || owner.sessionId !== actorSessionId(actor) || owner.workspaceId !== workspaceId) return err(appError('PERMISSION_DENIED', 'Codex task is not owned by this client session and workspace'));
     return ok(owner);
   }
 
@@ -160,6 +161,10 @@ export class CodexService {
     const workspace = await this.workspaces.get(workspaceId);
     return workspace === null ? err(appError('WORKSPACE_NOT_FOUND', 'Workspace was not found')) : ok(workspace);
   }
+}
+
+function actorSessionId(actor: FileActor): string {
+  return actor.sessionId?.trim() || actor.clientId;
 }
 
 function isAborted(signal: AbortSignal | undefined): boolean {

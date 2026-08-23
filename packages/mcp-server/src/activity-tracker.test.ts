@@ -69,4 +69,13 @@ describe('ActivityTracker', () => {
       expect.objectContaining({ traceId: 'trace-123', traceParent: '00-trace-123-span-456-01' }),
     ]));
   });
+
+  it('keeps session identity on in-flight and completed activity events', async () => {
+    const events: ActivitySinkEvent[] = [];
+    const tracker = new ActivityTracker({ async record(event): Promise<void> { events.push(event); } });
+    const callId = await tracker.begin('read_file', { workspaceId: 'ws-1', path: 'src/app.ts' }, { sessionId: 'session-a' });
+    expect(tracker.listInFlight()[0]).toMatchObject({ sessionId: 'session-a', workspaceId: 'ws-1' });
+    await tracker.end(callId, 'SUCCESS', 1);
+    expect(events).toEqual([expect.objectContaining({ phase: 'started', sessionId: 'session-a' }), expect.objectContaining({ phase: 'completed', sessionId: 'session-a' })]);
+  });
 });

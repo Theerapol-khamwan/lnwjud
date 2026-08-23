@@ -8,10 +8,12 @@ import { IncrementalVerifier } from './incremental-verifier.js';
 import { RunBudgetGuard, type RunBudgetContext } from './run-budget.js';
 import { registerTasksProtocol } from './tasks-protocol.js';
 import { ToolRegistry, type ActiveProjectScope, type McpApplicationServices, type WorkspaceScope } from './tool-registry.js';
+import { actorForRequestScope, type McpRequestScope } from './request-scope.js';
 
 export interface McpServerOptions {
   readonly services: McpApplicationServices;
   readonly actor: FileActor;
+  readonly requestScope?: McpRequestScope;
   readonly diagnostic?: DiagnosticLogger;
   readonly activity?: ActivitySink;
   readonly activityTracker?: ActivityTracker;
@@ -30,10 +32,12 @@ export interface McpServerOptions {
 }
 
 export function createMcpServer(options: McpServerOptions): McpServer {
-  const registry = new ToolRegistry(options.services, options.actor, {
+  const actor = actorForRequestScope(options.actor, options.requestScope);
+  const registry = new ToolRegistry(options.services, actor, {
     ...(options.diagnostic === undefined ? {} : { diagnostic: options.diagnostic }),
     ...(options.activity === undefined ? {} : { activity: options.activity }),
     ...(options.activityTracker === undefined ? {} : { activityTracker: options.activityTracker }),
+    ...(options.requestScope === undefined ? {} : { sessionId: options.requestScope.sessionId }),
     ...(options.profileProvider === undefined ? {} : { profileProvider: options.profileProvider }),
     ...(options.allowAiDeleteProvider === undefined ? {} : { allowAiDeleteProvider: options.allowAiDeleteProvider }),
     ...(options.destructivePolicyProvider === undefined ? {} : { destructivePolicyProvider: options.destructivePolicyProvider }),
@@ -53,7 +57,7 @@ export function createMcpServer(options: McpServerOptions): McpServer {
       tasks: { list: {}, cancel: {} },
     },
   });
-  registerTasksProtocol(server, options.services);
+  registerTasksProtocol(server, options.services, { actor });
   for (const tool of registry.list()) {
     server.registerTool(tool.name, {
       description: tool.description,

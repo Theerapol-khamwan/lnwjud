@@ -6,6 +6,7 @@ import { appError, err, ok, type Result } from '@lnwjud/domain';
 import { PathExecutableResolver, WindowsProcessTree, toWindowsSpawnInvocation, type ExecutableResolver, type ProcessTreeTerminator } from '@lnwjud/process';
 import type { CapabilityBackend } from './local-capability-service.js';
 import { DurableShellTaskStore } from './durable-shell-task-store.js';
+import { capabilityTaskOwnerMatches, legacyCapabilityTaskOwner, readCapabilityTaskOwner, type CapabilityTaskOwner } from './task-ownership.js';
 
 type ShellOperation = 'run' | 'list' | 'status' | 'wait' | 'logs' | 'result' | 'cancel' | 'resume' | 'approve' | 'deny';
 type ShellExecution = 'foreground' | 'background' | 'auto';
@@ -27,7 +28,9 @@ interface ShellRequest {
   readonly includeStderr: boolean;
   readonly dryRun: boolean;
   readonly userConfirmed: boolean;
+  readonly owner: CapabilityTaskOwner;
 }
+
 
 export interface ShellCapabilityOptions {
   readonly allowedRoots: readonly string[];
@@ -60,6 +63,7 @@ interface ShellTaskRecord {
   readonly startedAt: string;
   readonly completion: Promise<void>;
   readonly resolveCompletion: () => void;
+  readonly owner: CapabilityTaskOwner;
   state: TaskState;
   exitCode?: number;
   errorMessage?: string;
@@ -118,12 +122,12 @@ export class ShellCapabilityBackend implements CapabilityBackend {
 
     switch (parsed.value.operation) {
       case 'run': return this.run(parsed.value, signal);
-      case 'list': return this.listTasks();
-      case 'status': return this.taskSnapshot(parsed.value.taskId);
+      case 'list': return this.listTasks(parsed.value.owner);
+      case 'status': return this.taskSnapshot(parsed.value.taskId, undefined, parsed.value.owner);
       case 'wait': return this.wait(parsed.value);
-      case 'logs': return this.taskSnapshot(parsed.value.taskId, parsed.value.tailLines);
-      case 'result': return this.taskSnapshot(parsed.value.taskId);
-      case 'cancel': return this.cancel(parsed.value.taskId);
+      case 'logs': return this.taskSnapshot(parsed.value.taskId, parsed.value.tailLines, parsed.value.owner);
+      case 'result': return this.taskSnapshot(parsed.value.taskId, undefined, parsed.value.owner);
+      case 'cancel': return this.cancel(parsed.value.taskId, false, parsed.value.owner);
       case 'resume':
       case 'approve':
       case 'deny':
@@ -185,6 +189,7 @@ export class ShellCapabilityBackend implements CapabilityBackend {
       startedAt: new Date().toISOString(),
       completion,
       resolveCompletion,
+      owner: request.owner,
       state: 'running',
     };
     this.tasks.set(record.taskId, record);
@@ -222,11 +227,13 @@ export class ShellCapabilityBackend implements CapabilityBackend {
     if (request.taskId === undefined) return err(appError('INVALID_INPUT', 'Task ID is required'));
     const record = this.tasks.get(request.taskId);
     if (record !== undefined) {
+      const ownership = this.authorizeTaskOwner(record.owner, request.owner);
+      if (!ownership.ok) return ownership;
       await this.waitFor(record, Math.min(request.timeoutSeconds, this.currentMaxSynchronousWaitSeconds()));
       return ok(this.snapshot(record, request.tailLines));
     }
     if (this.durableStore !== undefined) {
-      return this.durableStore.wait(request.taskId, Math.min(request.timeoutSeconds, this.currentMaxSynchronousWaitSeconds()), request.tailLines);
+      return this.durableStore.wait(request.taskId, Math.min(request.timeoutSeconds, this.currentMaxSynchronousWaitSeconds()), request.tailLines, request.owner);
     }
     return err(appError('PROCESS_NOT_FOUND', 'Task was not found'));
   }
@@ -251,7 +258,7 @@ export class ShellCapabilityBackend implements CapabilityBackend {
     let resolveAbort!: () => void;
     const aborted = new Promise<void>((resolve) => { resolveAbort = resolve; });
     const onAbort = (): void => {
-      cancellation ??= this.cancel(record.taskId, true);
+      cancellation ??= this.cancel(record.taskId, true, record.owner);
       resolveAbort();
     };
     if (signal.aborted) onAbort();
@@ -269,14 +276,16 @@ export class ShellCapabilityBackend implements CapabilityBackend {
     await this.tryTerminate(record, 'timed_out');
   }
 
-  private async cancel(taskId: string | undefined, autoRetry = false): Promise<Result<unknown>> {
+  private async cancel(taskId: string | undefined, autoRetry = false, owner: CapabilityTaskOwner = legacyCapabilityTaskOwner()): Promise<Result<unknown>> {
     if (taskId === undefined) return err(appError('INVALID_INPUT', 'Task ID is required'));
     const existing = this.tasks.get(taskId);
     if (existing === undefined) {
-      if (this.durableStore !== undefined) return this.durableStore.cancel(taskId);
+      if (this.durableStore !== undefined) return this.durableStore.cancel(taskId, owner);
       return err(appError('PROCESS_NOT_FOUND', 'Task was not found'));
     }
     const record = existing;
+    const ownership = this.authorizeTaskOwner(record.owner, owner);
+    if (!ownership.ok) return ownership;
     if (record.state === 'running' || record.state === 'termination_unverified') {
       const targetState = record.terminationTarget ?? 'cancelled';
       let verified = await this.tryTerminate(record, targetState);
@@ -329,11 +338,14 @@ export class ShellCapabilityBackend implements CapabilityBackend {
     }
   }
 
-  private async taskSnapshot(taskId: string | undefined, tailLines?: number): Promise<Result<unknown>> {
+  private async taskSnapshot(taskId: string | undefined, tailLines?: number, owner: CapabilityTaskOwner = legacyCapabilityTaskOwner()): Promise<Result<unknown>> {
     if (taskId === undefined) return err(appError('INVALID_INPUT', 'Task ID is required'));
     const record = this.tasks.get(taskId);
-    if (record !== undefined) return ok(this.snapshot(record, tailLines));
-    if (this.durableStore !== undefined) return this.durableStore.snapshot(taskId, tailLines);
+    if (record !== undefined) {
+      const ownership = this.authorizeTaskOwner(record.owner, owner);
+      return ownership.ok ? ok(this.snapshot(record, tailLines)) : ownership;
+    }
+    if (this.durableStore !== undefined) return this.durableStore.snapshot(taskId, tailLines, owner);
     return err(appError('PROCESS_NOT_FOUND', 'Task was not found'));
   }
 
@@ -360,17 +372,26 @@ export class ShellCapabilityBackend implements CapabilityBackend {
       maxOutputBytes: request.maxOutputBytes,
       includeStdout: request.includeStdout,
       includeStderr: request.includeStderr,
+      owner: request.owner,
     });
     if (!launched.ok || request.execution === 'background') return launched;
-    return this.durableStore.wait(taskId, Math.min(this.autoWaitSeconds, this.currentMaxSynchronousWaitSeconds()));
+    return this.durableStore.wait(taskId, Math.min(this.autoWaitSeconds, this.currentMaxSynchronousWaitSeconds()), undefined, request.owner);
   }
 
-  private async listTasks(): Promise<Result<unknown>> {
-    const inMemory = [...this.tasks.values()].map((record) => this.snapshot(record));
+  private async listTasks(owner: CapabilityTaskOwner): Promise<Result<unknown>> {
+    const inMemory = [...this.tasks.values()]
+      .filter((record) => capabilityTaskOwnerMatches(record.owner, owner))
+      .map((record) => this.snapshot(record));
     if (this.durableStore === undefined) return ok({ tasks: inMemory });
-    const durable = await this.durableStore.list();
+    const durable = await this.durableStore.list(owner);
     const durableIds = new Set(durable.map((task) => task.task_id).filter((value): value is string => typeof value === 'string'));
     return ok({ tasks: [...durable, ...inMemory.filter((task) => !durableIds.has(String(task.task_id ?? '')))] });
+  }
+
+  private authorizeTaskOwner(stored: CapabilityTaskOwner, requester: CapabilityTaskOwner): Result<void> {
+    return capabilityTaskOwnerMatches(stored, requester)
+      ? ok(undefined)
+      : err(appError('PERMISSION_DENIED', 'Task is not owned by this client session and workspace'));
   }
 
   private async resolveCwd(requestedCwd: string | undefined): Promise<Result<string>> {
@@ -499,8 +520,9 @@ function parseShellRequest(value: unknown, defaultTimeoutSeconds: number, defaul
   const includeStderr = value.include_stderr === undefined ? true : value.include_stderr;
   const dryRun = value.dry_run === undefined ? false : value.dry_run;
   const userConfirmed = value.userConfirmed === true;
+  const owner = readCapabilityTaskOwner(value);
   if (typeof includeStdout !== 'boolean' || typeof includeStderr !== 'boolean' || typeof dryRun !== 'boolean') return err(appError('INVALID_INPUT', 'Shell flags are invalid'));
-  return ok({ operation, ...(executable === undefined ? {} : { executable: executable.trim() }), arguments: rawArguments, privilege, ...(cwd === undefined ? {} : { cwd }), execution, ...(taskId === undefined ? {} : { taskId }), timeoutSeconds, maxOutputBytes: requestedMaxBytes, ...(tailLines === undefined ? {} : { tailLines }), includeStdout, includeStderr, dryRun, userConfirmed });
+  return ok({ operation, ...(executable === undefined ? {} : { executable: executable.trim() }), arguments: rawArguments, privilege, ...(cwd === undefined ? {} : { cwd }), execution, ...(taskId === undefined ? {} : { taskId }), timeoutSeconds, maxOutputBytes: requestedMaxBytes, ...(tailLines === undefined ? {} : { tailLines }), includeStdout, includeStderr, dryRun, userConfirmed, owner });
 }
 
 function isShellOperation(value: unknown): value is ShellOperation {

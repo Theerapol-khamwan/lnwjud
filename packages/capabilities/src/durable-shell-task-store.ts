@@ -3,6 +3,7 @@ import { mkdir, readFile, readdir, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { createHash } from 'node:crypto';
 import { appError, err, ok, type Result } from '@lnwjud/domain';
+import { capabilityTaskOwnerMatches, legacyCapabilityTaskOwner, type CapabilityTaskOwner } from './task-ownership.js';
 
 export type DurableShellTaskState = 'running' | 'completed' | 'failed' | 'timed_out' | 'cancelled' | 'termination_unverified';
 
@@ -16,6 +17,7 @@ export interface DurableShellLaunchRequest {
   readonly maxOutputBytes: number;
   readonly includeStdout: boolean;
   readonly includeStderr: boolean;
+  readonly owner: CapabilityTaskOwner;
 }
 
 interface DurableTaskMetadata {
@@ -34,6 +36,9 @@ interface DurableTaskMetadata {
   child_pid?: number;
   stdout_truncated?: boolean;
   stderr_truncated?: boolean;
+  readonly owner_client_id?: string;
+  readonly owner_session_id?: string;
+  readonly owner_workspace_id?: string;
 }
 
 interface DurableWorkerSpec {
@@ -85,6 +90,9 @@ export class DurableShellTaskStore {
       include_stderr: request.includeStderr,
       max_output_bytes: request.maxOutputBytes,
       deadline_at: deadlineAt,
+      owner_client_id: request.owner.clientId,
+      owner_session_id: request.owner.sessionId,
+      ...(request.owner.workspaceId === undefined ? {} : { owner_workspace_id: request.owner.workspaceId }),
     };
     const spec: DurableWorkerSpec = {
       version: 1,
@@ -135,38 +143,44 @@ export class DurableShellTaskStore {
     }
   }
 
-  public async list(): Promise<Record<string, unknown>[]> {
+  public async list(owner?: CapabilityTaskOwner): Promise<Record<string, unknown>[]> {
     await mkdir(this.rootDirectory, { recursive: true });
     const entries = await readdir(this.rootDirectory, { withFileTypes: true }).catch(() => []);
     const snapshots: Record<string, unknown>[] = [];
     for (const entry of entries) {
       if (!entry.isDirectory()) continue;
-      const snapshot = await this.snapshot(entry.name);
+      const snapshot = await this.snapshot(entry.name, undefined, owner);
       if (snapshot.ok) snapshots.push(snapshot.value);
     }
     return snapshots.sort((left, right) => String(right.started_at ?? '').localeCompare(String(left.started_at ?? '')));
   }
 
-  public async snapshot(taskId: string, tailLines?: number): Promise<Result<Record<string, unknown>>> {
+  public async snapshot(taskId: string, tailLines?: number, owner?: CapabilityTaskOwner): Promise<Result<Record<string, unknown>>> {
     const metadata = await this.readMetadata(taskId);
     if (!metadata.ok) return metadata;
+    if (owner !== undefined && !capabilityTaskOwnerMatches(metadataOwner(metadata.value), owner)) {
+      return err(appError('PERMISSION_DENIED', 'Task is not owned by this client session and workspace'));
+    }
     const reconciled = await this.reconcile(metadata.value);
     return ok(await this.snapshotFromMetadata(reconciled, tailLines));
   }
 
-  public async wait(taskId: string, seconds: number, tailLines?: number): Promise<Result<Record<string, unknown>>> {
+  public async wait(taskId: string, seconds: number, tailLines?: number, owner?: CapabilityTaskOwner): Promise<Result<Record<string, unknown>>> {
     const deadline = Date.now() + Math.max(0, seconds) * 1000;
-    let snapshot = await this.snapshot(taskId, tailLines);
+    let snapshot = await this.snapshot(taskId, tailLines, owner);
     while (snapshot.ok && snapshot.value.state === 'running' && Date.now() < deadline) {
       await delay(Math.min(100, Math.max(10, deadline - Date.now())));
-      snapshot = await this.snapshot(taskId, tailLines);
+      snapshot = await this.snapshot(taskId, tailLines, owner);
     }
     return snapshot;
   }
 
-  public async cancel(taskId: string): Promise<Result<Record<string, unknown>>> {
+  public async cancel(taskId: string, owner?: CapabilityTaskOwner): Promise<Result<Record<string, unknown>>> {
     const metadataResult = await this.readMetadata(taskId);
     if (!metadataResult.ok) return metadataResult;
+    if (owner !== undefined && !capabilityTaskOwnerMatches(metadataOwner(metadataResult.value), owner)) {
+      return err(appError('PERMISSION_DENIED', 'Task is not owned by this client session and workspace'));
+    }
     const metadata = await this.reconcile(metadataResult.value);
     if (isTerminal(metadata.state)) return ok(await this.snapshotFromMetadata(metadata));
     const workerRunning = metadata.worker_pid !== undefined && isProcessRunning(metadata.worker_pid);
@@ -306,6 +320,15 @@ function isMetadata(value: unknown): value is DurableTaskMetadata {
     && typeof record.include_stderr === 'boolean'
     && typeof record.max_output_bytes === 'number'
     && typeof record.deadline_at === 'string';
+}
+
+function metadataOwner(metadata: DurableTaskMetadata): CapabilityTaskOwner {
+  if (metadata.owner_client_id === undefined || metadata.owner_session_id === undefined) return legacyCapabilityTaskOwner();
+  return {
+    clientId: metadata.owner_client_id,
+    sessionId: metadata.owner_session_id,
+    ...(metadata.owner_workspace_id === undefined ? {} : { workspaceId: metadata.owner_workspace_id }),
+  };
 }
 
 function isTerminal(state: DurableShellTaskState): boolean {

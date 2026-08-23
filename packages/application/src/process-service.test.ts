@@ -184,6 +184,22 @@ describe('ProcessService', () => {
     releaseStart();
     await expect(starting).resolves.toMatchObject({ ok: true });
   });
+
+  it('isolates process handles between sessions of the same client and workspace', async () => {
+    const workspace = await createWorkspace();
+    const service = new ProcessService(repository(workspace), { processManager: fakeManager([]) });
+    const owner = { clientId: 'client-1', clientName: 'test', sessionId: 'session-a' };
+    const otherSession = { clientId: 'client-1', clientName: 'test', sessionId: 'session-b' };
+    const started = await service.start(owner, workspace.id, { executable: 'pnpm', args: ['test'] });
+    expect(started.ok).toBe(true);
+    if (!started.ok) return;
+
+    await expect(service.status(otherSession, workspace.id, started.value.processId)).resolves.toMatchObject({ ok: false, error: { code: 'PERMISSION_DENIED' } });
+    await expect(service.logs(otherSession, workspace.id, started.value.processId, {})).resolves.toMatchObject({ ok: false, error: { code: 'PERMISSION_DENIED' } });
+    await expect(service.stop(otherSession, workspace.id, started.value.processId)).resolves.toMatchObject({ ok: false, error: { code: 'PERMISSION_DENIED' } });
+    await expect(service.list(otherSession, workspace.id)).resolves.toMatchObject({ ok: true, value: [] });
+    await expect(service.status(owner, workspace.id, started.value.processId)).resolves.toMatchObject({ ok: true });
+  });
 });
 
 function fakeManager(calls: ManagedProcessStart[], observedSignals: Array<AbortSignal | undefined> = []): ProcessServiceDependencies['processManager'] {
@@ -193,6 +209,7 @@ function fakeManager(calls: ManagedProcessStart[], observedSignals: Array<AbortS
       observedSignals.push(signal);
       return ok(processHandle());
     },
+    list(): readonly ManagedProcess[] { return [processHandle()]; },
     status(): Result<ManagedProcess> { return ok(processHandle()); },
     logs(): Result<ProcessLogResult> { return ok({ entries: [], truncated: false, nextSequence: 0 }); },
     async stop(): Promise<Result<void>> { return ok(undefined); },

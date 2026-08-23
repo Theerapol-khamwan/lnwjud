@@ -217,7 +217,7 @@ Use atomic temp-write + rename and bounded cleanup. Plugins/settings that are ac
 | M0 | **complete** | Audit current concurrency model, choose invariants, record file-level plan |
 | M1 | **complete** | Decouple desktop-selected workspace from MCP lifecycle |
 | M2 | **complete** | Make destructive/project scope request-scoped by `workspaceId` |
-| M3 | planned | Add stable MCP session identity and session-aware ownership |
+| M3 | **complete** | Add stable MCP session identity and session-aware ownership |
 | M4 | planned | Make STDIO shared activity and persisted runtime state multi-owner safe |
 | M5 | planned | Propagate workspace/session metadata through audit + Live Logs |
 | M6 | planned | Add workspace/session filters, scoped clear/export, UI badges/tabs |
@@ -311,7 +311,16 @@ Do not assume `actor.clientId` from the transport is already a session ID. Today
 
 ### Exit criteria
 
-Same-workspace concurrent chats have independent ownership boundaries.
+Same-workspace concurrent sessions have independent ownership boundaries wherever the transport exposes a stable session identity. Modern stateless HTTP intentionally uses an explicit endpoint-level fallback rather than inventing a ChatGPT conversation ID.
+
+### M3 implementation evidence
+
+- HTTP protocol sessions derive a stable internal session identity from the MCP session ID; STDIO receives one synthetic identity for its serving lifetime.
+- `ProcessService` and `CodexService` ownership now require client + session + workspace.
+- Shell durable metadata persists client/session/workspace ownership; list/status/wait/logs/result/cancel enforce it across backend replacement.
+- WSL task handles and MCP Tasks protocol propagate the same trusted owner metadata. Tool input cannot spoof this metadata because the MCP layer overwrites it from the scoped actor.
+- Legacy ownerless durable metadata remains readable only through the legacy ownership fallback, so a new scoped session cannot inherit it.
+- Targeted verification: application ownership 15/15, capabilities shell/WSL/durable 28/28, MCP scope/activity/tasks/registry 46/46, HTTP/STDIO transport integration 10/10, MCP/CLI/Desktop typecheck passed, targeted ESLint passed.
 
 ## Phase M4 — multi-owner STDIO and durable runtime state
 

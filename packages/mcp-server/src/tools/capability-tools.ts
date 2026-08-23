@@ -2,6 +2,7 @@ import { defineTool, missingService, type McpToolContext, type McpToolDefinition
 import type { Result } from '@lnwjud/domain';
 import { DEFAULT_MCP_POLL_WAIT_SECONDS, MAX_CONFIGURABLE_WAIT_SECONDS, MIN_CONFIGURABLE_WAIT_SECONDS } from '@lnwjud/shared';
 import { SetOfMarksService } from '../set-of-marks-service.js';
+import { withCapabilityOwnerMetadata } from '../request-scope.js';
 import {
   accessibilityCapabilitySchema,
   audioCapabilitySchema,
@@ -44,17 +45,16 @@ function normalizeNonBlockingCliInput(input: unknown, maxPollWaitSeconds: number
 }
 
 export function capabilityTools(context: McpToolContext): McpToolDefinition[] {
-  const execute = (tool: Parameters<NonNullable<McpToolContext['services']['capabilities']>['execute']>[0], input: unknown, signal?: AbortSignal): Promise<Result<unknown>> => (
-    context.services.capabilities === undefined
-      ? Promise.resolve(missingService())
-      : context.services.capabilities.execute(
-        tool,
-        tool === 'shell' || tool === 'wsl_exec'
-          ? normalizeNonBlockingCliInput(input, currentMcpPollWaitSeconds(context))
-          : input,
-        signal,
-      )
-  );
+  const execute = (tool: Parameters<NonNullable<McpToolContext['services']['capabilities']>['execute']>[0], input: unknown, signal?: AbortSignal): Promise<Result<unknown>> => {
+    if (context.services.capabilities === undefined) return Promise.resolve(missingService());
+    const normalized = tool === 'shell' || tool === 'wsl_exec'
+      ? normalizeNonBlockingCliInput(input, currentMcpPollWaitSeconds(context))
+      : input;
+    const owned = tool === 'shell' || tool === 'wsl_exec'
+      ? withCapabilityOwnerMetadata(normalized, context.actor)
+      : normalized;
+    return context.services.capabilities.execute(tool, owned, signal);
+  };
   const setOfMarks = new SetOfMarksService(context.services.capabilities);
 
   return [

@@ -2,6 +2,7 @@ import { stat } from 'node:fs/promises';
 import path from 'node:path';
 import { appError, err, ok, type Result } from '@lnwjud/domain';
 import type { CapabilityBackend } from './local-capability-service.js';
+import { capabilityTaskOwnerMatches, readCapabilityTaskOwner, type CapabilityTaskOwner } from './task-ownership.js';
 
 type WslOperation = 'run' | 'status' | 'wait' | 'logs' | 'result' | 'cancel';
 type WslExecution = 'foreground' | 'background' | 'auto';
@@ -23,7 +24,10 @@ interface WslRequest {
   readonly includeStderr: boolean;
   readonly dryRun: boolean;
   readonly userConfirmed: boolean;
+  readonly owner: CapabilityTaskOwner;
+  readonly metadata?: Readonly<Record<string, unknown>>;
 }
+
 
 export interface WslCapabilityOptions {
   readonly platform?: NodeJS.Platform;
@@ -47,6 +51,7 @@ export interface WslFilesystemCapabilityOptions {
 interface WslTaskOwner {
   readonly workspaceId: string;
   readonly distro: string;
+  readonly owner: CapabilityTaskOwner;
 }
 
 const DEFAULT_TIMEOUT_SECONDS = 3_600;
@@ -95,6 +100,7 @@ export class WslCapabilityBackend implements CapabilityBackend {
     if (taskOwner === undefined) return err(appError('PROCESS_NOT_FOUND', 'WSL task was not found'));
     if (taskOwner.workspaceId !== parsed.value.workspaceId) return err(appError('PERMISSION_DENIED', 'WSL task belongs to another workspace'));
     if (taskOwner.distro !== parsed.value.distro) return err(appError('PERMISSION_DENIED', 'WSL task belongs to another distribution'));
+    if (!capabilityTaskOwnerMatches(taskOwner.owner, parsed.value.owner)) return err(appError('PERMISSION_DENIED', 'WSL task belongs to another client session'));
 
     const forwarded = this.forwardTaskRequest(parsed.value);
     const result = await this.runner.execute(forwarded, signal);
@@ -128,6 +134,7 @@ export class WslCapabilityBackend implements CapabilityBackend {
       include_stderr: request.includeStderr,
       dry_run: request.dryRun,
       userConfirmed: request.userConfirmed,
+      ...(request.metadata === undefined ? {} : { metadata: request.metadata }),
     };
     const result = await this.runner.execute(forwarded, signal);
     const annotated = annotateResult(result, {
@@ -135,7 +142,7 @@ export class WslCapabilityBackend implements CapabilityBackend {
       linux_cwd: linuxCwd.value,
     });
     if (annotated.ok && isRecord(annotated.value) && typeof annotated.value.task_id === 'string') {
-      this.taskOwners.set(annotated.value.task_id, { workspaceId: request.workspaceId!, distro: request.distro });
+      this.taskOwners.set(annotated.value.task_id, { workspaceId: request.workspaceId!, distro: request.distro, owner: request.owner });
     }
     return annotated;
   }
@@ -160,6 +167,7 @@ export class WslCapabilityBackend implements CapabilityBackend {
       include_stderr: request.includeStderr,
       dry_run: request.dryRun,
       userConfirmed: request.userConfirmed,
+      ...(request.metadata === undefined ? {} : { metadata: request.metadata }),
     };
   }
 
@@ -287,9 +295,11 @@ function parseWslRequest(value: unknown, defaultDistro: string, defaultTimeoutSe
   const dryRun = value.dry_run === undefined ? false : value.dry_run;
   if (typeof includeStdout !== 'boolean' || typeof includeStderr !== 'boolean' || typeof dryRun !== 'boolean') return err(appError('INVALID_INPUT', 'WSL flags are invalid'));
   const userConfirmed = value.userConfirmed === true;
+  const owner = readCapabilityTaskOwner(value);
+  const metadata = isRecord(value.metadata) ? value.metadata : undefined;
   const environment = parseEnvironment(value.environment);
   if (!environment.ok) return environment;
-  return ok({ operation, ...(workspaceId === undefined ? {} : { workspaceId }), distro, ...(executable === undefined ? {} : { executable: executable.trim() }), arguments: rawArguments, ...(cwd === undefined ? {} : { cwd }), environment: environment.value, execution, ...(taskId === undefined ? {} : { taskId }), timeoutSeconds, maxOutputBytes: requestedMaxBytes, ...(tailLines === undefined ? {} : { tailLines }), includeStdout, includeStderr, dryRun, userConfirmed });
+  return ok({ operation, ...(workspaceId === undefined ? {} : { workspaceId }), distro, ...(executable === undefined ? {} : { executable: executable.trim() }), arguments: rawArguments, ...(cwd === undefined ? {} : { cwd }), environment: environment.value, execution, ...(taskId === undefined ? {} : { taskId }), timeoutSeconds, maxOutputBytes: requestedMaxBytes, ...(tailLines === undefined ? {} : { tailLines }), includeStdout, includeStderr, dryRun, userConfirmed, owner, ...(metadata === undefined ? {} : { metadata }) });
 }
 
 function parseEnvironment(value: unknown): Result<Readonly<Record<string, string>>> {

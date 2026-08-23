@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { appError, err, ok } from '@lnwjud/domain';
+import { CAPABILITY_TASK_OWNER_METADATA_KEY } from '@lnwjud/capabilities';
 import { TasksProtocol } from './tasks-protocol.js';
 import type { McpApplicationServices } from './tool-registry.js';
 
@@ -176,5 +177,13 @@ describe('TasksProtocol', () => {
   it('fails closed when the capability service is missing', async () => {
     const protocol = new TasksProtocol({} as McpApplicationServices);
     await expect(protocol.listTasks({})).rejects.toMatchObject({ code: INTERNAL_ERROR });
+  });
+
+  it('injects trusted session ownership metadata into protocol task operations', async () => {
+    const requests: Record<string, unknown>[] = [];
+    const services = { capabilities: { async execute(_tool: string, request: Record<string, unknown>) { requests.push(request); return ok({ tasks: [] }); } } } as unknown as McpApplicationServices;
+    const protocol = new TasksProtocol(services, { actor: { clientId: 'client-1', clientName: 'test', sessionId: 'session-a' } });
+    await protocol.listTasks({});
+    expect(requests[0]).toMatchObject({ metadata: { [CAPABILITY_TASK_OWNER_METADATA_KEY]: { clientId: 'client-1', sessionId: 'session-a' } } });
   });
 });

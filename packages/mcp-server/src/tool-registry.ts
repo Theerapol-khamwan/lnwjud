@@ -35,6 +35,7 @@ export interface ToolRegistryOptions {
   readonly diagnostic?: DiagnosticLogger;
   readonly activity?: ActivitySink;
   readonly activityTracker?: ActivityTracker;
+  readonly sessionId?: string;
   readonly profileProvider?: () => PermissionProfile;
   /** Legacy compatibility. New callers should supply destructivePolicyProvider. */
   readonly allowAiDeleteProvider?: () => boolean;
@@ -62,6 +63,7 @@ export class ToolRegistry {
   private readonly diagnostic: DiagnosticLogger | undefined;
   private readonly activity: ActivityTracker;
   private readonly schemaRegistry: ToolSchemaRegistry;
+  private readonly sessionId: string | undefined;
   private readonly permissionEngine = new DefaultPermissionEngine();
   private readonly profileProvider: () => PermissionProfile;
   private readonly destructivePolicyProvider: () => DestructiveAutoApprovalPolicy;
@@ -71,6 +73,7 @@ export class ToolRegistry {
   public constructor(services: McpApplicationServices, actor: FileActor, options: ToolRegistryOptions = {}) {
     this.diagnostic = options.diagnostic;
     this.activity = options.activityTracker ?? new ActivityTracker(options.activity);
+    this.sessionId = options.sessionId;
     this.profileProvider = options.profileProvider ?? ((): PermissionProfile => permissionProfiles.full);
     this.destructivePolicyProvider = options.destructivePolicyProvider ?? ((): DestructiveAutoApprovalPolicy => legacyDeletePolicy(options.allowAiDeleteProvider?.() === true));
     this.workspaceScopeResolver = normalizeWorkspaceScopeResolver(services, actor, options);
@@ -127,7 +130,7 @@ export class ToolRegistry {
   }
 
   public async invoke(name: string, input: unknown, traceContext?: TraceContext, parentSignal?: AbortSignal): Promise<McpToolResponse> {
-    const callId = await this.activity.begin(name, input, traceContext);
+    const callId = await this.activity.begin(name, input, { ...(traceContext ?? {}), ...(this.sessionId === undefined ? {} : { sessionId: this.sessionId }) });
     const started = Date.now();
     try {
       const tool = this.tools.find((candidate) => candidate.name === name);

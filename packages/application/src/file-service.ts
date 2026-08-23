@@ -24,6 +24,8 @@ import { resolveSharedWorkspace, resolveWorkspaceForPath } from './workspace-loc
 export interface FileActor {
   readonly clientId: string;
   readonly clientName: string;
+  /** Stable MCP transport session identity when execution is session-scoped. */
+  readonly sessionId?: string;
 }
 
 export interface ReadFileRequest extends LineRange {

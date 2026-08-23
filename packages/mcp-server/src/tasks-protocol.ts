@@ -1,8 +1,10 @@
 import { ProtocolError, ProtocolErrorCode, RELATED_TASK_META_KEY, type McpServer } from '@modelcontextprotocol/server';
 import type { AppError, Result } from '@lnwjud/domain';
+import type { FileActor } from '@lnwjud/application';
 import { DEFAULT_MCP_POLL_WAIT_SECONDS, MAX_CONFIGURABLE_WAIT_SECONDS, MIN_CONFIGURABLE_WAIT_SECONDS } from '@lnwjud/shared';
 import { z } from 'zod';
 import type { McpApplicationServices } from './tool-registry.js';
+import { withCapabilityOwnerMetadata } from './request-scope.js';
 
 /**
  * Protocol-level exposure of durable background tasks per the MCP Tasks
@@ -29,6 +31,7 @@ export interface TaskResultPayload {
 }
 
 export interface TasksProtocolOptions {
+  readonly actor?: FileActor;
   readonly pageSize?: number;
   readonly maxResultWaitMs?: number;
   readonly pollIntervalMs?: number;
@@ -113,8 +116,10 @@ export class TasksProtocol {
   private readonly maxResultWaitMs: number;
   private readonly pollIntervalMs: number;
   private readonly pollTickMs: number;
+  private readonly actor: FileActor;
 
   constructor(private readonly services: McpApplicationServices, options: TasksProtocolOptions = {}) {
+    this.actor = options.actor ?? { clientId: 'legacy', clientName: 'legacy' };
     this.pageSize = options.pageSize ?? DEFAULT_PAGE_SIZE;
     this.maxResultWaitMs = options.maxResultWaitMs ?? DEFAULT_MAX_RESULT_WAIT_MS;
     this.pollIntervalMs = options.pollIntervalMs ?? DEFAULT_POLL_INTERVAL_MS;
@@ -216,12 +221,12 @@ export class TasksProtocol {
   private async executeShell(operation: 'list' | 'status' | 'cancel', taskId?: string): Promise<Result<unknown>> {
     const capabilities = this.services.capabilities;
     if (capabilities === undefined) throw internalError('Capability service is unavailable');
-    return capabilities.execute('shell', {
+    return capabilities.execute('shell', withCapabilityOwnerMetadata({
       operation,
       ...(taskId === undefined ? {} : { task_id: taskId }),
       include_stdout: true,
       include_stderr: true,
-    });
+    }, this.actor));
   }
 
   private shellError(error: AppError): ProtocolError {

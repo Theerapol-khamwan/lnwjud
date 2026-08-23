@@ -4,6 +4,7 @@ import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { ok, type Result } from '@lnwjud/domain';
 import { ShellCapabilityBackend } from './shell-backend.js';
+import { CAPABILITY_TASK_OWNER_METADATA_KEY } from './task-ownership.js';
 
 const temporaryRoots: string[] = [];
 
@@ -474,5 +475,28 @@ describe('ShellCapabilityBackend unrestricted', () => {
     });
 
     expect(result).toMatchObject({ ok: true, value: { dry_run: true } });
+  });
+
+  it('persists durable task ownership and rejects another session in the same workspace', async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), 'lnwjud-shell-owner-'));
+    temporaryRoots.push(root);
+    const taskStateDirectory = path.join(root, '.tasks');
+    const owner = (sessionId: string): { metadata: Record<string, unknown> } => ({
+      metadata: { [CAPABILITY_TASK_OWNER_METADATA_KEY]: { clientId: 'client-1', sessionId, workspaceId: 'workspace-1' } },
+    });
+    const backendA = new ShellCapabilityBackend({ allowedRoots: [root], taskStateDirectory });
+    const started = await backendA.execute({
+      operation: 'run', executable: process.execPath, arguments: ['-e', 'setTimeout(() => {}, 5000)'],
+      cwd: root, execution: 'background', timeout_seconds: 10, ...owner('session-a'),
+    });
+    expect(started).toMatchObject({ ok: true, value: { task_id: expect.any(String) } });
+    if (!started.ok) return;
+    const taskId = String(started.value.task_id);
+
+    const backendB = new ShellCapabilityBackend({ allowedRoots: [root], taskStateDirectory });
+    await expect(backendB.execute({ operation: 'status', task_id: taskId, ...owner('session-b') })).resolves.toMatchObject({ ok: false, error: { code: 'PERMISSION_DENIED' } });
+    await expect(backendB.execute({ operation: 'list', ...owner('session-b') })).resolves.toMatchObject({ ok: true, value: { tasks: [] } });
+    await expect(backendB.execute({ operation: 'status', task_id: taskId, ...owner('session-a') })).resolves.toMatchObject({ ok: true });
+    await expect(backendB.execute({ operation: 'cancel', task_id: taskId, ...owner('session-a') })).resolves.toMatchObject({ ok: true });
   });
 });

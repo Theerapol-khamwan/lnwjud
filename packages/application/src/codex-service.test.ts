@@ -134,6 +134,19 @@ describe('CodexService', () => {
     releaseStart();
     await expect(starting).resolves.toMatchObject({ ok: true, value: { codexTaskId: 'codex-provisional' } });
   });
+
+  it('isolates Codex task handles between sessions of the same client and workspace', async () => {
+    const workspace = await createWorkspace();
+    const service = new CodexService(repository(workspace), { adapter: fakeAdapter(), taskIdFactory: (): string => 'codex-session-task' });
+    const owner = { clientId: 'client-1', clientName: 'test', sessionId: 'session-a' };
+    const otherSession = { clientId: 'client-1', clientName: 'test', sessionId: 'session-b' };
+    const started = await service.run(owner, workspace.id, 'review');
+    if (!started.ok) throw new Error('Codex task did not start');
+
+    await expect(service.taskStatus(otherSession, workspace.id, started.value.codexTaskId)).resolves.toMatchObject({ ok: false, error: { code: 'PERMISSION_DENIED' } });
+    await expect(service.list(otherSession, workspace.id)).resolves.toMatchObject({ ok: true, value: [] });
+    await expect(service.taskStatus(owner, workspace.id, started.value.codexTaskId)).resolves.toMatchObject({ ok: true });
+  });
 });
 
 async function createWorkspace(): Promise<Workspace> {

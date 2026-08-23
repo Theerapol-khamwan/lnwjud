@@ -7,6 +7,7 @@ export interface ActivitySinkEvent {
   readonly resultCode: string;
   readonly durationMs: number;
   readonly workspaceId?: string;
+  readonly sessionId?: string;
   readonly targetSummary?: string;
   readonly resultMessage?: string;
   readonly timestamp: string;
@@ -15,6 +16,7 @@ export interface ActivitySinkEvent {
 }
 
 export interface TraceContext {
+  readonly sessionId?: string;
   readonly traceId?: string;
   readonly traceParent?: string;
 }
@@ -30,6 +32,7 @@ export interface InFlightToolCall {
   readonly toolName: string;
   readonly startedAt: string;
   readonly workspaceId?: string;
+  readonly sessionId?: string;
   readonly targetSummary?: string;
   readonly traceId?: string;
   readonly traceParent?: string;
@@ -63,6 +66,7 @@ export class ActivityTracker {
       toolName,
       startedAt: timestamp,
       ...(workspaceId === undefined ? {} : { workspaceId }),
+      ...(trace.sessionId === undefined ? {} : { sessionId: trace.sessionId }),
       ...(targetSummary === undefined ? {} : { targetSummary }),
       ...(trace.traceId === undefined ? {} : { traceId: trace.traceId }),
       ...(trace.traceParent === undefined ? {} : { traceParent: trace.traceParent }),
@@ -77,6 +81,7 @@ export class ActivityTracker {
       durationMs: 0,
       timestamp,
       ...(workspaceId === undefined ? {} : { workspaceId }),
+      ...(trace.sessionId === undefined ? {} : { sessionId: trace.sessionId }),
       ...(targetSummary === undefined ? {} : { targetSummary }),
       ...(trace.traceId === undefined ? {} : { traceId: trace.traceId }),
       ...(trace.traceParent === undefined ? {} : { traceParent: trace.traceParent }),
@@ -97,6 +102,7 @@ export class ActivityTracker {
       durationMs,
       timestamp,
       ...(existing?.workspaceId === undefined ? {} : { workspaceId: existing.workspaceId }),
+      ...(existing?.sessionId === undefined ? {} : { sessionId: existing.sessionId }),
       ...(existing?.targetSummary === undefined ? {} : { targetSummary: existing.targetSummary }),
       ...(existing?.traceId === undefined ? {} : { traceId: existing.traceId }),
       ...(existing?.traceParent === undefined ? {} : { traceParent: existing.traceParent }),
