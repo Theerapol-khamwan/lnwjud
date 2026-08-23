@@ -215,7 +215,7 @@ Use atomic temp-write + rename and bounded cleanup. Plugins/settings that are ac
 | Phase | Status | Purpose |
 | --- | --- | --- |
 | M0 | **complete** | Audit current concurrency model, choose invariants, record file-level plan |
-| M1 | planned | Decouple desktop-selected workspace from MCP lifecycle |
+| M1 | **complete** | Decouple desktop-selected workspace from MCP lifecycle |
 | M2 | planned | Make destructive/project scope request-scoped by `workspaceId` |
 | M3 | planned | Add stable MCP session identity and session-aware ownership |
 | M4 | planned | Make STDIO shared activity and persisted runtime state multi-owner safe |
@@ -474,6 +474,15 @@ Add a dedicated concurrency acceptance test instead of relying only on unit test
 - confirmed global-limit-first audit queries need workspace/session-aware variants;
 - recorded target architecture and phased implementation plan in this document.
 
+### 2026-08-24 — M1 complete
+
+- made `DesktopMcpLifecycle` application-global: listener status no longer owns a workspace and the compatibility `workspaceId` is always `null`;
+- adding or selecting a desktop workspace no longer restarts the MCP listener;
+- `startMcp` still validates the requested registered workspace for IPC compatibility, but starts the same global listener;
+- `restartMcp` no longer requires a selected workspace;
+- verified one connected HTTP MCP client remains usable while the desktop selection switches A -> B -> A and concurrent `workspace_info` calls for A/B both complete;
+- architecture deviation recorded: request-scoped destructive resolution belongs to M2, so M1 intentionally supplies no Active Project to Desktop HTTP destructive auto-approval. This fails closed to normal confirmation instead of inheriting the UI-selected workspace;
+- verification: `mcp-lifecycle.test.ts` 4/4, targeted `desktop-runtime.persistence.test.ts` 7/7, desktop typecheck, and targeted ESLint all passed.
 ## Progress update rules
 
 When implementation starts, update this file in the same commit as each phase change:

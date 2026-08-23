@@ -11,16 +11,16 @@ function createHandle(url: string, onClose: () => void): McpHttpServerHandle {
   };
 }
 
-function createOptions(workspaceId: string): McpHttpServerOptions {
+function createOptions(): McpHttpServerOptions {
   return {
     port: 0,
     services: {},
-    actor: { clientId: `desktop-${workspaceId}`, clientName: 'lnwjud desktop' },
+    actor: { clientId: 'desktop-global', clientName: 'lnwjud desktop' },
   };
 }
 
 describe('DesktopMcpLifecycle', () => {
-  it('starts one loopback server and exposes its live endpoint', async () => {
+  it('starts one application-global loopback server and exposes its live endpoint', async () => {
     let starts = 0;
     const starter: McpHttpServerStarter = {
       start: async (options) => {
@@ -29,22 +29,18 @@ describe('DesktopMcpLifecycle', () => {
         return createHandle('http://127.0.0.1:43123/mcp', () => {});
       },
     };
-    const lifecycle = new DesktopMcpLifecycle({
-      starter,
-      createServerOptions: createOptions,
-      workspaceExists: async (workspaceId): Promise<boolean> => workspaceId === 'workspace-1',
-    });
+    const lifecycle = new DesktopMcpLifecycle({ starter, createServerOptions: createOptions });
 
-    await expect(lifecycle.start('workspace-1')).resolves.toEqual({
+    await expect(lifecycle.start()).resolves.toEqual({
       running: true,
       url: 'http://127.0.0.1:43123/mcp',
-      workspaceId: 'workspace-1',
+      workspaceId: null,
     });
     expect(starts).toBe(1);
     expect(lifecycle.status()).toEqual({
       running: true,
       url: 'http://127.0.0.1:43123/mcp',
-      workspaceId: 'workspace-1',
+      workspaceId: null,
     });
   });
 
@@ -58,19 +54,15 @@ describe('DesktopMcpLifecycle', () => {
         return pendingStart;
       },
     };
-    const lifecycle = new DesktopMcpLifecycle({
-      starter,
-      createServerOptions: createOptions,
-      workspaceExists: async (): Promise<boolean> => true,
-    });
+    const lifecycle = new DesktopMcpLifecycle({ starter, createServerOptions: createOptions });
 
-    const first = lifecycle.start('workspace-1');
-    const second = lifecycle.start('workspace-1');
+    const first = lifecycle.start();
+    const second = lifecycle.start();
     resolveStart?.(createHandle('http://127.0.0.1:43124/mcp', () => {}));
 
     await expect(Promise.all([first, second])).resolves.toEqual([
-      { running: true, url: 'http://127.0.0.1:43124/mcp', workspaceId: 'workspace-1' },
-      { running: true, url: 'http://127.0.0.1:43124/mcp', workspaceId: 'workspace-1' },
+      { running: true, url: 'http://127.0.0.1:43124/mcp', workspaceId: null },
+      { running: true, url: 'http://127.0.0.1:43124/mcp', workspaceId: null },
     ]);
     expect(starts).toBe(1);
   });
@@ -80,34 +72,30 @@ describe('DesktopMcpLifecycle', () => {
     const starter: McpHttpServerStarter = {
       start: async (): Promise<McpHttpServerHandle> => createHandle('http://127.0.0.1:43125/mcp', () => { closes += 1; }),
     };
-    const lifecycle = new DesktopMcpLifecycle({
-      starter,
-      createServerOptions: createOptions,
-      workspaceExists: async (): Promise<boolean> => true,
-    });
+    const lifecycle = new DesktopMcpLifecycle({ starter, createServerOptions: createOptions });
 
-    await lifecycle.start('workspace-1');
+    await lifecycle.start();
     await expect(lifecycle.stop()).resolves.toEqual({ running: false, url: null, workspaceId: null });
     expect(closes).toBe(1);
     expect(lifecycle.status()).toEqual({ running: false, url: null, workspaceId: null });
   });
 
-  it('leaves state stopped when workspace validation or server startup fails', async () => {
+  it('leaves state stopped when server startup fails and can retry', async () => {
     let starts = 0;
     const lifecycle = new DesktopMcpLifecycle({
       starter: {
         start: async (): Promise<McpHttpServerHandle> => {
           starts += 1;
-          throw new Error('EADDRINUSE');
+          if (starts === 1) throw new Error('EADDRINUSE');
+          return createHandle('http://127.0.0.1:43126/mcp', () => {});
         },
       },
       createServerOptions: createOptions,
-      workspaceExists: async (workspaceId): Promise<boolean> => workspaceId === 'workspace-1',
     });
 
-    await expect(lifecycle.start('missing')).rejects.toThrow('Workspace was not found');
-    await expect(lifecycle.start('workspace-1')).rejects.toThrow('EADDRINUSE');
-    expect(starts).toBe(1);
+    await expect(lifecycle.start()).rejects.toThrow('EADDRINUSE');
     expect(lifecycle.status()).toEqual({ running: false, url: null, workspaceId: null });
+    await expect(lifecycle.start()).resolves.toMatchObject({ running: true, workspaceId: null });
+    expect(starts).toBe(2);
   });
 });

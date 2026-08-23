@@ -295,11 +295,7 @@ export function createDesktopRuntime(dataPath: string, options: DesktopRuntimeOp
   });
   const mcpPort = readMcpPort(process.env.LNWJUD_MCP_PORT ?? settingsRepository.get(USER_SETTING_KEYS.mcpHttpPort) ?? undefined);
   const mcpLifecycle = new DesktopMcpLifecycle({
-    workspaceExists: async (workspaceId: string): Promise<boolean> => (await workspaceRepository.get(workspaceId)) !== null,
-    createServerOptions: async (workspaceId: string): Promise<McpHttpServerOptions> => {
-      const activeWorkspace = await workspaceRepository.get(workspaceId);
-      if (activeWorkspace === null) throw new Error('Workspace was not found');
-      return ({
+    createServerOptions: (): McpHttpServerOptions => ({
       // Prefer a dedicated loopback port so we never collide with common app ports (e.g. 5000).
       // startMcpHttp falls back to an ephemeral port when the preferred bind is busy.
       port: mcpPort,
@@ -309,10 +305,11 @@ export function createDesktopRuntime(dataPath: string, options: DesktopRuntimeOp
       profileProvider: activePermissionProfile,
       allowAiDeleteProvider,
       destructivePolicyProvider,
-      activeProjectProvider: () => ({ workspaceId: activeWorkspace.id, rootPath: activeWorkspace.realRootPath }),
+      // M1 deliberately fails destructive auto-approval closed. M2 replaces this
+      // compatibility provider with a request-scoped registered-workspace resolver.
+      activeProjectProvider: () => null,
       codexToolsEnabled: readSettings().codexToolsEnabled,
-      });
-    },
+    }),
   });
   const tunnelController = new TunnelController({
     getClientPath: (): string | null => settingsRepository.get(CLIENT_PATH_SETTING),
@@ -355,13 +352,10 @@ export function createDesktopRuntime(dataPath: string, options: DesktopRuntimeOp
     return workspace;
   }
 
-  async function selectAndMaybeRestart(workspaceId: string): Promise<WorkspaceSummary> {
+  async function selectWorkspaceOnly(workspaceId: string): Promise<WorkspaceSummary> {
     const workspace = await resolveWorkspaceOrThrow(workspaceId);
     await ensureMachineRoots(workspace.realRootPath);
     settingsRepository.set(selectedWorkspaceSettingKey, workspaceId);
-    if (mcpLifecycle.status().running) {
-      await mcpLifecycle.restart(workspaceId);
-    }
     return toWorkspaceSummary(workspace);
   }
 
@@ -376,15 +370,13 @@ export function createDesktopRuntime(dataPath: string, options: DesktopRuntimeOp
       const workspace = unwrap(await workspaceService.add(displayName, request.rootPath), 'Workspace could not be added');
       settingsRepository.set(selectedWorkspaceSettingKey, workspace.id);
       if (!mcpLifecycle.status().running) {
-        await mcpLifecycle.start(workspace.id).catch(() => undefined);
-      } else {
-        await mcpLifecycle.restart(workspace.id).catch(() => undefined);
+        await mcpLifecycle.start().catch(() => undefined);
       }
       return toWorkspaceSummary(workspace);
     },
     selectWorkspace: async (request: SelectWorkspaceRequest): Promise<WorkspaceSummary> => {
       await ensureMachineRoots();
-      return selectAndMaybeRestart(request.workspaceId);
+      return selectWorkspaceOnly(request.workspaceId);
     },
     getDashboard: async (): Promise<DashboardSnapshot> => {
       await ensureMachineRoots();
@@ -496,14 +488,12 @@ export function createDesktopRuntime(dataPath: string, options: DesktopRuntimeOp
     startMcp: async (request: StartMcpRequest): Promise<McpConnectionStatus> => {
       const workspace = await resolveWorkspaceOrThrow(request.workspaceId);
       await ensureMachineRoots(workspace.realRootPath);
-      return mcpLifecycle.start(request.workspaceId);
+      return mcpLifecycle.start();
     },
     stopMcp: (): Promise<McpConnectionStatus> => mcpLifecycle.stop(),
     restartMcp: async (): Promise<McpConnectionStatus> => {
       await ensureMachineRoots();
-      const selected = await resolveSelectedWorkspace(workspaceService, settingsRepository);
-      if (selected === null) throw new Error('A workspace is required to restart MCP');
-      return mcpLifecycle.restart(selected.id);
+      return mcpLifecycle.restart();
     },
     clearWorkLog: async (): Promise<{ readonly cleared: boolean }> => {
       settingsRepository.set(workLogClearedSettingKey, new Date().toISOString());
@@ -624,7 +614,7 @@ export function createDesktopRuntime(dataPath: string, options: DesktopRuntimeOp
           ? unwrap(await workspaceService.add(path.basename(resolvedPath) || 'Workspace', resolvedPath), 'Workspace could not be added').id
           : matched.id;
         settingsRepository.set(selectedWorkspaceSettingKey, workspaceId);
-        return mcpLifecycle.start(workspaceId);
+        return mcpLifecycle.start();
       }
       const selected = await resolveSelectedWorkspace(workspaceService, settingsRepository);
       if (selected === null) {
@@ -639,9 +629,9 @@ export function createDesktopRuntime(dataPath: string, options: DesktopRuntimeOp
           return added.id;
         })();
         settingsRepository.set(selectedWorkspaceSettingKey, workspaceId);
-        return mcpLifecycle.start(workspaceId);
+        return mcpLifecycle.start();
       }
-      return mcpLifecycle.start(selected.id);
+      return mcpLifecycle.start();
     },
     close: async (): Promise<void> => {
       // Keep the rest of the runtime usable when the owned tunnel cannot be

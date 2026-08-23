@@ -71,6 +71,51 @@ describe('DesktopRuntime persistence', () => {
     }
   }, 30_000);
 
+  it('keeps one desktop MCP listener alive while selecting and serving different workspaces', async () => {
+    const rawDataRoot = await mkdtemp(path.join(os.tmpdir(), 'lnwjud-runtime-multi-data-'));
+    const rawWorkspaceA = await mkdtemp(path.join(os.tmpdir(), 'lnwjud-runtime-multi-a-'));
+    const rawWorkspaceB = await mkdtemp(path.join(os.tmpdir(), 'lnwjud-runtime-multi-b-'));
+    temporaryRoots.push(rawDataRoot, rawWorkspaceA, rawWorkspaceB);
+    const dataRoot = await realpath(rawDataRoot);
+    const workspaceRootA = await realpath(rawWorkspaceA);
+    const workspaceRootB = await realpath(rawWorkspaceB);
+    const runtime = createDesktopRuntime(dataRoot);
+    try {
+      const workspaceA = await runtime.services.addWorkspace({ rootPath: workspaceRootA });
+      const first = await runtime.services.startMcp({ workspaceId: workspaceA.id });
+      expect(first).toMatchObject({ running: true, workspaceId: null });
+      expect(first.url).toMatch(/^http:\/\/127\.0\.0\.1:\d+\/mcp$/);
+      if (first.url === null) return;
+
+      const client = new Client({ name: 'desktop-multi-workspace-test', version: '1.0.0' });
+      const transport = new StreamableHTTPClientTransport(new URL(first.url));
+      try {
+        await client.connect(transport);
+        const workspaceB = await runtime.services.addWorkspace({ rootPath: workspaceRootB });
+        await runtime.services.selectWorkspace({ workspaceId: workspaceB.id });
+        const afterSwitch = await runtime.services.startMcp({ workspaceId: workspaceB.id });
+        expect(afterSwitch).toEqual(first);
+
+        const [infoA, infoB] = await Promise.all([
+          client.callTool({ name: 'workspace_info', arguments: { workspaceId: workspaceA.id } }),
+          client.callTool({ name: 'workspace_info', arguments: { workspaceId: workspaceB.id } }),
+        ]);
+        expect(infoA.isError).not.toBe(true);
+        expect(infoB.isError).not.toBe(true);
+        expect(infoA.structuredContent).toMatchObject({ id: workspaceA.id });
+        expect(infoB.structuredContent).toMatchObject({ id: workspaceB.id });
+
+        await runtime.services.selectWorkspace({ workspaceId: workspaceA.id });
+        const infoBAfterSwitch = await client.callTool({ name: 'workspace_info', arguments: { workspaceId: workspaceB.id } });
+        expect(infoBAfterSwitch.isError).not.toBe(true);
+        expect((await runtime.services.startMcp({ workspaceId: workspaceA.id })).url).toBe(first.url);
+      } finally {
+        await transport.close();
+      }
+    } finally {
+      await runtime.close();
+    }
+  }, 30_000);
   it('persists AI delete and STDIO security policy settings and applies scoped delete dynamically', async () => {
     const rawDataRoot = await mkdtemp(path.join(os.tmpdir(), 'lnwjud-runtime-policy-data-'));
     const rawWorkspaceRoot = await mkdtemp(path.join(os.tmpdir(), 'lnwjud-runtime-policy-workspace-'));

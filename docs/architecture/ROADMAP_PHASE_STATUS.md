@@ -104,7 +104,7 @@ activity, and logs.
 | Phase | Status | Evidence / target |
 | ---: | --- | --- |
 | M0 | complete | Baseline audit, invariants, blockers, file-level implementation plan |
-| M1 | planned | Desktop MCP lifecycle becomes independent from selected workspace |
+| M1 | complete | Desktop MCP lifecycle is independent from selected workspace; A/B selection no longer restarts the listener |
 | M2 | planned | Destructive/project scope resolves from each call's registered `workspaceId` |
 | M3 | planned | Stable session identity and session-aware ownership |
 | M4 | planned | Multi-owner STDIO activity accounting and concurrency-safe runtime persistence |

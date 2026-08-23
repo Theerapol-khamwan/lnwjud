@@ -7,7 +7,8 @@ import {
 export interface DesktopMcpStatus {
   readonly running: boolean;
   readonly url: string | null;
-  readonly workspaceId: string | null;
+  /** Compatibility field: the desktop MCP listener is now application-global. */
+  readonly workspaceId: null;
 }
 
 export interface McpHttpServerStarter {
@@ -15,8 +16,7 @@ export interface McpHttpServerStarter {
 }
 
 export interface DesktopMcpLifecycleOptions {
-  readonly createServerOptions: (workspaceId: string) => McpHttpServerOptions | Promise<McpHttpServerOptions>;
-  readonly workspaceExists: (workspaceId: string) => Promise<boolean>;
+  readonly createServerOptions: () => McpHttpServerOptions | Promise<McpHttpServerOptions>;
   readonly starter?: McpHttpServerStarter;
 }
 
@@ -24,35 +24,28 @@ const defaultStarter: McpHttpServerStarter = { start: startMcpHttp };
 
 export class DesktopMcpLifecycle {
   private readonly starter: McpHttpServerStarter;
-  private readonly handleOptions: Pick<DesktopMcpLifecycleOptions, 'createServerOptions' | 'workspaceExists'>;
+  private readonly createServerOptions: DesktopMcpLifecycleOptions['createServerOptions'];
   private handle: McpHttpServerHandle | null = null;
-  private workspaceId: string | null = null;
   private startOperation: Promise<DesktopMcpStatus> | null = null;
   private stopOperation: Promise<DesktopMcpStatus> | null = null;
 
   public constructor(options: DesktopMcpLifecycleOptions) {
     this.starter = options.starter ?? defaultStarter;
-    this.handleOptions = {
-      createServerOptions: options.createServerOptions,
-      workspaceExists: options.workspaceExists,
-    };
+    this.createServerOptions = options.createServerOptions;
   }
 
   public status(): DesktopMcpStatus {
-    return this.handle === null || this.workspaceId === null
+    return this.handle === null
       ? { running: false, url: null, workspaceId: null }
-      : { running: true, url: this.handle.endpoint.toString(), workspaceId: this.workspaceId };
+      : { running: true, url: this.handle.endpoint.toString(), workspaceId: null };
   }
 
-  public start(workspaceId: string): Promise<DesktopMcpStatus> {
-    if (typeof workspaceId !== 'string' || workspaceId.trim().length === 0) {
-      return Promise.reject(new Error('A workspace is required to start MCP'));
-    }
-    if (this.stopOperation !== null) return this.stopOperation.then(() => this.start(workspaceId));
+  public start(): Promise<DesktopMcpStatus> {
+    if (this.stopOperation !== null) return this.stopOperation.then(() => this.start());
     if (this.handle !== null) return Promise.resolve(this.status());
     if (this.startOperation !== null) return this.startOperation;
 
-    const operation = this.startInternal(workspaceId).then(
+    const operation = this.startInternal().then(
       (result) => {
         if (this.startOperation === operation) this.startOperation = null;
         return result;
@@ -82,20 +75,18 @@ export class DesktopMcpLifecycle {
     return operation;
   }
 
-  public async restart(workspaceId: string): Promise<DesktopMcpStatus> {
+  public async restart(): Promise<DesktopMcpStatus> {
     await this.stop();
-    return this.start(workspaceId);
+    return this.start();
   }
 
   public close(): Promise<DesktopMcpStatus> {
     return this.stop();
   }
 
-  private async startInternal(workspaceId: string): Promise<DesktopMcpStatus> {
-    if (!(await this.handleOptions.workspaceExists(workspaceId))) throw new Error('Workspace was not found');
-    const handle = await this.starter.start(await this.handleOptions.createServerOptions(workspaceId));
+  private async startInternal(): Promise<DesktopMcpStatus> {
+    const handle = await this.starter.start(await this.createServerOptions());
     this.handle = handle;
-    this.workspaceId = workspaceId;
     return this.status();
   }
 
@@ -110,7 +101,6 @@ export class DesktopMcpLifecycle {
     if (this.handle === null) return this.status();
     await this.handle.close();
     this.handle = null;
-    this.workspaceId = null;
     return this.status();
   }
 }
