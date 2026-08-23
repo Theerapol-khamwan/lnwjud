@@ -1,0 +1,485 @@
+# Multi-Workspace / Multi-Session Concurrency Upgrade
+
+Status: **planned; baseline audit complete**  
+Owner scope: lnwjud desktop, HTTP MCP, STDIO/tunnel MCP, activity/audit/logging  
+Primary invariant: **one lnwjud installation can serve many concurrent AI sessions and many workspaces while all user settings remain global.**
+
+## Goal
+
+Support scenarios such as:
+
+```text
+Chat / Session A -> workspace A -> E:\\Project-A
+Chat / Session B -> workspace B -> E:\\Project-B
+```
+
+at the same time, without one session restarting, re-scoping, cancelling, hiding, or taking ownership of another session's work.
+
+The target topology is:
+
+```text
+                         lnwjud
+                           |
+                  Global machine settings
+            permissions / timeouts / delete policy
+                 updates / locale / providers
+                           |
+                one tunnel / MCP surface
+                           |
+             +-------------+-------------+
+             |                           |
+         Session A                     Session B
+             |                           |
+       workspace A                  workspace B
+       processes A                  processes B
+       activity A                   activity B
+       recovery A                   recovery B
+```
+
+A session may still perform explicit reads across registered workspaces where an existing tool intentionally supports that behavior. Workspace isolation must not turn into an artificial read-access restriction. Mutating and executing operations remain explicitly scoped by the `workspaceId` in the call and by existing path/permission guards.
+
+## Non-goals
+
+- Do not create separate user settings per workspace.
+- Do not create one desktop app, one tunnel, or one port per workspace.
+- Do not weaken existing workspace path guards or destructive-operation confirmation rules.
+- Do not require a ChatGPT conversation ID; lnwjud must work with protocol/session identities it can actually observe.
+- Do not remove explicit multi-workspace read/search capabilities.
+- Do not make hidden automatic workspace switching a prerequisite for normal tools.
+
+## Baseline audit — 2026-08-24
+
+### Already workspace-aware
+
+The service layer is mostly ready for concurrency:
+
+- file read/write/move/copy/delete/restore resolves a supplied `workspaceId`;
+- recoverable delete stores recovery data below a workspace-specific directory;
+- Git status/diff/log/run accepts workspace scope;
+- search and project snapshots accept workspace scope;
+- workspace indexes are stored per workspace;
+- process ownership currently includes `workspaceId`;
+- visual observations reject use from a different workspace;
+- `WorkLogEntry` and `InFlightWorkItem` already expose `workspaceId`;
+- HTTP MCP already has concurrent request/session support;
+- Run Budget already understands MCP session IDs where the transport exposes one;
+- SQLite is already configured/tested for concurrent WAL access.
+
+### Current blockers
+
+1. **Desktop MCP lifecycle is bound to one selected workspace.**
+   `DesktopMcpLifecycle` stores one `workspaceId`; selecting another workspace restarts the MCP listener. This makes the desktop-selected workspace a transport concern when it should only be UI state.
+
+2. **Destructive auto-approval uses one captured Active Project.**
+   Desktop and STDIO build `activeProjectProvider` around the workspace selected at MCP startup. Auto-approved destructive operations therefore cannot safely represent simultaneous workspaces.
+
+3. **Transport actors are too coarse.**
+   Desktop HTTP uses a shared actor such as `desktop-mcp-http`; STDIO uses `cli-mcp-stdio`. Process ownership therefore separates different workspaces, but two sessions operating in the same workspace are not isolated from each other by actor identity.
+
+4. **STDIO starts with one primary workspace.**
+   CLI and packaged desktop STDIO bootstrap a single workspace and close `activeProjectProvider` over it. Registered workspaces can exist, but the destructive-scope identity remains single-workspace.
+
+5. **Shared activity snapshot is single-owner.**
+   `lnwjud.mcp.activity.json` stores one process owner and one active count. Multiple simultaneous STDIO MCP processes can overwrite one another, which can make update quiet-time accounting incorrect.
+
+6. **Upgrade runtime persistence is one shared JSON file.**
+   `upgrade-runtime.json` contains session/checkpoint/task/plugin/worktree state. Multiple server/session runtimes can race or overwrite unrelated state.
+
+7. **Work Log has workspace metadata but the UI does not filter by it.**
+   The data contract is already ahead of the UI.
+
+8. **Live `LogLine` lacks workspace/session metadata.**
+   MCP activity files contain workspace context, but `LogHub` flattens the visible line into a global buffer. Session identity is not propagated.
+
+9. **Clear-log state is global.**
+   `work_log_cleared_at` clears the visible history for every workspace. Multi-workspace UX needs scoped clear state without turning it into per-workspace user configuration.
+
+10. **Audit queries are global-limit-first.**
+    `listByActionPrefix(prefix, limit)` fetches a global recent slice. Filtering only after this slice can starve a quiet workspace when another workspace is very noisy. Workspace/session-aware queries are needed for reliable filtering.
+
+## Architecture decisions
+
+### A1. `selectedWorkspace` is UI state only
+
+Changing the project shown by the desktop must never restart MCP or change the scope of an already-running remote session.
+
+Desktop may remember `selected_workspace_id` for navigation, Git page display, and local buttons, but the MCP lifecycle must be global to the application.
+
+### A2. The call's `workspaceId` is authoritative for workspace-scoped operations
+
+Each workspace-scoped tool call resolves its own registered workspace. The destructive policy must receive the resolved call workspace, not a globally selected workspace.
+
+If a destructive command cannot be proven to target only the call workspace, auto-approval must fail closed and normal confirmation is required.
+
+### A3. Session identity and workspace identity are separate axes
+
+Introduce an internal `McpSessionIdentity` / `RequestScope` that can carry:
+
+```ts
+interface McpRequestScope {
+  sessionId: string;
+  transport: 'http' | 'stdio';
+  protocolSessionId?: string;
+  workspaceId?: string;
+  requestId?: string;
+  traceId?: string;
+}
+```
+
+`workspaceId` describes **where this call operates**. `sessionId` describes **who owns handles/logs/run state**.
+
+Do not require a real ChatGPT conversation ID. HTTP should use a stable MCP session identity when available. STDIO should create a stable synthetic session identity for the lifetime of that MCP process.
+
+### A4. Session identity must participate in owned handles
+
+A process/task/observation or other owned mutable handle started by Session A must not be controllable by Session B merely because both are in the same workspace.
+
+Target ownership key:
+
+```text
+(sessionId, workspaceId, handleId)
+```
+
+Existing workspace ownership remains mandatory.
+
+### A5. Session-to-workspace binding is descriptive first, not a new read restriction
+
+Track a session's `primaryWorkspaceId` from its first normal workspace-scoped call for logs/UI. Do not block intentional cross-workspace reads or existing multi-workspace tools.
+
+Mutating/executing tools always require their explicit workspace scope and existing permission/path policy. A future optional strict-session-lock can be added separately if needed; it is not required for this upgrade.
+
+### A6. Global settings stay global and live
+
+Permission profile, destructive auto-approval switches, Protected Critical Files, Recoverable Delete, wait/timeout values, Codex tools, providers, update settings, and locale remain machine/application settings.
+
+Changing a global security setting must affect all current sessions without restarting MCP whenever the current implementation already supports live providers.
+
+### A7. Logs gain two orthogonal filters
+
+Keep source tabs:
+
+```text
+Tunnel | MCP Activity | Process
+```
+
+Add filters:
+
+```text
+Workspace: All / Project A / Project B / Global
+Session:   All / Session A / Session B
+Search:    ...
+```
+
+Work Log gets the same Workspace + Session dimensions. Workspace chips/tabs are appropriate for a small number of projects; the renderer should fall back to a dropdown when the list is large.
+
+### A8. Clear/export operations are scoped operational state
+
+Support:
+
+- clear current session;
+- clear current workspace;
+- clear all visible logs;
+- export current filter;
+- export a selected source/workspace/session.
+
+These clear cursors are runtime/log-view state, not user security settings.
+
+### A9. Update quiet-time must aggregate all live MCP owners
+
+Replace the single fixed shared-activity owner snapshot with a multi-owner representation. Preferred shape:
+
+```text
+<TUNNEL_CLIENT_PROFILE_DIR>/lnwjud.mcp.activity.d/
+  <owner-key-1>.json
+  <owner-key-2>.json
+  ...
+```
+
+Each process owns only its lease file. Readers validate owner PID/start time, discard stale owners, and sum `activeCount`. Keep a compatibility reader for the existing v1 fixed file during migration.
+
+### A10. Persisted runtime state must be concurrency-safe
+
+Do not let multiple sessions blindly write the same `upgrade-runtime.json`. Preferred direction:
+
+```text
+<data>/runtime-state/
+  shared.json                 # only truly shared records, if any
+  sessions/<sessionId>.json   # session checkpoints/state
+  worktrees/<id>.json         # independently owned durable records
+```
+
+Use atomic temp-write + rename and bounded cleanup. Plugins/settings that are actually global should stay in their existing global stores instead of being copied into session files.
+
+## Implementation phases
+
+| Phase | Status | Purpose |
+| --- | --- | --- |
+| M0 | **complete** | Audit current concurrency model, choose invariants, record file-level plan |
+| M1 | planned | Decouple desktop-selected workspace from MCP lifecycle |
+| M2 | planned | Make destructive/project scope request-scoped by `workspaceId` |
+| M3 | planned | Add stable MCP session identity and session-aware ownership |
+| M4 | planned | Make STDIO shared activity and persisted runtime state multi-owner safe |
+| M5 | planned | Propagate workspace/session metadata through audit + Live Logs |
+| M6 | planned | Add workspace/session filters, scoped clear/export, UI badges/tabs |
+| M7 | planned | Concurrency, isolation, updater, packaging, and release stress gates |
+
+## Phase M1 — global MCP lifecycle
+
+### Code changes
+
+- `apps/desktop/src/main/mcp-lifecycle.ts`
+  - remove workspace ownership from the listener lifecycle;
+  - `start()` becomes application-level, not `start(workspaceId)`;
+  - status no longer treats a workspace as the listener identity;
+  - retain a compatibility `workspaceId: null` field temporarily if needed by IPC consumers.
+
+- `apps/desktop/src/main/desktop-services.ts`
+  - `selectAndMaybeRestart()` becomes selection only;
+  - adding/selecting a workspace must not restart MCP;
+  - `createServerOptions` becomes global and receives a request-scoped workspace resolver instead of closing over one workspace.
+
+- `apps/desktop/src/main/main.ts`
+  - desktop startup should start one MCP surface independently of the selected project.
+
+### Tests
+
+- selecting A -> B while MCP is running keeps endpoint/session alive;
+- an in-flight A call survives UI switch to B;
+- two concurrent calls with A/B workspace IDs complete without listener restart;
+- global settings updates still propagate.
+
+### Exit criteria
+
+Desktop project navigation has zero effect on MCP transport continuity.
+
+## Phase M2 — request-scoped workspace/destructive policy
+
+### Code changes
+
+- `packages/mcp-server/src/tool-registry.ts`
+  - replace synchronous global `activeProjectProvider()` with a workspace resolver keyed by the invocation input;
+  - resolve `workspaceId` before destructive auto-approval;
+  - if there is no resolvable registered workspace, never auto-approve destructive behavior.
+
+- `packages/mcp-server/src/destructive-scope.ts`
+  - accept the resolved call workspace root;
+  - preserve current path containment, machine-root rejection, wildcard, recursive, and critical-file rules.
+
+- `packages/mcp-server/src/server.ts`
+  - expose the request-scoped resolver in server options.
+
+- `apps/cli/src/runtime/stdio-mcp-runtime.ts`
+- `apps/cli/src/bin/mcp-stdio.ts`
+- `apps/desktop/src/main/main.ts`
+  - stop closing destructive scope over the startup workspace.
+
+### Tests
+
+- Session/call A `workspaceId=A`, target inside A -> eligible according to global policy;
+- same call targeting B/outside A -> no auto-approval;
+- B works at the same time independently;
+- machine-root workspace still cannot enable broad automatic deletion;
+- no-workspace destructive request fails closed to confirmation.
+
+### Exit criteria
+
+The selected/startup project is no longer part of destructive authorization.
+
+## Phase M3 — stable session identity and handle ownership
+
+### Code changes
+
+- add `packages/mcp-server/src/request-scope.ts` or equivalent;
+- propagate one stable internal session ID through `server.ts`, HTTP, and STDIO;
+- HTTP: attach protocol session ID when available;
+- STDIO: generate one synthetic session ID at process/server startup;
+- extend `ActivityTracker.begin/end` with session identity;
+- derive a session-specific `FileActor` or add explicit session ownership to services;
+- update `ProcessService` ownership checks to include session identity;
+- audit other owned handles: durable shell tasks, Codex task handles, observations, debug/LSP/session handles.
+
+### Important compatibility rule
+
+Do not assume `actor.clientId` from the transport is already a session ID. Today it is intentionally static. Session ownership must be explicit and stable.
+
+### Tests
+
+- Session A and B in the same workspace cannot stop/read owned process handles from each other;
+- Session A can reconnect to its own stable protocol session and retain ownership where transport semantics support reconnect;
+- a new unrelated session cannot inherit handles;
+- different workspaces remain isolated as before.
+
+### Exit criteria
+
+Same-workspace concurrent chats have independent ownership boundaries.
+
+## Phase M4 — multi-owner STDIO and durable runtime state
+
+### Shared activity
+
+- evolve `packages/mcp-server/src/shared-activity-snapshot.ts` to v2 multi-owner leases;
+- keep v1 read compatibility during upgrade;
+- updater aggregation returns the sum of verified live owners;
+- each lease removes only its own owner file;
+- stale owner cleanup is bounded and race-safe.
+
+### Runtime state
+
+- replace shared blind writes to `upgrade-runtime.json`;
+- namespace session state by internal `sessionId`;
+- use atomic writes;
+- keep truly shared data in an explicit shared store only when required;
+- migrate/read legacy single-file state once without dropping valid worktree ownership data.
+
+### Tests
+
+- two STDIO runtimes publish activity simultaneously without overwriting one another;
+- updater sees total active count from both;
+- one process exits and only its lease disappears;
+- simultaneous session checkpoints do not overwrite each other;
+- legacy v1 activity/runtime state remains readable during migration.
+
+### Exit criteria
+
+Multiple STDIO MCP children can coexist without corrupting activity or session persistence.
+
+## Phase M5 — audit/log metadata propagation
+
+### Contracts
+
+Extend MCP activity/audit-visible data with:
+
+```text
+workspaceId
+sessionId
+protocolSessionId?  # diagnostic only
+callId
+traceId?
+```
+
+### Code changes
+
+- `packages/mcp-server/src/activity-tracker.ts`
+- `packages/mcp-server/src/activity-log-file.ts`
+- desktop + CLI activity sinks
+- `packages/audit/src/audit-types.ts`
+- `packages/storage/src/audit-repository.ts`
+- `packages/ipc-contracts/src/index.ts`
+- `apps/desktop/src/main/log-hub.ts`
+
+`LogLine` should gain nullable `workspaceId` and `sessionId` fields instead of encoding scope only into text.
+
+Add workspace/session-aware audit repository queries. Do not query the latest 100 global rows and then filter, because a noisy project can starve another project's history.
+
+Process log feed entries must carry their owning workspace/session too.
+
+### Tests
+
+- activity NDJSON round-trips workspace + session;
+- SQLite audit queries return the requested workspace/session slice;
+- log dedup keys cannot collapse identical calls from two sessions;
+- tunnel-global lines remain `workspaceId=null`, `sessionId=null` unless correlation proves otherwise.
+
+### Exit criteria
+
+Every MCP/process line that can be scoped carries machine-readable workspace/session metadata.
+
+## Phase M6 — desktop log UX
+
+### Work Log
+
+- add `All` + workspace selector/chips;
+- add session selector;
+- show small workspace/session badges per row when viewing `All`;
+- preserve newest-first behavior and search;
+- default to selected workspace when useful, but allow `All` explicitly.
+
+### Live Logs
+
+Keep source tabs and add workspace/session filters below them.
+
+Suggested layout:
+
+```text
+Tunnel | MCP Activity | Process
+Workspace: [All v]   Session: [All v]   Search: [...]
+```
+
+### Clear/export
+
+- clear current session;
+- clear current workspace;
+- clear all;
+- export the active filtered view.
+
+Do not implement clear cursors as security settings. Use a dedicated log-view state structure/repository or clearly separated internal state keys.
+
+### Target files
+
+- `apps/desktop/src/renderer/features/worklog/WorkLogPanel.tsx`
+- `apps/desktop/src/renderer/features/worklog/WorkLogPage.tsx`
+- `apps/desktop/src/renderer/features/live/LiveLogsPage.tsx`
+- `apps/desktop/src/renderer/features/live/LogStreamPanel.tsx`
+- `apps/desktop/src/renderer/features/live/StandaloneLogViewer.tsx`
+- `apps/desktop/src/renderer/App.tsx`
+- renderer i18n + CSS
+
+### Exit criteria
+
+A user can isolate A/B activity visually without stopping either project, while global settings remain a single settings surface.
+
+## Phase M7 — concurrency and release gates
+
+Required acceptance scenario:
+
+```text
+Session A / Workspace A:
+  write -> build -> background task -> git status
+
+Session B / Workspace B, concurrently:
+  write -> test -> background task -> git status
+```
+
+Assertions:
+
+1. both complete;
+2. switching Desktop UI A/B does not restart MCP;
+3. A destructive call cannot escape A's explicit workspace;
+4. B destructive call cannot escape B's explicit workspace;
+5. A cannot control B-owned handles, including when A/B use the same workspace;
+6. Work Log filters A/B correctly;
+7. Live Log filters A/B and Session A/B correctly;
+8. clear A does not clear B;
+9. changing a global delete/permission setting affects both sessions;
+10. updater does not install while either session has active MCP work;
+11. simultaneous STDIO owners do not overwrite activity state;
+12. no tool-count/catalog drift;
+13. lint, typecheck, build, full tests, packaging, release, and public-repo hygiene pass.
+
+Add a dedicated concurrency acceptance test instead of relying only on unit tests. Prefer deterministic barriers/promises over timing sleeps.
+
+## Progress log
+
+### 2026-08-24 — M0 complete
+
+- confirmed service-layer workspace scoping is already widespread;
+- confirmed Desktop MCP lifecycle is the main single-active-workspace bottleneck;
+- confirmed destructive auto-approval is currently closed over one startup/selected workspace;
+- confirmed HTTP transport already supports concurrent sessions;
+- confirmed Work Log already carries workspace IDs;
+- confirmed visible Live Log contract lacks workspace/session IDs;
+- confirmed process actor identity is shared per transport and therefore insufficient for same-workspace session isolation;
+- confirmed shared STDIO activity snapshot is single-owner and must become multi-owner;
+- confirmed `upgrade-runtime.json` is a shared blind-write collision point;
+- confirmed global-limit-first audit queries need workspace/session-aware variants;
+- recorded target architecture and phased implementation plan in this document.
+
+## Progress update rules
+
+When implementation starts, update this file in the same commit as each phase change:
+
+- change the phase status (`planned` -> `in progress` -> `complete`);
+- append a dated progress entry with code/tests completed;
+- record any architecture deviation before implementing it;
+- never mark a phase complete without its exit-criteria tests;
+- keep global settings global unless this document is explicitly revised.

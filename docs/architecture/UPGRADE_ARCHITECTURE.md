@@ -319,3 +319,14 @@ Phase 00 contract
 Each phase adds tests and preserves the baseline primitive catalog. A later
 phase may improve latency or context delivery, but it may not make a previously
 working capability unavailable merely because a new compound path exists.
+
+## Multi-workspace concurrency checkpoint
+
+The next architecture wave is specified in
+[`MULTI_WORKSPACE_CONCURRENCY.md`](./MULTI_WORKSPACE_CONCURRENCY.md). The key
+separation is `selectedWorkspace` (desktop UI state) versus request `workspaceId`
+(operation scope) versus MCP `sessionId` (handle/log ownership). The target is one
+installation/tunnel/MCP surface serving concurrent sessions and workspaces with
+one global settings model. The upgrade must also replace the single-owner STDIO
+activity snapshot and shared `upgrade-runtime.json` write path before claiming
+full multi-session safety.

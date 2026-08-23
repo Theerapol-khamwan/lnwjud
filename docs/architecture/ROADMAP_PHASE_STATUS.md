@@ -93,3 +93,21 @@ The desktop rewrites the managed `lnwjud` profile to the packaged direct-node
 launcher, preserves the long MCP TTL, and bounds automatic reconnect attempts
 so a bad MCP child cannot create an endless connect/disconnect loop. Local HTTP
 and local stdio remain available as separate compatibility paths.
+
+## Multi-workspace / multi-session concurrency upgrade
+
+The concurrency upgrade is tracked in
+[`MULTI_WORKSPACE_CONCURRENCY.md`](./MULTI_WORKSPACE_CONCURRENCY.md). It keeps
+settings global while separating request workspace scope, session-owned handles,
+activity, and logs.
+
+| Phase | Status | Evidence / target |
+| ---: | --- | --- |
+| M0 | complete | Baseline audit, invariants, blockers, file-level implementation plan |
+| M1 | planned | Desktop MCP lifecycle becomes independent from selected workspace |
+| M2 | planned | Destructive/project scope resolves from each call's registered `workspaceId` |
+| M3 | planned | Stable session identity and session-aware ownership |
+| M4 | planned | Multi-owner STDIO activity accounting and concurrency-safe runtime persistence |
+| M5 | planned | Workspace/session metadata in audit, activity, process, and Live Log contracts |
+| M6 | planned | Workspace/session filters, badges, scoped clear/export |
+| M7 | planned | Parallel A/B workspace and same-workspace session-isolation release gates |
