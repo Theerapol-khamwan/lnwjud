@@ -273,6 +273,7 @@ export function createDesktopRuntime(dataPath: string, options: DesktopRuntimeOp
           actorId: mcpActor.clientId,
           actorName: mcpActor.clientName,
           ...(event.workspaceId === undefined ? {} : { workspaceId: event.workspaceId }),
+          ...(event.sessionId === undefined ? {} : { sessionId: event.sessionId }),
           toolName: event.toolName,
           callId: event.callId,
           phase: event.phase,
@@ -391,9 +392,11 @@ export function createDesktopRuntime(dataPath: string, options: DesktopRuntimeOp
       const inFlight = activityTracker.listInFlight().map(toInFlightItem);
       const tunnel = await tunnelController.status();
       const backups = await backupService.list();
-      logHub.syncWorkLog(workLog, inFlight.map((item) => ({ callId: item.callId, toolName: item.toolName, targetSummary: item.targetSummary, startedAt: item.startedAt })));
+      logHub.syncWorkLog(workLog, inFlight.map((item) => ({ callId: item.callId, toolName: item.toolName, targetSummary: item.targetSummary, startedAt: item.startedAt, workspaceId: item.workspaceId, sessionId: item.sessionId })));
       logHub.syncProcesses(processSummaries.map((summary) => ({
         id: summary.id,
+        workspaceId: summary.workspaceId,
+        sessionId: summary.sessionId,
         executable: summary.executable,
         args: summary.args,
         state: summary.state,
@@ -534,9 +537,11 @@ export function createDesktopRuntime(dataPath: string, options: DesktopRuntimeOp
       const workLog = await buildWorkLog(auditRepository, settingsRepository);
       const inFlight = activityTracker.listInFlight().map(toInFlightItem);
       const processSummaries = await listTrackedProcesses(processService, trackedProcesses);
-      logHub.syncWorkLog(workLog, inFlight.map((item) => ({ callId: item.callId, toolName: item.toolName, targetSummary: item.targetSummary, startedAt: item.startedAt })));
+      logHub.syncWorkLog(workLog, inFlight.map((item) => ({ callId: item.callId, toolName: item.toolName, targetSummary: item.targetSummary, startedAt: item.startedAt, workspaceId: item.workspaceId, sessionId: item.sessionId })));
       logHub.syncProcesses(processSummaries.map((summary) => ({
         id: summary.id,
+        workspaceId: summary.workspaceId,
+        sessionId: summary.sessionId,
         executable: summary.executable,
         args: summary.args,
         state: summary.state,
@@ -681,6 +686,7 @@ function toProcessSummary(processValue: ManagedProcess, workspaceId: string, log
   return {
     id: processValue.processId,
     workspaceId,
+    sessionId: null,
     executable: redactDisplayText(processValue.executable),
     args: processValue.args.map(redactDisplayText),
     state: processValue.state,
@@ -776,6 +782,7 @@ async function buildWorkLog(
       targetSummary: event.targetSummary ?? null,
       durationMs: event.durationMs,
       workspaceId: event.workspaceId ?? null,
+      sessionId: event.sessionId ?? null,
       ...(callId === undefined ? {} : { callId }),
     } satisfies WorkLogEntry;
   });
@@ -803,13 +810,14 @@ async function listVisibleAuditEvents(
   return events.filter((event) => event.timestamp > clearedAt);
 }
 
-function toInFlightItem(entry: { callId: string; toolName: string; startedAt: string; targetSummary?: string; workspaceId?: string }): InFlightWorkItem {
+function toInFlightItem(entry: { callId: string; toolName: string; startedAt: string; targetSummary?: string; workspaceId?: string; sessionId?: string }): InFlightWorkItem {
   return {
     callId: entry.callId,
     toolName: entry.toolName,
     startedAt: entry.startedAt,
     targetSummary: entry.targetSummary ?? null,
     workspaceId: entry.workspaceId ?? null,
+    sessionId: entry.sessionId ?? null,
   };
 }
 

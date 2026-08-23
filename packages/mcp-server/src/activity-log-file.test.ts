@@ -22,14 +22,14 @@ describe('mcp activity log file', () => {
     const filePath = mcpActivityLogPath(root);
     const tracker = new ActivityTracker(createFileActivitySink(filePath));
 
-    const callId = await tracker.begin('read_file', { path: 'src\\app.ts' });
+    const callId = await tracker.begin('read_file', { workspaceId: 'workspace-1', path: 'src\\app.ts' }, { sessionId: 'session-a' });
     await tracker.end(callId, 'SUCCESS', 4);
 
     const raw = await readFile(filePath, 'utf8');
-    const lines = raw.trim().split('\n').map((line) => JSON.parse(line) as { callId: string; phase: string; toolName: string });
+    const lines = raw.trim().split('\n').map((line) => JSON.parse(line) as { callId: string; phase: string; toolName: string; workspaceId?: string; sessionId?: string });
     expect(lines).toEqual([
-      expect.objectContaining({ callId, phase: 'started', toolName: 'read_file' }),
-      expect.objectContaining({ callId, phase: 'completed', toolName: 'read_file' }),
+      expect.objectContaining({ callId, phase: 'started', toolName: 'read_file', workspaceId: 'workspace-1', sessionId: 'session-a' }),
+      expect.objectContaining({ callId, phase: 'completed', toolName: 'read_file', workspaceId: 'workspace-1', sessionId: 'session-a' }),
     ]);
     expect(formatActivityLogLine({
       callId: 'c1',

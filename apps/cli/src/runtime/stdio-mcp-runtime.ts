@@ -159,6 +159,7 @@ export function createStdioMcpRuntime(
           actorId: actor.clientId,
           actorName: actor.clientName,
           ...(event.workspaceId === undefined ? {} : { workspaceId: event.workspaceId }),
+          ...(event.sessionId === undefined ? {} : { sessionId: event.sessionId }),
           toolName: event.toolName,
           callId: event.callId,
           phase: event.phase,

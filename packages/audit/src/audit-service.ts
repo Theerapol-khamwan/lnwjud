@@ -21,6 +21,7 @@ export class AuditService {
       actorId: input.actorId,
       actorName: input.actorName,
       ...(input.workspaceId === undefined ? {} : { workspaceId: input.workspaceId }),
+      ...(input.sessionId === undefined ? {} : { sessionId: input.sessionId }),
       action: input.action,
       ...(input.targetSummary === undefined ? {} : { targetSummary: input.targetSummary }),
       ...(input.permissionDecision === undefined ? {} : { permissionDecision: input.permissionDecision }),
@@ -50,6 +51,7 @@ export class AuditService {
       actorId: input.actorId,
       actorName: input.actorName,
       ...(input.workspaceId === undefined ? {} : { workspaceId: input.workspaceId }),
+      ...(input.sessionId === undefined ? {} : { sessionId: input.sessionId }),
       action: `mcp_tool:${input.toolName}`,
       ...(input.targetSummary === undefined ? {} : { targetSummary: input.targetSummary }),
       resultCode: input.resultCode,
@@ -69,6 +71,7 @@ export class AuditService {
 export type {
   AuditEvent,
   AuditEventInput,
+  AuditEventQuery,
   AuditEventRepository,
   CodexRunAuditInput,
   McpToolAuditInput,

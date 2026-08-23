@@ -127,6 +127,7 @@ function workLogEntries(value: unknown): readonly WorkLogEntry[] {
       targetSummary: nullableString(entry.targetSummary),
       durationMs: numberField(entry, 'durationMs'),
       workspaceId: nullableString(entry.workspaceId),
+      sessionId: nullableString(entry.sessionId),
     };
   });
 }
@@ -141,6 +142,7 @@ function inFlightItems(value: unknown): readonly InFlightWorkItem[] {
       startedAt: stringField(entry, 'startedAt'),
       targetSummary: nullableString(entry.targetSummary),
       workspaceId: nullableString(entry.workspaceId),
+      sessionId: nullableString(entry.sessionId),
     };
   });
 }
@@ -374,6 +376,7 @@ function processSummary(value: unknown): ProcessSummary {
   return {
     id: stringField(value, 'id'),
     workspaceId: stringField(value, 'workspaceId'),
+    sessionId: nullableString(value.sessionId),
     executable: stringField(value, 'executable'),
     args: value.args,
     state,
@@ -599,6 +602,8 @@ function logLine(value: unknown): LogLine {
     timestamp: stringField(value, 'timestamp'),
     level: value.level,
     text: stringField(value, 'text'),
+    workspaceId: nullableString(value.workspaceId),
+    sessionId: nullableString(value.sessionId),
     ...(correlation === undefined ? {} : { correlation }),
   };
 }

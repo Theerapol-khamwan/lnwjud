@@ -104,6 +104,9 @@ describe('DesktopRuntime persistence', () => {
         expect(infoB.isError).not.toBe(true);
         expect(infoA.structuredContent).toMatchObject({ id: workspaceA.id });
         expect(infoB.structuredContent).toMatchObject({ id: workspaceB.id });
+        const scopedWorkLog = (await runtime.services.getDashboard()).workLog.filter((entry) => entry.toolName === 'workspace_info');
+        expect(scopedWorkLog.some((entry) => entry.workspaceId === workspaceA.id && entry.sessionId !== null)).toBe(true);
+        expect(scopedWorkLog.some((entry) => entry.workspaceId === workspaceB.id && entry.sessionId !== null)).toBe(true);
 
         await runtime.services.selectWorkspace({ workspaceId: workspaceA.id });
         const infoBAfterSwitch = await client.callTool({ name: 'workspace_info', arguments: { workspaceId: workspaceB.id } });

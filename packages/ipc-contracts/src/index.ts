@@ -157,6 +157,7 @@ export interface WorkLogEntry {
   readonly targetSummary: string | null;
   readonly durationMs: number;
   readonly workspaceId: string | null;
+  readonly sessionId: string | null;
   readonly callId?: string;
 }
 
@@ -166,6 +167,7 @@ export interface InFlightWorkItem {
   readonly startedAt: string;
   readonly targetSummary: string | null;
   readonly workspaceId: string | null;
+  readonly sessionId: string | null;
 }
 
 export interface ConnectionModes {
@@ -193,6 +195,8 @@ export interface LogLine {
   readonly timestamp: string;
   readonly level: LogLevel;
   readonly text: string;
+  readonly workspaceId: string | null;
+  readonly sessionId: string | null;
   readonly correlation?: LogCorrelation;
 }
 
@@ -295,6 +299,7 @@ export interface AuditEventSummary {
 export interface ProcessSummary {
   readonly id: string;
   readonly workspaceId: string;
+  readonly sessionId: string | null;
   readonly executable: string;
   readonly args: readonly string[];
   readonly state: 'starting' | 'running' | 'exited' | 'failed' | 'stopped' | 'timed_out' | 'termination_unverified';

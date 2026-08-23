@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { AuditService, type AuditEvent, type AuditEventRepository } from './audit-service.js';
+import { AuditService, type AuditEvent, type AuditEventQuery, type AuditEventRepository } from './audit-service.js';
 
 class MemoryAuditRepository implements AuditEventRepository {
   public readonly events: AuditEvent[] = [];
@@ -13,7 +13,16 @@ class MemoryAuditRepository implements AuditEventRepository {
   }
 
   public async listByActionPrefix(prefix: string, limit = 100): Promise<AuditEvent[]> {
-    return this.events.filter((event) => event.action.startsWith(prefix)).reverse().slice(0, limit);
+    return this.listScoped({ actionPrefix: prefix }, limit);
+  }
+
+  public async listScoped(query: AuditEventQuery, limit = 100): Promise<AuditEvent[]> {
+    return this.events.filter((event) => {
+      if (query.actionPrefix !== undefined && !event.action.startsWith(query.actionPrefix)) return false;
+      if (query.workspaceId !== undefined && (event.workspaceId ?? null) !== query.workspaceId) return false;
+      if (query.sessionId !== undefined && (event.sessionId ?? null) !== query.sessionId) return false;
+      return true;
+    }).reverse().slice(0, limit);
   }
 }
 
@@ -58,6 +67,7 @@ describe('AuditService', () => {
       actorId: 'client-1',
       actorName: 'test',
       workspaceId: 'workspace-1',
+      sessionId: 'session-1',
       toolName: 'read_file',
       callId: 'call-1',
       phase: 'completed',
@@ -69,6 +79,8 @@ describe('AuditService', () => {
 
     expect(repository.events[0]).toMatchObject({
       action: 'mcp_tool:read_file',
+      workspaceId: 'workspace-1',
+      sessionId: 'session-1',
       targetSummary: 'src\\app.ts',
       resultCode: 'FILE_NOT_FOUND',
       metadata: { toolName: 'read_file', callId: 'call-1', phase: 'completed', errorMessage: 'File or directory was not found' },
