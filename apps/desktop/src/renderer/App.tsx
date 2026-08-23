@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState, type ReactElement } from 'react';
 import type {
   DashboardSnapshot,
+  DestructiveDeletePolicy,
   DoctorReport,
   LogLine,
   LogSource,
@@ -220,12 +221,12 @@ export function App(): ReactElement {
     }
   }
 
-  async function setAiDeletePolicy(enabled: boolean): Promise<void> {
+  async function setDestructiveDeletePolicy(policy: DestructiveDeletePolicy): Promise<void> {
     try {
-      await window.lnwjud.setAiDeletePolicy({ enabled });
+      await window.lnwjud.setAiDeletePolicy({ policy });
       await refresh();
     } catch (cause: unknown) {
-      setError(errorMessage(cause, propsText(locale, 'ไม่สามารถเปลี่ยนนโยบายการลบได้', 'Could not change AI delete policy')));
+      setError(errorMessage(cause, propsText(locale, 'ไม่สามารถเปลี่ยนนโยบายการลบได้', 'Could not change destructive-action policy')));
     }
   }
 
@@ -440,7 +441,7 @@ export function App(): ReactElement {
           onLocaleChange={changeLocale}
           onPermissionProfileChange={setPermissionProfile}
           onUnrestrictedChange={setUnrestrictedMode}
-          onAiDeleteChange={setAiDeletePolicy}
+          onDestructiveDeletePolicyChange={setDestructiveDeletePolicy}
           onStdioPolicyChange={setStdioPolicy}
           onCreateBackup={createBackup}
           onScheduleRestoreBackup={scheduleRestoreBackup}

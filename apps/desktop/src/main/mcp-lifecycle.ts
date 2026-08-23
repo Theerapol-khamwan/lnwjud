@@ -15,7 +15,7 @@ export interface McpHttpServerStarter {
 }
 
 export interface DesktopMcpLifecycleOptions {
-  readonly createServerOptions: (workspaceId: string) => McpHttpServerOptions;
+  readonly createServerOptions: (workspaceId: string) => McpHttpServerOptions | Promise<McpHttpServerOptions>;
   readonly workspaceExists: (workspaceId: string) => Promise<boolean>;
   readonly starter?: McpHttpServerStarter;
 }
@@ -93,7 +93,7 @@ export class DesktopMcpLifecycle {
 
   private async startInternal(workspaceId: string): Promise<DesktopMcpStatus> {
     if (!(await this.handleOptions.workspaceExists(workspaceId))) throw new Error('Workspace was not found');
-    const handle = await this.starter.start(this.handleOptions.createServerOptions(workspaceId));
+    const handle = await this.starter.start(await this.handleOptions.createServerOptions(workspaceId));
     this.handle = handle;
     this.workspaceId = workspaceId;
     return this.status();

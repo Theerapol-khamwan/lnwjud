@@ -43,6 +43,7 @@ import type { ManagedProcess } from '@lnwjud/process';
 import { PathExecutableResolver } from '@lnwjud/search';
 import {
   ALLOW_AI_DELETE_SETTING_KEY,
+  DESTRUCTIVE_AUTO_APPROVAL_SETTING_KEY,
   APP_NAME,
   APP_VERSION,
   DEFAULT_MCP_CALL_TIMEOUT_MS,
@@ -68,12 +69,15 @@ import {
   parseStringRecordSetting,
   parseAllowedRoots,
   parseBooleanSetting,
+  parseDestructiveAutoApprovalPolicy,
   parseStdioPermissionProfile,
   serializeAllowedRoots,
   serializeCustomPermissionSettings,
+  serializeDestructiveAutoApprovalPolicy,
   serializePathList,
   serializeStringRecordSetting,
   loadCheckpointEncryptionKey,
+  type DestructiveAutoApprovalPolicy,
 } from '@lnwjud/shared';
 import { AesGcmCheckpointCipher, SqliteAuditRepository, SqliteBackupService, SqliteCheckpointRepository, SqliteDatabase, SqliteSettingsRepository, SqliteWorkspaceRepository, type BackupReason, type BackupSummary } from '@lnwjud/storage';
 import type { Workspace } from '@lnwjud/workspace';
@@ -136,6 +140,7 @@ export interface DesktopRuntime {
   readonly logHub: LogHub;
   getLocale(): UiLocale;
   getUserSettings(): UserSettings;
+  getDestructivePolicy(): DestructiveAutoApprovalPolicy;
   createBackup(reason?: BackupReason): Promise<BackupSummary>;
   ensureDefaultWorkspace(rootPath: string): Promise<string>;
   autoStartMcp(): Promise<McpConnectionStatus>;
@@ -173,7 +178,11 @@ export function createDesktopRuntime(dataPath: string, options: DesktopRuntimeOp
     ? customPermissionProfile(settingsRepository)
     : permissionProfiles[profileName];
   const unrestricted = isUnrestricted(process.env, settingsRepository.get(UNRESTRICTED_SETTING_KEY));
-  const allowAiDeleteProvider = (): boolean => parseBooleanSetting(settingsRepository.get(ALLOW_AI_DELETE_SETTING_KEY), false);
+  const destructivePolicyProvider = (): DestructiveAutoApprovalPolicy => parseDestructiveAutoApprovalPolicy(
+    settingsRepository.get(DESTRUCTIVE_AUTO_APPROVAL_SETTING_KEY),
+    parseBooleanSetting(settingsRepository.get(ALLOW_AI_DELETE_SETTING_KEY), false),
+  );
+  const allowAiDeleteProvider = (): boolean => destructivePolicyProvider().approvals.delete_file;
   const projectService = new ProjectService(workspaceRepository);
   const processService = new ProcessService(workspaceRepository, {
     projectService,
@@ -191,6 +200,9 @@ export function createDesktopRuntime(dataPath: string, options: DesktopRuntimeOp
     unrestricted,
     trustedWorkspaceAccess: true,
     allowDeleteWithoutConfirmation: allowAiDeleteProvider,
+    protectCriticalFiles: (): boolean => destructivePolicyProvider().protectCriticalFiles,
+    recoverableDelete: (): boolean => destructivePolicyProvider().recoverableDelete,
+    recoveryTrashRoot: path.join(dataPath, 'recovery-trash'),
   });
   const workspaceInfoService = new WorkspaceInfoService(workspaceRepository, workspaceService, unrestricted);
   const workspaceQueryService = new WorkspaceQueryService(workspaceRepository, pathGuard);
@@ -284,7 +296,10 @@ export function createDesktopRuntime(dataPath: string, options: DesktopRuntimeOp
   const mcpPort = readMcpPort(process.env.LNWJUD_MCP_PORT ?? settingsRepository.get(USER_SETTING_KEYS.mcpHttpPort) ?? undefined);
   const mcpLifecycle = new DesktopMcpLifecycle({
     workspaceExists: async (workspaceId: string): Promise<boolean> => (await workspaceRepository.get(workspaceId)) !== null,
-    createServerOptions: (): McpHttpServerOptions => ({
+    createServerOptions: async (workspaceId: string): Promise<McpHttpServerOptions> => {
+      const activeWorkspace = await workspaceRepository.get(workspaceId);
+      if (activeWorkspace === null) throw new Error('Workspace was not found');
+      return ({
       // Prefer a dedicated loopback port so we never collide with common app ports (e.g. 5000).
       // startMcpHttp falls back to an ephemeral port when the preferred bind is busy.
       port: mcpPort,
@@ -293,8 +308,11 @@ export function createDesktopRuntime(dataPath: string, options: DesktopRuntimeOp
       activityTracker,
       profileProvider: activePermissionProfile,
       allowAiDeleteProvider,
+      destructivePolicyProvider,
+      activeProjectProvider: () => ({ workspaceId: activeWorkspace.id, rootPath: activeWorkspace.realRootPath }),
       codexToolsEnabled: readSettings().codexToolsEnabled,
-    }),
+      });
+    },
   });
   const tunnelController = new TunnelController({
     getClientPath: (): string | null => settingsRepository.get(CLIENT_PATH_SETTING),
@@ -406,6 +424,7 @@ export function createDesktopRuntime(dataPath: string, options: DesktopRuntimeOp
         locale: readLocale(settingsRepository),
         unrestricted,
         allowAiDelete: allowAiDeleteProvider(),
+        destructiveDeletePolicy: destructivePolicyProvider(),
         stdioPermissionProfile: parseStdioPermissionProfile(settingsRepository.get(STDIO_PERMISSION_PROFILE_SETTING_KEY), 'full'),
         stdioStrictRoots: parseBooleanSetting(settingsRepository.get(STDIO_STRICT_ROOTS_SETTING_KEY), false),
         stdioAllowedRoots: parseAllowedRoots(settingsRepository.get(STDIO_ALLOWED_ROOTS_SETTING_KEY)),
@@ -428,9 +447,12 @@ export function createDesktopRuntime(dataPath: string, options: DesktopRuntimeOp
       const applied = isUnrestricted(process.env, settingsRepository.get(UNRESTRICTED_SETTING_KEY));
       return { unrestricted: applied, restartRequired: applied !== unrestricted };
     },
-    setAiDeletePolicy: async (request: SetAiDeletePolicyRequest): Promise<{ readonly enabled: boolean }> => {
-      settingsRepository.set(ALLOW_AI_DELETE_SETTING_KEY, request.enabled ? 'true' : 'false');
-      return { enabled: allowAiDeleteProvider() };
+    setAiDeletePolicy: async (request: SetAiDeletePolicyRequest): Promise<{ readonly enabled: boolean; readonly policy: DestructiveAutoApprovalPolicy }> => {
+      const current = destructivePolicyProvider();
+      const policy = request.policy ?? { ...current, approvals: { ...current.approvals, delete_file: request.enabled ?? current.approvals.delete_file } };
+      settingsRepository.set(DESTRUCTIVE_AUTO_APPROVAL_SETTING_KEY, serializeDestructiveAutoApprovalPolicy(policy));
+      settingsRepository.set(ALLOW_AI_DELETE_SETTING_KEY, policy.approvals.delete_file ? 'true' : 'false');
+      return { enabled: policy.approvals.delete_file, policy: destructivePolicyProvider() };
     },
     setStdioPolicy: async (request: SetStdioPolicyRequest): Promise<{ readonly profile: IpcPermissionProfileName; readonly strictRoots: boolean; readonly allowedRoots: readonly string[]; readonly restartRequired: boolean }> => {
       const allowedRoots = parseAllowedRoots(request.allowedRoots.join(';'));
@@ -566,6 +588,7 @@ export function createDesktopRuntime(dataPath: string, options: DesktopRuntimeOp
     logHub,
     getLocale: (): UiLocale => readLocale(settingsRepository),
     getUserSettings: (): UserSettings => readSettings(),
+    getDestructivePolicy: (): DestructiveAutoApprovalPolicy => destructivePolicyProvider(),
     createBackup: (reason: BackupReason = 'manual'): Promise<BackupSummary> => backupService.create(reason),
     ensureDefaultWorkspace: async (rootPath: string): Promise<string> => {
       await ensureMachineRoots(rootPath);

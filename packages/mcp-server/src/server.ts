@@ -1,13 +1,13 @@
 import { McpServer, type CallToolResult } from '@modelcontextprotocol/server';
 import type { DiagnosticLogger, FileActor } from '@lnwjud/application';
 import type { PermissionProfile } from '@lnwjud/permissions';
-import { APP_NAME, APP_VERSION } from '@lnwjud/shared';
+import { APP_NAME, APP_VERSION, type DestructiveAutoApprovalPolicy } from '@lnwjud/shared';
 import { readTraceContext, type ActivitySink, type ActivityTracker } from './activity-tracker.js';
 import { withProgressHeartbeat, type ProgressNotifyContext } from './progress-heartbeat.js';
 import { IncrementalVerifier } from './incremental-verifier.js';
 import { RunBudgetGuard, type RunBudgetContext } from './run-budget.js';
 import { registerTasksProtocol } from './tasks-protocol.js';
-import { ToolRegistry, type McpApplicationServices } from './tool-registry.js';
+import { ToolRegistry, type ActiveProjectScope, type McpApplicationServices } from './tool-registry.js';
 
 export interface McpServerOptions {
   readonly services: McpApplicationServices;
@@ -17,6 +17,8 @@ export interface McpServerOptions {
   readonly activityTracker?: ActivityTracker;
   readonly profileProvider?: () => PermissionProfile;
   readonly allowAiDeleteProvider?: () => boolean;
+  readonly destructivePolicyProvider?: () => DestructiveAutoApprovalPolicy;
+  readonly activeProjectProvider?: () => ActiveProjectScope | null;
   /** Exposes quota-consuming Codex delegation tools. Disabled unless explicitly enabled. */
   readonly codexToolsEnabled?: boolean;
   /** Shared across per-request server factories so repeated diff fingerprints can hit cache. */
@@ -32,6 +34,8 @@ export function createMcpServer(options: McpServerOptions): McpServer {
     ...(options.activityTracker === undefined ? {} : { activityTracker: options.activityTracker }),
     ...(options.profileProvider === undefined ? {} : { profileProvider: options.profileProvider }),
     ...(options.allowAiDeleteProvider === undefined ? {} : { allowAiDeleteProvider: options.allowAiDeleteProvider }),
+    ...(options.destructivePolicyProvider === undefined ? {} : { destructivePolicyProvider: options.destructivePolicyProvider }),
+    ...(options.activeProjectProvider === undefined ? {} : { activeProjectProvider: options.activeProjectProvider }),
     ...(options.codexToolsEnabled === undefined ? {} : { codexToolsEnabled: options.codexToolsEnabled }),
     ...(options.incrementalVerifier === undefined ? {} : { incrementalVerifier: options.incrementalVerifier }),
   });

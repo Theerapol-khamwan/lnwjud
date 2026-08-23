@@ -1,5 +1,6 @@
 import { constants as fsConstants } from 'node:fs';
-import { copyFile, cp, lstat, readdir, rename, rm, rmdir, unlink } from 'node:fs/promises';
+import { randomUUID } from 'node:crypto';
+import { copyFile, cp, lstat, mkdir, readFile as readFsFile, readdir, rename, rm, rmdir, unlink, writeFile as writeFsFile } from 'node:fs/promises';
 import path from 'node:path';
 import { appError, err, MAX_MULTI_FILE_BYTES, ok, type Result } from '@lnwjud/domain';
 import {
@@ -15,6 +16,7 @@ import {
   type LineRange,
 } from '@lnwjud/filesystem';
 import { DefaultPermissionEngine, permissionProfiles, type PermissionEngine, type PermissionProfile } from '@lnwjud/permissions';
+import { isProtectedCriticalPath } from '@lnwjud/shared';
 import { isWithin, WorkspacePathGuard, type Workspace, type WorkspaceRepository } from '@lnwjud/workspace';
 import type { CheckpointServicePort } from './checkpoint-service.js';
 import { resolveSharedWorkspace, resolveWorkspaceForPath } from './workspace-locator.js';
@@ -60,6 +62,11 @@ export interface FileServiceDependencies {
   readonly trustedWorkspaceAccess?: boolean;
   /** When true, filesystem deletion may proceed without per-call userConfirmed. Hard workspace-root blocks remain. */
   readonly allowDeleteWithoutConfirmation?: () => boolean;
+  /** Protected critical paths still require explicit human confirmation. */
+  readonly protectCriticalFiles?: () => boolean;
+  /** Move deleted targets to recovery trash instead of permanently unlinking them. */
+  readonly recoverableDelete?: () => boolean;
+  readonly recoveryTrashRoot?: string;
 }
 
 export interface WriteFileRequest {
@@ -103,6 +110,23 @@ export interface DeleteFileRequest {
   readonly userConfirmed?: boolean;
 }
 
+export interface DeleteFileResult {
+  readonly path: string;
+  readonly recoverable: boolean;
+  readonly checkpointId?: string;
+  readonly recoveryId?: string;
+  readonly recoveryPath?: string;
+}
+
+export interface RestoreDeletedFileRequest {
+  readonly recoveryId: string;
+}
+
+export interface RestoreDeletedFileResult {
+  readonly recoveryId: string;
+  readonly path: string;
+}
+
 export class FileService {
   private readonly writer: AtomicFileWriter;
   private readonly patchApplier: PatchApplier;
@@ -113,6 +137,9 @@ export class FileService {
   private readonly unrestricted: boolean;
   private readonly trustedWorkspaceAccess: boolean;
   private readonly allowDeleteWithoutConfirmation: () => boolean;
+  private readonly protectCriticalFiles: () => boolean;
+  private readonly recoverableDelete: () => boolean;
+  private readonly recoveryTrashRoot: string | undefined;
 
   public constructor(
     private readonly workspaces: WorkspaceRepository,
@@ -129,6 +156,9 @@ export class FileService {
     this.unrestricted = dependencies.unrestricted === true;
     this.trustedWorkspaceAccess = dependencies.trustedWorkspaceAccess === true;
     this.allowDeleteWithoutConfirmation = dependencies.allowDeleteWithoutConfirmation ?? ((): boolean => false);
+    this.protectCriticalFiles = dependencies.protectCriticalFiles ?? ((): boolean => true);
+    this.recoverableDelete = dependencies.recoverableDelete ?? ((): boolean => true);
+    this.recoveryTrashRoot = dependencies.recoveryTrashRoot;
   }
 
   private isTrustedWorkspace(workspace: Workspace): boolean {
@@ -338,8 +368,7 @@ export class FileService {
     return ok({ sourcePath: sourceRelative, destinationPath: destinationRelative });
   }
 
-  public async deleteFile(actor: FileActor, workspaceId: string | undefined, request: DeleteFileRequest, signal?: AbortSignal): Promise<Result<void>> {
-    void actor;
+  public async deleteFile(actor: FileActor, workspaceId: string | undefined, request: DeleteFileRequest, signal?: AbortSignal): Promise<Result<DeleteFileResult>> {
     if (typeof request?.path !== 'string') return err(appError('INVALID_INPUT', 'Delete request is invalid'));
     const policyAllowsDelete = this.allowDeleteWithoutConfirmation();
     if (request.userConfirmed !== true && !policyAllowsDelete) {
@@ -356,6 +385,9 @@ export class FileService {
     if (isAborted(signal)) return cancelledFileMutation();
     if (!resolved.ok) return resolved;
     if (resolved.value.relativePath.length === 0) return err(appError('PERMISSION_DENIED', 'Workspace root cannot be deleted'));
+    if (request.userConfirmed !== true && this.protectCriticalFiles() && isProtectedCriticalPath(resolved.value.relativePath)) {
+      return err(appError('PERMISSION_REQUIRED', 'Protected critical files require explicit user confirmation'));
+    }
     const permission = this.decide(workspaceResult.value.id, 'delete_file', policyAllowsDelete ? 'WRITE' : 'DANGEROUS', resolved.value.relativePath, !policyAllowsDelete);
     if (!permission.ok) return permission;
     const targetPath = resolved.value.realPath ?? resolved.value.absolutePath;
@@ -366,14 +398,117 @@ export class FileService {
         const entries = await readdir(targetPath);
         if (isAborted(signal)) return cancelledFileMutation();
         if (entries.length > 0) return err(appError('INVALID_INPUT', 'Non-empty directories cannot be deleted'));
-        await rmdir(targetPath);
-      } else {
-        await unlink(targetPath);
       }
+
+      let checkpointId: string | undefined;
+      if (!target.isDirectory() && this.checkpointService !== undefined) {
+        const checkpoint = await this.checkpointService.createForFiles(actor, workspaceResult.value.id, [resolved.value.relativePath]);
+        if (checkpoint.ok) checkpointId = checkpoint.value.id;
+      }
+
+      if (this.recoverableDelete() && this.recoveryTrashRoot !== undefined) {
+        const recovery = await this.moveToRecoveryTrash(workspaceResult.value.id, resolved.value.relativePath, targetPath, target.isDirectory());
+        if (!recovery.ok) return recovery;
+        return ok({
+          path: resolved.value.relativePath,
+          recoverable: true,
+          ...(checkpointId === undefined ? {} : { checkpointId }),
+          recoveryId: recovery.value.id,
+          recoveryPath: recovery.value.path,
+        });
+      }
+
+      if (target.isDirectory()) await rmdir(targetPath);
+      else await unlink(targetPath);
+      return ok({ path: resolved.value.relativePath, recoverable: checkpointId !== undefined, ...(checkpointId === undefined ? {} : { checkpointId }) });
     } catch (error: unknown) {
       return err(mapNodeFsError(error, 'File deletion failed'));
     }
-    return ok(undefined);
+  }
+
+  private async moveToRecoveryTrash(
+    workspaceId: string,
+    relativePath: string,
+    targetPath: string,
+    isDirectory: boolean,
+  ): Promise<Result<{ readonly id: string; readonly path: string }>> {
+    const recoveryId = randomUUID();
+    const recoveryBase = path.join(this.recoveryTrashRoot!, workspaceId, recoveryId);
+    const recoveryPath = path.join(recoveryBase, 'payload');
+    try {
+      await mkdir(recoveryBase, { recursive: true });
+      await writeFsFile(path.join(recoveryBase, 'metadata.json'), JSON.stringify({
+        version: 1, recoveryId, workspaceId, relativePath, deletedAt: new Date().toISOString(), isDirectory,
+      }, null, 2), 'utf8');
+      try {
+        await rename(targetPath, recoveryPath);
+      } catch (error: unknown) {
+        if (nodeErrorCode(error) !== 'EXDEV') throw error;
+        if (isDirectory) await cp(targetPath, recoveryPath, { recursive: true, errorOnExist: true, force: false });
+        else await copyFile(targetPath, recoveryPath, fsConstants.COPYFILE_EXCL);
+        await rm(targetPath, { recursive: isDirectory, force: false });
+      }
+      return ok({ id: recoveryId, path: recoveryPath });
+    } catch (error: unknown) {
+      return err(mapNodeFsError(error, 'Recoverable deletion failed'));
+    }
+  }
+
+  public async restoreDeletedFile(
+    actor: FileActor,
+    workspaceId: string,
+    request: RestoreDeletedFileRequest,
+    signal?: AbortSignal,
+  ): Promise<Result<RestoreDeletedFileResult>> {
+    void actor;
+    if (this.recoveryTrashRoot === undefined) return err(appError('INVALID_INPUT', 'Recovery Trash is not configured'));
+    if (typeof request?.recoveryId !== 'string' || !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(request.recoveryId)) {
+      return err(appError('INVALID_INPUT', 'Recovery ID is invalid'));
+    }
+    if (isAborted(signal)) return cancelledFileMutation();
+    const workspace = await this.workspaces.get(workspaceId);
+    if (workspace === null) return err(appError('WORKSPACE_NOT_FOUND', 'Workspace was not found'));
+    const recoveryBase = path.join(this.recoveryTrashRoot, workspaceId, request.recoveryId);
+    const metadataPath = path.join(recoveryBase, 'metadata.json');
+    const payloadPath = path.join(recoveryBase, 'payload');
+    let metadata: RecoveryMetadata;
+    try {
+      const parsed: unknown = JSON.parse(await readFsFile(metadataPath, 'utf8'));
+      if (!isRecoveryMetadata(parsed)
+        || parsed.recoveryId !== request.recoveryId
+        || parsed.workspaceId !== workspaceId) {
+        return err(appError('INVALID_INPUT', 'Recovery metadata is invalid'));
+      }
+      metadata = parsed;
+    } catch (error: unknown) {
+      if (nodeErrorCode(error) === 'ENOENT') return err(appError('FILE_NOT_FOUND', 'Recovery item was not found'));
+      return err(mapNodeFsError(error, 'Recovery metadata could not be read'));
+    }
+    if (isAborted(signal)) return cancelledFileMutation();
+    const destination = await this.guard.resolveForWrite(workspace, metadata.relativePath);
+    if (!destination.ok) return destination;
+    if (destination.value.exists) return err(appError('INVALID_INPUT', 'Restore target already exists; refusing to overwrite it'));
+    const permission = this.decide(workspaceId, 'restore_deleted_file', 'WRITE', destination.value.relativePath, false);
+    if (!permission.ok) return permission;
+    const parent = await ensureParentDirectory(destination.value.absolutePath);
+    if (!parent.ok) return parent;
+    if (isAborted(signal)) return cancelledFileMutation();
+    try {
+      const payload = await lstat(payloadPath);
+      if (payload.isDirectory() !== metadata.isDirectory) return err(appError('INVALID_INPUT', 'Recovery payload type does not match metadata'));
+      try {
+        await rename(payloadPath, destination.value.absolutePath);
+      } catch (error: unknown) {
+        if (nodeErrorCode(error) !== 'EXDEV') throw error;
+        if (payload.isDirectory()) await cp(payloadPath, destination.value.absolutePath, { recursive: true, errorOnExist: true, force: false });
+        else await copyFile(payloadPath, destination.value.absolutePath, fsConstants.COPYFILE_EXCL);
+        await rm(payloadPath, { recursive: payload.isDirectory(), force: false });
+      }
+      await rm(recoveryBase, { recursive: true, force: true });
+      return ok({ recoveryId: request.recoveryId, path: destination.value.relativePath });
+    } catch (error: unknown) {
+      return err(mapNodeFsError(error, 'Recovery restore failed'));
+    }
   }
 
   private async prepareTransfer(
@@ -458,6 +593,26 @@ export class FileService {
       return ok(false);
     }
   }
+}
+
+interface RecoveryMetadata {
+  readonly version: 1;
+  readonly recoveryId: string;
+  readonly workspaceId: string;
+  readonly relativePath: string;
+  readonly deletedAt: string;
+  readonly isDirectory: boolean;
+}
+
+function isRecoveryMetadata(value: unknown): value is RecoveryMetadata {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return false;
+  const record = value as Record<string, unknown>;
+  return record.version === 1
+    && typeof record.recoveryId === 'string'
+    && typeof record.workspaceId === 'string'
+    && typeof record.relativePath === 'string'
+    && typeof record.deletedAt === 'string'
+    && typeof record.isDirectory === 'boolean';
 }
 
 function isAborted(signal: AbortSignal | undefined): boolean {

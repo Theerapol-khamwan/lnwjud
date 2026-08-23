@@ -1,6 +1,10 @@
+import type { DestructiveApprovalKey } from '@lnwjud/shared';
+
 export interface DestructivePolicyDecision {
   readonly destructive: boolean;
   readonly reason?: string;
+  /** Present only for destructive operations that are eligible for scoped auto-approval. */
+  readonly approvalKey?: DestructiveApprovalKey;
 }
 
 const GIT_DESTRUCTIVE_SUBCOMMANDS = new Set([
@@ -12,7 +16,6 @@ const GIT_DESTRUCTIVE_SUBCOMMANDS = new Set([
   'prune',
 ]);
 
-
 export function inspectDestructiveOperation(toolName: string, input: unknown): DestructivePolicyDecision {
   const value = asRecord(input);
   if (value === null) return { destructive: false };
@@ -20,7 +23,7 @@ export function inspectDestructiveOperation(toolName: string, input: unknown): D
 
   switch (toolName) {
     case 'delete_file':
-      return destructive('filesystem deletion');
+      return destructive('filesystem deletion', 'delete_file');
     case 'git':
       return inspectGit(value);
     case 'git_worktree_spawn':
@@ -32,11 +35,11 @@ export function inspectDestructiveOperation(toolName: string, input: unknown): D
     case 'office_ppt':
       return String(value.action ?? 'read') === 'read' ? { destructive: false } : destructive('PowerPoint save_as writes document data');
     case 'shell':
-      return inspectShell(value);
+      return inspectShell(value, false);
     case 'wsl_exec':
-      return inspectShell({ operation: value.operation, executable: value.executable, arguments: value.arguments });
+      return inspectShell({ operation: value.operation, executable: value.executable, arguments: value.arguments }, true);
     case 'process_start':
-      return inspectShell({ operation: 'run', executable: value.executable, arguments: value.args });
+      return inspectShell({ operation: 'run', executable: value.executable, arguments: value.args }, false);
     case 'codex_run':
       return destructive('delegated coding agent can mutate or delete workspace data');
     case 'dom_cdp':
@@ -96,6 +99,9 @@ function inspectGit(value: Record<string, unknown>): DestructivePolicyDecision {
   const restRaw = args.slice(subcommandIndex + 1);
   const rest = restRaw.map((arg) => arg.toLowerCase());
 
+  if (subcommand === 'rm') return destructive('git rm can delete tracked workspace data', 'git_rm');
+  if (subcommand === 'clean') return destructive('git clean can delete untracked workspace data', 'git_clean');
+  if (subcommand === 'reset' || subcommand === 'restore') return destructive(`git ${subcommand} can discard workspace data`, 'git_reset_restore');
   if (GIT_DESTRUCTIVE_SUBCOMMANDS.has(subcommand)) return destructive(`git ${subcommand} can discard or delete data`);
   if (subcommand === 'checkout' && (rest.includes('-f') || rest.includes('--force') || rest.includes('--') || restRaw.includes('-B'))) {
     return destructive('git checkout can discard working-tree changes or reset a branch');
@@ -117,15 +123,21 @@ function inspectGit(value: Record<string, unknown>): DestructivePolicyDecision {
   return { destructive: false };
 }
 
-function inspectShell(value: Record<string, unknown>): DestructivePolicyDecision {
+function inspectShell(value: Record<string, unknown>, wsl: boolean): DestructivePolicyDecision {
   if (value.operation !== undefined && value.operation !== 'run') return { destructive: false };
   const executable = basename(String(value.executable ?? '')).toLowerCase();
   const args = stringArray(value.arguments);
   const joined = args.join(' ').toLowerCase();
 
   if (executable === 'git' || executable === 'git.exe') return inspectGit({ args });
-  if (['del', 'del.exe', 'erase', 'erase.exe', 'rm', 'rm.exe', 'rmdir', 'rmdir.exe', 'rd', 'rd.exe', 'unlink', 'unlink.exe'].includes(executable)) {
-    return destructive(`${executable} deletes filesystem data`);
+  if (['rm', 'rm.exe', 'unlink', 'unlink.exe'].includes(executable)) {
+    return destructive(`${executable} deletes filesystem data`, wsl ? 'wsl_rm_unlink' : 'shell_rm_unlink');
+  }
+  if (['rmdir', 'rmdir.exe', 'rd', 'rd.exe'].includes(executable)) {
+    return destructive(`${executable} deletes filesystem directories`, wsl ? 'wsl_rmdir' : 'shell_rmdir');
+  }
+  if (['del', 'del.exe', 'erase', 'erase.exe'].includes(executable)) {
+    return destructive(`${executable} deletes filesystem data`, wsl ? undefined : 'shell_del_erase');
   }
   if (['powershell', 'powershell.exe', 'pwsh', 'pwsh.exe'].includes(executable)) {
     const withoutGitRm = joined.replace(/\bgit(?:\.exe)?\s+rm\b/g, ' ');
@@ -174,8 +186,8 @@ function inspectInputEvent(value: Record<string, unknown>): DestructivePolicyDec
     : { destructive: false };
 }
 
-function destructive(reason: string): DestructivePolicyDecision {
-  return { destructive: true, reason };
+function destructive(reason: string, approvalKey?: DestructiveApprovalKey): DestructivePolicyDecision {
+  return { destructive: true, reason, ...(approvalKey === undefined ? {} : { approvalKey }) };
 }
 
 function asRecord(value: unknown): Record<string, unknown> | null {

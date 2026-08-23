@@ -23,7 +23,7 @@ describe('Windows desktop packaging', () => {
       repository?: { type?: unknown; url?: unknown };
     };
 
-    expect(desktopPackage.description).toBe('Windows-first local AI-agent runtime and MCP gateway with 213 configurable tools.');
+    expect(desktopPackage.description).toBe('Windows-first local AI-agent runtime and MCP gateway with 214 configurable tools.');
     expect(desktopPackage.author).toBe('Adisorn');
     expect(desktopPackage.homepage).toBe('https://github.com/engasnm111/lnwjud#readme');
     expect(desktopPackage.repository).toEqual({ type: 'git', url: 'https://github.com/engasnm111/lnwjud.git' });

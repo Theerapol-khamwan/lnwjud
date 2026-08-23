@@ -12,6 +12,7 @@ import {
   type ClearLogBufferRequest,
   type ConfigureTunnelProfileRequest,
   type DashboardSnapshot,
+  type DestructiveDeletePolicy,
   type DoctorReport,
   type ExportLogsRequest,
   type IpcResponseMap,
@@ -61,7 +62,7 @@ export interface DesktopIpcServices {
   getDashboard(): Promise<DashboardSnapshot>;
   setPermissionProfile(request: SetPermissionProfileRequest): Promise<{ readonly profile: PermissionProfileName }>;
   setUnrestrictedMode(request: SetUnrestrictedModeRequest): Promise<{ readonly unrestricted: boolean; readonly restartRequired: boolean }>;
-  setAiDeletePolicy(request: SetAiDeletePolicyRequest): Promise<{ readonly enabled: boolean }>;
+  setAiDeletePolicy(request: SetAiDeletePolicyRequest): Promise<{ readonly enabled: boolean; readonly policy: DestructiveDeletePolicy }>;
   setStdioPolicy(request: SetStdioPolicyRequest): Promise<{ readonly profile: PermissionProfileName; readonly strictRoots: boolean; readonly allowedRoots: readonly string[]; readonly restartRequired: boolean }>;
   createBackup(): Promise<BackupSummary>;
   scheduleRestoreBackup(request: ScheduleRestoreBackupRequest): Promise<{ readonly scheduled: boolean; readonly restartRequired: boolean }>;
@@ -93,6 +94,12 @@ export interface DesktopIpcHooks {
   readonly onLocaleChanged?: (locale: UiLocale) => void;
   readonly onUserSettingsChanged?: (settings: UserSettings) => void;
 }
+
+const defaultDestructiveDeletePolicy: DestructiveDeletePolicy = {
+  protectCriticalFiles: true,
+  recoverableDelete: true,
+  approvals: { delete_file: false, git_rm: false, git_clean: false, git_reset_restore: false, shell_rm_unlink: false, shell_rmdir: false, shell_del_erase: false, wsl_rm_unlink: false, wsl_rmdir: false },
+};
 
 const emptyTunnel: TunnelStatus = {
   state: 'stopped',
@@ -150,6 +157,11 @@ const defaultDesktopServices: DesktopIpcServices = {
     locale: 'th',
     unrestricted: false,
     allowAiDelete: false,
+    destructiveDeletePolicy: {
+      protectCriticalFiles: true,
+      recoverableDelete: true,
+      approvals: { delete_file: false, git_rm: false, git_clean: false, git_reset_restore: false, shell_rm_unlink: false, shell_rmdir: false, shell_del_erase: false, wsl_rm_unlink: false, wsl_rmdir: false },
+    },
     stdioPermissionProfile: 'full',
     stdioStrictRoots: false,
     stdioAllowedRoots: [],
@@ -166,7 +178,10 @@ const defaultDesktopServices: DesktopIpcServices = {
     unrestricted: request.enabled,
     restartRequired: false,
   }),
-  setAiDeletePolicy: async (request): Promise<{ readonly enabled: boolean }> => ({ enabled: request.enabled }),
+  setAiDeletePolicy: async (request): Promise<{ readonly enabled: boolean; readonly policy: DestructiveDeletePolicy }> => {
+    const policy = request.policy ?? { ...defaultDestructiveDeletePolicy, approvals: { ...defaultDestructiveDeletePolicy.approvals, delete_file: request.enabled === true } };
+    return { enabled: policy.approvals.delete_file, policy };
+  },
   setStdioPolicy: async (request): Promise<{ readonly profile: PermissionProfileName; readonly strictRoots: boolean; readonly allowedRoots: readonly string[]; readonly restartRequired: boolean }> => ({
     profile: request.profile, strictRoots: request.strictRoots, allowedRoots: request.allowedRoots, restartRequired: false,
   }),
@@ -438,8 +453,26 @@ function parseSetUnrestrictedModeRequest(payload: unknown): SetUnrestrictedModeR
 }
 
 function parseSetAiDeletePolicyRequest(payload: unknown): SetAiDeletePolicyRequest {
-  if (!isRecord(payload) || typeof payload.enabled !== 'boolean') throw new Error('Invalid IPC payload: enabled');
-  return { enabled: payload.enabled };
+  if (!isRecord(payload)) throw new Error('Invalid IPC payload: destructive delete policy');
+  const enabled = typeof payload.enabled === 'boolean' ? payload.enabled : undefined;
+  const policy = payload.policy === undefined ? undefined : parseDestructiveDeletePolicy(payload.policy);
+  if (enabled === undefined && policy === undefined) throw new Error('Invalid IPC payload: destructive delete policy');
+  return { ...(enabled === undefined ? {} : { enabled }), ...(policy === undefined ? {} : { policy }) };
+}
+
+function parseDestructiveDeletePolicy(value: unknown): DestructiveDeletePolicy {
+  if (!isRecord(value) || typeof value.protectCriticalFiles !== 'boolean' || typeof value.recoverableDelete !== 'boolean') {
+    throw new Error('Invalid destructive delete policy');
+  }
+  const approvalsRaw = value.approvals;
+  if (!isRecord(approvalsRaw)) throw new Error('Invalid destructive delete policy');
+  const keys = ['delete_file', 'git_rm', 'git_clean', 'git_reset_restore', 'shell_rm_unlink', 'shell_rmdir', 'shell_del_erase', 'wsl_rm_unlink', 'wsl_rmdir'] as const;
+  const approvals = Object.fromEntries(keys.map((key) => {
+    const enabled = approvalsRaw[key];
+    if (typeof enabled !== 'boolean') throw new Error('Invalid destructive delete policy approval: ' + key);
+    return [key, enabled];
+  })) as Record<(typeof keys)[number], boolean>;
+  return { protectCriticalFiles: value.protectCriticalFiles, recoverableDelete: value.recoverableDelete, approvals };
 }
 
 function parseScheduleRestoreBackupRequest(payload: unknown): ScheduleRestoreBackupRequest {
@@ -870,8 +903,11 @@ function bootstrapMcpStdio(): void {
     const workspacePath = readArgValue('--workspace')
       ?? process.env.LNWJUD_WORKSPACE
       ?? process.cwd();
+    let activeProject: { readonly workspaceId: string; readonly rootPath: string } | null = null;
     try {
       const workspaceId = await runtime.ensureDefaultWorkspace(workspacePath);
+      const registered = (await runtime.services.listWorkspaces()).find((entry) => entry.id === workspaceId);
+      if (registered !== undefined) activeProject = { workspaceId, rootPath: registered.rootPath };
       process.stderr.write(`lnwjud MCP stdio ready workspace=${workspaceId}\n`);
     } catch (error: unknown) {
       process.stderr.write(`lnwjud MCP stdio workspace warning: ${error instanceof Error ? error.message : 'unknown'}\n`);
@@ -880,6 +916,8 @@ function bootstrapMcpStdio(): void {
       services: runtime.mcpServices,
       actor: runtime.mcpActor,
       activityTracker: runtime.activityTracker,
+      destructivePolicyProvider: () => runtime.getDestructivePolicy(),
+      activeProjectProvider: () => activeProject,
       codexToolsEnabled: runtime.getUserSettings().codexToolsEnabled,
       onError: (error): void => {
         if (/EPIPE|ECONNRESET|broken pipe/i.test(error.message)) {

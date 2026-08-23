@@ -21,6 +21,7 @@ describe('fileTools cancellation', () => {
           async moveFile(_actor: unknown, _workspaceId: unknown, _request: unknown, signal?: AbortSignal) { return record(signal); },
           async copyFile(_actor: unknown, _workspaceId: unknown, _request: unknown, signal?: AbortSignal) { return record(signal); },
           async deleteFile(_actor: unknown, _workspaceId: unknown, _request: unknown, signal?: AbortSignal) { return record(signal); },
+          async restoreDeletedFile(_actor: unknown, _workspaceId: unknown, _request: unknown, signal?: AbortSignal) { return record(signal); },
         },
       },
     } as unknown as McpToolContext;
@@ -32,6 +33,7 @@ describe('fileTools cancellation', () => {
       ['move_file', { workspaceId: 'workspace-1', sourcePath: 'a.txt', destinationPath: 'b.txt' }],
       ['copy_file', { workspaceId: 'workspace-1', sourcePath: 'a.txt', destinationPath: 'b.txt' }],
       ['delete_file', { workspaceId: 'workspace-1', path: 'a.txt', userConfirmed: true }],
+      ['restore_deleted_file', { workspaceId: 'workspace-1', recoveryId: '123e4567-e89b-42d3-a456-426614174000' }],
     ];
 
     for (const [name, input] of calls) {
@@ -40,6 +42,6 @@ describe('fileTools cancellation', () => {
       await tool.execute(input, signal);
     }
 
-    expect(observedSignals).toEqual([signal, signal, signal, signal, signal]);
+    expect(observedSignals).toEqual([signal, signal, signal, signal, signal, signal]);
   });
 });

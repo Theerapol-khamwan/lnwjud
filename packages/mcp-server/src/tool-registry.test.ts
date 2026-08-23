@@ -1,8 +1,9 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { appError, err, ok } from '@lnwjud/domain';
 import { permissionProfiles } from '@lnwjud/permissions';
+import { DEFAULT_DESTRUCTIVE_AUTO_APPROVAL_POLICY, type DestructiveAutoApprovalPolicy } from '@lnwjud/shared';
 import type { ActivitySinkEvent } from './activity-tracker.js';
-import { ToolRegistry, type McpApplicationServices } from './tool-registry.js';
+import { ToolRegistry, type ActiveProjectScope, type McpApplicationServices } from './tool-registry.js';
 import { CODEX_TOOL_NAMES } from './tools/codex-tools.js';
 import { UPGRADE_TOOL_CATALOG } from './upgrade-catalog.js';
 
@@ -19,7 +20,7 @@ describe('MCP tool registry', () => {
     expect(registry.list().map((tool) => tool.name)).toEqual([
       'workspace_list', 'workspace_register', 'workspace_info', 'workspace_tree', 'project_snapshot', 'read_file', 'read_files',
       'search_files', 'search_text', 'git_status', 'git_diff', 'git_log', 'git', 'write_file',
-      'apply_patch', 'move_file', 'copy_file', 'delete_file', 'process_start', 'process_list', 'process_status',
+      'apply_patch', 'move_file', 'copy_file', 'delete_file', 'restore_deleted_file', 'process_start', 'process_list', 'process_status',
       'process_logs', 'process_stop', 'project_dev', 'project_test', 'project_lint',
       'project_typecheck', 'project_build', 'shell', 'dom_cdp', 'accessibility', 'input_event', 'vision', 'vision_annotated_capture', 'ui_target_action', 'window', 'health',
       'system_info', 'notification', 'file_dialog', 'clipboard', 'web_fetch',
@@ -415,12 +416,52 @@ describe('MCP tool registry', () => {
       capabilities: {
         async execute(): Promise<ReturnType<typeof ok>> { return ok({ ok: true }); },
       },
-    }, actor, { allowAiDeleteProvider: (): boolean => true });
+    }, actor, {
+      allowAiDeleteProvider: (): boolean => true,
+      activeProjectProvider: (): ActiveProjectScope => ({ workspaceId: 'workspace-1', rootPath: 'E:\\project' }),
+    });
 
     const deleted = await registry.invoke('delete_file', { workspaceId: 'workspace-1', path: 'tmp.txt' });
     expect(deleted.isError).not.toBe(true);
     expect(deletes).toBe(1);
     await expect(registry.invoke('shell', { operation: 'run', executable: 'rm', arguments: ['tmp.txt'] }))
+      .resolves.toMatchObject({ isError: true, structuredContent: { error: { code: 'PERMISSION_REQUIRED' } } });
+  });
+
+  it('auto-approves only enabled destructive command families inside the active project', async () => {
+    const capabilityInputs: unknown[] = [];
+    let gitRuns = 0;
+    const registry = new ToolRegistry({
+      capabilities: {
+        async execute(_tool, input): Promise<ReturnType<typeof ok>> { capabilityInputs.push(input); return ok({ ok: true }); },
+      },
+      git: {
+        async run(): Promise<ReturnType<typeof ok>> { gitRuns += 1; return ok({ exitCode: 0, stdout: '', stderr: '' }); },
+      } as McpApplicationServices['git'],
+    }, actor, {
+      destructivePolicyProvider: (): DestructiveAutoApprovalPolicy => ({
+        ...DEFAULT_DESTRUCTIVE_AUTO_APPROVAL_POLICY,
+        approvals: {
+          ...DEFAULT_DESTRUCTIVE_AUTO_APPROVAL_POLICY.approvals,
+          git_rm: true,
+          shell_rm_unlink: true,
+        },
+      }),
+      activeProjectProvider: (): ActiveProjectScope => ({ workspaceId: 'workspace-1', rootPath: 'E:\\project' }),
+    });
+
+    const gitRm = await registry.invoke('git', { workspaceId: 'workspace-1', args: ['rm', '--', 'src/old.ts'] });
+    expect(gitRm.isError).not.toBe(true);
+    expect(gitRuns).toBe(1);
+
+    const shellRm = await registry.invoke('shell', { operation: 'run', executable: 'rm', arguments: ['src/old.tmp'] });
+    expect(shellRm.isError).not.toBe(true);
+    expect(capabilityInputs).toHaveLength(1);
+    expect(capabilityInputs[0]).toMatchObject({ userConfirmed: true });
+
+    await expect(registry.invoke('shell', { operation: 'run', executable: 'rm', arguments: ['..\\outside.tmp'] }))
+      .resolves.toMatchObject({ isError: true, structuredContent: { error: { code: 'PERMISSION_REQUIRED' } } });
+    await expect(registry.invoke('git', { workspaceId: 'workspace-1', args: ['clean', '-fd'] }))
       .resolves.toMatchObject({ isError: true, structuredContent: { error: { code: 'PERMISSION_REQUIRED' } } });
   });
 

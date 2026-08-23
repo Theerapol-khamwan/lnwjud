@@ -166,6 +166,8 @@ async function main(): Promise<void> {
     codexToolsEnabled: runtime.codexToolsEnabled,
     profileProvider: runtime.profileProvider,
     allowAiDeleteProvider: runtime.allowAiDeleteProvider,
+    destructivePolicyProvider: runtime.destructivePolicyProvider,
+    activeProjectProvider: runtime.activeProjectProvider,
     onError: (error): void => {
       if (/EPIPE|ECONNRESET|broken pipe/i.test(error.message)) {
         process.stderr.write(`lnwjud MCP stdio: peer closed (${error.message})\n`);

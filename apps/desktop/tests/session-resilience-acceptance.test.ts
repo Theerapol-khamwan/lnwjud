@@ -66,7 +66,7 @@ describe('session resilience acceptance', () => {
     try {
       await client.connect(transport);
       const tools = await client.listTools();
-      expect(tools.tools).toHaveLength(207);
+      expect(tools.tools).toHaveLength(208);
       expect(tools.tools.some((tool) => tool.name.startsWith('codex_'))).toBe(false);
       for (let index = 0; index < 3; index += 1) {
         const result = await client.callTool({ name: 'workspace_list', arguments: {} });

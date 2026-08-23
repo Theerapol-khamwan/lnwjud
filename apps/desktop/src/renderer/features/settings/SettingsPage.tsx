@@ -1,5 +1,5 @@
 import { useEffect, useState, type ReactElement } from 'react';
-import type { DashboardSnapshot, PermissionProfileName, UiLocale, UserSettings } from '@lnwjud/ipc-contracts';
+import type { DashboardSnapshot, DestructiveApprovalKey, DestructiveDeletePolicy, PermissionProfileName, UiLocale, UserSettings } from '@lnwjud/ipc-contracts';
 import { createTranslator } from '../../i18n/index.js';
 import { SettingSwitch } from './SettingSwitch.js';
 import { UserConfigPanel, type UserConfigSection } from './UserConfigPanel.js';
@@ -10,7 +10,7 @@ interface SettingsPageProps {
   readonly onLocaleChange: (locale: UiLocale) => Promise<void>;
   readonly onPermissionProfileChange: (profile: PermissionProfileName) => Promise<void>;
   readonly onUnrestrictedChange: (enabled: boolean) => Promise<boolean>;
-  readonly onAiDeleteChange: (enabled: boolean) => Promise<void>;
+  readonly onDestructiveDeletePolicyChange: (policy: DestructiveDeletePolicy) => Promise<void>;
   readonly onStdioPolicyChange: (profile: PermissionProfileName, strictRoots: boolean, allowedRoots: readonly string[]) => Promise<boolean>;
   readonly onCreateBackup: () => Promise<void>;
   readonly onScheduleRestoreBackup: (backupId: string) => Promise<boolean>;
@@ -56,6 +56,15 @@ export function SettingsPage(props: SettingsPageProps): ReactElement {
   useEffect(() => {
     setClientPath(props.dashboard.tunnel.clientPath ?? '');
   }, [props.dashboard.tunnel.clientPath]);
+
+  function updateDestructivePolicy(next: DestructiveDeletePolicy): void {
+    void props.onDestructiveDeletePolicyChange(next);
+  }
+
+  function setDestructiveApproval(key: DestructiveApprovalKey, enabled: boolean): void {
+    const current = props.dashboard.destructiveDeletePolicy;
+    updateDestructivePolicy({ ...current, approvals: { ...current.approvals, [key]: enabled } });
+  }
 
   async function saveStdioPolicy(): Promise<void> {
     const roots = splitList(allowedRootsText);
@@ -214,9 +223,49 @@ export function SettingsPage(props: SettingsPageProps): ReactElement {
                 {unrestrictedMessage === null ? null : <div className="alert-box-warning" role="status">⚠️ {unrestrictedMessage}</div>}
               </section>
 
-              <section className="panel settings-card settings-card-polished" aria-label="AI delete policy">
-                <SettingsCardHeading icon="⌫" title={props.locale === 'th' ? 'สิทธิ์ AI ลบไฟล์' : 'AI File Delete Policy'} subtitle="Scoped delete_file policy" badge={props.dashboard.allowAiDelete ? 'ON' : 'OFF'} />
-                <SettingSwitch checked={props.dashboard.allowAiDelete} label={props.locale === 'th' ? 'อนุญาต delete_file ใน workspace' : 'Allow delete_file inside workspaces'} description={props.locale === 'th' ? 'ไม่ปลดล็อกคำสั่ง shell ลบไฟล์แบบกว้าง' : 'Does not broadly unlock destructive shell deletion'} onChange={(enabled) => { void props.onAiDeleteChange(enabled); }} />
+              <section className="panel settings-card settings-card-polished" aria-label="AI destructive action policy">
+                <SettingsCardHeading
+                  icon="⌫"
+                  title={props.locale === 'th' ? 'สิทธิ์ AI ลบ / ทิ้งข้อมูล' : 'AI Destructive Actions'}
+                  subtitle={props.locale === 'th' ? 'Auto-approve แยกตามคำสั่ง — จำกัดเฉพาะ Active Project' : 'Per-command auto-approval — always scoped to the Active Project'}
+                  badge={Object.values(props.dashboard.destructiveDeletePolicy.approvals).some(Boolean) ? 'CUSTOM' : 'ASK'}
+                />
+                <div className="alert-box-warning" role="note">
+                  ⚠️ {props.locale === 'th'
+                    ? 'เปิดสวิตช์แล้ว AI จะไม่ถามซ้ำเฉพาะคำสั่งนั้น เมื่อพิสูจน์ได้ว่าเป้าหมายอยู่ใน Active Project เท่านั้น ถ้า path คลุมเครือ, ออกนอกโปรเจกต์ หรือ Active Project เป็นทั้งไดรฟ์ ระบบจะกลับไปขออนุมัติ'
+                    : 'Enabled actions skip per-call approval only when every target is proven inside the Active Project. Ambiguous/out-of-project paths and whole-drive project roots fall back to approval.'}
+                </div>
+                <div className="setting-grid two-col align-center">
+                  <SettingSwitch
+                    checked={props.dashboard.destructiveDeletePolicy.protectCriticalFiles}
+                    label={props.locale === 'th' ? 'Protected Critical Files' : 'Protected Critical Files'}
+                    description={props.locale === 'th' ? 'บังคับถามก่อนลบ .env, .git, key/cert, database, manifest/lockfile สำคัญ' : 'Always ask before deleting .env, .git, keys/certs, databases, and critical manifests/lockfiles'}
+                    onChange={(enabled) => updateDestructivePolicy({ ...props.dashboard.destructiveDeletePolicy, protectCriticalFiles: enabled })}
+                  />
+                  <SettingSwitch
+                    checked={props.dashboard.destructiveDeletePolicy.recoverableDelete}
+                    label={props.locale === 'th' ? 'Recoverable delete_file' : 'Recoverable delete_file'}
+                    description={props.locale === 'th' ? 'delete_file ย้ายของที่ลบเข้า Recovery Trash และสร้าง checkpoint เมื่อทำได้' : 'delete_file moves targets to Recovery Trash and checkpoints files when possible'}
+                    onChange={(enabled) => updateDestructivePolicy({ ...props.dashboard.destructiveDeletePolicy, recoverableDelete: enabled })}
+                  />
+                </div>
+                <div className="settings-mini-heading"><strong>{props.locale === 'th' ? 'คำสั่งที่อนุญาตให้ AI ทำเอง' : 'Auto-approved command families'}</strong><span>Active Project only</span></div>
+                <div className="setting-grid two-col">
+                  {destructiveApprovalRows(props.locale).map((row) => (
+                    <SettingSwitch
+                      key={row.key}
+                      checked={props.dashboard.destructiveDeletePolicy.approvals[row.key]}
+                      label={row.label}
+                      description={row.description}
+                      onChange={(enabled) => setDestructiveApproval(row.key, enabled)}
+                    />
+                  ))}
+                </div>
+                <p className="hint">
+                  {props.locale === 'th'
+                    ? 'PowerShell/cmd/bash แบบ command string, Node/Python script ที่ลบไฟล์, robocopy /MIR /PURGE, force-push/ลบ remote history และ opaque UI actions ยังต้องขออนุมัติเสมอ เพราะพิสูจน์ target ล่วงหน้าไม่ได้อย่างปลอดภัย'
+                    : 'Opaque PowerShell/cmd/bash command strings, Node/Python delete scripts, robocopy /MIR or /PURGE, remote-history rewrites, and opaque UI actions still always require approval.'}
+                </p>
               </section>
 
               <section className="panel settings-card settings-card-polished" aria-label="STDIO security policy">
@@ -293,6 +342,31 @@ function SettingsCardHeading({ icon, title, subtitle, badge, action }: { readonl
       {action ?? (badge === undefined ? null : <span className="pill-badge gold">{badge}</span>)}
     </div>
   );
+}
+
+function destructiveApprovalRows(locale: UiLocale): readonly { readonly key: DestructiveApprovalKey; readonly label: string; readonly description: string }[] {
+  if (locale === 'th') return [
+    { key: 'delete_file', label: 'delete_file', description: 'ลบไฟล์/โฟลเดอร์ว่างแบบ scoped; ใช้ Recovery Trash ได้' },
+    { key: 'git_rm', label: 'git rm', description: 'ลบ tracked path ที่พิสูจน์ว่าอยู่ใน Active Project' },
+    { key: 'git_clean', label: 'git clean', description: 'ลบ untracked files; เมื่อ Critical Protection เปิด ต้องมี pathspec ชัดเจน' },
+    { key: 'git_reset_restore', label: 'git reset / restore', description: 'อนุญาตทิ้ง working-tree/index changes ภายใน repo ที่ active' },
+    { key: 'shell_rm_unlink', label: 'rm / unlink', description: 'เฉพาะ executable ตรง + argv path ภายใน Active Project' },
+    { key: 'shell_rmdir', label: 'rmdir / rd', description: 'เฉพาะ directory target ภายใน Active Project' },
+    { key: 'shell_del_erase', label: 'del / erase', description: 'Windows direct delete executable ภายใน Active Project' },
+    { key: 'wsl_rm_unlink', label: 'WSL rm / unlink', description: 'เฉพาะ relative path ที่ผูกกับ Active Project' },
+    { key: 'wsl_rmdir', label: 'WSL rmdir', description: 'เฉพาะ relative directory path ที่ผูกกับ Active Project' },
+  ];
+  return [
+    { key: 'delete_file', label: 'delete_file', description: 'Scoped file/empty-directory deletion; supports Recovery Trash' },
+    { key: 'git_rm', label: 'git rm', description: 'Tracked paths proven inside the Active Project' },
+    { key: 'git_clean', label: 'git clean', description: 'Untracked deletion; critical protection requires explicit pathspecs' },
+    { key: 'git_reset_restore', label: 'git reset / restore', description: 'Discard working-tree/index changes in the active repository' },
+    { key: 'shell_rm_unlink', label: 'rm / unlink', description: 'Direct executable + argv paths inside the Active Project only' },
+    { key: 'shell_rmdir', label: 'rmdir / rd', description: 'Directory targets inside the Active Project only' },
+    { key: 'shell_del_erase', label: 'del / erase', description: 'Direct Windows delete executable inside the Active Project' },
+    { key: 'wsl_rm_unlink', label: 'WSL rm / unlink', description: 'Relative paths anchored to the Active Project only' },
+    { key: 'wsl_rmdir', label: 'WSL rmdir', description: 'Relative directory paths anchored to the Active Project only' },
+  ];
 }
 
 function splitList(value: string): readonly string[] {

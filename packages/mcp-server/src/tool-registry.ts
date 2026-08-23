@@ -1,10 +1,12 @@
 import { appError } from '@lnwjud/domain';
 import { sanitizeException, type DiagnosticLogger, type FileActor } from '@lnwjud/application';
 import { DefaultPermissionEngine, permissionProfiles, type PermissionProfile } from '@lnwjud/permissions';
+import { DEFAULT_DESTRUCTIVE_AUTO_APPROVAL_POLICY, type DestructiveAutoApprovalPolicy } from '@lnwjud/shared';
 import { ActivityTracker, type ActivitySink, type TraceContext } from './activity-tracker.js';
 import { ContextEngine } from './context-engine.js';
 import { ContextEconomyRuntime } from './context-economy.js';
 import { hasExplicitUserConfirmation, inspectDestructiveOperation } from './destructive-policy.js';
+import { isScopedAutoApprovalAllowed, type ActiveProjectScope } from './destructive-scope.js';
 import { FilePageEngine } from './file-page-engine.js';
 import { IncrementalVerifier } from './incremental-verifier.js';
 import { mapError, mapResult, type McpToolResponse } from './result-mapper.js';
@@ -27,14 +29,19 @@ import { workspaceTools } from './tools/workspace-tools.js';
 import type { McpApplicationServices, McpToolContext, McpToolDefinition } from './tools/tool-types.js';
 
 export type { McpApplicationServices } from './tools/tool-types.js';
+export type { ActiveProjectScope } from './destructive-scope.js';
 
 export interface ToolRegistryOptions {
   readonly diagnostic?: DiagnosticLogger;
   readonly activity?: ActivitySink;
   readonly activityTracker?: ActivityTracker;
   readonly profileProvider?: () => PermissionProfile;
-  /** Allows only the scoped delete_file tool to delete without per-call chat confirmation. */
+  /** Legacy compatibility. New callers should supply destructivePolicyProvider. */
   readonly allowAiDeleteProvider?: () => boolean;
+  /** Fine-grained local destructive auto-approval policy. */
+  readonly destructivePolicyProvider?: () => DestructiveAutoApprovalPolicy;
+  /** Active project boundary used for every auto-approved destructive operation. */
+  readonly activeProjectProvider?: () => ActiveProjectScope | null;
   /** Exposes quota-consuming Codex delegation tools. Disabled unless explicitly enabled. */
   readonly codexToolsEnabled?: boolean;
   readonly incrementalVerifier?: IncrementalVerifier;
@@ -55,14 +62,16 @@ export class ToolRegistry {
   private readonly schemaRegistry: ToolSchemaRegistry;
   private readonly permissionEngine = new DefaultPermissionEngine();
   private readonly profileProvider: () => PermissionProfile;
-  private readonly allowAiDeleteProvider: () => boolean;
+  private readonly destructivePolicyProvider: () => DestructiveAutoApprovalPolicy;
+  private readonly activeProjectProvider: () => ActiveProjectScope | null;
   private readonly maxToolDurationMs: number | null;
 
   public constructor(services: McpApplicationServices, actor: FileActor, options: ToolRegistryOptions = {}) {
     this.diagnostic = options.diagnostic;
     this.activity = options.activityTracker ?? new ActivityTracker(options.activity);
     this.profileProvider = options.profileProvider ?? ((): PermissionProfile => permissionProfiles.full);
-    this.allowAiDeleteProvider = options.allowAiDeleteProvider ?? ((): boolean => false);
+    this.destructivePolicyProvider = options.destructivePolicyProvider ?? ((): DestructiveAutoApprovalPolicy => legacyDeletePolicy(options.allowAiDeleteProvider?.() === true));
+    this.activeProjectProvider = options.activeProjectProvider ?? ((): ActiveProjectScope | null => null);
     this.maxToolDurationMs = normalizeToolResponseBudget(options.maxToolDurationMs);
     const contextEconomy = new ContextEconomyRuntime();
     const context: McpToolContext = { services, actor, contextEconomy };
@@ -132,8 +141,10 @@ export class ToolRegistry {
         return response;
       }
       const destructiveDecision = inspectDestructiveOperation(tool.name, parsed.value);
-      const policyAllowsScopedDelete = tool.name === 'delete_file' && this.allowAiDeleteProvider();
-      if (destructiveDecision.destructive && !hasExplicitUserConfirmation(parsed.value) && !policyAllowsScopedDelete) {
+      const policy = this.destructivePolicyProvider();
+      const policyAllowsScopedDestructive = destructiveDecision.destructive
+        && isScopedAutoApprovalAllowed(tool.name, parsed.value, destructiveDecision, policy, this.activeProjectProvider());
+      if (destructiveDecision.destructive && !hasExplicitUserConfirmation(parsed.value) && !policyAllowsScopedDestructive) {
         const message = `Destructive operation requires explicit user confirmation${destructiveDecision.reason === undefined ? '' : `: ${destructiveDecision.reason}`}. Ask the user in chat first, then retry with userConfirmed: true`;
         const response = mapError(appError('PERMISSION_REQUIRED', message, true));
         await this.activity.end(callId, 'PERMISSION_REQUIRED', Date.now() - started, message);
@@ -141,7 +152,7 @@ export class ToolRegistry {
       }
       const permissionDecision = this.permissionEngine.decide(this.profileProvider(), {
         action: 'mcp:' + tool.name,
-        level: policyAllowsScopedDelete ? 'WRITE' : tool.permission,
+        level: policyAllowsScopedDestructive ? 'WRITE' : tool.permission,
         workspaceId: readWorkspaceId(parsed.value),
         target: tool.name,
         destructive: tool.annotations.destructiveHint,
@@ -155,7 +166,8 @@ export class ToolRegistry {
         await this.activity.end(callId, code, Date.now() - started, message);
         return response;
       }
-      const execution = await this.executeWithinResponseBudget(tool, parsed.value, parentSignal);
+      const executionInput = policyAllowsScopedDestructive ? withInternalUserConfirmation(parsed.value) : parsed.value;
+      const execution = await this.executeWithinResponseBudget(tool, executionInput, parentSignal);
       const response = execution.response;
       const resultCode = response.isError === true
         ? readErrorCode(response) ?? 'ERROR'
@@ -236,6 +248,19 @@ export class ToolRegistry {
       if (onParentAbort !== undefined) parentSignal?.removeEventListener('abort', onParentAbort);
     }
   }
+}
+
+function withInternalUserConfirmation(input: unknown): unknown {
+  if (typeof input !== 'object' || input === null || Array.isArray(input)) return input;
+  return { ...(input as Record<string, unknown>), userConfirmed: true };
+}
+
+function legacyDeletePolicy(enabled: boolean): DestructiveAutoApprovalPolicy {
+  if (!enabled) return DEFAULT_DESTRUCTIVE_AUTO_APPROVAL_POLICY;
+  return {
+    ...DEFAULT_DESTRUCTIVE_AUTO_APPROVAL_POLICY,
+    approvals: { ...DEFAULT_DESTRUCTIVE_AUTO_APPROVAL_POLICY.approvals, delete_file: true },
+  };
 }
 
 function normalizeToolResponseBudget(value: number | undefined): number | null {

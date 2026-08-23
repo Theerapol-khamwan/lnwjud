@@ -83,7 +83,10 @@ describe('DesktopRuntime persistence', () => {
       await writeFile(path.join(workspaceRoot, 'delete-policy.txt'), 'payload', 'utf8');
       await expect(runtime.mcpServices.file.deleteFile(runtime.mcpActor, workspace.id, { path: 'delete-policy.txt' }))
         .resolves.toMatchObject({ ok: false, error: { code: 'PERMISSION_REQUIRED' } });
-      await expect(runtime.services.setAiDeletePolicy({ enabled: true })).resolves.toEqual({ enabled: true });
+      await expect(runtime.services.setAiDeletePolicy({ enabled: true })).resolves.toMatchObject({
+        enabled: true,
+        policy: { protectCriticalFiles: true, recoverableDelete: true, approvals: { delete_file: true, git_rm: false } },
+      });
       await expect(runtime.mcpServices.file.deleteFile(runtime.mcpActor, workspace.id, { path: 'delete-policy.txt' }))
         .resolves.toMatchObject({ ok: true });
       await expect(readFile(path.join(workspaceRoot, 'delete-policy.txt'), 'utf8')).rejects.toThrow();
@@ -91,7 +94,7 @@ describe('DesktopRuntime persistence', () => {
       await expect(runtime.services.setStdioPolicy({ profile: 'safe', strictRoots: true, allowedRoots: [workspaceRoot] }))
         .resolves.toMatchObject({ profile: 'safe', strictRoots: true, allowedRoots: [workspaceRoot] });
       await expect(runtime.services.getDashboard()).resolves.toMatchObject({
-        allowAiDelete: true, stdioPermissionProfile: 'safe', stdioStrictRoots: true, stdioAllowedRoots: [workspaceRoot],
+        allowAiDelete: true, destructiveDeletePolicy: { approvals: { delete_file: true, git_rm: false } }, stdioPermissionProfile: 'safe', stdioStrictRoots: true, stdioAllowedRoots: [workspaceRoot],
       });
     } finally {
       await runtime.close();

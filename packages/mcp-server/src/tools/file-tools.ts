@@ -6,6 +6,7 @@ import {
   moveFileSchema,
   readFileSchema,
   readFilesSchema,
+  restoreDeletedFileSchema,
   writeFileSchema,
 } from './schemas.js';
 
@@ -83,7 +84,7 @@ export function fileTools(context: McpToolContext): McpToolDefinition[] {
     }),
     defineTool({
       name: 'delete_file',
-      description: 'Delete one file or an empty directory inside its workspace. By default ask the user in chat first and retry with userConfirmed: true; the desktop AI File Delete Policy may allow this scoped tool without per-call confirmation. Workspace-root deletion remains blocked.',
+      description: 'Delete one file or an empty directory inside its workspace. Fine-grained desktop policy may auto-approve only inside the Active Project. Protected Critical Files remain approval-gated; when Recovery Trash is enabled the result includes a recoveryId. Workspace-root deletion remains blocked.',
       permission: 'DANGEROUS',
       annotations: { readOnlyHint: false, destructiveHint: true },
       inputSchema: deleteFileSchema,
@@ -93,6 +94,16 @@ export function fileTools(context: McpToolContext): McpToolDefinition[] {
           path: input.path,
           ...(input.userConfirmed === undefined ? {} : { userConfirmed: input.userConfirmed }),
         }, signal),
+    }),
+    defineTool({
+      name: 'restore_deleted_file',
+      description: 'Restore one Recovery Trash item to its original path. Refuses to overwrite an existing target and remains scoped to the recorded workspace.',
+      permission: 'WRITE',
+      annotations: { readOnlyHint: false, destructiveHint: false },
+      inputSchema: restoreDeletedFileSchema,
+      handler: async (input, signal) => context.services.file === undefined
+        ? missingService()
+        : context.services.file.restoreDeletedFile(context.actor, input.workspaceId, { recoveryId: input.recoveryId }, signal),
     }),
   ];
 }

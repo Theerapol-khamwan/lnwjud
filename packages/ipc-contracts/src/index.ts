@@ -47,6 +47,21 @@ export const pushChannels = {
 
 export type IpcChannel = typeof ipcChannels[keyof typeof ipcChannels];
 export type PermissionProfileName = 'safe' | 'balanced' | 'full' | 'custom';
+export type DestructiveApprovalKey =
+  | 'delete_file'
+  | 'git_rm'
+  | 'git_clean'
+  | 'git_reset_restore'
+  | 'shell_rm_unlink'
+  | 'shell_rmdir'
+  | 'shell_del_erase'
+  | 'wsl_rm_unlink'
+  | 'wsl_rmdir';
+export interface DestructiveDeletePolicy {
+  readonly protectCriticalFiles: boolean;
+  readonly recoverableDelete: boolean;
+  readonly approvals: Readonly<Record<DestructiveApprovalKey, boolean>>;
+}
 export type UiLocale = 'th' | 'en';
 export type AgentState = 'stopped' | 'idle' | 'busy';
 export type TunnelRunState = 'stopped' | 'starting' | 'running' | 'error';
@@ -255,8 +270,9 @@ export interface DashboardSnapshot {
   readonly mode: 'WORK';
   readonly locale: UiLocale;
   readonly unrestricted: boolean;
-  /** When true, the scoped delete_file tool may delete within its workspace without per-call chat confirmation. */
+  /** Legacy alias for destructiveDeletePolicy.approvals.delete_file. */
   readonly allowAiDelete: boolean;
+  readonly destructiveDeletePolicy: DestructiveDeletePolicy;
   readonly stdioPermissionProfile: PermissionProfileName;
   readonly stdioStrictRoots: boolean;
   readonly stdioAllowedRoots: readonly string[];
@@ -316,7 +332,10 @@ export interface SetUnrestrictedModeRequest {
 }
 
 export interface SetAiDeletePolicyRequest {
-  readonly enabled: boolean;
+  /** Legacy single-toggle compatibility. */
+  readonly enabled?: boolean;
+  /** Preferred fine-grained destructive auto-approval policy. */
+  readonly policy?: DestructiveDeletePolicy;
 }
 
 export interface SetStdioPolicyRequest {
@@ -420,7 +439,7 @@ export interface IpcResponseMap {
   readonly [ipcChannels.getDashboard]: DashboardSnapshot;
   readonly [ipcChannels.setPermissionProfile]: { readonly profile: PermissionProfileName };
   readonly [ipcChannels.setUnrestrictedMode]: { readonly unrestricted: boolean; readonly restartRequired: boolean };
-  readonly [ipcChannels.setAiDeletePolicy]: { readonly enabled: boolean };
+  readonly [ipcChannels.setAiDeletePolicy]: { readonly enabled: boolean; readonly policy: DestructiveDeletePolicy };
   readonly [ipcChannels.setStdioPolicy]: { readonly profile: PermissionProfileName; readonly strictRoots: boolean; readonly allowedRoots: readonly string[]; readonly restartRequired: boolean };
   readonly [ipcChannels.createBackup]: BackupSummary;
   readonly [ipcChannels.scheduleRestoreBackup]: { readonly scheduled: boolean; readonly restartRequired: boolean };

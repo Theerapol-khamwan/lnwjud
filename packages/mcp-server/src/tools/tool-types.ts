@@ -49,7 +49,7 @@ export interface McpApplicationServices {
   readonly workspaceQuery?: Pick<WorkspaceQueryService, 'tree'>;
   readonly projectSnapshot?: ProjectSnapshotPort;
   readonly project?: Pick<ProjectService, 'detect'>;
-  readonly file?: Pick<FileService, 'readFile' | 'readFiles' | 'writeFile' | 'applyPatch' | 'moveFile' | 'copyFile' | 'deleteFile'>;
+  readonly file?: Pick<FileService, 'readFile' | 'readFiles' | 'writeFile' | 'applyPatch' | 'moveFile' | 'copyFile' | 'deleteFile' | 'restoreDeletedFile'>;
   readonly search?: Pick<SearchService, 'searchFiles' | 'searchText'>;
   readonly workspaceIndex?: Pick<WorkspaceIndexService, 'indexWorkspace' | 'status' | 'startWatch' | 'stopWatch'>;
   readonly git?: Pick<GitService, 'status' | 'diff' | 'log' | 'run'>;

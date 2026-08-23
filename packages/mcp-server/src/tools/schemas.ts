@@ -48,8 +48,12 @@ export const copyFileSchema = moveFileSchema;
 export const deleteFileSchema = z.object({
   workspaceId: optionalWorkspaceIdSchema,
   path: pathSchema,
-  /** True after human confirmation. May be omitted only when the scoped AI File Delete Policy is explicitly enabled. */
+  /** True after human confirmation. May be omitted only when a scoped destructive policy explicitly allows it. */
   userConfirmed: z.boolean().optional(),
+}).strict();
+export const restoreDeletedFileSchema = z.object({
+  workspaceId: workspaceIdSchema,
+  recoveryId: z.string().uuid(),
 }).strict();
 
 export const workspaceListSchema = z.object({}).strict();

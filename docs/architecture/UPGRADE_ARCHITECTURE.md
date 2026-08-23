@@ -41,7 +41,7 @@ MCP clients (ChatGPT / Codex / Claude / other agents)
              MCP stdio or loopback Streamable HTTP
                          |
                          v
-                  ToolRegistry (213 configurable tools; 207 advertised by default)
+                  ToolRegistry (214 configurable tools; 208 advertised by default)
                          |
        +-----------------+------------------+
        |                 |                  |
@@ -108,8 +108,8 @@ builds the high-impact slices on top of it:
 Long-running operations use the existing task handles where a concrete backend
 exists. Activity events now carry bounded `traceId`/`traceParent` values into
 NDJSON and SQLite audit metadata. The 184-tool snapshot remains a historical
-compatibility baseline. Current transports support 213 configurable tools and
-advertise 207 by default because the six Codex delegation tools are opt-in;
+compatibility baseline. Current transports support 214 configurable tools and
+advertise 208 by default because the six Codex delegation tools are opt-in;
 registry additions remain append-only.
 
 ## Request and side-effect pipeline

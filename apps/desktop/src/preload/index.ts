@@ -8,6 +8,7 @@ import {
   type ClearLogBufferRequest,
   type ConfigureTunnelProfileRequest,
   type DashboardSnapshot,
+  type DestructiveDeletePolicy,
   type DoctorCheck,
   type DoctorReport,
   type ExportLogsRequest,
@@ -267,6 +268,7 @@ function dashboard(value: unknown): DashboardSnapshot {
     locale: uiLocale(value.locale),
     unrestricted: booleanField(value, 'unrestricted'),
     allowAiDelete: booleanField(value, 'allowAiDelete'),
+    destructiveDeletePolicy: destructiveDeletePolicy(value.destructiveDeletePolicy),
     stdioPermissionProfile: permissionProfile(value.stdioPermissionProfile),
     stdioStrictRoots: booleanField(value, 'stdioStrictRoots'),
     stdioAllowedRoots: stringList(value.stdioAllowedRoots),
@@ -442,12 +444,27 @@ function setUnrestrictedMode(request: SetUnrestrictedModeRequest): Promise<{ rea
   });
 }
 
-function setAiDeletePolicy(request: SetAiDeletePolicyRequest): Promise<{ readonly enabled: boolean }> {
-  if (!isRecord(request) || typeof request.enabled !== 'boolean') return Promise.reject(new Error('Invalid IPC request'));
-  return invoke(ipcChannels.setAiDeletePolicy, { enabled: request.enabled }).then((value: unknown) => {
+function setAiDeletePolicy(request: SetAiDeletePolicyRequest): Promise<{ readonly enabled: boolean; readonly policy: DestructiveDeletePolicy }> {
+  if (!isRecord(request)) return Promise.reject(new Error('Invalid IPC request'));
+  const enabled = typeof request.enabled === 'boolean' ? request.enabled : undefined;
+  let policy: DestructiveDeletePolicy | undefined;
+  try { policy = request.policy === undefined ? undefined : destructiveDeletePolicy(request.policy); }
+  catch (error) { return Promise.reject(error); }
+  if (enabled === undefined && policy === undefined) return Promise.reject(new Error('Invalid IPC request'));
+  const payload = { ...(enabled === undefined ? {} : { enabled }), ...(policy === undefined ? {} : { policy }) };
+  return invoke(ipcChannels.setAiDeletePolicy, payload).then((value: unknown) => {
     if (!isRecord(value)) throw new Error('Invalid IPC response');
-    return { enabled: booleanField(value, 'enabled') };
+    return { enabled: booleanField(value, 'enabled'), policy: destructiveDeletePolicy(value.policy) };
   });
+}
+
+function destructiveDeletePolicy(value: unknown): DestructiveDeletePolicy {
+  if (!isRecord(value) || typeof value.protectCriticalFiles !== 'boolean' || typeof value.recoverableDelete !== 'boolean') throw new Error('Invalid IPC response');
+  const approvalsRaw = value.approvals;
+  if (!isRecord(approvalsRaw)) throw new Error('Invalid IPC response');
+  const keys = ['delete_file', 'git_rm', 'git_clean', 'git_reset_restore', 'shell_rm_unlink', 'shell_rmdir', 'shell_del_erase', 'wsl_rm_unlink', 'wsl_rmdir'] as const;
+  const approvals = Object.fromEntries(keys.map((key) => [key, booleanField(approvalsRaw, key)])) as Record<(typeof keys)[number], boolean>;
+  return { protectCriticalFiles: value.protectCriticalFiles, recoverableDelete: value.recoverableDelete, approvals };
 }
 
 function setStdioPolicy(request: SetStdioPolicyRequest): Promise<{ readonly profile: PermissionProfileName; readonly strictRoots: boolean; readonly allowedRoots: readonly string[]; readonly restartRequired: boolean }> {

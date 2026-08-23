@@ -148,6 +148,53 @@ describe('FileService writes', () => {
     await expect(service.deleteFile(actor, workspace.id, { path: '.' })).resolves.toMatchObject({ ok: false, error: { code: 'PERMISSION_DENIED' } });
   });
 
+  it('keeps protected critical files approval-gated even when AI delete is enabled', async () => {
+    const workspace = await createWorkspace();
+    await writeFile(path.join(workspace.rootPath, 'package.json'), '{"name":"critical"}', 'utf8');
+    const service = new FileService(repository(workspace), undefined, undefined, {
+      profile: permissionProfiles.balanced,
+      allowDeleteWithoutConfirmation: (): boolean => true,
+      protectCriticalFiles: (): boolean => true,
+    });
+
+    await expect(service.deleteFile(actor, workspace.id, { path: 'package.json' }))
+      .resolves.toMatchObject({ ok: false, error: { code: 'PERMISSION_REQUIRED' } });
+    await expect(readFile(path.join(workspace.rootPath, 'package.json'), 'utf8')).resolves.toContain('critical');
+  });
+
+  it('creates a checkpoint and moves delete_file targets into recovery trash', async () => {
+    const workspace = await createWorkspace();
+    const recoveryRoot = await mkdtemp(path.join(os.tmpdir(), 'lnwjud-recovery-'));
+    temporaryRoots.push(recoveryRoot);
+    const checkpoints = checkpointService();
+    const source = path.join(workspace.rootPath, 'src', 'recover-me.txt');
+    await writeFile(source, 'recoverable payload', 'utf8');
+    const service = new FileService(repository(workspace), undefined, undefined, {
+      profile: permissionProfiles.balanced,
+      checkpointService: checkpoints,
+      allowDeleteWithoutConfirmation: (): boolean => true,
+      protectCriticalFiles: (): boolean => true,
+      recoverableDelete: (): boolean => true,
+      recoveryTrashRoot: recoveryRoot,
+    });
+
+    const result = await service.deleteFile(actor, workspace.id, { path: 'src/recover-me.txt' });
+    expect(result).toMatchObject({ ok: true, value: { recoverable: true, checkpointId: 'checkpoint-1' } });
+    if (!result.ok) throw new Error(result.error.message);
+    expect(result.value.recoveryId).toBeTypeOf('string');
+    expect(result.value.recoveryPath).toBeTypeOf('string');
+    await expect(readFile(source, 'utf8')).rejects.toThrow();
+    await expect(readFile(result.value.recoveryPath!, 'utf8')).resolves.toBe('recoverable payload');
+    const metadata = JSON.parse(await readFile(path.join(path.dirname(result.value.recoveryPath!), 'metadata.json'), 'utf8')) as Record<string, unknown>;
+    expect(metadata).toMatchObject({ workspaceId: workspace.id, relativePath: 'src\\recover-me.txt' });
+    expect(checkpoints.calls).toEqual([['src\\recover-me.txt']]);
+
+    const restored = await service.restoreDeletedFile(actor, workspace.id, { recoveryId: result.value.recoveryId! });
+    expect(restored).toMatchObject({ ok: true, value: { recoveryId: result.value.recoveryId, path: 'src\\recover-me.txt' } });
+    await expect(readFile(source, 'utf8')).resolves.toBe('recoverable payload');
+    await expect(readFile(result.value.recoveryPath!, 'utf8')).rejects.toThrow();
+  });
+
   it('writes a nested file by creating missing parent directories', async () => {
 
     const workspace = await createWorkspace();
