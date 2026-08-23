@@ -1,31 +1,53 @@
-import { execFile } from 'node:child_process';
-import { randomUUID } from 'node:crypto';
-import { mkdir, open, rename, rm, writeFile } from 'node:fs/promises';
+﻿import { execFile } from 'node:child_process';
+import { createHash, randomUUID } from 'node:crypto';
+import { mkdir, open, readdir, rename, rm, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { promisify } from 'node:util';
 import type { ActivitySink, ActivitySinkEvent } from './activity-tracker.js';
 
 const execFileAsync = promisify(execFile);
-const SNAPSHOT_FILE = 'lnwjud.mcp.activity.json';
-const SNAPSHOT_VERSION = 1;
+const LEGACY_SNAPSHOT_FILE = 'lnwjud.mcp.activity.json';
+const LEASE_DIRECTORY = 'lnwjud.mcp.activity.v2';
+const LEGACY_SNAPSHOT_VERSION = 1;
+const LEASE_SNAPSHOT_VERSION = 2;
 const DEFAULT_STALE_AFTER_MS = 5_000;
 const DEFAULT_HEARTBEAT_MS = 1_000;
 const DEFAULT_PROCESS_PROBE_TIMEOUT_MS = 1_750;
 const DEFAULT_PROCESS_PROBE_ATTEMPTS = 2;
 const MAX_SNAPSHOT_BYTES = 16 * 1024;
+const MAX_ACTIVITY_LEASES = 128;
 const ISO_UTC_MILLISECONDS = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/;
+const LEASE_ID_PATTERN = /^[A-Za-z0-9._-]{1,128}$/;
 
 export interface SharedActivityOwner {
   readonly pid: number;
   readonly processStartedAt: string;
 }
 
-interface SharedActivitySnapshot {
+interface LegacySharedActivitySnapshot {
   readonly version: 1;
   readonly owner: SharedActivityOwner;
   readonly activeCount: number;
   readonly revision: number;
   readonly updatedAt: string;
+}
+
+interface SharedActivityLeaseSnapshot {
+  readonly version: 2;
+  readonly leaseId: string;
+  readonly owner: SharedActivityOwner;
+  readonly activeCount: number;
+  readonly revision: number;
+  readonly updatedAt: string;
+}
+
+interface SnapshotCandidate {
+  readonly filePath: string;
+  readonly snapshot: LegacySharedActivitySnapshot | SharedActivityLeaseSnapshot;
+}
+
+export interface SharedActivityLeaseObservation extends SharedActivityOwner {
+  readonly leaseId: string;
 }
 
 export type ProcessProbeResult =
@@ -40,7 +62,14 @@ export interface ProcessProbeOptions {
 }
 
 export type SharedActivityObservation =
-  | { readonly state: 'available'; readonly owner: SharedActivityOwner; readonly activeCount: number; readonly revision: number; readonly updatedAt: string }
+  | {
+    readonly state: 'available';
+    readonly owners: readonly SharedActivityLeaseObservation[];
+    readonly ownerKey: string;
+    readonly activeCount: number;
+    readonly revision: number;
+    readonly updatedAt: string;
+  }
   | { readonly state: 'missing'; readonly reason: 'snapshot_missing' }
   | { readonly state: 'stale'; readonly reason: 'snapshot_expired' | 'owner_gone' | 'owner_reused' }
   | { readonly state: 'unverifiable'; readonly reason: string };
@@ -48,12 +77,14 @@ export type SharedActivityObservation =
 export interface SharedActivitySnapshotLeaseOptions {
   readonly profileDirectory: string;
   readonly owner: SharedActivityOwner;
+  readonly leaseId?: string;
   readonly now?: () => Date;
   readonly heartbeatMs?: number;
   readonly hooks?: { readonly afterCloseQuarantine?: () => Promise<void> };
 }
 
 export class SharedActivitySnapshotLease implements ActivitySink {
+  private readonly leaseId: string;
   private readonly snapshotPath: string;
   private readonly now: () => Date;
   private readonly heartbeatMs: number;
@@ -66,7 +97,9 @@ export class SharedActivitySnapshotLease implements ActivitySink {
 
   public constructor(private readonly options: SharedActivitySnapshotLeaseOptions) {
     if (!validOwner(options.owner)) throw new Error('Shared activity owner metadata is invalid');
-    this.snapshotPath = sharedActivitySnapshotPath(options.profileDirectory);
+    this.leaseId = options.leaseId ?? randomUUID();
+    if (!validLeaseId(this.leaseId)) throw new Error('Shared activity lease ID is invalid');
+    this.snapshotPath = sharedActivityLeasePath(options.profileDirectory, options.owner, this.leaseId);
     this.now = options.now ?? ((): Date => new Date());
     this.heartbeatMs = options.heartbeatMs ?? DEFAULT_HEARTBEAT_MS;
   }
@@ -75,13 +108,10 @@ export class SharedActivitySnapshotLease implements ActivitySink {
     return this.enqueue(async () => {
       if (this.initialized) return;
       if (this.closed) throw new Error('Shared activity lease is closed');
-      await mkdir(this.options.profileDirectory, { recursive: true });
+      await mkdir(sharedActivityLeaseDirectoryPath(this.options.profileDirectory), { recursive: true });
       await this.publish();
       this.initialized = true;
-      if (this.heartbeatMs > 0) {
-        this.heartbeat = setInterval(() => { void this.refresh(); }, this.heartbeatMs);
-        this.heartbeat.unref?.();
-      }
+      this.startHeartbeat();
     });
   }
 
@@ -109,8 +139,8 @@ export class SharedActivitySnapshotLease implements ActivitySink {
         return false;
       }
       try {
-        const moved = parseSnapshot(await readBoundedSnapshot(quarantinePath));
-        if (moved === null || !sameOwner(moved.owner, this.options.owner)) {
+        const moved = parseLeaseSnapshot(await readBoundedSnapshot(quarantinePath));
+        if (moved === null || moved.leaseId !== this.leaseId || !sameOwner(moved.owner, this.options.owner)) {
           await restoreSnapshot(quarantinePath, this.snapshotPath);
           return false;
         }
@@ -134,30 +164,28 @@ export class SharedActivitySnapshotLease implements ActivitySink {
   private async initializeInsideOperation(): Promise<void> {
     if (this.initialized) return;
     if (this.closed) throw new Error('Shared activity lease is closed');
-    await mkdir(this.options.profileDirectory, { recursive: true });
+    await mkdir(sharedActivityLeaseDirectoryPath(this.options.profileDirectory), { recursive: true });
     await this.publish();
     this.initialized = true;
-    if (this.heartbeatMs > 0) {
-      this.heartbeat = setInterval(() => { void this.refresh(); }, this.heartbeatMs);
-      this.heartbeat.unref?.();
-    }
+    this.startHeartbeat();
+  }
+
+  private startHeartbeat(): void {
+    if (this.heartbeatMs <= 0 || this.heartbeat !== null) return;
+    this.heartbeat = setInterval(() => { void this.refresh(); }, this.heartbeatMs);
+    this.heartbeat.unref?.();
   }
 
   private async publish(): Promise<void> {
-    const snapshot: SharedActivitySnapshot = {
-      version: SNAPSHOT_VERSION,
+    const snapshot: SharedActivityLeaseSnapshot = {
+      version: LEASE_SNAPSHOT_VERSION,
+      leaseId: this.leaseId,
       owner: this.options.owner,
       activeCount: this.activeCount,
       revision: this.revision,
       updatedAt: this.now().toISOString(),
     };
-    const temporaryPath = `${this.snapshotPath}.publish.${process.pid}.${randomUUID()}`;
-    try {
-      await writeFile(temporaryPath, JSON.stringify(snapshot), { encoding: 'utf8', flag: 'wx' });
-      await rename(temporaryPath, this.snapshotPath);
-    } finally {
-      await rm(temporaryPath, { force: true }).catch(() => undefined);
-    }
+    await atomicWriteSnapshot(this.snapshotPath, snapshot);
   }
 
   private enqueue<T>(operation: () => Promise<T>): Promise<T> {
@@ -175,23 +203,65 @@ export interface ReadSharedActivitySnapshotOptions {
 }
 
 export async function readSharedActivitySnapshot(options: ReadSharedActivitySnapshotOptions): Promise<SharedActivityObservation> {
-  let raw: string;
-  try {
-    raw = await readBoundedSnapshot(sharedActivitySnapshotPath(options.profileDirectory));
-  } catch (error: unknown) {
-    return isNotFound(error)
-      ? { state: 'missing', reason: 'snapshot_missing' }
-      : { state: 'unverifiable', reason: 'snapshot_read_failed' };
+  const candidatesResult = await readSnapshotCandidates(options.profileDirectory);
+  if (!candidatesResult.ok) return { state: 'unverifiable', reason: candidatesResult.reason };
+  if (candidatesResult.candidates.length === 0) return { state: 'missing', reason: 'snapshot_missing' };
+
+  const now = options.now?.() ?? new Date();
+  const staleAfterMs = options.staleAfterMs ?? DEFAULT_STALE_AFTER_MS;
+  const probeCache = new Map<number, Promise<ProcessProbeResult>>();
+  const live: Array<LegacySharedActivitySnapshot | SharedActivityLeaseSnapshot> = [];
+  let staleReason: 'snapshot_expired' | 'owner_gone' | 'owner_reused' | undefined;
+
+  for (const candidate of candidatesResult.candidates) {
+    const ageMs = now.getTime() - new Date(candidate.snapshot.updatedAt).getTime();
+    if (ageMs > staleAfterMs) {
+      staleReason = 'snapshot_expired';
+      if (!(await quarantineStaleCandidate(candidate))) return { state: 'unverifiable', reason: 'stale_snapshot_cleanup_race' };
+      continue;
+    }
+
+    let probePromise = probeCache.get(candidate.snapshot.owner.pid);
+    if (probePromise === undefined) {
+      probePromise = options.inspectProcess?.(candidate.snapshot.owner.pid) ?? probeProcessStart(candidate.snapshot.owner.pid);
+      probeCache.set(candidate.snapshot.owner.pid, probePromise);
+    }
+    const probe = await probePromise;
+    if (probe.state === 'unverifiable') return { state: 'unverifiable', reason: probe.reason };
+    if (probe.state === 'gone') {
+      staleReason = 'owner_gone';
+      if (!(await quarantineStaleCandidate(candidate))) return { state: 'unverifiable', reason: 'stale_snapshot_cleanup_race' };
+      continue;
+    }
+    if (probe.processStartedAt !== candidate.snapshot.owner.processStartedAt) {
+      staleReason = 'owner_reused';
+      if (!(await quarantineStaleCandidate(candidate))) return { state: 'unverifiable', reason: 'stale_snapshot_cleanup_race' };
+      continue;
+    }
+    live.push(candidate.snapshot);
   }
-  const snapshot = parseSnapshot(raw);
-  if (snapshot === null) return { state: 'unverifiable', reason: 'invalid_snapshot' };
-  const ageMs = (options.now?.() ?? new Date()).getTime() - new Date(snapshot.updatedAt).getTime();
-  if (ageMs > (options.staleAfterMs ?? DEFAULT_STALE_AFTER_MS)) return { state: 'stale', reason: 'snapshot_expired' };
-  const probe = await (options.inspectProcess?.(snapshot.owner.pid) ?? probeProcessStart(snapshot.owner.pid));
-  if (probe.state === 'unverifiable') return probe;
-  if (probe.state === 'gone') return { state: 'stale', reason: 'owner_gone' };
-  if (probe.processStartedAt !== snapshot.owner.processStartedAt) return { state: 'stale', reason: 'owner_reused' };
-  return { state: 'available', owner: snapshot.owner, activeCount: snapshot.activeCount, revision: snapshot.revision, updatedAt: snapshot.updatedAt };
+
+  if (live.length === 0) {
+    return staleReason === undefined
+      ? { state: 'missing', reason: 'snapshot_missing' }
+      : { state: 'stale', reason: staleReason };
+  }
+
+  const owners = live.map((snapshot) => ({
+    ...snapshot.owner,
+    leaseId: snapshot.version === LEASE_SNAPSHOT_VERSION ? snapshot.leaseId : 'legacy-v1',
+  })).sort(compareLeaseOwners);
+  const activeCount = live.reduce((total, snapshot) => safeAdd(total, snapshot.activeCount), 0);
+  const revision = live.reduce((total, snapshot) => safeAdd(total, snapshot.revision), 0);
+  const updatedAt = live.reduce((latest, snapshot) => snapshot.updatedAt > latest ? snapshot.updatedAt : latest, live[0]!.updatedAt);
+  return {
+    state: 'available',
+    owners,
+    ownerKey: owners.map((entry) => `${entry.pid}:${entry.processStartedAt}:${entry.leaseId}`).join('|'),
+    activeCount,
+    revision,
+    updatedAt,
+  };
 }
 
 export async function currentSharedActivityOwner(): Promise<SharedActivityOwner> {
@@ -223,31 +293,135 @@ export function parseProcessProbeOutput(stdout: string): ProcessProbeResult {
   return { state: 'unverifiable', reason: 'invalid_probe_response' };
 }
 
+/** Legacy v1 fixed path retained only for migration/read compatibility. */
 export function sharedActivitySnapshotPath(profileDirectory: string): string {
-  return path.join(profileDirectory, SNAPSHOT_FILE);
+  return path.join(profileDirectory, LEGACY_SNAPSHOT_FILE);
 }
 
-function parseSnapshot(raw: string): SharedActivitySnapshot | null {
+export function sharedActivityLeaseDirectoryPath(profileDirectory: string): string {
+  return path.join(profileDirectory, LEASE_DIRECTORY);
+}
+
+export function sharedActivityLeasePath(profileDirectory: string, owner: SharedActivityOwner, leaseId: string): string {
+  const fingerprint = createHash('sha256')
+    .update(`${owner.pid}\0${owner.processStartedAt}\0${leaseId}`)
+    .digest('hex')
+    .slice(0, 32);
+  return path.join(sharedActivityLeaseDirectoryPath(profileDirectory), `lease-${fingerprint}.json`);
+}
+
+async function readSnapshotCandidates(profileDirectory: string): Promise<
+  | { readonly ok: true; readonly candidates: SnapshotCandidate[] }
+  | { readonly ok: false; readonly reason: string }
+> {
+  const candidates: SnapshotCandidate[] = [];
+  const legacyPath = sharedActivitySnapshotPath(profileDirectory);
+  try {
+    const raw = await readBoundedSnapshot(legacyPath);
+    const snapshot = parseLegacySnapshot(raw);
+    if (snapshot === null) return { ok: false, reason: 'invalid_snapshot' };
+    candidates.push({ filePath: legacyPath, snapshot });
+  } catch (error: unknown) {
+    if (!isNotFound(error)) return { ok: false, reason: 'snapshot_read_failed' };
+  }
+
+  const directory = sharedActivityLeaseDirectoryPath(profileDirectory);
+  let entries: string[];
+  try {
+    entries = (await readdir(directory, { withFileTypes: true }))
+      .filter((entry) => entry.isFile() && /^lease-[a-f0-9]{32}\.json$/.test(entry.name))
+      .map((entry) => entry.name)
+      .sort();
+  } catch (error: unknown) {
+    if (isNotFound(error)) return { ok: true, candidates };
+    return { ok: false, reason: 'snapshot_directory_read_failed' };
+  }
+  if (entries.length > MAX_ACTIVITY_LEASES) return { ok: false, reason: 'too_many_activity_leases' };
+
+  for (const name of entries) {
+    const filePath = path.join(directory, name);
+    try {
+      const snapshot = parseLeaseSnapshot(await readBoundedSnapshot(filePath));
+      if (snapshot === null) return { ok: false, reason: 'invalid_snapshot' };
+      candidates.push({ filePath, snapshot });
+    } catch (error: unknown) {
+      if (isNotFound(error)) continue;
+      return { ok: false, reason: 'snapshot_read_failed' };
+    }
+  }
+  return { ok: true, candidates };
+}
+
+async function quarantineStaleCandidate(candidate: SnapshotCandidate): Promise<boolean> {
+  const quarantinePath = `${candidate.filePath}.stale.${process.pid}.${randomUUID()}`;
+  try {
+    await rename(candidate.filePath, quarantinePath);
+  } catch {
+    return false;
+  }
+  try {
+    const raw = await readBoundedSnapshot(quarantinePath);
+    const moved = candidate.snapshot.version === LEGACY_SNAPSHOT_VERSION ? parseLegacySnapshot(raw) : parseLeaseSnapshot(raw);
+    if (moved === null || !sameSnapshot(candidate.snapshot, moved)) {
+      await restoreSnapshot(quarantinePath, candidate.filePath);
+      return false;
+    }
+    await rm(quarantinePath, { force: false });
+    return true;
+  } catch {
+    await restoreSnapshot(quarantinePath, candidate.filePath).catch(() => undefined);
+    return false;
+  }
+}
+
+async function atomicWriteSnapshot(filePath: string, snapshot: SharedActivityLeaseSnapshot): Promise<void> {
+  await mkdir(path.dirname(filePath), { recursive: true });
+  const temporaryPath = `${filePath}.publish.${process.pid}.${randomUUID()}`;
+  try {
+    await writeFile(temporaryPath, JSON.stringify(snapshot), { encoding: 'utf8', flag: 'wx' });
+    await rename(temporaryPath, filePath);
+  } finally {
+    await rm(temporaryPath, { force: true }).catch(() => undefined);
+  }
+}
+
+function parseLegacySnapshot(raw: string): LegacySharedActivitySnapshot | null {
   try {
     const value: unknown = JSON.parse(raw);
-    if (typeof value !== 'object' || value === null || Array.isArray(value)) return null;
-    const record = value as Record<string, unknown>;
-    if (record.version !== SNAPSHOT_VERSION || typeof record.owner !== 'object' || record.owner === null || Array.isArray(record.owner)) return null;
-    const ownerRecord = record.owner as Record<string, unknown>;
-    const parsedOwner = { pid: ownerRecord.pid, processStartedAt: ownerRecord.processStartedAt };
-    if (!validOwner(parsedOwner)) return null;
-    if (!Number.isSafeInteger(record.activeCount) || (record.activeCount as number) < 0 || !Number.isSafeInteger(record.revision) || (record.revision as number) < 0 || typeof record.updatedAt !== 'string' || !validTimestamp(record.updatedAt)) return null;
-    return { version: 1, owner: parsedOwner, activeCount: record.activeCount as number, revision: record.revision as number, updatedAt: record.updatedAt };
+    if (!isRecord(value) || value.version !== LEGACY_SNAPSHOT_VERSION || !isRecord(value.owner)) return null;
+    const parsedOwner = { pid: value.owner.pid, processStartedAt: value.owner.processStartedAt };
+    if (!validOwner(parsedOwner) || !validSnapshotCounters(value) || typeof value.updatedAt !== 'string' || !validTimestamp(value.updatedAt)) return null;
+    return { version: 1, owner: parsedOwner, activeCount: value.activeCount as number, revision: value.revision as number, updatedAt: value.updatedAt };
   } catch {
     return null;
   }
 }
 
+function parseLeaseSnapshot(raw: string): SharedActivityLeaseSnapshot | null {
+  try {
+    const value: unknown = JSON.parse(raw);
+    if (!isRecord(value) || value.version !== LEASE_SNAPSHOT_VERSION || !isRecord(value.owner) || !validLeaseId(value.leaseId)) return null;
+    const parsedOwner = { pid: value.owner.pid, processStartedAt: value.owner.processStartedAt };
+    if (!validOwner(parsedOwner) || !validSnapshotCounters(value) || typeof value.updatedAt !== 'string' || !validTimestamp(value.updatedAt)) return null;
+    return { version: 2, leaseId: value.leaseId, owner: parsedOwner, activeCount: value.activeCount as number, revision: value.revision as number, updatedAt: value.updatedAt };
+  } catch {
+    return null;
+  }
+}
+
+function validSnapshotCounters(record: Record<string, unknown>): boolean {
+  return Number.isSafeInteger(record.activeCount) && (record.activeCount as number) >= 0
+    && Number.isSafeInteger(record.revision) && (record.revision as number) >= 0;
+}
+
 function validOwner(value: unknown): value is SharedActivityOwner {
-  if (typeof value !== 'object' || value === null || Array.isArray(value)) return false;
-  const record = value as Record<string, unknown>;
-  return Number.isInteger(record.pid) && (record.pid as number) > 0 && (record.pid as number) <= 2_147_483_647
-    && typeof record.processStartedAt === 'string' && validTimestamp(record.processStartedAt);
+  if (!isRecord(value)) return false;
+  return Number.isInteger(value.pid) && (value.pid as number) > 0 && (value.pid as number) <= 2_147_483_647
+    && typeof value.processStartedAt === 'string' && validTimestamp(value.processStartedAt);
+}
+
+function validLeaseId(value: unknown): value is string {
+  return typeof value === 'string' && LEASE_ID_PATTERN.test(value);
 }
 
 function validTimestamp(value: string): boolean {
@@ -258,6 +432,23 @@ function validTimestamp(value: string): boolean {
 
 function sameOwner(left: SharedActivityOwner, right: SharedActivityOwner): boolean {
   return left.pid === right.pid && left.processStartedAt === right.processStartedAt;
+}
+
+function sameSnapshot(left: LegacySharedActivitySnapshot | SharedActivityLeaseSnapshot, right: LegacySharedActivitySnapshot | SharedActivityLeaseSnapshot): boolean {
+  if (left.version !== right.version || !sameOwner(left.owner, right.owner) || left.revision !== right.revision || left.updatedAt !== right.updatedAt) return false;
+  return left.version === 1 || (right.version === 2 && left.leaseId === right.leaseId);
+}
+
+function compareLeaseOwners(left: SharedActivityLeaseObservation, right: SharedActivityLeaseObservation): number {
+  return `${left.pid}:${left.processStartedAt}:${left.leaseId}`.localeCompare(`${right.pid}:${right.processStartedAt}:${right.leaseId}`);
+}
+
+function safeAdd(left: number, right: number): number {
+  return Math.min(Number.MAX_SAFE_INTEGER, left + right);
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
 function isNotFound(error: unknown): boolean {
@@ -281,7 +472,7 @@ async function restoreSnapshot(quarantinePath: string, snapshotPath: string): Pr
   try {
     await rename(quarantinePath, snapshotPath);
   } catch (error: unknown) {
-    // A fresh publisher may already own the fixed path. Never overwrite it.
+    // A fresh publisher may already own the original path. Never overwrite it.
     if (!isAlreadyExists(error) && !isNotFound(error)) throw error;
   }
 }
@@ -301,11 +492,10 @@ async function runWindowsProcessProbe(pid: number, timeoutMs: number): Promise<s
 }
 
 function isProcessProbeTimeout(error: unknown): boolean {
-  if (typeof error !== 'object' || error === null) return false;
-  const value = error as { readonly code?: unknown; readonly killed?: unknown; readonly signal?: unknown };
-  return value.code === 'ETIMEDOUT'
-    || value.killed === true
-    || (value.code == null && value.signal === 'SIGTERM');
+  if (!isRecord(error)) return false;
+  return error.code === 'ETIMEDOUT'
+    || error.killed === true
+    || (error.code == null && error.signal === 'SIGTERM');
 }
 
 function positiveInteger(value: number | undefined, fallback: number): number {

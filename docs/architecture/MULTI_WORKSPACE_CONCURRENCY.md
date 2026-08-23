@@ -218,7 +218,7 @@ Use atomic temp-write + rename and bounded cleanup. Plugins/settings that are ac
 | M1 | **complete** | Decouple desktop-selected workspace from MCP lifecycle |
 | M2 | **complete** | Make destructive/project scope request-scoped by `workspaceId` |
 | M3 | **complete** | Add stable MCP session identity and session-aware ownership |
-| M4 | planned | Make STDIO shared activity and persisted runtime state multi-owner safe |
+| M4 | **complete** | Make STDIO shared activity and persisted runtime state multi-owner safe |
 | M5 | planned | Propagate workspace/session metadata through audit + Live Logs |
 | M6 | planned | Add workspace/session filters, scoped clear/export, UI badges/tabs |
 | M7 | planned | Concurrency, isolation, updater, packaging, and release stress gates |
@@ -351,6 +351,16 @@ Same-workspace concurrent sessions have independent ownership boundaries whereve
 ### Exit criteria
 
 Multiple STDIO MCP children can coexist without corrupting activity or session persistence.
+
+### M4 implementation evidence
+
+- Shared MCP activity now publishes one v2 lease file per verified process owner and aggregates all live owners; the v1 fixed snapshot remains readable during migration.
+- Lease close/stale cleanup is owner-scoped and quarantine-based, so one STDIO child cannot delete another child's fresh heartbeat.
+- Update quiet-period checks use aggregate active count plus an owner-set/revision key, so owner arrival/departure restarts the safety clock.
+- Upgrade runtime persistence now uses hashed session files for tasks/checkpoints/session state and a locked shared file for global plugins + Git worktree ledger.
+- Writes use atomic temp+rename and token-owned inter-process locks with bounded stale-lock recovery. Legacy `upgrade-runtime.json` is preserved; one session claims legacy session state while shared plugin/worktree data migrates once for every session.
+- New worktree ledger entries include `ownerSessionId`; another session cannot remove them, while legacy client-owned entries remain compatible.
+- Targeted verification: shared activity 10/10, CLI STDIO 4/4, desktop session-resilience acceptance 9/9, upgrade runtime/state concurrency 19/19, MCP/CLI/Desktop typecheck passed, targeted ESLint and `git diff --check` passed.
 
 ## Phase M5 — audit/log metadata propagation
 

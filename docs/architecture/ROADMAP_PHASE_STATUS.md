@@ -107,7 +107,7 @@ activity, and logs.
 | M1 | complete | Desktop MCP lifecycle is independent from selected workspace; A/B selection no longer restarts the listener |
 | M2 | complete | Destructive/project scope resolves from each call's registered `workspaceId`; missing/unresolved scope fails closed |
 | M3 | complete | Stable HTTP/STDIO session identity; Process/Codex/Shell/WSL/Tasks ownership is isolated by client + session + workspace, with explicit stateless-HTTP fallback |
-| M4 | planned | Multi-owner STDIO activity accounting and concurrency-safe runtime persistence |
+| M4 | complete | Multi-owner STDIO activity v2 + aggregate updater safety; session-namespaced atomic runtime state with locked shared plugin/worktree ledger |
 | M5 | planned | Workspace/session metadata in audit, activity, process, and Live Log contracts |
 | M6 | planned | Workspace/session filters, badges, scoped clear/export |
 | M7 | planned | Parallel A/B workspace and same-workspace session-isolation release gates |

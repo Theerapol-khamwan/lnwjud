@@ -1,5 +1,5 @@
 import { spawn, type ChildProcess } from 'node:child_process';
-import { access, mkdir, mkdtemp, readFile, realpath, rm, writeFile } from 'node:fs/promises';
+import { access, mkdir, mkdtemp, readFile, readdir, realpath, rm, writeFile } from 'node:fs/promises';
 import { createServer as createHttpServer } from 'node:http';
 import os from 'node:os';
 import path from 'node:path';
@@ -8,7 +8,7 @@ import { Client } from '@modelcontextprotocol/client';
 import { StdioClientTransport } from '@modelcontextprotocol/client/stdio';
 import { build } from 'esbuild';
 import { appError, err, ok, type Result } from '@lnwjud/domain';
-import { ToolRegistry, readSharedActivitySnapshot, sharedActivitySnapshotPath, type McpApplicationServices } from '@lnwjud/mcp-server';
+import { ToolRegistry, readSharedActivitySnapshot, sharedActivityLeaseDirectoryPath, type McpApplicationServices } from '@lnwjud/mcp-server';
 import { UpdateInstallCoordinator, type UpdateSharedActivitySnapshot } from '../src/main/update-install.js';
 import { atomicWrite, buildIncidentReport, exportIncidentReport } from '../src/main/incident-report.js';
 import { IncidentSaveCoordinator } from '../src/main/incident-save.js';
@@ -198,12 +198,15 @@ describe('session resilience acceptance', () => {
     const activity = await startActivityFixture(root, profileDirectory);
     const install = vi.fn();
     try {
-      const initialized = JSON.parse(await readFile(sharedActivitySnapshotPath(profileDirectory), 'utf8')) as { owner: { pid: number; processStartedAt: string } };
+      const leaseDirectory = sharedActivityLeaseDirectoryPath(profileDirectory);
+      const [leaseFile] = await readdir(leaseDirectory);
+      expect(leaseFile).toBeDefined();
+      const initialized = JSON.parse(await readFile(path.join(leaseDirectory, leaseFile!), 'utf8')) as { owner: { pid: number; processStartedAt: string } };
       expect(initialized.owner.pid).toBe(activity.child.pid);
       const sharedActivitySnapshot = async (): Promise<UpdateSharedActivitySnapshot> => {
         const observation = await readSharedActivitySnapshot({ profileDirectory, inspectProcess: async (pid) => pid === activity.child.pid ? { state: 'live', processStartedAt: initialized.owner.processStartedAt } : { state: 'gone' } });
         return observation.state === 'available'
-          ? { state: 'available' as const, activeCallCount: observation.activeCount, revision: observation.revision, ownerKey: `${observation.owner.pid}:${observation.owner.processStartedAt}` }
+          ? { state: 'available' as const, activeCallCount: observation.activeCount, revision: observation.revision, ownerKey: observation.ownerKey }
           : observation;
       };
       const coordinator = new UpdateInstallCoordinator({ activeCallCount: (): number => 0, tunnelRunning: async (): Promise<boolean> => true, sharedActivitySnapshot, install, quietPeriodMs: 300, pollIntervalMs: 20 });

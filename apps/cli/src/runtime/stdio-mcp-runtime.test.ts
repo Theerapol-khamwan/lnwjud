@@ -1,11 +1,11 @@
-import { access, mkdtemp, readFile, realpath, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, readFile, readdir, realpath, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { SqliteDatabase, SqliteSettingsRepository, SqliteWorkspaceRepository } from '@lnwjud/storage';
 import { permissionProfiles } from '@lnwjud/permissions';
 import { createStdioMcpRuntime } from './stdio-mcp-runtime.js';
-import { sharedActivitySnapshotPath } from '@lnwjud/mcp-server';
+import { sharedActivityLeaseDirectoryPath } from '@lnwjud/mcp-server';
 
 const temporaryRoots: string[] = [];
 const TEST_CHECKPOINT_KEY = Buffer.alloc(32, 0x46).toString('base64');
@@ -53,16 +53,20 @@ describe('stdio MCP runtime', () => {
 
     const runtime = createStdioMcpRuntime(dataPath, workspace);
     await runtime.activityReady;
-    const initialized = JSON.parse(await readFile(sharedActivitySnapshotPath(profileDirectory), 'utf8')) as Record<string, unknown>;
-    expect(initialized).toMatchObject({ version: 1, activeCount: 0, revision: 0, owner: { pid: process.pid } });
+    const leaseDirectory = sharedActivityLeaseDirectoryPath(profileDirectory);
+    const [leaseFile] = await readdir(leaseDirectory);
+    expect(leaseFile).toBeDefined();
+    const leasePath = path.join(leaseDirectory, leaseFile!);
+    const initialized = JSON.parse(await readFile(leasePath, 'utf8')) as Record<string, unknown>;
+    expect(initialized).toMatchObject({ version: 2, activeCount: 0, revision: 0, owner: { pid: process.pid } });
 
     const callId = await runtime.activityTracker.begin('read_file', { path: 'E:\\fixture.txt' });
-    expect(JSON.parse(await readFile(sharedActivitySnapshotPath(profileDirectory), 'utf8'))).toMatchObject({ activeCount: 1, revision: 1 });
+    expect(JSON.parse(await readFile(leasePath, 'utf8'))).toMatchObject({ activeCount: 1, revision: 1 });
     await runtime.activityTracker.end(callId, 'SUCCESS', 1);
-    expect(JSON.parse(await readFile(sharedActivitySnapshotPath(profileDirectory), 'utf8'))).toMatchObject({ activeCount: 0, revision: 2 });
+    expect(JSON.parse(await readFile(leasePath, 'utf8'))).toMatchObject({ activeCount: 0, revision: 2 });
 
     await runtime.close();
-    await expect(access(sharedActivitySnapshotPath(profileDirectory))).rejects.toThrow();
+    expect((await readdir(leaseDirectory)).filter((name) => name.endsWith('.json'))).toEqual([]);
   });
 
   it('uses the selected stdio profile and hides broad workspaces when strict roots are enabled', async () => {

@@ -998,7 +998,7 @@ function initAutoUpdater(runtime: DesktopRuntime): void {
       sharedActivitySnapshot: async (): Promise<UpdateSharedActivitySnapshot> => {
         const snapshot = await readSharedActivitySnapshot({ profileDirectory: path.join(process.env.APPDATA ?? app.getPath('appData'), 'tunnel-client') });
         return snapshot.state === 'available'
-          ? { state: 'available', activeCallCount: snapshot.activeCount, revision: snapshot.revision, ownerKey: `${snapshot.owner.pid}:${snapshot.owner.processStartedAt}` }
+          ? { state: 'available', activeCallCount: snapshot.activeCount, revision: snapshot.revision, ownerKey: snapshot.ownerKey }
           : { state: snapshot.state, reason: snapshot.reason };
       },
       install: (): void => {

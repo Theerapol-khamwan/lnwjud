@@ -1,5 +1,4 @@
 import { createHash, randomUUID } from 'node:crypto';
-import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { appError, err, ok, type Result } from '@lnwjud/domain';
 import type { FileActor } from '@lnwjud/application';
@@ -12,6 +11,7 @@ import { DocumentRuntimeService } from './document-runtime.js';
 import { LspRuntimeService } from './lsp-runtime.js';
 import { SandboxRuntimeService } from './sandbox-runtime.js';
 import { UPGRADE_TOOL_CATALOG, type UpgradeToolCatalogEntry } from './upgrade-catalog.js';
+import { UpgradeRuntimeStateStore, type UpgradeRuntimeSessionState, type UpgradeRuntimeSharedState } from './upgrade-runtime-state-store.js';
 
 interface RuntimeTask {
   readonly id: string;
@@ -60,6 +60,7 @@ interface WorktreeLedgerEntry {
   readonly worktreePath: string;
   readonly ref: string;
   readonly owner: string;
+  readonly ownerSessionId?: string;
   readonly createdAt: string;
 }
 
@@ -71,14 +72,6 @@ interface SelfHealFix {
   readonly description: string;
   readonly reversible: boolean;
   readonly requiresConfirmation: boolean;
-}
-
-interface PersistedRuntimeState {
-  readonly tasks?: readonly RuntimeTask[];
-  readonly checkpoints?: readonly SessionCheckpoint[];
-  readonly plugins?: readonly { readonly name: string; readonly enabled: boolean }[];
-  readonly session?: readonly [string, unknown][];
-  readonly worktrees?: readonly WorktreeLedgerEntry[];
 }
 
 const PRIMITIVE_SEARCH_ENTRIES: readonly SearchCatalogEntry[] = [
@@ -121,6 +114,7 @@ export class UpgradeRuntimeService {
   private readonly database: DatabaseRuntimeService;
   private readonly lsp: LspRuntimeService;
   private readonly documents: DocumentRuntimeService;
+  private readonly stateStore: UpgradeRuntimeStateStore | undefined;
   private loaded = false;
 
   public constructor(
@@ -129,6 +123,9 @@ export class UpgradeRuntimeService {
     contextEconomy: ContextEconomyRuntime = new ContextEconomyRuntime(),
   ) {
     this.actor = actor;
+    this.stateStore = services.runtimeStatePath === undefined
+      ? undefined
+      : new UpgradeRuntimeStateStore(path.resolve(services.runtimeStatePath), runtimeOwnerKey(actor));
     this.contextEconomy = contextEconomy;
     this.contextEngine = new ContextEngine(services, actor, contextEconomy);
     this.eventLog = new EventLogCapabilityBackend();
@@ -194,6 +191,7 @@ export class UpgradeRuntimeService {
       case 'skill_load':
         return ok({ skillId: readString(input, 'skillId') ?? null, loaded: false, source: 'local-workspace-or-configured-skill-provider' });
       case 'plugin_list':
+        await this.refreshSharedState();
         return ok({ plugins: [...this.plugins.values()] });
       case 'plugin_install':
       case 'plugin_enable':
@@ -416,15 +414,14 @@ export class UpgradeRuntimeService {
 
   private async changePlugin(operation: string, name: string | undefined): Promise<unknown> {
     if (name === undefined || name.trim().length === 0) return { changed: false, reason: 'plugin name is required' };
+    let changed = false;
     if (operation === 'plugin_remove') {
-      const changed = this.plugins.delete(name);
-      await this.persistState();
+      await this.mutateSharedState((plugins) => { changed = plugins.delete(name); });
       return { changed, name };
     }
     const plugin = { name, enabled: operation !== 'plugin_disable' };
-    this.plugins.set(name, plugin);
-    await this.persistState();
-    return { changed: true, ...plugin };
+    await this.mutateSharedState((plugins) => { plugins.set(name, plugin); changed = true; });
+    return { changed, ...plugin };
   }
 
   private async createTask(kind: RuntimeTask['kind'], input: Record<string, unknown>): Promise<RuntimeTask> {
@@ -595,6 +592,7 @@ export class UpgradeRuntimeService {
       worktreePath: normalizedPath,
       ref,
       owner: this.actor.clientId,
+      ownerSessionId: actorSessionId(this.actor),
       collisionPolicy: 'one-owner-per-worktree-path',
       mutationPolicy: 'explicit-confirmation-and-dry-run',
       sideEffectsStarted: false,
@@ -602,6 +600,10 @@ export class UpgradeRuntimeService {
     const dryRun = input.dryRun !== false && input.dry_run !== false;
     if (dryRun) return ok({ ...plan, dryRun: true });
     if (input.userConfirmed !== true) return err(appError('PERMISSION_REQUIRED', 'Creating a Git worktree requires explicit user confirmation'));
+    await this.refreshSharedState();
+    if (this.worktrees.some((candidate) => candidate.workspaceId === workspaceId && candidate.worktreePath === normalizedPath)) {
+      return err(appError('INVALID_INPUT', 'Git worktree path is already present in the shared ownership ledger'));
+    }
     if (this.services.git === undefined) return ok({ ...plan, dryRun: false, status: 'optional', available: false, reason: 'Git service is not configured' });
     const result = await this.services.git.run(this.actor, {
       workspaceId,
@@ -609,8 +611,10 @@ export class UpgradeRuntimeService {
       ...(typeof input.timeoutMs === 'number' ? { timeoutMs: input.timeoutMs } : {}),
     });
     if (!result.ok) return result;
-    this.worktrees.push({ workspaceId, worktreePath: normalizedPath, ref, owner: this.actor.clientId, createdAt: new Date().toISOString() });
-    await this.persistState();
+    const ledgerEntry: WorktreeLedgerEntry = { workspaceId, worktreePath: normalizedPath, ref, owner: this.actor.clientId, ownerSessionId: actorSessionId(this.actor), createdAt: new Date().toISOString() };
+    await this.mutateSharedState((_plugins, worktrees) => {
+      if (!worktrees.some((candidate) => candidate.workspaceId === workspaceId && candidate.worktreePath === normalizedPath)) worktrees.push(ledgerEntry);
+    });
     return ok({ ...plan, dryRun: false, sideEffectsStarted: true, status: 'completed', result: result.value, ownershipLedger: true });
   }
 
@@ -618,8 +622,12 @@ export class UpgradeRuntimeService {
     const workspaceId = readString(input, 'workspaceId');
     const worktreePath = readString(input, 'worktreePath')?.replaceAll('\\', '/');
     if (workspaceId === undefined || worktreePath === undefined) return err(appError('INVALID_INPUT', 'workspaceId and worktreePath are required'));
+    await this.refreshSharedState();
     const entry = this.worktrees.find((candidate) => candidate.workspaceId === workspaceId && candidate.worktreePath === worktreePath);
     if (entry === undefined) return err(appError('PROCESS_NOT_FOUND', 'Worktree is not in the ownership ledger; refusing to remove unknown worktrees'));
+    if (entry.owner !== this.actor.clientId || (entry.ownerSessionId !== undefined && entry.ownerSessionId !== actorSessionId(this.actor))) {
+      return err(appError('PERMISSION_DENIED', 'Worktree is owned by another client session'));
+    }
     const plan = {
       tool: 'git_worktree_remove', workspaceId, worktreePath,
       owner: entry.owner,
@@ -634,9 +642,10 @@ export class UpgradeRuntimeService {
       ...(typeof input.timeoutMs === 'number' ? { timeoutMs: input.timeoutMs } : {}),
     });
     if (!result.ok) return result;
-    const index = this.worktrees.indexOf(entry);
-    if (index !== -1) this.worktrees.splice(index, 1);
-    await this.persistState();
+    await this.mutateSharedState((_plugins, worktrees) => {
+      const index = worktrees.findIndex((candidate) => candidate.workspaceId === workspaceId && candidate.worktreePath === worktreePath);
+      if (index !== -1) worktrees.splice(index, 1);
+    });
     return ok({ ...plan, dryRun: false, sideEffectsStarted: true, status: 'completed', result: result.value });
   }
 
@@ -696,42 +705,84 @@ export class UpgradeRuntimeService {
   private async loadState(): Promise<void> {
     if (this.loaded) return;
     this.loaded = true;
-    const statePath = this.services.runtimeStatePath;
-    if (statePath === undefined) return;
+    if (this.stateStore === undefined) return;
     try {
-      const parsed: unknown = JSON.parse(await readFile(statePath, 'utf8'));
-      if (typeof parsed !== 'object' || parsed === null) return;
-      const state = parsed as PersistedRuntimeState;
-      for (const task of state.tasks ?? []) if (isRuntimeTask(task)) this.tasks.set(task.id, { ...task });
-      for (const checkpoint of state.checkpoints ?? []) if (isCheckpoint(checkpoint)) this.checkpoints.push(checkpoint);
-      for (const plugin of state.plugins ?? []) if (isPlugin(plugin)) this.plugins.set(plugin.name, { ...plugin });
-      for (const pair of state.session ?? []) if (Array.isArray(pair) && pair.length === 2 && typeof pair[0] === 'string') this.session.set(pair[0], pair[1]);
-      for (const worktree of state.worktrees ?? []) {
-        if (typeof worktree.workspaceId === 'string' && typeof worktree.worktreePath === 'string' && typeof worktree.ref === 'string' && typeof worktree.owner === 'string' && typeof worktree.createdAt === 'string') {
-          this.worktrees.push(worktree);
-        }
-      }
+      const state = await this.stateStore.load();
+      this.replaceSessionState(state.session);
+      this.replaceSharedState(state.shared);
     } catch {
-      // A corrupt optional state file is recoverable; the next mutation writes a fresh state.
+      // Optional runtime persistence must not prevent tools from operating.
+    }
+  }
+
+  private replaceSessionState(state: UpgradeRuntimeSessionState): void {
+    this.tasks.clear();
+    this.checkpoints.splice(0);
+    this.session.clear();
+    for (const task of state.tasks) if (isRuntimeTask(task)) this.tasks.set(task.id, { ...task });
+    for (const checkpoint of state.checkpoints) if (isCheckpoint(checkpoint)) this.checkpoints.push(checkpoint);
+    for (const pair of state.session) this.session.set(pair[0], pair[1]);
+  }
+
+  private replaceSharedState(state: UpgradeRuntimeSharedState): void {
+    this.plugins.clear();
+    this.worktrees.splice(0);
+    for (const plugin of state.plugins) if (isPlugin(plugin)) this.plugins.set(plugin.name, { ...plugin });
+    for (const worktree of state.worktrees) if (isWorktreeLedgerEntry(worktree)) this.worktrees.push(worktree);
+  }
+
+  private async refreshSharedState(): Promise<void> {
+    if (this.stateStore === undefined) return;
+    try {
+      this.replaceSharedState(await this.stateStore.readShared());
+    } catch {
+      // Keep the last known in-memory shared state when persistence is unavailable.
+    }
+  }
+
+  private async mutateSharedState(
+    mutate: (plugins: Map<string, { readonly name: string; enabled: boolean }>, worktrees: WorktreeLedgerEntry[]) => void,
+  ): Promise<void> {
+    if (this.stateStore === undefined) {
+      mutate(this.plugins, this.worktrees);
+      return;
+    }
+    try {
+      const next = await this.stateStore.updateShared((current) => {
+        const plugins = new Map<string, { readonly name: string; enabled: boolean }>();
+        const worktrees: WorktreeLedgerEntry[] = [];
+        for (const plugin of current.plugins) if (isPlugin(plugin)) plugins.set(plugin.name, { ...plugin });
+        for (const worktree of current.worktrees) if (isWorktreeLedgerEntry(worktree)) worktrees.push(worktree);
+        mutate(plugins, worktrees);
+        return { plugins: [...plugins.values()], worktrees };
+      });
+      this.replaceSharedState(next);
+    } catch {
+      mutate(this.plugins, this.worktrees);
     }
   }
 
   private async persistState(): Promise<void> {
-    const statePath = this.services.runtimeStatePath;
-    if (statePath === undefined) return;
+    if (this.stateStore === undefined) return;
     try {
-      await mkdir(path.dirname(statePath), { recursive: true });
-      await writeFile(statePath, `${JSON.stringify({
-        tasks: [...this.tasks.values()],
-        checkpoints: this.checkpoints,
-        plugins: [...this.plugins.values()],
-        session: [...this.session.entries()],
-        worktrees: this.worktrees,
-      })}\n`, 'utf8');
+      const merged = await this.stateStore.updateSession((current) => {
+        const tasks = new Map<string, RuntimeTask>();
+        for (const task of current.tasks) if (isRuntimeTask(task)) tasks.set(task.id, { ...task });
+        for (const task of this.tasks.values()) tasks.set(task.id, { ...task });
+        const checkpoints = new Map<string, SessionCheckpoint>();
+        for (const checkpoint of current.checkpoints) if (isCheckpoint(checkpoint)) checkpoints.set(checkpoint.id, checkpoint);
+        for (const checkpoint of this.checkpoints) checkpoints.set(checkpoint.id, checkpoint);
+        const session = new Map<string, unknown>();
+        for (const pair of current.session) session.set(pair[0], pair[1]);
+        for (const [key, value] of this.session) session.set(key, value);
+        return { tasks: [...tasks.values()], checkpoints: [...checkpoints.values()], session: [...session.entries()] };
+      });
+      this.replaceSessionState(merged);
     } catch {
       // State persistence must never break the MCP operation itself.
     }
   }
+
 }
 
 function readString(input: Record<string, unknown>, key: string): string | undefined {
@@ -928,6 +979,25 @@ function parallelDelegatePlan(input: Record<string, unknown>): unknown {
   const tasks = Array.isArray(input.tasks) ? input.tasks : [];
   const writesRequested = tasks.some((task) => typeof task === 'object' && task !== null && JSON.stringify(task).toLowerCase().includes('write'));
   return { tasks: tasks.map((task, index) => ({ id: `delegate-${index + 1}`, mode: writesRequested ? 'serialized-mutation' : 'read-only-parallel', inputDigest: digest(task) })), collisionDetected: writesRequested, mutationPolicy: 'one-writer-at-a-time', cancellationSupported: true };
+}
+
+function actorSessionId(actor: FileActor): string {
+  return actor.sessionId?.trim() || actor.clientId;
+}
+
+function runtimeOwnerKey(actor: FileActor): string {
+  return `${actor.clientId} ${actorSessionId(actor)}`;
+}
+
+function isWorktreeLedgerEntry(value: unknown): value is WorktreeLedgerEntry {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return false;
+  const record = value as Record<string, unknown>;
+  return typeof record.workspaceId === 'string'
+    && typeof record.worktreePath === 'string'
+    && typeof record.ref === 'string'
+    && typeof record.owner === 'string'
+    && (record.ownerSessionId === undefined || typeof record.ownerSessionId === 'string')
+    && typeof record.createdAt === 'string';
 }
 
 function isRuntimeTask(value: unknown): value is RuntimeTask {
