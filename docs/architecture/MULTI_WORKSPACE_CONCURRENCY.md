@@ -221,7 +221,7 @@ Use atomic temp-write + rename and bounded cleanup. Plugins/settings that are ac
 | M4 | **complete** | Make STDIO shared activity and persisted runtime state multi-owner safe |
 | M5 | **complete** | Propagate workspace/session metadata through audit + Live Logs |
 | M6 | **complete** | Add workspace/session filters, scoped clear/export, UI badges/tabs |
-| M7 | planned | Concurrency, isolation, updater, packaging, and release stress gates |
+| M7 | **complete** | Concurrency/isolation acceptance and targeted release gates complete; repository-wide Full Verification follows once after all phases |
 
 ## Phase M1 — global MCP lifecycle
 
@@ -521,3 +521,16 @@ When implementation starts, update this file in the same commit as each phase ch
 - record any architecture deviation before implementing it;
 - never mark a phase complete without its exit-criteria tests;
 - keep global settings global unless this document is explicitly revised.
+
+### 2026-08-24 — M7 complete
+
+- added a real Desktop MCP concurrency acceptance using one listener, two protocol sessions, and two registered workspaces;
+- verified parallel A/B flows: write -> project build/test -> durable shell background task -> git status;
+- verified switching the Desktop-selected workspace does not restart or replace the listener;
+- verified process and durable-shell handles remain session-owned even when another session addresses the same workspace;
+- verified one global destructive-delete policy applies to both sessions while cross-workspace destructive targets fail closed;
+- verified Work Log and Live Log retain separate workspace/session metadata and scoped clearing of A leaves B intact;
+- verified updater/shared-activity/runtime-state isolation through the targeted M7 matrix;
+- wired the new concurrency acceptance into the authoritative test:acceptance script and release checklist/gate;
+- targeted verification: new concurrency acceptance 1/1, M7 isolation/updater matrix 84/84, authoritative acceptance 16/16, release gate 6/6, advertised tools 208 per HTTP session, configurable catalog 214, Desktop typecheck, targeted ESLint, and git diff --check all passed;
+- per the Plan -> Phase -> Verify workflow, repository-wide tests/lint/typecheck/build/integration/E2E/packaging/public-hygiene remain intentionally deferred to the single Full Verification step after M7.

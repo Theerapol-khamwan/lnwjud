@@ -37,6 +37,8 @@ describe('MVP release verification gate', () => {
       'junction',
       'secret',
       'MCP local HTTP',
+      'multi-workspace',
+      'multi-session',
       'process ownership',
       'output limit',
       'fake Codex',
@@ -71,6 +73,12 @@ describe('MVP release verification gate', () => {
     expect(workflow).toContain('github.ref_name');
     expect(workflow).toContain('package.json');
     expect(workflow).toMatch(/tag.*match|match.*tag/i);
+  });
+
+  it('keeps the parallel multi-workspace acceptance in the authoritative acceptance script', async () => {
+    const rootPackage = JSON.parse(await readFile(path.join(repositoryRoot, 'package.json'), 'utf8')) as { scripts?: Record<string, string> };
+    const acceptance = rootPackage.scripts?.['test:acceptance'] ?? '';
+    expect(acceptance).toContain('tests/multi-workspace-concurrency-acceptance.test.ts');
   });
 
 });

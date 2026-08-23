@@ -110,4 +110,4 @@ activity, and logs.
 | M4 | complete | Multi-owner STDIO activity v2 + aggregate updater safety; session-namespaced atomic runtime state with locked shared plugin/worktree ledger |
 | M5 | complete | Session-aware audit persistence/query, scoped IPC/process metadata, and Live Log propagation/dedup isolation |
 | M6 | complete | Workspace/session filters/badges plus session/workspace/all clear cursors and filtered Live Log export |
-| M7 | planned | Parallel A/B workspace and same-workspace session-isolation release gates |
+| M7 | complete | Real two-session/two-workspace Desktop MCP acceptance plus isolation/updater/release gates; one repository-wide Full Verification follows |
