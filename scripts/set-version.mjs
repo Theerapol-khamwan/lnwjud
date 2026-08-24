@@ -94,6 +94,7 @@ async function syncAllVersions() {
       .replace(/lnwjud-Setup-[0-9.]+\.exe/g, `lnwjud-Setup-${version}.exe`)
       .replace(/## Current release: v[0-9.]+/g, `## Current release: v${version}`)
       .replace(/current published installer and runtime contract are `v[0-9.]+`/g, 'current published installer and runtime contract are `v' + version + '`')
+      .replace(/The v[0-9.]+ release target and runtime contract/g, 'The v' + version + ' release target and runtime contract')
       .replace(/current v[0-9.]+ `ToolRegistry`/g, 'current v' + version + ' `ToolRegistry`')
       .replace(/## v[0-9.]+ release status/g, `## v${version} release status`)
       .replace(/Release `v[0-9.]+`/g, `Release \`v${version}\``);

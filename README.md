@@ -40,13 +40,21 @@ The tunnel is outbound-only: `tunnel-client` runs beside lnwjud, reaches OpenAI
 over outbound HTTPS, forwards MCP work to the local stdio server, and returns the
 response without opening a public inbound port on the Windows machine.
 
-## Current release: v4.9.0
+## Current release: v4.9.1
 
-The current published installer and runtime contract are `v4.9.0`. The full registry
-contains **214 configurable MCP tools**, with **208 advertised by default** because
+The v4.9.1 release target and runtime contract contain **214 configurable MCP tools**,
+with **208 advertised by default** because
 the six `codex_*` delegation tools are opt-in. The earlier 184-tool snapshot remains
 only as the compatibility baseline used by the v4 architecture; new v4 gateway
 capabilities are additive.
+
+### What's new in v4.9.1
+
+- Adds first-class project lifecycle management in the Desktop Projects page: active projects can be archived, archived projects can be restored, and project registrations can be removed with a two-step confirmation.
+- Treats archived workspaces as inactive trust-boundary entries: they remain in SQLite for management/history labels but are excluded from normal runtime/MCP workspace lookup until restored.
+- Makes project removal registration-only. Removing a project from lnwjud does **not** delete its directory, files, Git repository, audit history, or checkpoints; system/machine-root workspaces are protected from archive/remove actions.
+- Repairs selected-workspace state after archive/removal, stops the workspace index watcher, blocks lifecycle changes while tracked Desktop work is active, and restores an archived registration instead of creating a duplicate when the same path is added again.
+- Keeps Home/Git selectors limited to active workspaces while Projects, Work Log, and Live Logs retain the management/history context needed to understand archived workspaces.
 
 ### What's new in v4.9.0
 
@@ -282,7 +290,7 @@ stops the current local HTTP listener.
 
 1. Download the latest published installer from
    [GitHub Releases](https://github.com/engasnm111/lnwjud/releases/latest).
-   The current release is `lnwjud-Setup-4.9.0.exe`.
+   The current release is `lnwjud-Setup-4.9.1.exe`.
 2. Run the NSIS installer and launch **lnwjud Agent Control Center**.
 3. Add or select the project/workspace you want lnwjud to operate on.
 4. Review **Settings** before attaching an AI client, especially Permission
@@ -528,7 +536,7 @@ corepack pnpm@10.15.0 package:windows
 The x64 NSIS installer is written to:
 
 ```text
-apps/desktop/dist/installers/lnwjud-Setup-4.9.0.exe
+apps/desktop/dist/installers/lnwjud-Setup-4.9.1.exe
 ```
 
 The installer is per-user by default. A common installed executable path is:
@@ -879,7 +887,7 @@ After changing tool metadata or restarting the tunnel, refresh the connector and
 
 ## Complete MCP tool catalog (214 configurable tools; 208 advertised by default)
 
-This index is generated from the current v4.9.0 `ToolRegistry`, not copied from an older release document. Optional/planned tools still appear in the advertised contract and report their availability/requirements at runtime where applicable.
+This index is generated from the current v4.9.1 `ToolRegistry`, not copied from an older release document. Optional/planned tools still appear in the advertised contract and report their availability/requirements at runtime where applicable.
 
 | # | Tool | Permission | Runtime description |
 | ---: | --- | --- | --- |

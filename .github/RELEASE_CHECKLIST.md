@@ -8,6 +8,7 @@ Run the release verification from PowerShell at the repository root. The automat
 - Secret-file policy and log/incident redaction tests pass; release evidence must never contain credentials or tokens.
 - MCP local HTTP and STDIO transport tests pass, including protocol-only stdout and production handshake coverage.
 - Multi-workspace and multi-session Desktop MCP acceptance passes with one listener, parallel A/B flows, scoped ownership, logs, and destructive boundaries.
+- Project lifecycle tests verify archive/restore/remove semantics: archived projects leave the active MCP trust boundary, removal preserves project files/history, duplicate paths restore the existing registration, and machine-root workspaces remain protected.
 - Tool catalog synchronization passes with 214 configurable tools and 208 advertised by default; the six `codex_*` delegation tools remain opt-in.
 - Process ownership, PID identity, descendant shutdown, and bounded output limit tests pass.
 - The fake Codex integration flow runs only against a disposable fixture and leaves a reviewable Git diff.
