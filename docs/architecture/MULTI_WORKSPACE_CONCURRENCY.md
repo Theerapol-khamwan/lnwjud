@@ -1,6 +1,6 @@
 # Multi-Workspace / Multi-Session Concurrency Upgrade
 
-Status: **planned; baseline audit complete**  
+Status: **complete; full verification passed**
 Owner scope: lnwjud desktop, HTTP MCP, STDIO/tunnel MCP, activity/audit/logging  
 Primary invariant: **one lnwjud installation can serve many concurrent AI sessions and many workspaces while all user settings remain global.**
 
@@ -221,7 +221,7 @@ Use atomic temp-write + rename and bounded cleanup. Plugins/settings that are ac
 | M4 | **complete** | Make STDIO shared activity and persisted runtime state multi-owner safe |
 | M5 | **complete** | Propagate workspace/session metadata through audit + Live Logs |
 | M6 | **complete** | Add workspace/session filters, scoped clear/export, UI badges/tabs |
-| M7 | **complete** | Concurrency/isolation acceptance and targeted release gates complete; repository-wide Full Verification follows once after all phases |
+| M7 | **complete** | Concurrency/isolation acceptance, release gates, and repository-wide Full Verification complete |
 
 ## Phase M1 — global MCP lifecycle
 
@@ -533,4 +533,6 @@ When implementation starts, update this file in the same commit as each phase ch
 - verified updater/shared-activity/runtime-state isolation through the targeted M7 matrix;
 - wired the new concurrency acceptance into the authoritative test:acceptance script and release checklist/gate;
 - targeted verification: new concurrency acceptance 1/1, M7 isolation/updater matrix 84/84, authoritative acceptance 16/16, release gate 6/6, advertised tools 208 per HTTP session, configurable catalog 214, Desktop typecheck, targeted ESLint, and git diff --check all passed;
-- per the Plan -> Phase -> Verify workflow, repository-wide tests/lint/typecheck/build/integration/E2E/packaging/public-hygiene remain intentionally deferred to the single Full Verification step after M7.
+- repository-wide Full Verification completed after M7: frozen install, lint, typecheck, full monorepo tests, acceptance 16/16, integration 2/2, E2E 3/3, build, 214-tool catalog sync, packaging 4/4, release gate 6/6, Windows NSIS packaging, git diff --check, and public-repo hygiene 7/7 all passed.
+- the Full Verification run exposed one real runtime-state contention race; it was repaired in commit `6adcfc4` by serializing same-process writers, hardening cross-process locking/atomic I/O, failing closed on unreadable authoritative state, and making durable checkpoint persistence surface failure instead of silently succeeding.
+- post-repair evidence: MCP full package 169/169, targeted runtime-state/concurrency 7/7, stress 20/20 repeated runs, then the authoritative Full Verification completed cleanly.
