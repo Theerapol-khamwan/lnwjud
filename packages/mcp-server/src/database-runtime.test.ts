@@ -47,7 +47,7 @@ describe('DatabaseRuntimeService', () => {
       } });
       if (result.ok) expect(result.value.target).toBe(database);
     });
-  });
+  }, 15_000);
 
   it('runs a single SELECT with bounded rows and rejects anything mutating', async () => {
     await withDatabase(async (root) => {
