@@ -81,7 +81,7 @@ import {
 } from '@lnwjud/shared';
 import { AesGcmCheckpointCipher, SqliteAuditRepository, SqliteBackupService, SqliteCheckpointRepository, SqliteDatabase, SqliteSettingsRepository, SqliteWorkspaceRepository, type BackupReason, type BackupSummary } from '@lnwjud/storage';
 import type { Workspace } from '@lnwjud/workspace';
-import { machineRootPath, SecretPolicy, WorkspacePathGuard, WorkspaceService } from '@lnwjud/workspace';
+import { isDriveRoot, machineRootPath, SecretPolicy, WorkspacePathGuard, WorkspaceService } from '@lnwjud/workspace';
 import {
   type AddWorkspaceRequest,
   type BackupSummary as IpcBackupSummary,
@@ -90,6 +90,7 @@ import {
   type ClearLogBufferRequest,
   type ClearWorkLogRequest,
   type ConfigureTunnelProfileRequest,
+  type DeleteWorkspaceRequest,
   type ConnectionModes,
   type DashboardSnapshot,
   type DoctorReport,
@@ -102,6 +103,7 @@ import {
   type SaveTunnelApiKeyRequest,
   type ScheduleRestoreBackupRequest,
   type SelectWorkspaceRequest,
+  type SetWorkspaceArchivedRequest,
   type SetAiDeletePolicyRequest,
   type SetLocaleRequest,
   type SetPermissionProfileRequest,
@@ -338,6 +340,36 @@ export function createDesktopRuntime(dataPath: string, options: DesktopRuntimeOp
     logHub.feedIfNew('mcp', key, 'error', message);
   };
   const trackedProcesses = new Map<string, string>();
+
+  async function resolveManageableWorkspace(workspaceId: string): Promise<Workspace> {
+    const workspace = await workspaceRepository.getAny(workspaceId);
+    if (workspace === null) throw new Error('Workspace was not found');
+    if (isDriveRoot(workspace.realRootPath) || isDriveRoot(workspace.rootPath)) {
+      throw new Error('Machine-root workspaces are managed automatically and cannot be archived or deleted');
+    }
+    return workspace;
+  }
+
+  async function assertWorkspaceIdle(workspaceId: string): Promise<void> {
+    if (activityTracker.listInFlight().some((entry) => entry.workspaceId === workspaceId)) {
+      throw new Error('Workspace has MCP work in progress; wait for it to finish before archiving or deleting it');
+    }
+    for (const [processId, ownerWorkspaceId] of trackedProcesses) {
+      if (ownerWorkspaceId !== workspaceId) continue;
+      const status = await processService.status(actor, workspaceId, processId);
+      if (!status.ok) continue;
+      if (status.value.state === 'starting' || status.value.state === 'running' || status.value.state === 'termination_unverified') {
+        throw new Error('Workspace has a managed process running; stop it before archiving or deleting it');
+      }
+    }
+  }
+
+  async function repairSelectedWorkspace(removedWorkspaceId: string): Promise<void> {
+    if (settingsRepository.get(selectedWorkspaceSettingKey) !== removedWorkspaceId) return;
+    const next = (await workspaceService.list())[0];
+    if (next === undefined) settingsRepository.delete(selectedWorkspaceSettingKey);
+    else settingsRepository.set(selectedWorkspaceSettingKey, next.id);
+  }
   const doctorService = new DoctorService({
     os: async (): Promise<DoctorProbeResult> => ({ status: process.platform === 'win32' ? 'pass' : 'warn', message: `${process.platform} ${process.arch}` }),
     database: async (): Promise<DoctorProbeResult> => ({ status: 'pass', message: 'SQLite database ready' }),
@@ -364,10 +396,20 @@ export function createDesktopRuntime(dataPath: string, options: DesktopRuntimeOp
   const services: DesktopIpcServices = {
     listWorkspaces: async (): Promise<readonly WorkspaceSummary[]> => {
       await ensureMachineRoots();
-      return (await workspaceService.list()).map(toWorkspaceSummary);
+      return (await workspaceRepository.listAll()).map(toWorkspaceSummary);
     },
     addWorkspace: async (request: AddWorkspaceRequest): Promise<WorkspaceSummary> => {
       await ensureMachineRoots(request.rootPath);
+      const requestedRoot = path.resolve(request.rootPath).toLowerCase();
+      const existing = (await workspaceRepository.listAll()).find((entry) => path.resolve(entry.rootPath).toLowerCase() === requestedRoot);
+      if (existing !== undefined) {
+        if (existing.archivedAt !== undefined && existing.archivedAt !== null) await workspaceRepository.restore(existing.id);
+        settingsRepository.set(selectedWorkspaceSettingKey, existing.id);
+        if (!mcpLifecycle.status().running) await mcpLifecycle.start().catch(() => undefined);
+        const restored = await workspaceRepository.getAny(existing.id);
+        if (restored === null) throw new Error('Workspace could not be restored');
+        return toWorkspaceSummary(restored);
+      }
       const displayName = path.basename(path.resolve(request.rootPath)) || 'Workspace';
       const workspace = unwrap(await workspaceService.add(displayName, request.rootPath), 'Workspace could not be added');
       settingsRepository.set(selectedWorkspaceSettingKey, workspace.id);
@@ -379,6 +421,31 @@ export function createDesktopRuntime(dataPath: string, options: DesktopRuntimeOp
     selectWorkspace: async (request: SelectWorkspaceRequest): Promise<WorkspaceSummary> => {
       await ensureMachineRoots();
       return selectWorkspaceOnly(request.workspaceId);
+    },
+    setWorkspaceArchived: async (request: SetWorkspaceArchivedRequest): Promise<WorkspaceSummary> => {
+      await ensureMachineRoots();
+      const workspace = await resolveManageableWorkspace(request.workspaceId);
+      if (request.archived) {
+        if (workspace.archivedAt !== undefined && workspace.archivedAt !== null) return toWorkspaceSummary(workspace);
+        await assertWorkspaceIdle(workspace.id);
+        await workspaceIndex.stopWatch(workspace.id);
+        await workspaceRepository.archive(workspace.id);
+        await repairSelectedWorkspace(workspace.id);
+      } else if (workspace.archivedAt !== undefined && workspace.archivedAt !== null) {
+        await workspaceRepository.restore(workspace.id);
+      }
+      const updated = await workspaceRepository.getAny(workspace.id);
+      if (updated === null) throw new Error('Workspace was not found');
+      return toWorkspaceSummary(updated);
+    },
+    deleteWorkspace: async (request: DeleteWorkspaceRequest): Promise<{ readonly deleted: boolean; readonly workspaceId: string; readonly rootPath: string }> => {
+      await ensureMachineRoots();
+      const workspace = await resolveManageableWorkspace(request.workspaceId);
+      await assertWorkspaceIdle(workspace.id);
+      await workspaceIndex.forgetWorkspace(workspace.id);
+      await workspaceRepository.delete(workspace.id);
+      await repairSelectedWorkspace(workspace.id);
+      return { deleted: true, workspaceId: workspace.id, rootPath: workspace.realRootPath };
     },
     getDashboard: async (): Promise<DashboardSnapshot> => {
       await ensureMachineRoots();
@@ -708,6 +775,8 @@ function toWorkspaceSummary(workspace: Workspace): WorkspaceSummary {
     rootPath: workspace.rootPath,
     realRootPath: workspace.realRootPath,
     createdAt: workspace.createdAt,
+    archivedAt: workspace.archivedAt ?? null,
+    kind: isDriveRoot(workspace.realRootPath) || isDriveRoot(workspace.rootPath) ? 'machine_root' : 'project',
   };
 }
 

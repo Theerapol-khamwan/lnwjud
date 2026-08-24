@@ -5,6 +5,8 @@ export const ipcChannels = {
   listWorkspaces: 'lnwjud:list-workspaces',
   addWorkspace: 'lnwjud:add-workspace',
   selectWorkspace: 'lnwjud:select-workspace',
+  setWorkspaceArchived: 'lnwjud:set-workspace-archived',
+  deleteWorkspace: 'lnwjud:delete-workspace',
   getDashboard: 'lnwjud:get-dashboard',
   setPermissionProfile: 'lnwjud:set-permission-profile',
   setUnrestrictedMode: 'lnwjud:set-unrestricted-mode',
@@ -135,6 +137,8 @@ export interface WorkspaceSummary {
   readonly rootPath: string;
   readonly realRootPath: string;
   readonly createdAt: string;
+  readonly archivedAt?: string | null;
+  readonly kind?: 'project' | 'machine_root';
 }
 
 export type CapabilityToolName = 'shell' | 'dom_cdp' | 'accessibility' | 'input_event' | 'vision' | 'window' | 'health' | 'system_info' | 'notification' | 'file_dialog' | 'clipboard' | 'web_fetch' | 'audio' | 'screen_record' | 'office' | 'scheduler' | 'wsl_exec' | 'wsl_fs';
@@ -336,6 +340,15 @@ export interface SelectWorkspaceRequest {
   readonly workspaceId: string;
 }
 
+export interface SetWorkspaceArchivedRequest {
+  readonly workspaceId: string;
+  readonly archived: boolean;
+}
+
+export interface DeleteWorkspaceRequest {
+  readonly workspaceId: string;
+}
+
 export interface SetPermissionProfileRequest {
   readonly profile: PermissionProfileName;
 }
@@ -410,6 +423,8 @@ export interface IpcRequestMap {
   readonly [ipcChannels.listWorkspaces]: undefined;
   readonly [ipcChannels.addWorkspace]: AddWorkspaceRequest;
   readonly [ipcChannels.selectWorkspace]: SelectWorkspaceRequest;
+  readonly [ipcChannels.setWorkspaceArchived]: SetWorkspaceArchivedRequest;
+  readonly [ipcChannels.deleteWorkspace]: DeleteWorkspaceRequest;
   readonly [ipcChannels.getDashboard]: undefined;
   readonly [ipcChannels.setPermissionProfile]: SetPermissionProfileRequest;
   readonly [ipcChannels.setUnrestrictedMode]: SetUnrestrictedModeRequest;
@@ -449,6 +464,8 @@ export interface IpcResponseMap {
   readonly [ipcChannels.listWorkspaces]: readonly WorkspaceSummary[];
   readonly [ipcChannels.addWorkspace]: WorkspaceSummary;
   readonly [ipcChannels.selectWorkspace]: WorkspaceSummary;
+  readonly [ipcChannels.setWorkspaceArchived]: WorkspaceSummary;
+  readonly [ipcChannels.deleteWorkspace]: { readonly deleted: boolean; readonly workspaceId: string; readonly rootPath: string };
   readonly [ipcChannels.getDashboard]: DashboardSnapshot;
   readonly [ipcChannels.setPermissionProfile]: { readonly profile: PermissionProfileName };
   readonly [ipcChannels.setUnrestrictedMode]: { readonly unrestricted: boolean; readonly restartRequired: boolean };
@@ -488,6 +505,8 @@ export interface LnwjudApi {
   listWorkspaces(): Promise<IpcResponseMap[typeof ipcChannels.listWorkspaces]>;
   addWorkspace(request: AddWorkspaceRequest): Promise<IpcResponseMap[typeof ipcChannels.addWorkspace]>;
   selectWorkspace(request: SelectWorkspaceRequest): Promise<IpcResponseMap[typeof ipcChannels.selectWorkspace]>;
+  setWorkspaceArchived(request: SetWorkspaceArchivedRequest): Promise<IpcResponseMap[typeof ipcChannels.setWorkspaceArchived]>;
+  deleteWorkspace(request: DeleteWorkspaceRequest): Promise<IpcResponseMap[typeof ipcChannels.deleteWorkspace]>;
   getDashboard(): Promise<IpcResponseMap[typeof ipcChannels.getDashboard]>;
   setPermissionProfile(request: SetPermissionProfileRequest): Promise<IpcResponseMap[typeof ipcChannels.setPermissionProfile]>;
   setUnrestrictedMode(request: SetUnrestrictedModeRequest): Promise<IpcResponseMap[typeof ipcChannels.setUnrestrictedMode]>;

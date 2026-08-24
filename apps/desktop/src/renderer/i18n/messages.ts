@@ -37,6 +37,20 @@ export type MessageKey =
   | 'project.setMain'
   | 'project.add'
   | 'project.addHint'
+  | 'project.activeList'
+  | 'project.archivedList'
+  | 'project.systemList'
+  | 'project.archive'
+  | 'project.restore'
+  | 'project.delete'
+  | 'project.confirmDelete'
+  | 'project.cancel'
+  | 'project.archivedBadge'
+  | 'project.systemBadge'
+  | 'project.systemHint'
+  | 'project.emptyActive'
+  | 'project.emptyArchived'
+  | 'project.deleteHint'
   | 'info.workspace'
   | 'info.activeProject'
   | 'info.mode'
@@ -122,6 +136,8 @@ export type MessageKey =
   | 'error.desktopService'
   | 'error.workspaceAdd'
   | 'error.workspaceSelect'
+  | 'error.workspaceArchive'
+  | 'error.workspaceDelete'
   | 'error.permissionProfileChange'
   | 'error.unrestrictedModeChange'
   | 'error.mcpStop'
@@ -174,6 +190,20 @@ export const th: Messages = {
   'project.setMain': 'ตั้งเป็นโปรเจกต์หลัก',
   'project.add': 'เพิ่มโปรเจกต์',
   'project.addHint': 'ใส่ path ของโฟลเดอร์โปรเจกต์บนเครื่องนี้',
+  'project.activeList': 'โปรเจกต์ที่ใช้งานอยู่',
+  'project.archivedList': 'โปรเจกต์ที่เก็บถาวร',
+  'project.systemList': 'System Workspaces',
+  'project.archive': 'เก็บถาวร',
+  'project.restore': 'นำกลับมาใช้งาน',
+  'project.delete': 'ลบรายการ',
+  'project.confirmDelete': 'ยืนยันลบรายการ',
+  'project.cancel': 'ยกเลิก',
+  'project.archivedBadge': 'เก็บถาวร',
+  'project.systemBadge': 'ระบบ',
+  'project.systemHint': 'Workspace นี้ lnwjud จัดการอัตโนมัติ จึงไม่สามารถเก็บถาวรหรือลบได้',
+  'project.emptyActive': 'ยังไม่มีโปรเจกต์ที่ใช้งานอยู่',
+  'project.emptyArchived': 'ยังไม่มีโปรเจกต์ที่เก็บถาวร',
+  'project.deleteHint': 'ลบเฉพาะรายการออกจาก lnwjud เท่านั้น — โฟลเดอร์ ไฟล์ และ Git ของโปรเจกต์จะไม่ถูกลบ',
   'info.workspace': 'Workspace',
   'info.activeProject': 'Active Project',
   'info.mode': 'Mode',
@@ -259,6 +289,8 @@ export const th: Messages = {
   'error.desktopService': 'การเชื่อมต่อเซอร์วิส Desktop ล้มเหลว',
   'error.workspaceAdd': 'ไม่สามารถเพิ่ม workspace ได้',
   'error.workspaceSelect': 'ไม่สามารถเลือก workspace ได้',
+  'error.workspaceArchive': 'ไม่สามารถเปลี่ยนสถานะเก็บถาวรของ workspace ได้',
+  'error.workspaceDelete': 'ไม่สามารถลบรายการ workspace ได้',
   'error.permissionProfileChange': 'ไม่สามารถเปลี่ยนโปรไฟล์สิทธิ์ได้',
   'error.unrestrictedModeChange': 'ไม่สามารถเปลี่ยนโหมดเต็มสิทธิ์ได้',
   'error.mcpStop': 'ไม่สามารถหยุด MCP ได้',
@@ -310,6 +342,20 @@ export const en: Messages = {
   'project.setMain': 'Set as main project',
   'project.add': 'Add project',
   'project.addHint': 'Enter a local project folder path',
+  'project.activeList': 'Active projects',
+  'project.archivedList': 'Archived projects',
+  'project.systemList': 'System workspaces',
+  'project.archive': 'Archive',
+  'project.restore': 'Restore',
+  'project.delete': 'Remove',
+  'project.confirmDelete': 'Confirm remove',
+  'project.cancel': 'Cancel',
+  'project.archivedBadge': 'Archived',
+  'project.systemBadge': 'System',
+  'project.systemHint': 'This workspace is managed automatically by lnwjud and cannot be archived or removed.',
+  'project.emptyActive': 'No active projects yet.',
+  'project.emptyArchived': 'No archived projects.',
+  'project.deleteHint': 'Removes only the lnwjud registration — the project folder, files, and Git repository are not deleted.',
   'info.workspace': 'Workspace',
   'info.activeProject': 'Active Project',
   'info.mode': 'Mode',
@@ -395,6 +441,8 @@ export const en: Messages = {
   'error.desktopService': 'Desktop service request failed',
   'error.workspaceAdd': 'Workspace could not be added',
   'error.workspaceSelect': 'Workspace could not be selected',
+  'error.workspaceArchive': 'Workspace archive state could not be changed',
+  'error.workspaceDelete': 'Workspace registration could not be removed',
   'error.permissionProfileChange': 'Permission profile could not be changed',
   'error.unrestrictedModeChange': 'Unrestricted mode could not be changed',
   'error.mcpStop': 'MCP could not be stopped',

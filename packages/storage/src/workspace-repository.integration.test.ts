@@ -34,4 +34,28 @@ describe('SqliteWorkspaceRepository', () => {
     await expect(repository.get(workspace.id)).resolves.toBeNull();
     database.close();
   });
+
+  it('archives registrations outside the runtime view and restores them without deleting project data', async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), 'lnwjud-workspace-archive-'));
+    temporaryRoots.push(root);
+    const database = new SqliteDatabase(path.join(root, 'state.sqlite'));
+    try {
+      const repository = new SqliteWorkspaceRepository(database);
+      const workspace = { id: 'workspace-archived', displayName: 'Archived', rootPath: root, realRootPath: root, createdAt: new Date(0).toISOString() };
+      await repository.insert(workspace);
+      await repository.archive(workspace.id, '2026-08-24T00:00:00.000Z');
+
+      await expect(repository.list()).resolves.toEqual([]);
+      await expect(repository.get(workspace.id)).resolves.toBeNull();
+      await expect(repository.getAny(workspace.id)).resolves.toMatchObject({ id: workspace.id, archivedAt: '2026-08-24T00:00:00.000Z' });
+      await expect(repository.listAll()).resolves.toEqual([expect.objectContaining({ id: workspace.id, archivedAt: '2026-08-24T00:00:00.000Z' })]);
+
+      await repository.restore(workspace.id);
+      await expect(repository.get(workspace.id)).resolves.toMatchObject({ id: workspace.id });
+      expect((await repository.getAny(workspace.id))?.archivedAt).toBeUndefined();
+    } finally {
+      database.close();
+    }
+  });
+
 });

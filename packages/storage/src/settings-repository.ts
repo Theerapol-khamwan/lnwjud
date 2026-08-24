@@ -14,4 +14,8 @@ export class SqliteSettingsRepository {
       'INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value',
     ).run(key, value);
   }
+
+  public delete(key: string): void {
+    this.database.connection.prepare('DELETE FROM settings WHERE key = ?').run(key);
+  }
 }

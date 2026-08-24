@@ -12,6 +12,7 @@ import {
   type ClearLogBufferRequest,
   type ClearWorkLogRequest,
   type ConfigureTunnelProfileRequest,
+  type DeleteWorkspaceRequest,
   type DashboardSnapshot,
   type DestructiveDeletePolicy,
   type DoctorReport,
@@ -25,6 +26,7 @@ import {
   type SaveTunnelApiKeyRequest,
   type ScheduleRestoreBackupRequest,
   type SelectWorkspaceRequest,
+  type SetWorkspaceArchivedRequest,
   type SetAiDeletePolicyRequest,
   type SetLocaleRequest,
   type SetPermissionProfileRequest,
@@ -60,6 +62,8 @@ export interface DesktopIpcServices {
   listWorkspaces(): Promise<IpcResponseMap[typeof ipcChannels.listWorkspaces]>;
   addWorkspace(request: AddWorkspaceRequest): Promise<WorkspaceSummary>;
   selectWorkspace(request: SelectWorkspaceRequest): Promise<WorkspaceSummary>;
+  setWorkspaceArchived(request: SetWorkspaceArchivedRequest): Promise<WorkspaceSummary>;
+  deleteWorkspace(request: DeleteWorkspaceRequest): Promise<{ readonly deleted: boolean; readonly workspaceId: string; readonly rootPath: string }>;
   getDashboard(): Promise<DashboardSnapshot>;
   setPermissionProfile(request: SetPermissionProfileRequest): Promise<{ readonly profile: PermissionProfileName }>;
   setUnrestrictedMode(request: SetUnrestrictedModeRequest): Promise<{ readonly unrestricted: boolean; readonly restartRequired: boolean }>;
@@ -141,6 +145,12 @@ const defaultDesktopServices: DesktopIpcServices = {
     throw new Error('Workspace service is not configured');
   },
   selectWorkspace: async (): Promise<WorkspaceSummary> => {
+    throw new Error('Workspace service is not configured');
+  },
+  setWorkspaceArchived: async (): Promise<WorkspaceSummary> => {
+    throw new Error('Workspace service is not configured');
+  },
+  deleteWorkspace: async (): Promise<{ readonly deleted: boolean; readonly workspaceId: string; readonly rootPath: string }> => {
     throw new Error('Workspace service is not configured');
   },
   getDashboard: async (): Promise<DashboardSnapshot> => ({
@@ -261,6 +271,14 @@ export function registerIpcHandlers(
   ipcMain.handle(ipcChannels.selectWorkspace, async (event, payload: unknown) => {
     assertTrustedSender(event, getMainWindow());
     return services.selectWorkspace(parseSelectWorkspaceRequest(payload));
+  });
+  ipcMain.handle(ipcChannels.setWorkspaceArchived, async (event, payload: unknown) => {
+    assertTrustedSender(event, getMainWindow());
+    return services.setWorkspaceArchived(parseSetWorkspaceArchivedRequest(payload));
+  });
+  ipcMain.handle(ipcChannels.deleteWorkspace, async (event, payload: unknown) => {
+    assertTrustedSender(event, getMainWindow());
+    return services.deleteWorkspace(parseDeleteWorkspaceRequest(payload));
   });
   ipcMain.handle(ipcChannels.getDashboard, async (event, payload: unknown) => {
     assertTrustedSender(event, getMainWindow());
@@ -438,6 +456,16 @@ function parseAddWorkspaceRequest(payload: unknown): AddWorkspaceRequest {
 }
 
 function parseSelectWorkspaceRequest(payload: unknown): SelectWorkspaceRequest {
+  if (!isRecord(payload)) throw new Error('Invalid IPC payload');
+  return { workspaceId: nonEmptyString(payload.workspaceId, 'workspaceId') };
+}
+
+function parseSetWorkspaceArchivedRequest(payload: unknown): SetWorkspaceArchivedRequest {
+  if (!isRecord(payload) || typeof payload.archived !== 'boolean') throw new Error('Invalid IPC payload: archived');
+  return { workspaceId: nonEmptyString(payload.workspaceId, 'workspaceId'), archived: payload.archived };
+}
+
+function parseDeleteWorkspaceRequest(payload: unknown): DeleteWorkspaceRequest {
   if (!isRecord(payload)) throw new Error('Invalid IPC payload');
   return { workspaceId: nonEmptyString(payload.workspaceId, 'workspaceId') };
 }

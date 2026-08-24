@@ -47,6 +47,7 @@ export function App(): ReactElement {
   const logIds = useRef<Set<number>>(new Set());
 
   const t = createTranslator(locale);
+  const activeWorkspaces = workspaces.filter((workspace) => workspace.archivedAt === undefined || workspace.archivedAt === null);
 
   const appendLogLine = useCallback((line: LogLine): void => {
     if (logIds.current.has(line.id)) return;
@@ -209,6 +210,28 @@ export function App(): ReactElement {
       setError(errorMessage(cause, t('error.workspaceSelect')));
     } finally {
       setMcpBusy(false);
+    }
+  }
+
+  async function setWorkspaceArchived(workspaceId: string, archived: boolean): Promise<void> {
+    setError(null);
+    try {
+      await window.lnwjud.setWorkspaceArchived({ workspaceId, archived });
+      await refresh();
+    } catch (cause: unknown) {
+      setError(errorMessage(cause, t('error.workspaceArchive')));
+      throw cause;
+    }
+  }
+
+  async function deleteWorkspace(workspaceId: string): Promise<void> {
+    setError(null);
+    try {
+      await window.lnwjud.deleteWorkspace({ workspaceId });
+      await refresh();
+    } catch (cause: unknown) {
+      setError(errorMessage(cause, t('error.workspaceDelete')));
+      throw cause;
     }
   }
 
@@ -391,7 +414,7 @@ export function App(): ReactElement {
       {screen === 'home' ? (
         <ControlCenterPage
           dashboard={dashboard}
-          workspaces={workspaces}
+          workspaces={activeWorkspaces}
           locale={locale}
           mcpBusy={mcpBusy}
           tunnelBusy={tunnelBusy}
@@ -416,6 +439,8 @@ export function App(): ReactElement {
           selectedWorkspaceId={dashboard.selectedWorkspace?.id ?? null}
           onSelectWorkspace={selectWorkspace}
           onAddWorkspace={addWorkspace}
+          onSetWorkspaceArchived={setWorkspaceArchived}
+          onDeleteWorkspace={deleteWorkspace}
         />
       ) : null}
       {screen === 'git' ? (
@@ -423,7 +448,7 @@ export function App(): ReactElement {
           locale={locale}
           gitSummary={dashboard.gitSummary}
           selectedWorkspace={dashboard.selectedWorkspace}
-          workspaces={workspaces}
+          workspaces={activeWorkspaces}
           onSelectWorkspace={selectWorkspace}
           onRefresh={refresh}
         />

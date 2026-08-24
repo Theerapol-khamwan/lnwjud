@@ -4,6 +4,7 @@ import { createPreMigrationBackupSync } from './backup-service.js';
 import { AUDIT_MIGRATION_SQL } from './migrations/audit-migration.js';
 import { AUDIT_SCOPE_MIGRATION_SQL } from './migrations/audit-scope-migration.js';
 import { CHECKPOINT_MIGRATION_SQL } from './migrations/checkpoint-migration.js';
+import { WORKSPACE_ARCHIVE_MIGRATION_SQL } from './migrations/workspace-archive-migration.js';
 
 export interface SqliteDatabaseOptions {
   readonly backupDirectory?: string;
@@ -45,6 +46,7 @@ export class SqliteDatabase {
     this.applyMigration({ id: '002_audit', sql: AUDIT_MIGRATION_SQL });
     this.applyMigration({ id: '003_checkpoints', sql: CHECKPOINT_MIGRATION_SQL });
     this.applyMigration({ id: '004_audit_scope', sql: AUDIT_SCOPE_MIGRATION_SQL });
+    this.applyMigration({ id: '005_workspace_archive', sql: WORKSPACE_ARCHIVE_MIGRATION_SQL });
   }
 
   public applyMigration(migration: Migration): void {

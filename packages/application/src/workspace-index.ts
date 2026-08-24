@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 import { watch, type FSWatcher } from 'node:fs';
-import { mkdir, readFile, readdir, stat, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, readdir, rm, stat, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { appError, err, ok, type Result } from '@lnwjud/domain';
@@ -38,6 +38,7 @@ export interface WorkspaceIndexSnapshot {
 export interface WorkspaceIndexStore {
   load(workspaceId: string): Promise<WorkspaceIndexSnapshot | null>;
   save(snapshot: WorkspaceIndexSnapshot): Promise<void>;
+  delete?(workspaceId: string): Promise<void>;
 }
 
 export class JsonWorkspaceIndexStore implements WorkspaceIndexStore {
@@ -60,6 +61,10 @@ export class JsonWorkspaceIndexStore implements WorkspaceIndexStore {
     await writeFile(temporaryPath, `${JSON.stringify(snapshot)}\n`, 'utf8');
     const { rename } = await import('node:fs/promises');
     await rename(temporaryPath, this.filePath(snapshot.workspaceId));
+  }
+
+  public async delete(workspaceId: string): Promise<void> {
+    await rm(this.filePath(workspaceId), { force: true });
   }
 
   private filePath(workspaceId: string): string {
@@ -181,6 +186,11 @@ export class WorkspaceIndexService {
     await watcher.queue.drain();
     this.watchers.delete(workspaceId);
     return ok({ stopped: true });
+  }
+
+  public async forgetWorkspace(workspaceId: string): Promise<void> {
+    await this.stopWatch(workspaceId);
+    await this.store.delete?.(workspaceId);
   }
 
   public async close(): Promise<void> {

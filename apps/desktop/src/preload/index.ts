@@ -8,6 +8,7 @@ import {
   type ClearLogBufferRequest,
   type ClearWorkLogRequest,
   type ConfigureTunnelProfileRequest,
+  type DeleteWorkspaceRequest,
   type DashboardSnapshot,
   type DestructiveDeletePolicy,
   type DoctorCheck,
@@ -25,6 +26,7 @@ import {
   type SaveTunnelApiKeyRequest,
   type ScheduleRestoreBackupRequest,
   type SelectWorkspaceRequest,
+  type SetWorkspaceArchivedRequest,
   type SetAiDeletePolicyRequest,
   type SetLocaleRequest,
   type SetPermissionProfileRequest,
@@ -78,12 +80,17 @@ function nullableString(value: unknown): string | null {
 
 function workspaceSummary(value: unknown): WorkspaceSummary {
   if (!isRecord(value)) throw new Error('Invalid IPC response');
+  const archivedAt = value.archivedAt === undefined ? undefined : nullableString(value.archivedAt);
+  const kind = value.kind;
+  if (kind !== undefined && kind !== 'project' && kind !== 'machine_root') throw new Error('Invalid IPC response');
   return {
     id: stringField(value, 'id'),
     displayName: stringField(value, 'displayName'),
     rootPath: stringField(value, 'rootPath'),
     realRootPath: stringField(value, 'realRootPath'),
     createdAt: stringField(value, 'createdAt'),
+    ...(archivedAt === undefined ? {} : { archivedAt }),
+    ...(kind === undefined ? {} : { kind }),
   };
 }
 
@@ -429,6 +436,23 @@ function selectWorkspace(request: SelectWorkspaceRequest): Promise<WorkspaceSumm
   return invoke(ipcChannels.selectWorkspace, { workspaceId: request.workspaceId }).then(workspaceSummary);
 }
 
+function setWorkspaceArchived(request: SetWorkspaceArchivedRequest): Promise<WorkspaceSummary> {
+  if (!isRecord(request) || typeof request.workspaceId !== 'string' || request.workspaceId.trim().length === 0 || typeof request.archived !== 'boolean') {
+    return Promise.reject(new Error('Invalid IPC request'));
+  }
+  return invoke(ipcChannels.setWorkspaceArchived, { workspaceId: request.workspaceId, archived: request.archived }).then(workspaceSummary);
+}
+
+function deleteWorkspace(request: DeleteWorkspaceRequest): Promise<{ readonly deleted: boolean; readonly workspaceId: string; readonly rootPath: string }> {
+  if (!isRecord(request) || typeof request.workspaceId !== 'string' || request.workspaceId.trim().length === 0) {
+    return Promise.reject(new Error('Invalid IPC request'));
+  }
+  return invoke(ipcChannels.deleteWorkspace, { workspaceId: request.workspaceId }).then((value: unknown) => {
+    if (!isRecord(value)) throw new Error('Invalid IPC response');
+    return { deleted: booleanField(value, 'deleted'), workspaceId: stringField(value, 'workspaceId'), rootPath: stringField(value, 'rootPath') };
+  });
+}
+
 function setPermissionProfile(request: SetPermissionProfileRequest): Promise<{ readonly profile: PermissionProfileName }> {
   if (!isRecord(request)) return Promise.reject(new Error('Invalid IPC request'));
   const profile = permissionProfile(request.profile);
@@ -693,6 +717,8 @@ const api: LnwjudApi = {
   listWorkspaces: () => invoke(ipcChannels.listWorkspaces).then(workspaceList),
   addWorkspace,
   selectWorkspace,
+  setWorkspaceArchived,
+  deleteWorkspace,
   getDashboard: () => invoke(ipcChannels.getDashboard).then(dashboard),
   setPermissionProfile,
   setUnrestrictedMode,

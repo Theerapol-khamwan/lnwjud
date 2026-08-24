@@ -107,7 +107,7 @@ describe('viewport-sized log and list layout', () => {
     expect(projects).toContain('page-content viewport-list-page');
     expect(git).toContain('page-content viewport-list-page git-page');
     expect(css).toMatch(/\.project-list-panel\s*\{[^}]*flex:\s*1[^}]*min-height:\s*0[^}]*overflow:\s*hidden/s);
-    expect(css).toMatch(/\.project-list\s*\{[^}]*min-height:\s*0[^}]*overflow-y:\s*auto/s);
+    expect(css).toMatch(/\.project-list-scroll\s*\{[^}]*min-height:\s*0[^}]*overflow-y:\s*auto/s);
     expect(css).toMatch(/\.git-file-list\s*\{[^}]*flex:\s*1[^}]*min-height:\s*0[^}]*overflow-y:\s*auto/s);
     expect(css).toMatch(/\.git-not-repo-notice\s*\{[^}]*flex:\s*1[^}]*min-height:\s*0[^}]*overflow:\s*hidden/s);
     expect(css).toMatch(/\.git-switch-list\s*\{[^}]*flex:\s*1[^}]*min-height:\s*0[^}]*overflow-y:\s*auto/s);

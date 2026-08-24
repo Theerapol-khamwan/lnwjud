@@ -158,6 +158,72 @@ describe('DesktopRuntime persistence', () => {
     }
   }, 30_000);
 
+  it('archives, restores, and deletes project registrations without deleting the project folder', async () => {
+    const rawDataRoot = await mkdtemp(path.join(os.tmpdir(), 'lnwjud-runtime-project-lifecycle-data-'));
+    const rawWorkspaceA = await mkdtemp(path.join(os.tmpdir(), 'lnwjud-runtime-project-lifecycle-a-'));
+    const rawWorkspaceB = await mkdtemp(path.join(os.tmpdir(), 'lnwjud-runtime-project-lifecycle-b-'));
+    temporaryRoots.push(rawDataRoot, rawWorkspaceA, rawWorkspaceB);
+    const dataRoot = await realpath(rawDataRoot);
+    const workspaceRootA = await realpath(rawWorkspaceA);
+    const workspaceRootB = await realpath(rawWorkspaceB);
+    const markerPath = path.join(workspaceRootA, 'keep-me.txt');
+    await writeFile(markerPath, 'project data must survive registration deletion', 'utf8');
+
+    const runtime = createDesktopRuntime(dataRoot);
+    try {
+      const workspaceA = await runtime.services.addWorkspace({ rootPath: workspaceRootA });
+      const workspaceB = await runtime.services.addWorkspace({ rootPath: workspaceRootB });
+      await runtime.services.selectWorkspace({ workspaceId: workspaceA.id });
+
+      await expect(runtime.services.setWorkspaceArchived({ workspaceId: workspaceA.id, archived: true })).resolves.toMatchObject({
+        id: workspaceA.id,
+        archivedAt: expect.any(String),
+        kind: 'project',
+      });
+      await expect(runtime.mcpServices.file.readFile(runtime.mcpActor, workspaceA.id, { path: 'keep-me.txt' }))
+        .resolves.toMatchObject({ ok: false, error: { code: 'WORKSPACE_NOT_FOUND' } });
+      const archivedList = await runtime.services.listWorkspaces();
+      expect(archivedList).toEqual(expect.arrayContaining([expect.objectContaining({ id: workspaceA.id, archivedAt: expect.any(String) })]));
+      expect((await runtime.services.getDashboard()).selectedWorkspace?.id).not.toBe(workspaceA.id);
+
+      await expect(runtime.services.addWorkspace({ rootPath: workspaceRootA })).resolves.toMatchObject({
+        id: workspaceA.id,
+        archivedAt: null,
+      });
+      expect((await runtime.services.listWorkspaces()).filter((entry) => entry.rootPath === workspaceRootA)).toHaveLength(1);
+      await runtime.services.setWorkspaceArchived({ workspaceId: workspaceA.id, archived: true });
+      await expect(runtime.services.setWorkspaceArchived({ workspaceId: workspaceA.id, archived: false })).resolves.toMatchObject({
+        id: workspaceA.id,
+        archivedAt: null,
+      });
+      await expect(runtime.mcpServices.file.readFile(runtime.mcpActor, workspaceA.id, { path: 'keep-me.txt' }))
+        .resolves.toMatchObject({ ok: true });
+
+      await runtime.services.selectWorkspace({ workspaceId: workspaceA.id });
+      await expect(runtime.services.deleteWorkspace({ workspaceId: workspaceA.id })).resolves.toEqual({
+        deleted: true,
+        workspaceId: workspaceA.id,
+        rootPath: workspaceRootA,
+      });
+      expect((await runtime.services.listWorkspaces()).some((entry) => entry.id === workspaceA.id)).toBe(false);
+      await expect(readFile(markerPath, 'utf8')).resolves.toBe('project data must survive registration deletion');
+      expect((await runtime.services.getDashboard()).selectedWorkspace?.id).not.toBe(workspaceA.id);
+      expect((await runtime.services.getDashboard()).selectedWorkspace?.id).toBeDefined();
+      expect(workspaceB.id).not.toBe(workspaceA.id);
+
+      if (process.platform === 'win32') {
+        const machineRoot = (await runtime.services.listWorkspaces()).find((entry) => entry.kind === 'machine_root');
+        expect(machineRoot).toBeDefined();
+        if (machineRoot !== undefined) {
+          await expect(runtime.services.setWorkspaceArchived({ workspaceId: machineRoot.id, archived: true })).rejects.toThrow(/managed automatically/);
+          await expect(runtime.services.deleteWorkspace({ workspaceId: machineRoot.id })).rejects.toThrow(/managed automatically/);
+        }
+      }
+    } finally {
+      await runtime.close();
+    }
+  }, 30_000);
+
   it('restores the persisted UI locale for native tray startup', async () => {
     const rawDataRoot = await mkdtemp(path.join(os.tmpdir(), 'lnwjud-runtime-locale-data-'));
     temporaryRoots.push(rawDataRoot);

@@ -6,6 +6,8 @@ export interface Workspace {
   readonly rootPath: string;
   readonly realRootPath: string;
   readonly createdAt: string;
+  /** Present only for archived workspace registrations. Archived workspaces are excluded from the runtime trust boundary. */
+  readonly archivedAt?: string | null;
 }
 
 export interface ResolvedWorkspacePath {
