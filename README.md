@@ -6,7 +6,7 @@
 
 <p align="center">
   <strong>Windows-first local AI-agent runtime and MCP gateway</strong><br />
-  <em>214 configurable tools for local files, Git, processes, Windows automation, WSL, browser control, indexing, observability, and extensibility; 207 are advertised by default because codex_* delegation is opt-in.</em>
+  <em>214 configurable tools for local files, Git, processes, Windows automation, WSL, browser control, indexing, observability, and extensibility; 208 are advertised by default because codex_* delegation is opt-in.</em>
 </p>
 
 <p align="center">
@@ -40,12 +40,22 @@ The tunnel is outbound-only: `tunnel-client` runs beside lnwjud, reaches OpenAI
 over outbound HTTPS, forwards MCP work to the local stdio server, and returns the
 response without opening a public inbound port on the Windows machine.
 
-## Current release: v4.8.5
+## Current release: v4.9.0
 
-The current published installer and runtime contract are `v4.8.5`. The runtime
-advertises **214 MCP tools**. The earlier 184-tool snapshot remains only as the
-compatibility baseline used by the v4 architecture; new v4 gateway capabilities
-are additive.
+The current published installer and runtime contract are `v4.9.0`. The full registry
+contains **214 configurable MCP tools**, with **208 advertised by default** because
+the six `codex_*` delegation tools are opt-in. The earlier 184-tool snapshot remains
+only as the compatibility baseline used by the v4 architecture; new v4 gateway
+capabilities are additive.
+
+### What's new in v4.9.0
+
+- Adds real multi-workspace / multi-session operation on one lnwjud installation: Desktop workspace selection no longer restarts the MCP listener, HTTP/STDIO sessions have stable ownership boundaries, and process/Codex/shell/WSL/task handles are isolated by session and workspace.
+- Makes destructive authorization request-scoped instead of relying on the Desktop-selected project, while keeping destructive auto-approval disabled by default, preserving Protected Critical Files, and supporting recoverable delete/restore.
+- Makes shared activity and durable runtime state safe for concurrent owners with per-owner activity leases, session-namespaced state, atomic writes, inter-process locking, shared plugin/worktree ledgers, and fail-closed checkpoint persistence under I/O contention.
+- Propagates workspace/session metadata through audit, Work Log, Live Logs, and process feeds; adds workspace/session filters, badges, scoped clear controls, and filtered log export without splitting global settings.
+- Adds real two-session/two-workspace release acceptance and release-gate coverage, including parallel build/test/background/Git workflows, handle isolation, updater safety, packaging, and Windows installer verification.
+- Fixes Work Log attribution for shell calls from clients with an older/stale schema: a registered workspace is inferred from cwd for logging only, and the task workspace is retained for later wait/status/logs/result/cancel activity without weakening permission or path policy.
 
 ### What's new in v4.8.5
 
@@ -272,7 +282,7 @@ stops the current local HTTP listener.
 
 1. Download the latest published installer from
    [GitHub Releases](https://github.com/engasnm111/lnwjud/releases/latest).
-   The current release is `lnwjud-Setup-4.8.5.exe`.
+   The current release is `lnwjud-Setup-4.9.0.exe`.
 2. Run the NSIS installer and launch **lnwjud Agent Control Center**.
 3. Add or select the project/workspace you want lnwjud to operate on.
 4. Review **Settings** before attaching an AI client, especially Permission
@@ -518,7 +528,7 @@ corepack pnpm@10.15.0 package:windows
 The x64 NSIS installer is written to:
 
 ```text
-apps/desktop/dist/installers/lnwjud-Setup-4.8.5.exe
+apps/desktop/dist/installers/lnwjud-Setup-4.9.0.exe
 ```
 
 The installer is per-user by default. A common installed executable path is:
@@ -869,7 +879,7 @@ After changing tool metadata or restarting the tunnel, refresh the connector and
 
 ## Complete MCP tool catalog (214 configurable tools; 208 advertised by default)
 
-This index is generated from the current v4.8.5 `ToolRegistry`, not copied from an older release document. Optional/planned tools still appear in the advertised contract and report their availability/requirements at runtime where applicable.
+This index is generated from the current v4.9.0 `ToolRegistry`, not copied from an older release document. Optional/planned tools still appear in the advertised contract and report their availability/requirements at runtime where applicable.
 
 | # | Tool | Permission | Runtime description |
 | ---: | --- | --- | --- |
