@@ -63,8 +63,10 @@ describe('public repository hygiene', () => {
     const rootPackage = JSON.parse(await readFile(path.join(repositoryRoot, 'package.json'), 'utf8')) as { version?: unknown };
     expect(typeof rootPackage.version).toBe('string');
 
-    expect(readme).toContain(`## Current release: v${rootPackage.version as string}`);
-    expect(readme).toContain(`current published installer and runtime contract are \`v${rootPackage.version as string}\``);
+    expect(readme).toContain(`## Current source / release candidate: v${rootPackage.version as string}`);
+    expect(readme).toContain(`The v${rootPackage.version as string} release target and runtime contract`);
+    expect(readme).toContain(`current source/release candidate is \`v${rootPackage.version as string}\``);
+    expect(readme).not.toContain(`current published installer and runtime contract are \`v${rootPackage.version as string}\``);
     expect(readme).toContain('214 configurable tools');
     expect(readme).not.toContain(['Verify the ', '184-tool catalog'].join(''));
     expect(readme).not.toContain(['current v3.0.0 catalog contains ', '184 tools'].join(''));

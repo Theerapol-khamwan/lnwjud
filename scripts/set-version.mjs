@@ -91,10 +91,11 @@ async function syncAllVersions() {
   try {
     let readmeContent = await readFile(readmePath, 'utf8');
     readmeContent = readmeContent
-      .replace(/lnwjud-Setup-[0-9.]+\.exe/g, `lnwjud-Setup-${version}.exe`)
-      .replace(/## Current release: v[0-9.]+/g, `## Current release: v${version}`)
-      .replace(/current published installer and runtime contract are `v[0-9.]+`/g, 'current published installer and runtime contract are `v' + version + '`')
+      .replace(/## Current (?:source \/ release candidate|release): v[0-9.]+/g, `## Current source / release candidate: v${version}`)
       .replace(/The v[0-9.]+ release target and runtime contract/g, 'The v' + version + ' release target and runtime contract')
+      .replace(/current source\/release candidate is `v[0-9.]+`/g, 'current source/release candidate is `v' + version + '`')
+      .replace(/validated local test installer `lnwjud-Setup-[0-9.]+\.exe`/g, 'validated local test installer `lnwjud-Setup-' + version + '.exe`')
+      .replace(/apps\/desktop\/dist\/installers\/lnwjud-Setup-[0-9.]+\.exe/g, 'apps/desktop/dist/installers/lnwjud-Setup-' + version + '.exe')
       .replace(/current v[0-9.]+ `ToolRegistry`/g, 'current v' + version + ' `ToolRegistry`')
       .replace(/## v[0-9.]+ release status/g, `## v${version} release status`)
       .replace(/Release `v[0-9.]+`/g, `Release \`v${version}\``);
@@ -102,6 +103,26 @@ async function syncAllVersions() {
     console.log(`Updated README.md -> v${version}`);
   } catch {
     // skip if missing
+  }
+
+  // 8. Update current release-candidate Markdown references without rewriting release history.
+  const markdownTargets = [
+    ['.github/RELEASE_CHECKLIST.md', (content) => content
+      .replace(/\*\*Current release candidate:\*\* `v[0-9.]+`/g, `**Current release candidate:** ` + '`v' + version + '`')
+      .replace(/(\*\*Current release candidate:\*\*[^\r\n]*Windows installer `lnwjud-Setup-)[0-9.]+(\.exe`)/g, (_match, prefix, suffix) => prefix + version + suffix)],
+    ['docs/USAGE_TH.md', (content) => content.replace(/lnwjud-Setup-[0-9.]+\.exe/g, `lnwjud-Setup-${version}.exe`)],
+    ['docs/development/PACKAGING_WINDOWS.md', (content) => content.replace(/lnwjud-Setup-[0-9.]+\.exe/g, `lnwjud-Setup-${version}.exe`)],
+    ['docs/LNWJUD_CAPABILITIES.md', (content) => content.replace(/lnwjud v[0-9.]+/g, `lnwjud v${version}`)],
+  ];
+  for (const [relativePath, update] of markdownTargets) {
+    const targetPath = path.join(rootDir, relativePath);
+    try {
+      const content = await readFile(targetPath, 'utf8');
+      await writeFile(targetPath, update(content), 'utf8');
+      console.log(`Updated ${relativePath} -> v${version}`);
+    } catch {
+      // optional/local documentation may be absent in a public checkout
+    }
   }
 
   console.log(`\nAll versions successfully synchronized to ${name} v${version}!`);
