@@ -8,17 +8,32 @@ describe('UpgradeRuntimeStateStore', () => {
   it('merges simultaneous writes for the same session without losing checkpoints', async () => {
     const directory = await mkdtemp(path.join(os.tmpdir(), 'lnwjud-runtime-state-'));
     const legacyPath = path.join(directory, 'upgrade-runtime.json');
-    const first = new UpgradeRuntimeStateStore(legacyPath, 'client\0session-a');
-    const second = new UpgradeRuntimeStateStore(legacyPath, 'client\0session-a');
+    const stores = Array.from({ length: 16 }, () => new UpgradeRuntimeStateStore(legacyPath, 'client\0session-a'));
 
-    await Promise.all([
-      first.updateSession((current) => ({ ...current, checkpoints: [...current.checkpoints, { id: 'checkpoint-a' }] })),
-      second.updateSession((current) => ({ ...current, checkpoints: [...current.checkpoints, { id: 'checkpoint-b' }] })),
-    ]);
+    await Promise.all(stores.map((store, index) => store.updateSession((current) => ({
+      ...current,
+      checkpoints: [...current.checkpoints, { id: `checkpoint-${index}` }],
+    }))));
 
-    const loaded = await first.load();
-    expect(loaded.session.checkpoints).toEqual(expect.arrayContaining([{ id: 'checkpoint-a' }, { id: 'checkpoint-b' }]));
-    expect(loaded.session.checkpoints).toHaveLength(2);
+    const loaded = await stores[0]!.load();
+    expect(loaded.session.checkpoints).toEqual(expect.arrayContaining(
+      Array.from({ length: 16 }, (_, index) => ({ id: `checkpoint-${index}` })),
+    ));
+    expect(loaded.session.checkpoints).toHaveLength(16);
+  });
+
+  it('fails closed instead of overwriting unreadable authoritative session state', async () => {
+    const directory = await mkdtemp(path.join(os.tmpdir(), 'lnwjud-runtime-state-'));
+    const legacyPath = path.join(directory, 'upgrade-runtime.json');
+    const store = new UpgradeRuntimeStateStore(legacyPath, 'client\0session-a');
+    await store.updateSession((current) => ({ ...current, checkpoints: [...current.checkpoints, { id: 'checkpoint-a' }] }));
+    const sessionPath = store.sessionStatePath();
+    await writeFile(sessionPath, '{broken-json', 'utf8');
+
+    await expect(store.updateSession((current) => ({
+      ...current, checkpoints: [...current.checkpoints, { id: 'checkpoint-b' }],
+    }))).rejects.toThrow();
+    await expect(readFile(sessionPath, 'utf8')).resolves.toBe('{broken-json');
   });
 
   it('isolates session state while merging shared state across owners', async () => {

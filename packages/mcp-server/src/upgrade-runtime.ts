@@ -205,7 +205,8 @@ export class UpgradeRuntimeService {
         const checkpoint: SessionCheckpoint = { id: randomUUID(), createdAt: new Date().toISOString(), summary: summarize(readString(input, 'summary') ?? readString(input, 'prompt') ?? ''), inputDigest: digest(input) };
         this.checkpoints.push(checkpoint);
         this.session.set('lastCheckpointId', checkpoint.id);
-        await this.persistState();
+        const persisted = await this.persistState();
+        if (!persisted) return err(appError('INTERNAL_ERROR', 'Session checkpoint could not be persisted', true));
         return ok(checkpoint);
       }
       case 'session_history':
@@ -762,8 +763,8 @@ export class UpgradeRuntimeService {
     }
   }
 
-  private async persistState(): Promise<void> {
-    if (this.stateStore === undefined) return;
+  private async persistState(): Promise<boolean> {
+    if (this.stateStore === undefined) return true;
     try {
       const merged = await this.stateStore.updateSession((current) => {
         const tasks = new Map<string, RuntimeTask>();
@@ -778,8 +779,11 @@ export class UpgradeRuntimeService {
         return { tasks: [...tasks.values()], checkpoints: [...checkpoints.values()], session: [...session.entries()] };
       });
       this.replaceSessionState(merged);
+      return true;
     } catch {
-      // State persistence must never break the MCP operation itself.
+      // Most upgrade-runtime persistence is optional, but callers such as
+      // session_checkpoint can fail closed when durable state is the operation.
+      return false;
     }
   }
 
