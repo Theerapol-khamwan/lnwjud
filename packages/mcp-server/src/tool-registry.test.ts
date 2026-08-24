@@ -325,6 +325,47 @@ describe('MCP tool registry', () => {
     ]);
   });
 
+  it('attributes shell cwd and task follow-ups to the matching registered workspace for activity logs', async () => {
+    const events: ActivitySinkEvent[] = [];
+    let taskSequence = 0;
+    const registry = new ToolRegistry({
+      workspaceInfo: {
+        async info(): Promise<ReturnType<typeof err>> { return err(appError('WORKSPACE_NOT_FOUND', 'not used')); },
+        async list(): Promise<ReturnType<typeof ok>> {
+          return ok([
+            { id: 'machine-root', displayName: 'E', rootPath: 'E:\\', realRootPath: 'E:\\' },
+            { id: 'workspace-project', displayName: 'lnwjud', rootPath: 'E:\\lnwjud', realRootPath: 'E:\\lnwjud' },
+          ]);
+        },
+      },
+      capabilities: {
+        async execute(tool, input): Promise<ReturnType<typeof ok>> {
+          expect(tool).toBe('shell');
+          const request = input as { operation?: string; task_id?: string };
+          if (request.operation === 'run') {
+            taskSequence += 1;
+            return ok({ task_id: `task-${taskSequence}`, state: 'running' });
+          }
+          return ok({ task_id: request.task_id, state: 'completed', exit_code: 0 });
+        },
+      },
+    }, actor, {
+      activity: { async record(event: ActivitySinkEvent): Promise<void> { events.push(event); } },
+    });
+
+    await registry.invoke('shell', { operation: 'run', executable: 'node', arguments: ['--version'], cwd: 'E:\\lnwjud\\packages\\mcp-server' });
+    await registry.invoke('shell', { operation: 'wait', task_id: 'task-1' });
+    await registry.invoke('shell', { operation: 'run', executable: 'node', arguments: ['--version'], cwd: 'C:\\outside' });
+
+    expect(events.slice(0, 4).map((event) => ({ phase: event.phase, workspaceId: event.workspaceId }))).toEqual([
+      { phase: 'started', workspaceId: 'workspace-project' },
+      { phase: 'completed', workspaceId: 'workspace-project' },
+      { phase: 'started', workspaceId: 'workspace-project' },
+      { phase: 'completed', workspaceId: 'workspace-project' },
+    ]);
+    expect(events.slice(4).every((event) => event.workspaceId === undefined)).toBe(true);
+  });
+
   it('executes tool_batch children through the registry and records each child activity', async () => {
     const events: Array<{ phase: string; toolName: string; resultCode: string }> = [];
     const registry = new ToolRegistry({

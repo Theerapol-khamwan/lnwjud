@@ -1,3 +1,4 @@
+import path from 'node:path';
 import { appError } from '@lnwjud/domain';
 import { sanitizeException, type DiagnosticLogger, type FileActor } from '@lnwjud/application';
 import { DefaultPermissionEngine, permissionProfiles, type PermissionProfile } from '@lnwjud/permissions';
@@ -68,6 +69,8 @@ export class ToolRegistry {
   private readonly profileProvider: () => PermissionProfile;
   private readonly destructivePolicyProvider: () => DestructiveAutoApprovalPolicy;
   private readonly workspaceScopeResolver: (workspaceId: string) => Promise<WorkspaceScope | null>;
+  private readonly activityWorkspaceResolver: (cwd: string) => Promise<string | undefined>;
+  private readonly shellTaskWorkspaces = new Map<string, string>();
   private readonly maxToolDurationMs: number | null;
 
   public constructor(services: McpApplicationServices, actor: FileActor, options: ToolRegistryOptions = {}) {
@@ -77,6 +80,7 @@ export class ToolRegistry {
     this.profileProvider = options.profileProvider ?? ((): PermissionProfile => permissionProfiles.full);
     this.destructivePolicyProvider = options.destructivePolicyProvider ?? ((): DestructiveAutoApprovalPolicy => legacyDeletePolicy(options.allowAiDeleteProvider?.() === true));
     this.workspaceScopeResolver = normalizeWorkspaceScopeResolver(services, actor, options);
+    this.activityWorkspaceResolver = normalizeActivityWorkspaceResolver(services, actor);
     this.maxToolDurationMs = normalizeToolResponseBudget(options.maxToolDurationMs);
     const contextEconomy = new ContextEconomyRuntime();
     const context: McpToolContext = { services, actor, contextEconomy };
@@ -130,7 +134,9 @@ export class ToolRegistry {
   }
 
   public async invoke(name: string, input: unknown, traceContext?: TraceContext, parentSignal?: AbortSignal): Promise<McpToolResponse> {
-    const callId = await this.activity.begin(name, input, { ...(traceContext ?? {}), ...(this.sessionId === undefined ? {} : { sessionId: this.sessionId }) });
+    const activityWorkspaceId = await this.resolveActivityWorkspaceId(name, input);
+    const activityInput = withActivityWorkspaceId(input, activityWorkspaceId);
+    const callId = await this.activity.begin(name, activityInput, { ...(traceContext ?? {}), ...(this.sessionId === undefined ? {} : { sessionId: this.sessionId }) });
     const started = Date.now();
     try {
       const tool = this.tools.find((candidate) => candidate.name === name);
@@ -179,6 +185,7 @@ export class ToolRegistry {
       const executionInput = policyAllowsScopedDestructive ? withInternalUserConfirmation(parsed.value) : parsed.value;
       const execution = await this.executeWithinResponseBudget(tool, executionInput, parentSignal);
       const response = execution.response;
+      this.rememberShellTaskWorkspace(name, response, activityWorkspaceId);
       const resultCode = response.isError === true
         ? readErrorCode(response) ?? 'ERROR'
         : 'SUCCESS';
@@ -199,6 +206,25 @@ export class ToolRegistry {
       await this.activity.end(callId, 'INTERNAL_ERROR', Date.now() - started, 'Operation failed');
       return response;
     }
+  }
+
+  private async resolveActivityWorkspaceId(name: string, input: unknown): Promise<string | undefined> {
+    const explicitWorkspaceId = readExplicitWorkspaceId(input);
+    if (explicitWorkspaceId !== undefined) return explicitWorkspaceId;
+    if (name !== 'shell' || !isRecord(input)) return undefined;
+    const taskId = readTrimmedString(input.task_id);
+    if (taskId !== undefined) {
+      const remembered = this.shellTaskWorkspaces.get(taskId);
+      if (remembered !== undefined) return remembered;
+    }
+    const cwd = readTrimmedString(input.cwd);
+    return cwd === undefined ? undefined : this.activityWorkspaceResolver(cwd);
+  }
+
+  private rememberShellTaskWorkspace(name: string, response: McpToolResponse, workspaceId: string | undefined): void {
+    if (name !== 'shell' || workspaceId === undefined || response.isError === true) return;
+    const taskId = readTrimmedString(response.structuredContent?.task_id);
+    if (taskId !== undefined) this.shellTaskWorkspaces.set(taskId, workspaceId);
   }
 
   private async resolveWorkspaceScope(workspaceId: string): Promise<WorkspaceScope | null> {
@@ -285,6 +311,63 @@ function normalizeToolResponseBudget(value: number | undefined): number | null {
   return typeof value === 'number' && Number.isFinite(value) && value > 0
     ? value
     : DEFAULT_MCP_TOOL_RESPONSE_BUDGET_MS;
+}
+
+function normalizeActivityWorkspaceResolver(
+  services: McpApplicationServices,
+  actor: FileActor,
+): (cwd: string) => Promise<string | undefined> {
+  return async (cwd: string): Promise<string | undefined> => {
+    const infoPort = services.workspaceInfo;
+    if (infoPort?.list === undefined || !isAbsoluteActivityPath(cwd)) return undefined;
+    try {
+      const listed = await infoPort.list(actor);
+      if (!listed.ok || !Array.isArray(listed.value)) return undefined;
+      let best: { readonly workspaceId: string; readonly score: number } | undefined;
+      for (const entry of listed.value) {
+        if (!isRecord(entry)) continue;
+        const workspaceId = readTrimmedString(entry.id);
+        if (workspaceId === undefined) continue;
+        const roots = [readTrimmedString(entry.realRootPath), readTrimmedString(entry.rootPath)].filter((value): value is string => value !== undefined);
+        for (const root of roots) {
+          if (!activityPathContains(root, cwd)) continue;
+          const score = normalizedActivityPath(root).length;
+          if (best === undefined || score > best.score) best = { workspaceId, score };
+        }
+      }
+      return best?.workspaceId;
+    } catch {
+      return undefined;
+    }
+  };
+}
+
+function withActivityWorkspaceId(input: unknown, workspaceId: string | undefined): unknown {
+  if (workspaceId === undefined || !isRecord(input) || readExplicitWorkspaceId(input) !== undefined) return input;
+  return { ...input, workspaceId };
+}
+
+function isAbsoluteActivityPath(value: string): boolean {
+  return path.win32.isAbsolute(value) || path.posix.isAbsolute(value);
+}
+
+function activityPathContains(root: string, candidate: string): boolean {
+  const api = path.win32.isAbsolute(root) || path.win32.isAbsolute(candidate) ? path.win32 : path.posix;
+  const relative = api.relative(api.resolve(root), api.resolve(candidate));
+  return relative === '' || (!relative.startsWith('..') && !api.isAbsolute(relative));
+}
+
+function normalizedActivityPath(value: string): string {
+  const api = path.win32.isAbsolute(value) ? path.win32 : path.posix;
+  return api.resolve(value).replace(/[\\/]+$/, '').toLowerCase();
+}
+
+function readTrimmedString(value: unknown): string | undefined {
+  return typeof value === 'string' && value.trim().length > 0 ? value.trim() : undefined;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
 type WorkspaceScopeResolverOptions = Pick<ToolRegistryOptions, 'workspaceScopeResolver' | 'activeProjectProvider'>;
