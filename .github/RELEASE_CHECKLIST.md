@@ -4,6 +4,8 @@
 
 Run the release verification from PowerShell at the repository root. The automated gate must fail fast on any non-zero stage and `git diff --check` must pass before packaging or publishing.
 
+For GitHub releases, the `main` CI workflow is the single authoritative build: after the full verification gate succeeds it uploads the Windows installer, blockmap, and `latest.yml` as a SHA-scoped Actions artifact. A `v*` tag may publish only by reusing the successful CI artifact for that exact commit SHA; the Release workflow must not rerun the full verification/build/package pipeline.
+
 ## Automated evidence
 
 - Workspace traversal and junction/reparse-point tests pass without broadening the configured path boundary.

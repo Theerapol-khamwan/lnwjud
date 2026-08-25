@@ -1,4 +1,4 @@
-﻿name: Release
+name: Release
 
 on:
   push:
@@ -6,6 +6,7 @@ on:
       - 'v*'
 
 permissions:
+  actions: read
   contents: write
 
 concurrency:
@@ -13,8 +14,8 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  build-release:
-    name: Verify & Publish Windows Release
+  publish-release:
+    name: Publish Verified Windows Release
     runs-on: windows-latest
 
     steps:
@@ -30,26 +31,44 @@ jobs:
             throw "Release tag must match package.json version. Expected $expectedTag but got ${{ github.ref_name }}"
           }
 
-      - name: Setup Node.js 24
-        uses: actions/setup-node@v4
-        with:
-          node-version: '24'
-
-      - name: Enable Corepack & Setup pnpm
-        run: |
-          corepack enable
-          corepack prepare pnpm@10.15.0 --activate
-
-      - name: Install ripgrep for E2E search
-        shell: powershell
-        run: choco install ripgrep -y --no-progress
-
-      - name: Run authoritative verification gate
-        shell: powershell
-        run: powershell -NoProfile -NonInteractive -ExecutionPolicy Bypass -File scripts/verify-release.ps1
+      - name: Download verified CI artifact
+        shell: pwsh
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          $repository = "${{ github.repository }}"
+          $sha = "${{ github.sha }}"
+          $artifactName = "windows-release-$sha"
+          $runsJson = gh run list --repo $repository --workflow ci.yml --commit $sha --event push --status success --limit 20 --json databaseId,headSha,conclusion
+          if ($LASTEXITCODE -ne 0) {
+            throw "Unable to query successful CI runs for $sha"
+          }
+          $runs = @($runsJson | ConvertFrom-Json)
+          $run = $runs | Where-Object { $_.headSha -eq $sha -and $_.conclusion -eq 'success' } | Select-Object -First 1
+          if ($null -eq $run) {
+            throw "Release requires a successful CI run for exact commit $sha before tagging."
+          }
+
+          $installerDirectory = Join-Path $PWD 'apps\desktop\dist\installers'
+          New-Item -ItemType Directory -Force -Path $installerDirectory | Out-Null
+          gh run download "$($run.databaseId)" --repo $repository --name $artifactName --dir $installerDirectory
+          if ($LASTEXITCODE -ne 0) {
+            throw "Unable to download verified artifact '$artifactName' from CI run $($run.databaseId)."
+          }
+
+          $package = Get-Content package.json -Raw | ConvertFrom-Json
+          $requiredFiles = @(
+            "lnwjud-Setup-$($package.version).exe",
+            "lnwjud-Setup-$($package.version).exe.blockmap",
+            'latest.yml'
+          )
+          foreach ($fileName in $requiredFiles) {
+            $filePath = Join-Path $installerDirectory $fileName
+            if (-not (Test-Path -LiteralPath $filePath -PathType Leaf)) {
+              throw "Verified CI artifact is missing required release file: $fileName"
+            }
+          }
+          Write-Host "Using verified CI artifact from run $($run.databaseId) for commit $sha"
 
       - name: Create GitHub Release & Upload Installer
         uses: softprops/action-gh-release@v2

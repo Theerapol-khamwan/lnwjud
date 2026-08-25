@@ -75,13 +75,33 @@ describe('MVP release verification gate', () => {
     expect(rootPackage.scripts?.desktop).toContain('--filter @lnwjud/desktop electron:install');
   });
 
-  it('provisions ripgrep on fresh Windows CI and release runners before E2E', async () => {
-    for (const workflowName of ['ci.yml', 'release.yml']) {
-      const workflow = await readFile(path.join(repositoryRoot, '.github', 'workflows', workflowName), 'utf8');
-      expect(workflow).toContain('Install ripgrep for E2E search');
-      expect(workflow).toContain('choco install ripgrep -y --no-progress');
-      expect(workflow.indexOf('Install ripgrep for E2E search')).toBeLessThan(workflow.indexOf('Run authoritative verification gate'));
-    }
+  it('provisions ripgrep on fresh Windows CI before the authoritative gate', async () => {
+    const workflow = await readFile(path.join(repositoryRoot, '.github', 'workflows', 'ci.yml'), 'utf8');
+    expect(workflow).toContain('Install ripgrep for E2E search');
+    expect(workflow).toContain('choco install ripgrep -y --no-progress');
+    expect(workflow.indexOf('Install ripgrep for E2E search')).toBeLessThan(workflow.indexOf('Run authoritative verification gate'));
+  });
+
+  it('uploads the verified Windows installer once in CI and reuses that exact SHA artifact for releases', async () => {
+    const ci = await readFile(path.join(repositoryRoot, '.github', 'workflows', 'ci.yml'), 'utf8');
+    const release = await readFile(path.join(repositoryRoot, '.github', 'workflows', 'release.yml'), 'utf8');
+
+    expect(ci).toContain('actions/upload-artifact@v4');
+    expect(ci).toContain('windows-release-${{ github.sha }}');
+    expect(ci).toContain('apps/desktop/dist/installers/*.exe');
+    expect(ci.indexOf('Run authoritative verification gate')).toBeLessThan(ci.indexOf('Upload verified Windows release artifact'));
+
+    expect(release).toContain('actions: read');
+    expect(release).toContain('gh run list');
+    expect(release).toContain('--workflow ci.yml');
+    expect(release).toContain('--commit $sha');
+    expect(release).toContain('gh run download');
+    expect(release).toContain('windows-release-$sha');
+    expect(release).toContain('successful CI run for exact commit');
+    expect(release).not.toContain('verify-release.ps1');
+    expect(release).not.toContain('Run authoritative verification gate');
+    expect(release).not.toContain('package:windows');
+    expect(release).not.toContain('Install ripgrep for E2E search');
   });
 
   it('rejects release tags that do not match the packaged application version', async () => {
