@@ -94,6 +94,7 @@ import {
   type DeleteWorkspaceRequest,
   type ConnectionModes,
   type DashboardSnapshot,
+  type DoctorCheck,
   type DoctorReport,
   type InFlightWorkItem,
   type LogSnapshot,
@@ -345,6 +346,34 @@ export function createDesktopRuntime(dataPath: string, options: DesktopRuntimeOp
   };
   const trackedProcesses = new Map<string, string>();
 
+  function recordPersistentTunnelStatus(status: TunnelStatus): void {
+    const persistent = status.persistent;
+    if (persistent === null) return;
+    const stateKey = [persistent.mode, persistent.state, persistent.healthy, persistent.ready, persistent.pollHealthy, persistent.reconnectCount, persistent.lastErrorCode].join(':');
+    const level = persistent.state === 'error' || persistent.state === 'auth-required' ? 'error'
+      : persistent.state === 'reconnecting' || persistent.healthy === false || persistent.ready === false || persistent.pollHealthy === false ? 'warn'
+        : 'info';
+    const detail = [
+      '[persistent-runtime]',
+      'alias=' + persistent.runtimeAlias,
+      'tunnel=' + (persistent.tunnelIdMasked ?? 'unconfigured'),
+      'mode=' + persistent.mode,
+      'state=' + persistent.state,
+      'health=' + triStateLabel(persistent.healthy),
+      'ready=' + triStateLabel(persistent.ready),
+      'poll=' + triStateLabel(persistent.pollHealthy),
+      'reconnects=' + persistent.reconnectCount,
+      ...(persistent.lastErrorCode === null ? [] : ['error=' + persistent.lastErrorCode]),
+    ].join(' ');
+    logHub.feedIfNew('tunnel', 'persistent-runtime:' + stateKey, level, detail);
+  }
+
+  async function observedTunnelStatus(): Promise<TunnelStatus> {
+    const status = await tunnelController.status();
+    recordPersistentTunnelStatus(status);
+    return status;
+  }
+
   async function resolveManageableWorkspace(workspaceId: string): Promise<Workspace> {
     const workspace = await workspaceRepository.getAny(workspaceId);
     if (workspace === null) throw new Error('Workspace was not found');
@@ -487,7 +516,7 @@ export function createDesktopRuntime(dataPath: string, options: DesktopRuntimeOp
       const mcp = mcpLifecycle.status();
       const workLog = await buildWorkLog(auditRepository, workLogViewState);
       const inFlight = activityTracker.listInFlight().map(toInFlightItem);
-      const tunnel = await tunnelController.status();
+      const tunnel = await observedTunnelStatus();
       const backups = await backupService.list();
       let recovery: DashboardSnapshot['recovery'];
       if (selectedWorkspace === null) {
@@ -639,9 +668,17 @@ export function createDesktopRuntime(dataPath: string, options: DesktopRuntimeOp
       }
       return { saved: true };
     },
-    startTunnel: (): Promise<TunnelStatus> => tunnelController.start(),
-    stopTunnel: (): Promise<TunnelStatus> => tunnelController.stop(),
-    getTunnelStatus: (): Promise<TunnelStatus> => tunnelController.status(),
+    startTunnel: async (): Promise<TunnelStatus> => {
+      const status = await tunnelController.start();
+      recordPersistentTunnelStatus(status);
+      return status;
+    },
+    stopTunnel: async (): Promise<TunnelStatus> => {
+      const status = await tunnelController.stop();
+      recordPersistentTunnelStatus(status);
+      return status;
+    },
+    getTunnelStatus: (): Promise<TunnelStatus> => observedTunnelStatus(),
     setTunnelClientPath: async (request: SetTunnelClientPathRequest): Promise<{ readonly clientPath: string }> => {
       const clientPath = tunnelController.setClientPath(request.clientPath);
       if (readSettings().tunnelAutoReconnect) {
@@ -671,7 +708,12 @@ export function createDesktopRuntime(dataPath: string, options: DesktopRuntimeOp
     },
     runDoctor: async (): Promise<DoctorReport> => {
       await ensureMachineRoots();
-      return doctorService.run();
+      const base = await doctorService.run();
+      const tunnel = await observedTunnelStatus();
+      const mcp = mcpLifecycle.status();
+      const tunnelHealth = await tunnelController.incidentHealth();
+      const checks = [...base.checks, ...buildPersistentTunnelDoctorChecks({ tunnel, mcp, tunnelHealth, persistentEnabled: readSettings().tunnelAutoReconnect })];
+      return { checks, exitCode: checks.some((check) => check.required && check.status === 'fail') ? 1 : 0 };
     },
     getLogSnapshot: async (): Promise<LogSnapshot> => {
       await ensureMachineRoots();
@@ -695,7 +737,7 @@ export function createDesktopRuntime(dataPath: string, options: DesktopRuntimeOp
       return { cleared: true };
     },
     captureIncident: async (updaterEvents: readonly string[] = []): Promise<IncidentReport> => {
-      const tunnel = await tunnelController.status();
+      const tunnel = await observedTunnelStatus();
       const tunnelClientVersion = await tunnelController.clientVersion();
       const relevantPids = await tunnelController.incidentRelevantPids();
       return buildIncidentReport({
@@ -1117,6 +1159,54 @@ function toManagedBrowserStatus(value: unknown): ManagedBrowserStatus {
 async function checkExecutable(resolver: PathExecutableResolver, executable: string): Promise<{ readonly status: 'pass' | 'warn'; readonly message: string }> {
   const result = await resolver.resolve(executable);
   return result.ok ? { status: 'pass', message: `${executable} is available` } : { status: 'warn', message: `${executable} is not available` };
+}
+
+function triStateLabel(value: boolean | null): string {
+  return value === null ? 'unknown' : value ? 'ok' : 'failed';
+}
+
+export function buildPersistentTunnelDoctorChecks(input: {
+  readonly tunnel: TunnelStatus;
+  readonly mcp: McpConnectionStatus;
+  readonly tunnelHealth: { readonly state: 'live' | 'unhealthy' | 'unavailable' | 'unknown'; readonly message: string | null };
+  readonly persistentEnabled: boolean;
+}): readonly DoctorCheck[] {
+  const persistent = input.tunnel.persistent;
+  const required = input.persistentEnabled;
+  const identityPresent = persistent?.tunnelIdMasked !== null && persistent?.tunnelIdMasked !== undefined;
+  const nativeRuntime = persistent?.mode === 'native-managed';
+  const runtimeRunning = input.tunnel.state === 'running' && (persistent === null || persistent.state === 'running');
+  const localBindingMatches = persistent?.localMcpUrl !== null && persistent?.localMcpUrl !== undefined
+    && input.mcp.url !== null && sameLocalMcpEndpoint(persistent.localMcpUrl, input.mcp.url);
+  const mismatch = persistent?.lastErrorCode === 'TUNNEL_ID_MISMATCH';
+  const controlPlaneHealthy = persistent?.pollHealthy;
+  const health = persistent?.healthy ?? (input.tunnelHealth.state === 'live' ? true : input.tunnelHealth.state === 'unhealthy' ? false : null);
+  const ready = persistent?.ready ?? null;
+
+  const check = (id: string, status: DoctorCheck['status'], message: string, isRequired = required): DoctorCheck => ({ id, required: isRequired, status, message });
+  return [
+    check('persistent_tunnel_identity', identityPresent ? 'pass' : required ? 'fail' : 'warn', identityPresent ? 'Saved tunnel identity is configured' : 'TUNNEL_ID_MISMATCH: persistent tunnel identity is not configured'),
+    check('runtime_alias_state', nativeRuntime ? 'pass' : persistent === null ? 'warn' : 'warn', nativeRuntime ? 'Native runtime alias lnwjud is active' : 'TUNNEL_RUNTIME_DOWN: native runtime alias is not active', false),
+    check('runtime_process_running', runtimeRunning ? 'pass' : required ? 'fail' : 'warn', runtimeRunning ? 'Tunnel runtime is running' : 'TUNNEL_RUNTIME_DOWN: tunnel runtime is not running'),
+    check('tunnel_health', health === true ? 'pass' : health === false ? 'fail' : 'warn', health === true ? 'Tunnel health is OK' : health === false ? 'TUNNEL_RUNTIME_DOWN: tunnel health probe failed' : 'Tunnel health is not currently observable'),
+    check('tunnel_ready', ready === true ? 'pass' : ready === false ? 'fail' : 'warn', ready === true ? 'Tunnel readiness is OK' : ready === false ? 'TUNNEL_RUNTIME_DOWN: tunnel is not ready' : 'Tunnel readiness is not currently observable'),
+    check('control_plane_poll_health', controlPlaneHealthy === true ? 'pass' : controlPlaneHealthy === false ? 'fail' : 'warn', controlPlaneHealthy === true ? 'Control-plane poll is healthy' : controlPlaneHealthy === false ? 'CONTROL_PLANE_OFFLINE: control-plane polling is unhealthy' : 'Control-plane poll health is not currently observable'),
+    check('local_mcp_binding', localBindingMatches ? 'pass' : required ? 'fail' : 'warn', localBindingMatches ? 'Tunnel is bound to the current Desktop MCP endpoint' : 'LOCAL_BINDING_STALE: tunnel local MCP binding does not match the active Desktop MCP endpoint'),
+    check('local_mcp_reachable', input.mcp.running && input.mcp.url !== null ? 'pass' : required ? 'fail' : 'warn', input.mcp.running && input.mcp.url !== null ? 'Desktop MCP listener is reachable locally' : 'LOCAL_MCP_DOWN: Desktop MCP listener is not running'),
+    check('tunnel_id_matches_saved_identity', mismatch ? 'fail' : identityPresent ? 'pass' : 'warn', mismatch ? 'TUNNEL_ID_MISMATCH: runtime alias reports a different tunnel identity' : identityPresent ? 'Runtime has not reported a tunnel identity mismatch' : 'Saved tunnel identity is unavailable'),
+    check('runtime_key_available', input.tunnel.hasApiKey ? 'pass' : required ? 'fail' : 'warn', input.tunnel.hasApiKey ? 'Runtime API key is available in secure storage' : 'AUTH_REQUIRED: runtime API key is not available'),
+  ];
+}
+
+function sameLocalMcpEndpoint(left: string, right: string): boolean {
+  try {
+    const a = new URL(left);
+    const b = new URL(right);
+    const normalizeHost = (host: string): string => host === 'localhost' || host === '::1' || host === '[::1]' ? '127.0.0.1' : host.toLowerCase();
+    return a.protocol === b.protocol && normalizeHost(a.hostname) === normalizeHost(b.hostname) && a.port === b.port && a.pathname.replace(/\/$/, '') === b.pathname.replace(/\/$/, '');
+  } catch {
+    return left.trim() === right.trim();
+  }
 }
 
 async function checkCodex(discovery: CodexDiscovery): Promise<{ readonly status: 'pass' | 'warn'; readonly message: string }> {
