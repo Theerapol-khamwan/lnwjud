@@ -12,6 +12,7 @@ interface ControlCenterPageProps {
   readonly onStopMcp: () => Promise<void>;
   readonly onRestartMcp: () => Promise<void>;
   readonly onSelectWorkspace: (workspaceId: string) => Promise<void>;
+  readonly onSetWorkspaceActive: (workspaceId: string, active: boolean) => Promise<void>;
   readonly onAddWorkspace: (rootPath: string) => Promise<void>;
   readonly onStartTunnel: () => Promise<void>;
   readonly onStopTunnel: () => Promise<void>;
@@ -28,6 +29,7 @@ export function ControlCenterPage(props: ControlCenterPageProps): ReactElement {
   const [copyStatus, setCopyStatus] = useState<string | null>(null);
   const [projectPath, setProjectPath] = useState('');
   const [selectedId, setSelectedId] = useState(dashboard.selectedWorkspace?.id ?? '');
+  const activeWorkspaceIds = new Set(dashboard.activeWorkspaces.map((workspace) => workspace.id));
 
   const agentLabel = dashboard.agentState === 'busy'
     ? t('agent.busy')
@@ -160,24 +162,24 @@ export function ControlCenterPage(props: ControlCenterPageProps): ReactElement {
 
       <div className="home-grid">
         <section className="panel">
-          <h2>{t('project.active')}</h2>
-          <div className="form-row">
-            <select
-              aria-label={t('project.active')}
-              value={selectedId}
-              onChange={(event) => setSelectedId(event.target.value)}
-            >
-              {props.workspaces.map((workspace) => (
-                <option key={workspace.id} value={workspace.id}>
-                  {workspace.displayName}
-                </option>
-              ))}
+          <h2>{props.locale === 'th' ? 'โปรเจกต์ที่ใช้งานพร้อมกัน' : 'Active Projects'}</h2>
+          <p className="hint">{props.locale === 'th' ? 'เปิดได้หลายโปรเจกต์พร้อมกันสำหรับหลายแชท; Primary ใช้เป็นค่าเริ่มต้นเมื่อ tool call ไม่ระบุ workspaceId' : 'Enable multiple projects for parallel chats; Primary is the default when a tool call omits workspaceId.'}</p>
+          <div className="active-project-picker">
+            {props.workspaces.map((workspace) => {
+              const active = activeWorkspaceIds.has(workspace.id);
+              const primary = dashboard.selectedWorkspace?.id === workspace.id;
+              return <label key={workspace.id} className={`active-project-option ${active ? 'is-active' : ''}`}>
+                <input type="checkbox" checked={active} onChange={(event) => { void props.onSetWorkspaceActive(workspace.id, event.target.checked); }} />
+                <span><strong>{workspace.displayName}</strong><small>{workspace.realRootPath}</small></span>
+                {primary ? <em>{props.locale === 'th' ? 'PRIMARY' : 'PRIMARY'}</em> : null}
+              </label>;
+            })}
+          </div>
+          <div className="form-row primary-project-row">
+            <select aria-label={props.locale === 'th' ? 'โปรเจกต์หลัก' : 'Primary project'} value={selectedId} onChange={(event) => setSelectedId(event.target.value)}>
+              {props.workspaces.map((workspace) => <option key={workspace.id} value={workspace.id}>{workspace.displayName}</option>)}
             </select>
-            <button
-              type="button"
-              disabled={selectedId.length === 0}
-              onClick={() => { void props.onSelectWorkspace(selectedId); }}
-            >
+            <button type="button" disabled={selectedId.length === 0 || selectedId === dashboard.selectedWorkspace?.id} onClick={() => { void props.onSelectWorkspace(selectedId); }}>
               {t('project.setMain')}
             </button>
           </div>
@@ -208,7 +210,7 @@ export function ControlCenterPage(props: ControlCenterPageProps): ReactElement {
           </article>
           <article className="info-card">
             <p>{t('info.activeProject')}</p>
-            <strong>{dashboard.selectedWorkspace?.displayName ?? '—'}</strong>
+            <strong>{dashboard.activeWorkspaces.length === 0 ? '—' : dashboard.activeWorkspaces.map((workspace) => workspace.displayName).join(', ')}</strong>
             <span data-testid="workspace-id" hidden>{dashboard.selectedWorkspace?.id ?? ''}</span>
           </article>
           <article className="info-card">

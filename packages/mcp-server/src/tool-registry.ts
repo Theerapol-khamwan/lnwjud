@@ -48,6 +48,8 @@ export interface ToolRegistryOptions {
   readonly workspaceScopeResolver?: (workspaceId: string) => WorkspaceScope | null | Promise<WorkspaceScope | null>;
   /** Host-owned active workspace used as the mutation authorization boundary. */
   readonly activeWorkspaceScopeProvider?: () => WorkspaceScope | null | Promise<WorkspaceScope | null>;
+  /** Host-owned active project set; first entry is the primary/default project. */
+  readonly activeWorkspaceScopesProvider?: () => readonly WorkspaceScope[] | Promise<readonly WorkspaceScope[]>;
   /** @deprecated Compatibility alias for activeWorkspaceScopeProvider. */
   readonly activeProjectProvider?: () => WorkspaceScope | null;
   /** Host-owned exact-action approval boundary, such as a native desktop confirmation dialog. */
@@ -92,6 +94,7 @@ export class ToolRegistry {
   private readonly profileProvider: () => PermissionProfile;
   private readonly destructivePolicyProvider: () => DestructiveAutoApprovalPolicy;
   private readonly activeWorkspaceScopeProvider: () => Promise<WorkspaceScope | null>;
+  private readonly activeWorkspaceScopesProvider: (() => Promise<readonly WorkspaceScope[]>) | undefined;
   private readonly enforceActiveWorkspaceScope: boolean;
   private readonly hostMutationApprovalProvider: ToolRegistryOptions['hostMutationApprovalProvider'];
   private readonly activityWorkspaceResolver: (cwd: string) => Promise<string | undefined>;
@@ -106,7 +109,8 @@ export class ToolRegistry {
     this.profileProvider = options.profileProvider ?? ((): PermissionProfile => permissionProfiles.full);
     this.destructivePolicyProvider = options.destructivePolicyProvider ?? ((): DestructiveAutoApprovalPolicy => legacyDeletePolicy(options.allowAiDeleteProvider?.() === true));
     this.activeWorkspaceScopeProvider = normalizeActiveWorkspaceScopeProvider(options);
-    this.enforceActiveWorkspaceScope = options.activeWorkspaceScopeProvider !== undefined || options.activeProjectProvider !== undefined;
+    this.activeWorkspaceScopesProvider = normalizeActiveWorkspaceScopesProvider(options);
+    this.enforceActiveWorkspaceScope = options.activeWorkspaceScopesProvider !== undefined || options.activeWorkspaceScopeProvider !== undefined || options.activeProjectProvider !== undefined;
     this.hostMutationApprovalProvider = options.hostMutationApprovalProvider;
     this.activityWorkspaceResolver = normalizeActivityWorkspaceResolver(services, actor);
     this.maxToolDurationMs = normalizeToolResponseBudget(options.maxToolDurationMs);
@@ -181,7 +185,7 @@ export class ToolRegistry {
       const activeWorkspaceScope = !this.enforceActiveWorkspaceScope
         || (mutationDecision.kind === 'read' && !nativePathScopeRequired)
         ? null
-        : await this.resolveActiveWorkspaceScope();
+        : await this.resolveActiveWorkspaceScope(mutationWorkspaceId);
       if (mutationDecision.kind === 'execute' && commandExecutionLeavesActiveWorkspace(tool.name, parsed.value, activeWorkspaceScope)) {
         mutationDecision = { kind: 'opaque_mutation', reason: 'Command execution explicitly targets a working directory outside the host Active Project' };
       }
@@ -326,8 +330,15 @@ export class ToolRegistry {
     if (taskId !== undefined) this.shellTaskWorkspaces.set(taskId, workspaceId);
   }
 
-  private async resolveActiveWorkspaceScope(): Promise<WorkspaceScope | null> {
-    try { return await this.activeWorkspaceScopeProvider(); } catch { return null; }
+  private async resolveActiveWorkspaceScope(workspaceId?: string): Promise<WorkspaceScope | null> {
+    try {
+      if (this.activeWorkspaceScopesProvider !== undefined) {
+        const scopes = await this.activeWorkspaceScopesProvider();
+        if (workspaceId === undefined) return scopes[0] ?? null;
+        return scopes.find((scope) => scope.workspaceId === workspaceId) ?? null;
+      }
+      return await this.activeWorkspaceScopeProvider();
+    } catch { return null; }
   }
 
   private async executeWithinResponseBudget(tool: McpToolDefinition, input: unknown, parentSignal?: AbortSignal): Promise<BudgetedToolExecution> {
@@ -435,11 +446,25 @@ function normalizedActivityPath(value: string): string {
 function readTrimmedString(value: unknown): string | undefined { return typeof value === 'string' && value.trim().length > 0 ? value.trim() : undefined; }
 function isRecord(value: unknown): value is Record<string, unknown> { return typeof value === 'object' && value !== null && !Array.isArray(value); }
 
-type ActiveWorkspaceScopeOptions = Pick<ToolRegistryOptions, 'activeWorkspaceScopeProvider' | 'activeProjectProvider'>;
+type ActiveWorkspaceScopeOptions = Pick<ToolRegistryOptions, 'activeWorkspaceScopeProvider' | 'activeWorkspaceScopesProvider' | 'activeProjectProvider'>;
 function normalizeActiveWorkspaceScopeProvider(options: ActiveWorkspaceScopeOptions): () => Promise<WorkspaceScope | null> {
   if (options.activeWorkspaceScopeProvider !== undefined) return async (): Promise<WorkspaceScope | null> => options.activeWorkspaceScopeProvider!();
   if (options.activeProjectProvider !== undefined) return async (): Promise<WorkspaceScope | null> => options.activeProjectProvider!();
   return async (): Promise<WorkspaceScope | null> => null;
+}
+
+function normalizeActiveWorkspaceScopesProvider(options: ActiveWorkspaceScopeOptions): (() => Promise<readonly WorkspaceScope[]>) | undefined {
+  if (options.activeWorkspaceScopesProvider === undefined) return undefined;
+  return async (): Promise<readonly WorkspaceScope[]> => {
+    const scopes = await options.activeWorkspaceScopesProvider!();
+    const seen = new Set<string>();
+    return scopes.filter((scope) => {
+      if (scope === null || typeof scope.workspaceId !== 'string' || typeof scope.rootPath !== 'string') return false;
+      if (seen.has(scope.workspaceId)) return false;
+      seen.add(scope.workspaceId);
+      return true;
+    });
+  };
 }
 
 const NATIVE_ACTIVE_SCOPE_TOOLS = new Set(['office', 'audio', 'screen_record']);

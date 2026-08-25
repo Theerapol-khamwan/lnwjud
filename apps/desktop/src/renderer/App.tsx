@@ -213,6 +213,17 @@ export function App(): ReactElement {
     }
   }
 
+  async function setWorkspaceActive(workspaceId: string, active: boolean): Promise<void> {
+    setError(null);
+    try {
+      await window.lnwjud.setWorkspaceActive({ workspaceId, active });
+      await refresh();
+    } catch (cause: unknown) {
+      setError(errorMessage(cause, propsText(locale, 'ไม่สามารถเปลี่ยน Active Project ได้', 'Could not change Active Project')));
+      throw cause;
+    }
+  }
+
   async function setWorkspaceArchived(workspaceId: string, archived: boolean): Promise<void> {
     setError(null);
     try {
@@ -432,6 +443,7 @@ export function App(): ReactElement {
           onStopMcp={stopMcp}
           onRestartMcp={restartMcp}
           onSelectWorkspace={selectWorkspace}
+          onSetWorkspaceActive={setWorkspaceActive}
           onAddWorkspace={addWorkspace}
           onStartTunnel={startTunnel}
           onStopTunnel={stopTunnel}
@@ -447,7 +459,9 @@ export function App(): ReactElement {
           locale={locale}
           workspaces={workspaces}
           selectedWorkspaceId={dashboard.selectedWorkspace?.id ?? null}
+          activeWorkspaceIds={dashboard.activeWorkspaces.map((workspace) => workspace.id)}
           onSelectWorkspace={selectWorkspace}
+          onSetWorkspaceActive={setWorkspaceActive}
           onAddWorkspace={addWorkspace}
           onSetWorkspaceArchived={setWorkspaceArchived}
           onDeleteWorkspace={deleteWorkspace}

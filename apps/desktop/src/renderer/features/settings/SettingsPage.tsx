@@ -52,6 +52,7 @@ export function SettingsPage(props: SettingsPageProps): ReactElement {
   const [recoveryBusyId, setRecoveryBusyId] = useState<string | null>(null);
   const [recoveryMessage, setRecoveryMessage] = useState<string | null>(null);
   const [recoveryError, setRecoveryError] = useState<string | null>(null);
+  const [retentionBusy, setRetentionBusy] = useState(false);
 
   const persistedRootsText = props.dashboard.stdioAllowedRoots.join('\n');
   useEffect(() => {
@@ -185,6 +186,21 @@ export function SettingsPage(props: SettingsPageProps): ReactElement {
     } catch (cause: unknown) {
       setTunnelMessage(cause instanceof Error ? cause.message : (props.locale === 'th' ? 'หยุด Tunnel ไม่สำเร็จ' : 'Could not stop tunnel.'));
     } finally { setTunnelBusy(false); }
+  }
+
+  async function setRecoveryRetentionDays(days: number): Promise<void> {
+    setRetentionBusy(true);
+    setRecoveryError(null);
+    try {
+      await props.onUserSettingsChange({ ...props.dashboard.settings, recoveryRetentionDays: days });
+      setRecoveryMessage(days === 0
+        ? (props.locale === 'th' ? 'เธ•เธฑเนเธเธเนเธฒเนเธซเนเน€เธเนเธเธเนเธญเธกเธนเธฅเธเธนเนเธเธทเธเนเธงเนเธเธเธเธงเนเธฒเธเธฐเธฅเธเน€เธญเธ' : 'Recovery data will be kept until you remove it manually.')
+        : (props.locale === 'th' ? `เธ•เธฑเนเธเธเนเธฒเธฅเธเธเนเธญเธกเธนเธฅเธเธนเนเธเธทเธเธ—เธตเนเน€เธเนเธฒเธเธงเนเธฒ ${days} เธงเธฑเธเธญเธฑเธ•เนเธเธกเธฑเธ•เธดเนเธฅเนเธง` : `Recovery data older than ${days} days will be removed automatically.`));
+    } catch (cause: unknown) {
+      setRecoveryError(cause instanceof Error ? cause.message : (props.locale === 'th' ? 'เธเธฑเธเธ—เธถเธเธญเธฒเธขเธธเธเนเธญเธกเธนเธฅเธเธนเนเธเธทเธเนเธกเนเธชเธณเน€เธฃเนเธ' : 'Could not save recovery retention.'));
+    } finally {
+      setRetentionBusy(false);
+    }
   }
 
   async function createBackupNow(): Promise<void> {
@@ -378,8 +394,9 @@ export function SettingsPage(props: SettingsPageProps): ReactElement {
                   <p className="hint">{props.dashboard.tunnel.hasApiKey ? 'Protected with Windows DPAPI' : t('tunnel.needKey')}</p>
                 </div>
                 <div className="setting-field">
-                  <label className="field-label" htmlFor="tunnel-client-path">{t('settings.clientPath')}</label>
-                  <div className="form-row"><input id="tunnel-client-path" placeholder="C:\tools\tunnel-client.exe" value={clientPath} onChange={(event) => setClientPath(event.target.value)} /><button type="button" onClick={() => { void browseTunnelClient(); }}>{props.locale === 'th' ? 'เลือกไฟล์…' : 'Browse…'}</button><button type="button" className="btn-save-gold" onClick={() => { void props.onSetTunnelClientPath(clientPath).then(() => setSavedMessage(t('settings.saved'))); }}>{t('settings.savePath')}</button></div>
+                  <label className="field-label" htmlFor="tunnel-client-path">{props.locale === 'th' ? 'tunnel-client (รวมมากับโปรแกรมแล้ว)' : 'tunnel-client (bundled)'}</label>
+                  <div className="form-row"><input id="tunnel-client-path" placeholder={props.locale === 'th' ? 'ใช้ v0.0.12 ที่มากับ lnwjud อัตโนมัติ' : 'Bundled v0.0.12 is used automatically'} value={clientPath} onChange={(event) => setClientPath(event.target.value)} /><button type="button" onClick={() => { void browseTunnelClient(); }}>{props.locale === 'th' ? 'เลือกไฟล์…' : 'Browse…'}</button><button type="button" className="btn-save-gold" disabled={clientPath.trim().length === 0} onClick={() => { void props.onSetTunnelClientPath(clientPath).then(() => setSavedMessage(t('settings.saved'))); }}>{props.locale === 'th' ? 'บันทึก Override' : 'Save override'}</button></div>
+                  <p className="hint">{props.locale === 'th' ? 'lnwjud ฝัง OpenAI tunnel-client v0.0.12 (Windows x64) ใน installer และเลือกให้เองอัตโนมัติ ช่องนี้ใช้เฉพาะกรณีต้องการ override/troubleshoot' : 'lnwjud bundles OpenAI tunnel-client v0.0.12 (Windows x64) in the installer and selects it automatically. Use this field only to override it for troubleshooting.'}</p>
                 </div>
               </div>
               {props.dashboard.tunnel.persistent === null ? null : (
@@ -425,9 +442,19 @@ export function SettingsPage(props: SettingsPageProps): ReactElement {
                   <span className="field-label">{props.locale === 'th' ? 'ตำแหน่ง Recovery Trash บนเครื่อง' : 'Local Recovery Trash location'}</span>
                   <code className="settings-path-display">{props.dashboard.recovery.trashRoot ?? (props.locale === 'th' ? 'ยังไม่ได้ตั้งค่า' : 'Not configured')}</code>
                 </div>
+                <div className="recovery-retention-row">
+                  <div>
+                    <strong>{props.locale === 'th' ? 'ลบข้อมูลกู้คืนอัตโนมัติ' : 'Automatic recovery cleanup'}</strong>
+                    <p className="hint">{props.locale === 'th' ? 'เลือกอายุที่ต้องการเก็บ Recovery Trash และ Checkpoint; ค่าเริ่มต้นคือไม่ลบอัตโนมัติ' : 'Choose how long to keep Recovery Trash and checkpoints. The default is never delete automatically.'}</p>
+                  </div>
+                  <select aria-label={props.locale === 'th' ? 'อายุข้อมูลกู้คืน' : 'Recovery retention'} disabled={retentionBusy} value={props.dashboard.settings.recoveryRetentionDays} onChange={(event) => { void setRecoveryRetentionDays(Number(event.target.value)); }}>
+                    <option value={0}>{props.locale === 'th' ? 'ไม่ลบอัตโนมัติ' : 'Never'}</option>
+                    {[7, 14, 30, 60, 90, 180, 365].map((days) => <option key={days} value={days}>{days} {props.locale === 'th' ? 'วัน' : 'days'}</option>)}
+                  </select>
+                </div>
                 <div className="settings-mini-heading"><strong>{props.locale === 'th' ? 'ไฟล์ที่ลบ / สำเนาก่อนเขียนทับ' : 'Deleted / pre-replacement backups'}</strong><span>{props.dashboard.recovery.trashItems.length}</span></div>
                 {props.dashboard.recovery.trashItems.length === 0 ? <div className="empty-setting-state">{props.locale === 'th' ? 'Recovery Trash ยังว่าง' : 'Recovery Trash is empty'}</div> : (
-                  <div className="backup-list settings-backup-list">{props.dashboard.recovery.trashItems.map((item) => (
+                  <div className="backup-list settings-backup-list recovery-scroll-list">{props.dashboard.recovery.trashItems.map((item) => (
                     <div key={item.recoveryId} className="backup-item">
                       <div><strong>{item.relativePath}</strong><p className="hint">{new Date(item.deletedAt).toLocaleString(props.locale === 'th' ? 'th-TH' : 'en-US')} · {item.kind === 'replacement_backup' ? (props.locale === 'th' ? 'สำเนาก่อนเขียนทับ' : 'pre-replacement') : item.isDirectory ? 'folder' : 'file'} · {item.payloadAvailable ? (props.locale === 'th' ? 'พร้อมกู้คืน' : 'ready') : (props.locale === 'th' ? 'payload ไม่ครบ' : 'payload missing')}</p></div>
                       <button type="button" disabled={!item.payloadAvailable || recoveryBusyId !== null} onClick={() => { void restoreTrashItem(item.workspaceId, item.recoveryId, item.relativePath, item.kind); }}>{recoveryBusyId === item.recoveryId ? (props.locale === 'th' ? 'กำลังกู้…' : 'Restoring…') : (props.locale === 'th' ? 'กู้คืน' : 'Restore')}</button>
@@ -436,7 +463,7 @@ export function SettingsPage(props: SettingsPageProps): ReactElement {
                 )}
                 <div className="settings-mini-heading"><strong>{props.locale === 'th' ? 'Checkpoint ก่อนแก้/เขียนทับ' : 'Pre-change checkpoints'}</strong><span>{props.dashboard.recovery.checkpoints.length}</span></div>
                 {props.dashboard.recovery.checkpoints.length === 0 ? <div className="empty-setting-state">{props.locale === 'th' ? 'ยังไม่มี checkpoint' : 'No checkpoints yet'}</div> : (
-                  <div className="backup-list settings-backup-list">{props.dashboard.recovery.checkpoints.slice(0, 20).map((checkpoint) => {
+                  <div className="backup-list settings-backup-list recovery-scroll-list">{props.dashboard.recovery.checkpoints.map((checkpoint) => {
                     const paths = checkpoint.files.map((file) => file.path);
                     return <div key={checkpoint.id} className="backup-item"><div><strong>{new Date(checkpoint.createdAt).toLocaleString(props.locale === 'th' ? 'th-TH' : 'en-US')}</strong><p className="hint">{paths.join(', ')} · {formatBytes(checkpoint.files.reduce((total, file) => total + file.size, 0))}</p></div><button type="button" disabled={recoveryBusyId !== null} onClick={() => { void restoreCheckpoint(checkpoint.workspaceId, checkpoint.id, paths); }}>{recoveryBusyId === checkpoint.id ? (props.locale === 'th' ? 'กำลังกู้…' : 'Restoring…') : (props.locale === 'th' ? 'ย้อนกลับจุดนี้' : 'Restore point')}</button></div>;
                   })}</div>

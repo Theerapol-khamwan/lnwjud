@@ -28,6 +28,7 @@ import {
   type SaveTunnelApiKeyRequest,
   type ScheduleRestoreBackupRequest,
   type SelectWorkspaceRequest,
+  type SetWorkspaceActiveRequest,
   type SetWorkspaceArchivedRequest,
   type SetAiDeletePolicyRequest,
   type SetLocaleRequest,
@@ -65,6 +66,7 @@ export interface DesktopIpcServices {
   listWorkspaces(): Promise<IpcResponseMap[typeof ipcChannels.listWorkspaces]>;
   addWorkspace(request: AddWorkspaceRequest): Promise<WorkspaceSummary>;
   selectWorkspace(request: SelectWorkspaceRequest): Promise<WorkspaceSummary>;
+  setWorkspaceActive(request: SetWorkspaceActiveRequest): Promise<{ readonly workspace: WorkspaceSummary; readonly active: boolean }>;
   setWorkspaceArchived(request: SetWorkspaceArchivedRequest): Promise<WorkspaceSummary>;
   deleteWorkspace(request: DeleteWorkspaceRequest): Promise<{ readonly deleted: boolean; readonly workspaceId: string; readonly rootPath: string }>;
   getDashboard(): Promise<DashboardSnapshot>;
@@ -142,6 +144,7 @@ const defaultUserSettings: UserSettings = {
   startMinimized: false,
   tunnelAutoReconnect: true,
   tunnelMaxAutoRestarts: 5,
+  recoveryRetentionDays: 0,
   extensions: { mode: 'enable_all', disabledServers: [], enabledServers: [], disabledSkillRoots: [], extraSkillRoots: [], extraMcpServers: [] },
 };
 
@@ -153,6 +156,9 @@ const defaultDesktopServices: DesktopIpcServices = {
   selectWorkspace: async (): Promise<WorkspaceSummary> => {
     throw new Error('Workspace service is not configured');
   },
+  setWorkspaceActive: async (): Promise<{ readonly workspace: WorkspaceSummary; readonly active: boolean }> => {
+    throw new Error('Workspace service is not configured');
+  },
   setWorkspaceArchived: async (): Promise<WorkspaceSummary> => {
     throw new Error('Workspace service is not configured');
   },
@@ -161,6 +167,7 @@ const defaultDesktopServices: DesktopIpcServices = {
   },
   getDashboard: async (): Promise<DashboardSnapshot> => ({
     selectedWorkspace: null,
+    activeWorkspaces: [],
     gitSummary: { branch: null, changedFiles: 0, stagedFiles: 0, message: 'No workspace selected' },
     mcp: { running: false, url: null, workspaceId: null },
     codex: { installed: false, version: null },
@@ -280,6 +287,10 @@ export function registerIpcHandlers(
   ipcMain.handle(ipcChannels.selectWorkspace, async (event, payload: unknown) => {
     assertTrustedSender(event, getMainWindow());
     return services.selectWorkspace(parseSelectWorkspaceRequest(payload));
+  });
+  ipcMain.handle(ipcChannels.setWorkspaceActive, async (event, payload: unknown) => {
+    assertTrustedSender(event, getMainWindow());
+    return services.setWorkspaceActive(parseSetWorkspaceActiveRequest(payload));
   });
   ipcMain.handle(ipcChannels.setWorkspaceArchived, async (event, payload: unknown) => {
     assertTrustedSender(event, getMainWindow());
@@ -475,6 +486,11 @@ function parseAddWorkspaceRequest(payload: unknown): AddWorkspaceRequest {
 function parseSelectWorkspaceRequest(payload: unknown): SelectWorkspaceRequest {
   if (!isRecord(payload)) throw new Error('Invalid IPC payload');
   return { workspaceId: nonEmptyString(payload.workspaceId, 'workspaceId') };
+}
+
+function parseSetWorkspaceActiveRequest(payload: unknown): SetWorkspaceActiveRequest {
+  if (!isRecord(payload) || typeof payload.active !== 'boolean') throw new Error('Invalid IPC payload: active');
+  return { workspaceId: nonEmptyString(payload.workspaceId, 'workspaceId'), active: payload.active };
 }
 
 function parseSetWorkspaceArchivedRequest(payload: unknown): SetWorkspaceArchivedRequest {
@@ -695,6 +711,7 @@ function parseUserSettings(record: Record<string, unknown>): UserSettings {
     startMinimized: booleanField(record.startMinimized, 'startMinimized'),
     tunnelAutoReconnect: booleanField(record.tunnelAutoReconnect, 'tunnelAutoReconnect'),
     tunnelMaxAutoRestarts: boundedInteger(record.tunnelMaxAutoRestarts, 'tunnelMaxAutoRestarts', 0, 50),
+    recoveryRetentionDays: boundedInteger(record.recoveryRetentionDays, 'recoveryRetentionDays', 0, 3650),
     extensions: {
       mode: extensions.mode === 'allowlist' || extensions.mode === 'enable_all' ? extensions.mode : invalidField('extensions.mode'),
       disabledServers: stringArray(extensions.disabledServers, 'extensions.disabledServers', 256),
@@ -1018,6 +1035,7 @@ function bootstrapMcpStdio(): void {
       activityTracker: runtime.activityTracker,
       destructivePolicyProvider: () => runtime.getDestructivePolicy(),
       activeWorkspaceScopeProvider: () => runtime.getActiveWorkspaceScope(),
+      activeWorkspaceScopesProvider: () => runtime.getActiveWorkspaceScopes(),
       hostMutationApprovalProvider: requestNativeMutationApproval,
       codexToolsEnabled: runtime.getUserSettings().codexToolsEnabled,
       onError: (error): void => {

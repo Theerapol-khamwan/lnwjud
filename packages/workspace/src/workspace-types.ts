@@ -36,4 +36,5 @@ export interface CheckpointRepository {
   insert(checkpoint: Checkpoint): Promise<void>;
   get(id: string): Promise<Checkpoint | null>;
   list(workspaceId: WorkspaceId, limit?: number): Promise<Checkpoint[]>;
+  deleteOlderThan(cutoffIso: string): Promise<number>;
 }

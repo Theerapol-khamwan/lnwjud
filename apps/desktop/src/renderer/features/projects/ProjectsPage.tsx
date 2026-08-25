@@ -6,7 +6,9 @@ interface ProjectsPageProps {
   readonly locale: UiLocale;
   readonly workspaces: readonly WorkspaceSummary[];
   readonly selectedWorkspaceId: string | null;
+  readonly activeWorkspaceIds: readonly string[];
   readonly onSelectWorkspace: (workspaceId: string) => Promise<void>;
+  readonly onSetWorkspaceActive: (workspaceId: string, active: boolean) => Promise<void>;
   readonly onAddWorkspace: (rootPath: string) => Promise<void>;
   readonly onSetWorkspaceArchived: (workspaceId: string, archived: boolean) => Promise<void>;
   readonly onDeleteWorkspace: (workspaceId: string) => Promise<void>;
@@ -31,14 +33,16 @@ export function ProjectsPage(props: ProjectsPageProps): ReactElement {
 
   function renderProjectRow(workspace: WorkspaceSummary, archived: boolean): ReactElement {
     const selected = workspace.id === props.selectedWorkspaceId;
+    const active = props.activeWorkspaceIds.includes(workspace.id);
     const busy = workspace.id === busyWorkspaceId;
     const confirmingDelete = workspace.id === confirmingDeleteId;
     return (
-      <li key={workspace.id} className={selected ? 'active' : archived ? 'archived' : undefined}>
+      <li key={workspace.id} className={active ? 'active' : archived ? 'archived' : undefined}>
         <div className="project-row-main">
           <div className="project-row-title">
             <strong>{workspace.displayName}</strong>
-            {selected ? <span className="project-status-badge current">{t('project.active')}</span> : null}
+            {active ? <span className="project-status-badge current">{t('project.active')}</span> : null}
+            {selected ? <span className="project-status-badge system">PRIMARY</span> : null}
             {archived ? <span className="project-status-badge archived">{t('project.archivedBadge')}</span> : null}
           </div>
           <p>{workspace.realRootPath}</p>
@@ -51,8 +55,11 @@ export function ProjectsPage(props: ProjectsPageProps): ReactElement {
             </button>
           ) : (
             <>
+              <button type="button" disabled={busy} onClick={() => { void runWorkspaceAction(workspace.id, () => props.onSetWorkspaceActive(workspace.id, !active)); }}>
+                {active ? (props.locale === 'th' ? 'ปิด Active' : 'Deactivate') : (props.locale === 'th' ? 'เปิด Active' : 'Activate')}
+              </button>
               <button type="button" disabled={busy || selected} onClick={() => { void runWorkspaceAction(workspace.id, () => props.onSelectWorkspace(workspace.id)); }}>
-                {selected ? t('project.active') : t('project.setMain')}
+                {selected ? 'PRIMARY' : t('project.setMain')}
               </button>
               <button type="button" className="project-archive-button" disabled={busy} onClick={() => { void runWorkspaceAction(workspace.id, () => props.onSetWorkspaceArchived(workspace.id, true)); }}>
                 {t('project.archive')}

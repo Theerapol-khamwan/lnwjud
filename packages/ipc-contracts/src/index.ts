@@ -5,6 +5,7 @@ export const ipcChannels = {
   listWorkspaces: 'lnwjud:list-workspaces',
   addWorkspace: 'lnwjud:add-workspace',
   selectWorkspace: 'lnwjud:select-workspace',
+  setWorkspaceActive: 'lnwjud:set-workspace-active',
   setWorkspaceArchived: 'lnwjud:set-workspace-archived',
   deleteWorkspace: 'lnwjud:delete-workspace',
   getDashboard: 'lnwjud:get-dashboard',
@@ -123,6 +124,8 @@ export interface UserSettings {
   readonly startMinimized: boolean;
   readonly tunnelAutoReconnect: boolean;
   readonly tunnelMaxAutoRestarts: number;
+  /** 0 keeps Recovery Trash/checkpoints forever; otherwise purge items older than this many days. */
+  readonly recoveryRetentionDays: number;
   readonly extensions: {
     readonly mode: ExtensionMode;
     readonly disabledServers: readonly string[];
@@ -323,7 +326,10 @@ export interface RecoveryCenterSummary {
 }
 
 export interface DashboardSnapshot {
+  /** Primary workspace used when a tool call omits workspaceId. */
   readonly selectedWorkspace: WorkspaceSummary | null;
+  /** Host-authorized project set. Parallel chats may safely target different active workspaceIds. */
+  readonly activeWorkspaces: readonly WorkspaceSummary[];
   readonly gitSummary: DashboardGitSummary;
   readonly mcp: {
     readonly running: boolean;
@@ -396,6 +402,11 @@ export interface AddWorkspaceRequest {
 
 export interface SelectWorkspaceRequest {
   readonly workspaceId: string;
+}
+
+export interface SetWorkspaceActiveRequest {
+  readonly workspaceId: string;
+  readonly active: boolean;
 }
 
 export interface SetWorkspaceArchivedRequest {
@@ -492,6 +503,7 @@ export interface IpcRequestMap {
   readonly [ipcChannels.listWorkspaces]: undefined;
   readonly [ipcChannels.addWorkspace]: AddWorkspaceRequest;
   readonly [ipcChannels.selectWorkspace]: SelectWorkspaceRequest;
+  readonly [ipcChannels.setWorkspaceActive]: SetWorkspaceActiveRequest;
   readonly [ipcChannels.setWorkspaceArchived]: SetWorkspaceArchivedRequest;
   readonly [ipcChannels.deleteWorkspace]: DeleteWorkspaceRequest;
   readonly [ipcChannels.getDashboard]: undefined;
@@ -535,6 +547,7 @@ export interface IpcResponseMap {
   readonly [ipcChannels.listWorkspaces]: readonly WorkspaceSummary[];
   readonly [ipcChannels.addWorkspace]: WorkspaceSummary;
   readonly [ipcChannels.selectWorkspace]: WorkspaceSummary;
+  readonly [ipcChannels.setWorkspaceActive]: { readonly workspace: WorkspaceSummary; readonly active: boolean };
   readonly [ipcChannels.setWorkspaceArchived]: WorkspaceSummary;
   readonly [ipcChannels.deleteWorkspace]: { readonly deleted: boolean; readonly workspaceId: string; readonly rootPath: string; readonly backupId: string };
   readonly [ipcChannels.getDashboard]: DashboardSnapshot;
@@ -578,6 +591,7 @@ export interface LnwjudApi {
   listWorkspaces(): Promise<IpcResponseMap[typeof ipcChannels.listWorkspaces]>;
   addWorkspace(request: AddWorkspaceRequest): Promise<IpcResponseMap[typeof ipcChannels.addWorkspace]>;
   selectWorkspace(request: SelectWorkspaceRequest): Promise<IpcResponseMap[typeof ipcChannels.selectWorkspace]>;
+  setWorkspaceActive(request: SetWorkspaceActiveRequest): Promise<IpcResponseMap[typeof ipcChannels.setWorkspaceActive]>;
   setWorkspaceArchived(request: SetWorkspaceArchivedRequest): Promise<IpcResponseMap[typeof ipcChannels.setWorkspaceArchived]>;
   deleteWorkspace(request: DeleteWorkspaceRequest): Promise<IpcResponseMap[typeof ipcChannels.deleteWorkspace]>;
   getDashboard(): Promise<IpcResponseMap[typeof ipcChannels.getDashboard]>;

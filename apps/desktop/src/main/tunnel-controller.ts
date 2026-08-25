@@ -43,6 +43,7 @@ export interface OwnedProcessIdentity {
 
 export interface TunnelControllerOptions {
   readonly getClientPath: () => string | null;
+  readonly getBundledClientPath?: () => string | null;
   readonly setClientPath: (value: string) => void;
   readonly getDataPath: () => string;
   readonly getMcpServerUrl?: () => string | null | Promise<string | null>;
@@ -113,8 +114,11 @@ export class TunnelController {
   public resolveClientPath(): string | null {
     const configured = this.options.getClientPath();
     if (configured !== null && configured.trim().length > 0 && existsSync(configured)) return configured;
+    const bundled = this.options.getBundledClientPath?.() ?? null;
+    if (bundled !== null && bundled.trim().length > 0 && existsSync(bundled)) return bundled;
     const fallback = this.defaultClientPath();
-    return existsSync(fallback) ? fallback : configured;
+    if (existsSync(fallback)) return fallback;
+    return configured ?? bundled;
   }
 
   public async hasApiKey(): Promise<boolean> {

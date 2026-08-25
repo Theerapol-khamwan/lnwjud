@@ -2094,3 +2094,14 @@ h2 {
     grid-template-columns: 1fr;
   }
 }
+
+
+.active-project-picker { display: grid; gap: 8px; margin: 12px 0; max-height: 320px; overflow-y: auto; padding-right: 4px; }
+.active-project-option { display: grid; grid-template-columns: auto minmax(0,1fr) auto; align-items: center; gap: 10px; padding: 10px 12px; border: 1px solid var(--border); border-radius: 10px; background: rgba(255,255,255,.02); cursor: pointer; }
+.active-project-option.is-active { border-color: rgba(230,184,74,.32); background: rgba(230,184,74,.07); }
+.active-project-option input { width: 16px; height: 16px; accent-color: var(--gold-primary); }
+.active-project-option span { min-width: 0; display: grid; gap: 2px; }
+.active-project-option strong, .active-project-option small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.active-project-option small { color: var(--text-muted); font-size: 10px; }
+.active-project-option em { color: var(--gold-primary); font-size: 9px; font-style: normal; font-weight: 800; letter-spacing: .08em; }
+.primary-project-row { margin: 10px 0 16px; }

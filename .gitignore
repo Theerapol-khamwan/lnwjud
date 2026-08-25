@@ -90,3 +90,5 @@ docs/benchmarks/*
 Thumbs.db
 lnwjud-incident.json
 .codegraph
+apps/desktop/build/tunnel-client/
+apps/desktop/build/vendor/

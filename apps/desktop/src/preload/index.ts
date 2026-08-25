@@ -28,6 +28,7 @@ import {
   type SaveTunnelApiKeyRequest,
   type ScheduleRestoreBackupRequest,
   type SelectWorkspaceRequest,
+  type SetWorkspaceActiveRequest,
   type SetWorkspaceArchivedRequest,
   type SetAiDeletePolicyRequest,
   type SetLocaleRequest,
@@ -246,6 +247,7 @@ function userSettings(value: unknown): UserSettings {
     startMinimized: booleanField(value, 'startMinimized'),
     tunnelAutoReconnect: booleanField(value, 'tunnelAutoReconnect'),
     tunnelMaxAutoRestarts: integerField(value, 'tunnelMaxAutoRestarts'),
+    recoveryRetentionDays: integerField(value, 'recoveryRetentionDays'),
     extensions: {
       mode,
       disabledServers: stringList(extensions.disabledServers),
@@ -298,6 +300,7 @@ function dashboard(value: unknown): DashboardSnapshot {
   }
   return {
     selectedWorkspace,
+    activeWorkspaces: workspaceList(value.activeWorkspaces),
     gitSummary: {
       branch: value.gitSummary.branch === null ? null : stringField(value.gitSummary, 'branch'),
       changedFiles: numberField(value.gitSummary, 'changedFiles'),
@@ -505,6 +508,16 @@ function selectWorkspace(request: SelectWorkspaceRequest): Promise<WorkspaceSumm
     return Promise.reject(new Error('Invalid IPC request'));
   }
   return invoke(ipcChannels.selectWorkspace, { workspaceId: request.workspaceId }).then(workspaceSummary);
+}
+
+function setWorkspaceActive(request: SetWorkspaceActiveRequest): Promise<{ readonly workspace: WorkspaceSummary; readonly active: boolean }> {
+  if (!isRecord(request) || typeof request.workspaceId !== 'string' || request.workspaceId.trim().length === 0 || typeof request.active !== 'boolean') {
+    return Promise.reject(new Error('Invalid IPC request'));
+  }
+  return invoke(ipcChannels.setWorkspaceActive, { workspaceId: request.workspaceId, active: request.active }).then((value: unknown) => {
+    if (!isRecord(value)) throw new Error('Invalid IPC response');
+    return { workspace: workspaceSummary(value.workspace), active: booleanField(value, 'active') };
+  });
 }
 
 function setWorkspaceArchived(request: SetWorkspaceArchivedRequest): Promise<WorkspaceSummary> {
@@ -816,6 +829,7 @@ const api: LnwjudApi = {
   listWorkspaces: () => invoke(ipcChannels.listWorkspaces).then(workspaceList),
   addWorkspace,
   selectWorkspace,
+  setWorkspaceActive,
   setWorkspaceArchived,
   deleteWorkspace,
   getDashboard: () => invoke(ipcChannels.getDashboard).then(dashboard),

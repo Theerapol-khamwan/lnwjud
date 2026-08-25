@@ -56,6 +56,7 @@ import {
   MAX_CONFIGURABLE_WAIT_SECONDS,
   DEFAULT_CODEX_TOOLS_ENABLED,
   DEFAULT_TUNNEL_MAX_AUTO_RESTARTS,
+  DEFAULT_RECOVERY_RETENTION_DAYS,
   DEFAULT_UPDATE_INTERVAL_MINUTES,
   STDIO_ALLOWED_ROOTS_SETTING_KEY,
   STDIO_PERMISSION_PROFILE_SETTING_KEY,
@@ -136,6 +137,7 @@ const actor: FileActor = { clientId: 'desktop-renderer', clientName: `${APP_NAME
 const mcpActor: FileActor = { clientId: 'desktop-mcp-http', clientName: `${APP_NAME} desktop MCP` };
 const permissionSettingKey = 'permission_profile';
 const selectedWorkspaceSettingKey = 'selected_workspace_id';
+const activeWorkspaceIdsSettingKey = 'active_workspace_ids';
 const workLogClearedSettingKey = 'work_log_cleared_at';
 const localeSettingKey = 'ui_locale';
 const tunnelIdentitySettingKey = 'tunnel_identity_id';
@@ -150,6 +152,7 @@ export interface DesktopRuntime {
   getUserSettings(): UserSettings;
   getDestructivePolicy(): DestructiveAutoApprovalPolicy;
   getActiveWorkspaceScope(): Promise<WorkspaceScope | null>;
+  getActiveWorkspaceScopes(): Promise<readonly WorkspaceScope[]>;
   createBackup(reason?: BackupReason): Promise<BackupSummary>;
   ensureDefaultWorkspace(rootPath: string): Promise<string>;
   autoStartMcp(): Promise<McpConnectionStatus>;
@@ -320,12 +323,16 @@ export function createDesktopRuntime(dataPath: string, options: DesktopRuntimeOp
         const selected = await resolveSelectedWorkspace(workspaceService, settingsRepository);
         return selected === null ? null : { workspaceId: selected.id, rootPath: selected.realRootPath };
       },
+      activeWorkspaceScopesProvider: async (): Promise<readonly WorkspaceScope[]> => (
+        (await resolveActiveProjectWorkspaces()).map((workspace) => ({ workspaceId: workspace.id, rootPath: workspace.realRootPath }))
+      ),
       ...(options.hostMutationApprovalProvider === undefined ? {} : { hostMutationApprovalProvider: options.hostMutationApprovalProvider }),
       codexToolsEnabled: readSettings().codexToolsEnabled,
     }),
   });
   const tunnelController = new TunnelController({
     getClientPath: (): string | null => settingsRepository.get(CLIENT_PATH_SETTING),
+    getBundledClientPath: bundledTunnelClientPath,
     setClientPath: (value: string): void => { settingsRepository.set(CLIENT_PATH_SETTING, value); },
     getDataPath: (): string => dataPath,
     getMcpServerUrl: async (): Promise<string | null> => {
@@ -345,6 +352,24 @@ export function createDesktopRuntime(dataPath: string, options: DesktopRuntimeOp
     logHub.feedIfNew('mcp', key, 'error', message);
   };
   const trackedProcesses = new Map<string, string>();
+  let lastRecoveryRetentionSweepAt = 0;
+  const recoveryRetentionSweepIntervalMs = 6 * 60 * 60 * 1000;
+
+  async function sweepRecoveryRetention(force = false): Promise<void> {
+    const retentionDays = readSettings().recoveryRetentionDays;
+    if (retentionDays <= 0) return;
+    const now = Date.now();
+    if (!force && now - lastRecoveryRetentionSweepAt < recoveryRetentionSweepIntervalMs) return;
+    lastRecoveryRetentionSweepAt = now;
+    const cutoffIso = new Date(now - retentionDays * 24 * 60 * 60 * 1000).toISOString();
+    const [trashDeleted, checkpointsDeleted] = await Promise.all([
+      fileService.purgeRecoveryItemsOlderThan(cutoffIso),
+      checkpointRepository.deleteOlderThan(cutoffIso),
+    ]);
+    if (trashDeleted > 0 || checkpointsDeleted > 0) {
+      console.log('[Recovery] retention=' + retentionDays + 'd purged trash=' + trashDeleted + ' checkpoints=' + checkpointsDeleted);
+    }
+  }
 
   function recordPersistentTunnelStatus(status: TunnelStatus): void {
     const persistent = status.persistent;
@@ -383,6 +408,43 @@ export function createDesktopRuntime(dataPath: string, options: DesktopRuntimeOp
     return workspace;
   }
 
+  async function resolveActiveProjectWorkspaces(): Promise<readonly Workspace[]> {
+    const workspaces = (await workspaceService.list()).filter((workspace) => !isDriveRoot(workspace.realRootPath) && !isDriveRoot(workspace.rootPath));
+    if (workspaces.length === 0) {
+      settingsRepository.delete(activeWorkspaceIdsSettingKey);
+      return [];
+    }
+    const byId = new Map(workspaces.map((workspace) => [workspace.id, workspace]));
+    const selectedId = settingsRepository.get(selectedWorkspaceSettingKey);
+    const storedIds = parseStoredWorkspaceIds(settingsRepository.get(activeWorkspaceIdsSettingKey));
+    const ids = storedIds.filter((id) => byId.has(id));
+    if (selectedId !== null && byId.has(selectedId) && !ids.includes(selectedId)) ids.unshift(selectedId);
+    if (ids.length === 0) ids.push(selectedId !== null && byId.has(selectedId) ? selectedId : workspaces[0]!.id);
+    const orderedIds = selectedId !== null && ids.includes(selectedId)
+      ? [selectedId, ...ids.filter((id) => id !== selectedId)]
+      : ids;
+    persistStoredWorkspaceIds(settingsRepository, activeWorkspaceIdsSettingKey, orderedIds);
+    return orderedIds.map((id) => byId.get(id)!).filter(Boolean);
+  }
+
+  async function activateWorkspace(workspaceId: string): Promise<void> {
+    const workspace = await resolveManageableWorkspace(workspaceId);
+    if (workspace.archivedAt !== undefined && workspace.archivedAt !== null) throw new Error('Archived workspace cannot be activated');
+    const ids = [...parseStoredWorkspaceIds(settingsRepository.get(activeWorkspaceIdsSettingKey))];
+    if (!ids.includes(workspace.id)) ids.push(workspace.id);
+    persistStoredWorkspaceIds(settingsRepository, activeWorkspaceIdsSettingKey, ids);
+  }
+
+  async function deactivateWorkspace(workspaceId: string): Promise<void> {
+    await resolveManageableWorkspace(workspaceId);
+    const active = [...await resolveActiveProjectWorkspaces()];
+    if (!active.some((workspace) => workspace.id === workspaceId)) return;
+    if (active.length <= 1) throw new Error('At least one Active Project is required');
+    const nextIds = active.filter((workspace) => workspace.id !== workspaceId).map((workspace) => workspace.id);
+    persistStoredWorkspaceIds(settingsRepository, activeWorkspaceIdsSettingKey, nextIds);
+    if (settingsRepository.get(selectedWorkspaceSettingKey) === workspaceId) settingsRepository.set(selectedWorkspaceSettingKey, nextIds[0]!);
+  }
+
   async function assertWorkspaceIdle(workspaceId: string): Promise<void> {
     if (activityTracker.listInFlight().some((entry) => entry.workspaceId === workspaceId)) {
       throw new Error('Workspace has MCP work in progress; wait for it to finish before archiving or deleting it');
@@ -398,10 +460,12 @@ export function createDesktopRuntime(dataPath: string, options: DesktopRuntimeOp
   }
 
   async function repairSelectedWorkspace(removedWorkspaceId: string): Promise<void> {
+    const remainingIds = parseStoredWorkspaceIds(settingsRepository.get(activeWorkspaceIdsSettingKey)).filter((id) => id !== removedWorkspaceId);
+    persistStoredWorkspaceIds(settingsRepository, activeWorkspaceIdsSettingKey, remainingIds);
     if (settingsRepository.get(selectedWorkspaceSettingKey) !== removedWorkspaceId) return;
-    const next = (await workspaceService.list())[0];
-    if (next === undefined) settingsRepository.delete(selectedWorkspaceSettingKey);
-    else settingsRepository.set(selectedWorkspaceSettingKey, next.id);
+    const nextActive = (await resolveActiveProjectWorkspaces())[0];
+    if (nextActive === undefined) settingsRepository.delete(selectedWorkspaceSettingKey);
+    else settingsRepository.set(selectedWorkspaceSettingKey, nextActive.id);
   }
 
   async function requireNativeAdministrativeApproval(request: HostMutationApprovalRequest): Promise<void> {
@@ -434,8 +498,11 @@ export function createDesktopRuntime(dataPath: string, options: DesktopRuntimeOp
 
   async function selectWorkspaceOnly(workspaceId: string): Promise<WorkspaceSummary> {
     const workspace = await resolveWorkspaceOrThrow(workspaceId);
+    if (isDriveRoot(workspace.realRootPath) || isDriveRoot(workspace.rootPath)) throw new Error('Machine-root workspace cannot be the Primary Project');
     await ensureMachineRoots(workspace.realRootPath);
+    await activateWorkspace(workspaceId);
     settingsRepository.set(selectedWorkspaceSettingKey, workspaceId);
+    await resolveActiveProjectWorkspaces();
     return toWorkspaceSummary(workspace);
   }
 
@@ -451,6 +518,7 @@ export function createDesktopRuntime(dataPath: string, options: DesktopRuntimeOp
       if (existing !== undefined) {
         if (existing.archivedAt !== undefined && existing.archivedAt !== null) await workspaceRepository.restore(existing.id);
         settingsRepository.set(selectedWorkspaceSettingKey, existing.id);
+        await activateWorkspace(existing.id);
         if (!mcpLifecycle.status().running) await mcpLifecycle.start().catch(() => undefined);
         const restored = await workspaceRepository.getAny(existing.id);
         if (restored === null) throw new Error('Workspace could not be restored');
@@ -459,6 +527,7 @@ export function createDesktopRuntime(dataPath: string, options: DesktopRuntimeOp
       const displayName = path.basename(path.resolve(request.rootPath)) || 'Workspace';
       const workspace = unwrap(await workspaceService.add(displayName, request.rootPath), 'Workspace could not be added');
       settingsRepository.set(selectedWorkspaceSettingKey, workspace.id);
+      await activateWorkspace(workspace.id);
       if (!mcpLifecycle.status().running) {
         await mcpLifecycle.start().catch(() => undefined);
       }
@@ -467,6 +536,13 @@ export function createDesktopRuntime(dataPath: string, options: DesktopRuntimeOp
     selectWorkspace: async (request: SelectWorkspaceRequest): Promise<WorkspaceSummary> => {
       await ensureMachineRoots();
       return selectWorkspaceOnly(request.workspaceId);
+    },
+    setWorkspaceActive: async (request): Promise<{ readonly workspace: WorkspaceSummary; readonly active: boolean }> => {
+      await ensureMachineRoots();
+      if (request.active) await activateWorkspace(request.workspaceId);
+      else await deactivateWorkspace(request.workspaceId);
+      const workspace = await resolveManageableWorkspace(request.workspaceId);
+      return { workspace: toWorkspaceSummary(workspace), active: request.active };
     },
     setWorkspaceArchived: async (request: SetWorkspaceArchivedRequest): Promise<WorkspaceSummary> => {
       await ensureMachineRoots();
@@ -505,7 +581,11 @@ export function createDesktopRuntime(dataPath: string, options: DesktopRuntimeOp
     },
     getDashboard: async (): Promise<DashboardSnapshot> => {
       await ensureMachineRoots();
+      await sweepRecoveryRetention().catch((error: unknown) => {
+        console.error(`Recovery retention sweep failed: ${error instanceof Error ? error.message : 'unknown error'}`);
+      });
       const selectedWorkspace = await resolveSelectedWorkspace(workspaceService, settingsRepository);
+      const activeWorkspaces = await resolveActiveProjectWorkspaces();
       const gitSummary = selectedWorkspace === null
         ? { branch: null, changedFiles: 0, stagedFiles: 0, message: 'No workspace selected' }
         : await buildGitSummary(selectedWorkspace, gitService, actor);
@@ -541,6 +621,7 @@ export function createDesktopRuntime(dataPath: string, options: DesktopRuntimeOp
       })));
       return {
         selectedWorkspace: selectedWorkspace === null ? null : toWorkspaceSummary(selectedWorkspace),
+        activeWorkspaces: activeWorkspaces.map(toWorkspaceSummary),
         gitSummary,
         mcp,
         codex,
@@ -695,6 +776,12 @@ export function createDesktopRuntime(dataPath: string, options: DesktopRuntimeOp
       const previous = readSettings();
       persistUserSettings(settingsRepository, request.settings);
       const next = readSettings();
+      if (previous.recoveryRetentionDays !== next.recoveryRetentionDays) {
+        lastRecoveryRetentionSweepAt = 0;
+        await sweepRecoveryRetention(true).catch((error: unknown) => {
+          console.error(`Recovery retention sweep failed: ${error instanceof Error ? error.message : 'unknown error'}`);
+        });
+      }
       return { settings: next, restartRequired: runtimeRestartRequired(previous, next) };
     },
     configureTunnelProfile: async (request: ConfigureTunnelProfileRequest): Promise<{ readonly configured: boolean; readonly profilePath: string }> => {
@@ -769,28 +856,43 @@ export function createDesktopRuntime(dataPath: string, options: DesktopRuntimeOp
       const selected = await resolveSelectedWorkspace(workspaceService, settingsRepository);
       return selected === null ? null : { workspaceId: selected.id, rootPath: selected.realRootPath };
     },
+    getActiveWorkspaceScopes: async (): Promise<readonly WorkspaceScope[]> => (
+      (await resolveActiveProjectWorkspaces()).map((workspace) => ({ workspaceId: workspace.id, rootPath: workspace.realRootPath }))
+    ),
     createBackup: (reason: BackupReason = 'manual'): Promise<BackupSummary> => backupService.create(reason),
     ensureDefaultWorkspace: async (rootPath: string): Promise<string> => {
       await ensureMachineRoots(rootPath);
       const existing = await workspaceService.list();
-      const matched = existing.find((workspace) => workspace.realRootPath.toLowerCase() === path.resolve(rootPath).toLowerCase());
+      const resolvedRoot = path.resolve(rootPath);
+      const matched = existing.find((workspace) => workspace.realRootPath.toLowerCase() === resolvedRoot.toLowerCase());
+      if (matched !== undefined && !isDriveRoot(matched.realRootPath) && !isDriveRoot(matched.rootPath)) {
+        settingsRepository.set(selectedWorkspaceSettingKey, matched.id);
+        await activateWorkspace(matched.id);
+        return matched.id;
+      }
+      const projects = existing.filter((workspace) => !isDriveRoot(workspace.realRootPath) && !isDriveRoot(workspace.rootPath));
+      const selectedId = settingsRepository.get(selectedWorkspaceSettingKey);
+      if (selectedId !== null) {
+        const selected = projects.find((workspace) => workspace.id === selectedId);
+        if (selected !== undefined) { await activateWorkspace(selected.id); return selected.id; }
+      }
+      if (!isDriveRoot(resolvedRoot)) {
+        const displayName = path.basename(resolvedRoot) || 'Workspace';
+        const added = unwrap(await workspaceService.add(displayName, resolvedRoot), 'Workspace could not be added');
+        settingsRepository.set(selectedWorkspaceSettingKey, added.id);
+        await activateWorkspace(added.id);
+        return added.id;
+      }
+      if (projects[0] !== undefined) {
+        settingsRepository.set(selectedWorkspaceSettingKey, projects[0].id);
+        await activateWorkspace(projects[0].id);
+        return projects[0].id;
+      }
       if (matched !== undefined) {
         settingsRepository.set(selectedWorkspaceSettingKey, matched.id);
         return matched.id;
       }
-      const selectedId = settingsRepository.get(selectedWorkspaceSettingKey);
-      if (selectedId !== null) {
-        const selected = existing.find((workspace) => workspace.id === selectedId);
-        if (selected !== undefined) return selected.id;
-      }
-      if (existing[0] !== undefined) {
-        settingsRepository.set(selectedWorkspaceSettingKey, existing[0].id);
-        return existing[0].id;
-      }
-      const displayName = path.basename(path.resolve(rootPath)) || 'Workspace';
-      const added = unwrap(await workspaceService.add(displayName, rootPath), 'Workspace could not be added');
-      settingsRepository.set(selectedWorkspaceSettingKey, added.id);
-      return added.id;
+      throw new Error('No project workspace is available');
     },
     autoStartMcp: async (): Promise<McpConnectionStatus> => {
       await ensureMachineRoots();
@@ -804,6 +906,7 @@ export function createDesktopRuntime(dataPath: string, options: DesktopRuntimeOp
           ? unwrap(await workspaceService.add(path.basename(resolvedPath) || 'Workspace', resolvedPath), 'Workspace could not be added').id
           : matched.id;
         settingsRepository.set(selectedWorkspaceSettingKey, workspaceId);
+        await activateWorkspace(workspaceId);
         return mcpLifecycle.start();
       }
       const selected = await resolveSelectedWorkspace(workspaceService, settingsRepository);
@@ -819,8 +922,10 @@ export function createDesktopRuntime(dataPath: string, options: DesktopRuntimeOp
           return added.id;
         })();
         settingsRepository.set(selectedWorkspaceSettingKey, workspaceId);
+        await activateWorkspace(workspaceId);
         return mcpLifecycle.start();
       }
+      await activateWorkspace(selected.id);
       return mcpLifecycle.start();
     },
     autoStartTunnel: async (): Promise<TunnelStatus | null> => {
@@ -840,6 +945,12 @@ export function createDesktopRuntime(dataPath: string, options: DesktopRuntimeOp
   };
 }
 
+function bundledTunnelClientPath(): string | null {
+  const resourcesPath = (process as NodeJS.Process & { readonly resourcesPath?: string }).resourcesPath;
+  if (typeof resourcesPath !== 'string' || resourcesPath.trim().length === 0) return null;
+  return path.join(resourcesPath, 'tunnel-client', 'tunnel-client.exe');
+}
+
 function fixtureNodeExecutable(): string {
   const executable = process.env.LNWJUD_E2E_NODE_PATH;
   if (typeof executable !== 'string' || executable.trim().length === 0) {
@@ -857,6 +968,23 @@ async function resolveSelectedWorkspace(
   const selectedId = settingsRepository.get(selectedWorkspaceSettingKey);
   const selected = selectedId === null ? undefined : workspaces.find((workspace) => workspace.id === selectedId);
   return selected ?? workspaces[0] ?? null;
+}
+
+function parseStoredWorkspaceIds(value: string | null): string[] {
+  if (value === null || value.trim().length === 0) return [];
+  try {
+    const parsed: unknown = JSON.parse(value);
+    if (!Array.isArray(parsed)) return [];
+    return [...new Set(parsed.filter((entry): entry is string => typeof entry === 'string' && entry.trim().length > 0).map((entry) => entry.trim()))];
+  } catch {
+    return [...new Set(value.split(/[;,\r\n]+/).map((entry) => entry.trim()).filter((entry) => entry.length > 0))];
+  }
+}
+
+function persistStoredWorkspaceIds(settingsRepository: SqliteSettingsRepository, key: string, ids: readonly string[]): void {
+  const unique = [...new Set(ids.map((id) => id.trim()).filter((id) => id.length > 0))];
+  if (unique.length === 0) settingsRepository.delete(key);
+  else settingsRepository.set(key, JSON.stringify(unique));
 }
 
 async function listTrackedProcesses(
@@ -1044,6 +1172,7 @@ function readUserSettings(settingsRepository: SqliteSettingsRepository, env: Nod
     startMinimized: parseBooleanSetting(settingsRepository.get(USER_SETTING_KEYS.startMinimized), false),
     tunnelAutoReconnect: parseBooleanSetting(settingsRepository.get(USER_SETTING_KEYS.tunnelAutoReconnect), true),
     tunnelMaxAutoRestarts: parseIntegerSetting(settingsRepository.get(USER_SETTING_KEYS.tunnelMaxAutoRestarts), DEFAULT_TUNNEL_MAX_AUTO_RESTARTS, 0, 50),
+    recoveryRetentionDays: parseIntegerSetting(settingsRepository.get(USER_SETTING_KEYS.recoveryRetentionDays), DEFAULT_RECOVERY_RETENTION_DAYS, 0, 3650),
     extensions: toIpcExtensionsSettings(extensions),
   };
 }
@@ -1069,6 +1198,7 @@ function persistUserSettings(settingsRepository: SqliteSettingsRepository, setti
   settingsRepository.set(USER_SETTING_KEYS.startMinimized, settings.startMinimized ? 'true' : 'false');
   settingsRepository.set(USER_SETTING_KEYS.tunnelAutoReconnect, settings.tunnelAutoReconnect ? 'true' : 'false');
   settingsRepository.set(USER_SETTING_KEYS.tunnelMaxAutoRestarts, String(settings.tunnelMaxAutoRestarts));
+  settingsRepository.set(USER_SETTING_KEYS.recoveryRetentionDays, String(settings.recoveryRetentionDays));
   const extraMcpServers = Object.fromEntries(settings.extensions.extraMcpServers.map((server) => [server.name, {
     command: server.command,
     ...(server.args.length === 0 ? {} : { args: [...server.args] }),

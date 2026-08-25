@@ -757,6 +757,42 @@ export class FileService {
     }
   }
 
+  public async purgeRecoveryItemsOlderThan(cutoffIso: string): Promise<number> {
+    if (this.recoveryTrashRoot === undefined) return 0;
+    const cutoffMs = Date.parse(cutoffIso);
+    if (!Number.isFinite(cutoffMs)) throw new Error('Recovery retention cutoff is invalid');
+    let workspaceEntries;
+    try {
+      workspaceEntries = await readdir(this.recoveryTrashRoot, { withFileTypes: true });
+    } catch (error: unknown) {
+      if (nodeErrorCode(error) === 'ENOENT') return 0;
+      throw error;
+    }
+    let removed = 0;
+    for (const workspaceEntry of workspaceEntries) {
+      if (!workspaceEntry.isDirectory()) continue;
+      const workspaceRoot = path.join(this.recoveryTrashRoot, workspaceEntry.name);
+      let recoveryEntries;
+      try { recoveryEntries = await readdir(workspaceRoot, { withFileTypes: true }); } catch { continue; }
+      for (const recoveryEntry of recoveryEntries) {
+        if (!recoveryEntry.isDirectory()) continue;
+        const recoveryBase = path.join(workspaceRoot, recoveryEntry.name);
+        try {
+          const parsed: unknown = JSON.parse(await readFsFile(path.join(recoveryBase, 'metadata.json'), 'utf8'));
+          if (!isRecoveryMetadata(parsed)) continue;
+          const deletedAtMs = Date.parse(parsed.deletedAt);
+          if (!Number.isFinite(deletedAtMs) || deletedAtMs >= cutoffMs) continue;
+          await rm(recoveryBase, { recursive: true, force: true });
+          removed += 1;
+        } catch {
+          // Corrupt or concurrently restored items are intentionally left alone.
+        }
+      }
+      await rmdir(workspaceRoot).catch(() => undefined);
+    }
+    return removed;
+  }
+
   public async listRecoveryItems(workspaceId: string): Promise<Result<RecoveryItemList>> {
     const workspace = await this.workspaces.get(workspaceId);
     if (workspace === null) return err(appError('WORKSPACE_NOT_FOUND', 'Workspace was not found'));

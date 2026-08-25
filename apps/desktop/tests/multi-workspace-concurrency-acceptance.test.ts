@@ -58,6 +58,8 @@ describe('multi-workspace concurrency acceptance', () => {
       expect(toolsA.tools).toHaveLength(212);
       expect(toolsB.tools).toHaveLength(212);
 
+      await runtime.services.setWorkspaceActive({ workspaceId: workspaceA.id, active: false });
+      expect((await runtime.services.getDashboard()).activeWorkspaces.map((workspace) => workspace.id)).toEqual([workspaceB.id]);
       const inactiveWrite = await clientA.callTool({
         name: 'write_file',
         arguments: { workspaceId: workspaceA.id, path: 'inactive-write.txt', content: 'blocked' },
@@ -65,6 +67,8 @@ describe('multi-workspace concurrency acceptance', () => {
       expect(inactiveWrite.isError).toBe(true);
       expect(errorCode(inactiveWrite)).toBe('PERMISSION_DENIED');
 
+      await runtime.services.setWorkspaceActive({ workspaceId: workspaceA.id, active: true });
+      expect(new Set((await runtime.services.getDashboard()).activeWorkspaces.map((workspace) => workspace.id))).toEqual(new Set([workspaceA.id, workspaceB.id]));
       await runtime.services.selectWorkspace({ workspaceId: workspaceA.id });
       await prepareSessionFiles(clientA, workspaceA.id, 'a');
       await runtime.services.selectWorkspace({ workspaceId: workspaceB.id });
@@ -186,7 +190,7 @@ describe('multi-workspace concurrency acceptance', () => {
       ]);
       expect(crossDeleteA.isError).toBe(true);
       expect(crossDeleteB.isError).toBe(true);
-      expect(errorCode(crossDeleteA)).toBe('PERMISSION_DENIED');
+      expect(errorCode(crossDeleteA)).toBe('PERMISSION_REQUIRED');
       expect(errorCode(crossDeleteB)).toBe('PERMISSION_REQUIRED');
       await expect(readFile(path.join(workspaceRootA, 'victim-a.txt'), 'utf8')).resolves.toBe('victim-a');
       await expect(readFile(path.join(workspaceRootB, 'victim-b.txt'), 'utf8')).resolves.toBe('victim-b');
