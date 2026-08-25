@@ -35,7 +35,7 @@ afterEach(async () => {
 
 describe('session resilience acceptance', () => {
   it('keeps the bundled production MCP stdio entrypoint alive across sequential calls and an error on a non-E workspace', async () => {
-    const root = await temporaryDirectory();
+    const root = await nonEDriveTemporaryDirectory();
     expect(path.parse(root).root.toUpperCase()).not.toBe('E:\\');
     const workspace = path.join(root, 'workspace');
     const dataPath = path.join(root, 'data');
@@ -336,6 +336,24 @@ async function incidentReport(options: { resultCode: 'SUCCESS' | 'FAILED'; trigg
     logLines: lines,
   });
   return { ...report, __lines: lines };
+}
+
+async function nonEDriveTemporaryDirectory(): Promise<string> {
+  if (process.platform !== 'win32') return temporaryDirectory();
+  const candidates = [process.env.LOCALAPPDATA, process.env.USERPROFILE, os.homedir()]
+    .filter((candidate): candidate is string => typeof candidate === 'string' && candidate.trim().length > 0);
+  for (const candidate of candidates) {
+    const base = path.resolve(candidate);
+    if (path.parse(base).root.toUpperCase() === 'E:\\') continue;
+    try {
+      const root = await mkdtemp(path.join(base, 'lnwjud-session-resilience-'));
+      temporaryRoots.push(root);
+      return root;
+    } catch {
+      // Try the next writable non-E location.
+    }
+  }
+  throw new Error('A writable non-E temporary directory is required for this acceptance test');
 }
 
 async function temporaryDirectory(): Promise<string> {

@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, rm, symlink, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, realpath, rm, symlink, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -31,7 +31,7 @@ describe('packaged tunnel stdio launcher boundary', () => {
     const launcher = path.join(root, 'lnwjud-mcp-stdio.cmd');
     await writeFile(launcher, '@echo off\n', 'utf8');
 
-    expect(preferredTunnelMcpCommand(exe, launcher)).toBe(path.resolve(launcher));
+    expect(preferredTunnelMcpCommand(exe, launcher)).toBe(await realpath(launcher));
   });
 
   it('accepts the real launcher installed under the packaged resources directory', async () => {
@@ -41,7 +41,7 @@ describe('packaged tunnel stdio launcher boundary', () => {
     const launcher = path.join(resources, 'lnwjud-mcp-stdio.cmd');
     await writeFile(launcher, '@echo off\n', 'utf8');
 
-    expect(preferredTunnelMcpCommand(exe, launcher)).toBe(path.resolve(launcher));
+    expect(preferredTunnelMcpCommand(exe, launcher)).toBe(await realpath(launcher));
   });
 
   it('rejects a packaged-looking launcher that escapes through a resources junction', async () => {

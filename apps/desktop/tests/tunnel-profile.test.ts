@@ -1,7 +1,6 @@
-import { mkdir, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, realpath, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import { mkdtemp, rm } from 'node:fs/promises';
 import { afterEach, describe, expect, it } from 'vitest';
 import {
   extractTunnelId,
@@ -155,7 +154,7 @@ describe('tunnel profile MCP target', () => {
     await writeFile(exePath, 'stub', 'utf8');
     const cmdPath = path.join(root, 'lnwjud-mcp-stdio.cmd');
     await writeFile(cmdPath, '@echo off\n', 'utf8');
-    expect(preferredTunnelMcpCommand(exePath, cmdPath)).toBe(cmdPath);
+    expect(preferredTunnelMcpCommand(exePath, cmdPath)).toBe(await realpath(cmdPath));
   });
 
   it('resolves the first existing packaged cmd candidate', async () => {
