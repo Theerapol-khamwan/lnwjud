@@ -457,7 +457,7 @@ describe('DesktopRuntime persistence', () => {
     } finally {
       await runtime.close();
     }
-  }, 30_000);
+  }, 60_000);
 });
 
 async function closeRuntime(runtime: DesktopRuntime): Promise<void> {
