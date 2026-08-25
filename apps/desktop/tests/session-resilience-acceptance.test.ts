@@ -209,24 +209,34 @@ describe('session resilience acceptance', () => {
       expect(leaseFile).toBeDefined();
       const initialized = JSON.parse(await readFile(path.join(leaseDirectory, leaseFile!), 'utf8')) as { owner: { pid: number; processStartedAt: string } };
       expect(initialized.owner.pid).toBe(activity.child.pid);
+      let observedShared: { activeCallCount: number; revision: number } | null = null;
+      const observedRevisionCounts = new Map<number, number>();
       const sharedActivitySnapshot = async (): Promise<UpdateSharedActivitySnapshot> => {
         const observation = await readSharedActivitySnapshot({ profileDirectory, inspectProcess: async (pid) => pid === activity.child.pid ? { state: 'live', processStartedAt: initialized.owner.processStartedAt } : { state: 'gone' } });
-        return observation.state === 'available'
-          ? { state: 'available' as const, activeCallCount: observation.activeCount, revision: observation.revision, ownerKey: observation.ownerKey }
-          : observation;
+        if (observation.state === 'available') {
+          observedShared = { activeCallCount: observation.activeCount, revision: observation.revision };
+          observedRevisionCounts.set(observation.revision, (observedRevisionCounts.get(observation.revision) ?? 0) + 1);
+          return { state: 'available' as const, activeCallCount: observation.activeCount, revision: observation.revision, ownerKey: observation.ownerKey };
+        }
+        return observation;
       };
       const coordinator = new UpdateInstallCoordinator({ activeCallCount: (): number => 0, tunnelRunning: async (): Promise<boolean> => true, sharedActivitySnapshot, install, quietPeriodMs: 300, pollIntervalMs: 20 });
       await activity.command('BEGIN');
       coordinator.requestInstall();
-      await delay(120);
+      await waitUntil(() => observedShared?.activeCallCount === 1, 2_000);
       expect(install).not.toHaveBeenCalled();
+
       await activity.command('END');
-      await delay(200);
+      await waitUntil(() => observedShared?.activeCallCount === 0 && (observedShared?.revision ?? 0) >= 2, 2_000);
       await activity.command('BEGIN');
       await activity.command('END');
-      await delay(180);
+      const postTransition = await readSharedActivitySnapshot({ profileDirectory, inspectProcess: async (pid) => pid === activity.child.pid ? { state: 'live', processStartedAt: initialized.owner.processStartedAt } : { state: 'gone' } });
+      if (postTransition.state !== 'available') throw new Error(`activity snapshot unavailable after short transition: ${postTransition.state}`);
+      const postTransitionRevision = postTransition.revision;
+      await waitUntil(() => (observedRevisionCounts.get(postTransitionRevision) ?? 0) >= 2, 2_000);
       expect(install).not.toHaveBeenCalled();
-      await waitUntil(() => install.mock.calls.length === 1, 500);
+
+      await waitUntil(() => install.mock.calls.length === 1, 5_000);
       expect(install).toHaveBeenCalledOnce();
     } finally {
       await activity.close();
