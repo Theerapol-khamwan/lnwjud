@@ -18,6 +18,7 @@ apps/desktop/build/*.exe
 # Test & Coverage
 coverage/
 test-results/
+.local-artifacts/
 
 # Environment Variables & Secrets
 .env

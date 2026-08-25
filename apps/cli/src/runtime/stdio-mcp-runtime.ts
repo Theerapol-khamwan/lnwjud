@@ -42,7 +42,7 @@ import {
   createLocalExtensionsService,
   type ExtensionsService,
 } from '@lnwjud/extensions';
-import { ActivityTracker, SharedActivitySnapshotLease, composeActivitySinks, createFileActivitySink, currentSharedActivityOwner, mcpActivityLogPath, type ActivitySink, type ActivitySinkEvent, type McpApplicationServices } from '@lnwjud/mcp-server';
+import { ActivityTracker, SharedActivitySnapshotLease, composeActivitySinks, createFileActivitySink, currentSharedActivityOwner, mcpActivityLogPath, type ActivitySink, type ActivitySinkEvent, type McpApplicationServices, type WorkspaceScope } from '@lnwjud/mcp-server';
 import { permissionProfiles, type PermissionProfile, type PermissionProfileName } from '@lnwjud/permissions';
 import {
   AesGcmCheckpointCipher,
@@ -64,6 +64,7 @@ export interface StdioMcpRuntime {
   readonly profileProvider: () => PermissionProfile;
   readonly allowAiDeleteProvider: () => boolean;
   readonly destructivePolicyProvider: () => DestructiveAutoApprovalPolicy;
+  readonly activeWorkspaceScopeProvider: () => Promise<WorkspaceScope>;
   readonly codexToolsEnabled: boolean;
   close(): Promise<void>;
 }
@@ -204,6 +205,7 @@ export function createStdioMcpRuntime(
     }),
     project: projectService,
     file: fileService,
+    checkpoint: checkpointService,
     search: new SearchService(workspaceRepository),
     workspaceIndex,
     git: gitService,
@@ -220,6 +222,7 @@ export function createStdioMcpRuntime(
     profileProvider,
     allowAiDeleteProvider,
     destructivePolicyProvider,
+    activeWorkspaceScopeProvider: async (): Promise<WorkspaceScope> => ({ workspaceId: workspace.id, rootPath: workspace.realRootPath }),
     codexToolsEnabled: parseBooleanSetting(settingsRepository.get(USER_SETTING_KEYS.codexToolsEnabled), DEFAULT_CODEX_TOOLS_ENABLED),
     close: async (): Promise<void> => {
       await (await sharedActivityLease)?.close();

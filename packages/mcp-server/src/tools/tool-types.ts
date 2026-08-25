@@ -3,8 +3,10 @@ import type { CapabilityService } from '@lnwjud/capabilities';
 import type { ExtensionsService } from '@lnwjud/extensions';
 import type {
   ApplyPatchRequest,
+  CheckpointService,
   CodexService,
   DeleteFileRequest,
+  EditFileRequest,
   FileActor,
   FileService,
   GitService,
@@ -49,11 +51,12 @@ export interface McpApplicationServices {
   readonly workspaceQuery?: Pick<WorkspaceQueryService, 'tree'>;
   readonly projectSnapshot?: ProjectSnapshotPort;
   readonly project?: Pick<ProjectService, 'detect'>;
-  readonly file?: Pick<FileService, 'readFile' | 'readFiles' | 'writeFile' | 'applyPatch' | 'moveFile' | 'copyFile' | 'deleteFile' | 'restoreDeletedFile'>;
+  readonly file?: Pick<FileService, 'readFile' | 'readFiles' | 'writeFile' | 'applyPatch' | 'editFile' | 'moveFile' | 'copyFile' | 'deleteFile' | 'listRecoveryItems' | 'restoreDeletedFile' | 'prepareExternalFileMutation'>;
+  readonly checkpoint?: Pick<CheckpointService, 'list' | 'restore'>;
   readonly search?: Pick<SearchService, 'searchFiles' | 'searchText'>;
   readonly workspaceIndex?: Pick<WorkspaceIndexService, 'indexWorkspace' | 'status' | 'startWatch' | 'stopWatch'>;
   readonly git?: Pick<GitService, 'status' | 'diff' | 'log' | 'run'>;
-  readonly process?: Pick<ProcessService, 'start' | 'list' | 'status' | 'logs' | 'stop' | 'startProjectCommand'>;
+  readonly process?: Pick<ProcessService, 'start' | 'list' | 'status' | 'logs' | 'stop' | 'previewProjectCommand' | 'startProjectCommand'>;
   readonly codex?: Pick<CodexService, 'status' | 'run' | 'list' | 'taskStatus' | 'taskLogs' | 'stop'>;
 }
 
@@ -110,4 +113,4 @@ export function missingService<T>(): Result<T> {
   return err({ code: 'INTERNAL_ERROR', message: 'MCP application service is unavailable', recoverable: true });
 }
 
-export type { ApplyPatchRequest, DeleteFileRequest, MoveFileRequest, ReadFileRequest, ReadFilesRequest, WriteFileRequest };
+export type { ApplyPatchRequest, DeleteFileRequest, EditFileRequest, MoveFileRequest, ReadFileRequest, ReadFilesRequest, WriteFileRequest };

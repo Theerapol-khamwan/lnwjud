@@ -62,7 +62,7 @@ describe('Security Overview', () => {
     expect(markup).not.toContain('registered machine roots may be visible');
   });
 
-  it('warns when Secure Tunnel / STDIO has broad full access without Strict Roots', () => {
+  it('warns when standalone/headless STDIO has broad full access without Strict Roots', () => {
     const markup = render({
       ...baseDashboard,
       stdioPermissionProfile: 'full',
@@ -80,6 +80,6 @@ describe('Security Overview', () => {
     const markup = render({ ...baseDashboard, locale: 'th' }, 'th');
     expect(markup).toContain('ภาพรวมความปลอดภัย');
     expect(markup).toContain('จำกัดขอบเขตแล้ว');
-    expect(markup).toContain('Strict Roots จำกัดเฉพาะ Secure Tunnel / STDIO');
+    expect(markup).toContain('Strict Roots จำกัด standalone/headless STDIO');
   });
 });

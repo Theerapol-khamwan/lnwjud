@@ -54,7 +54,13 @@ describe('session resilience acceptance', () => {
     const transport = new StdioClientTransport({
       command: process.execPath,
       args: [bundlePath, '--workspace', workspace],
-      env: { ...process.env, LNWJUD_DATA_PATH: dataPath, LNWJUD_RESET_WORKSPACES: '1', LNWJUD_UNRESTRICTED: '0' },
+      env: {
+        ...process.env,
+        LNWJUD_DATA_PATH: dataPath,
+        LNWJUD_RESET_WORKSPACES: '1',
+        LNWJUD_CONFIRM_RESET_WORKSPACES: 'DELETE-REGISTERED-WORKSPACES',
+        LNWJUD_UNRESTRICTED: '0',
+      },
       stderr: 'pipe',
     });
     let diagnostics = '';
@@ -66,7 +72,7 @@ describe('session resilience acceptance', () => {
     try {
       await client.connect(transport);
       const tools = await client.listTools();
-      expect(tools.tools).toHaveLength(208);
+      expect(tools.tools).toHaveLength(212);
       expect(tools.tools.some((tool) => tool.name.startsWith('codex_'))).toBe(false);
       for (let index = 0; index < 3; index += 1) {
         const result = await client.callTool({ name: 'workspace_list', arguments: {} });

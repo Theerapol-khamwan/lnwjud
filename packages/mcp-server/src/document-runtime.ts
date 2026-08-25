@@ -4,6 +4,7 @@ import { realpath, stat } from 'node:fs/promises';
 import path from 'node:path';
 import { appError, err, ok, type Result } from '@lnwjud/domain';
 import type { FileActor } from '@lnwjud/application';
+import { withReplacementRecoveryDetails } from './replacement-recovery.js';
 import type { McpApplicationServices } from './tools/tool-types.js';
 
 /**
@@ -114,7 +115,7 @@ export class DocumentRuntimeService {
     });
   }
 
-  public async docxMerge(input: Record<string, unknown>): Promise<Result<unknown>> {
+  public async docxMerge(input: Record<string, unknown>, signal?: AbortSignal): Promise<Result<unknown>> {
     const workspaceId = readString(input.workspaceId);
     const primary = readString(input.file_path ?? input.primary);
     const target = readString(input.target_path ?? input.target);
@@ -145,9 +146,30 @@ export class DocumentRuntimeService {
 
     const capabilities = this.services.capabilities;
     if (capabilities === undefined) return unavailable('docx_merge', 'Office capability is not configured', ['local DOCX provider (Word installation)', 'edit approval']);
-    const merged = await capabilities.execute('office', { app: 'word', action: 'merge', file_path: resolvedPrimary.value, merge_paths: resolvedMergePaths, target_path: resolvedTarget.value });
-    if (!merged.ok) return merged;
-    return ok({ ...plan, dryRun: false, applied: true, result: merged.value });
+    const fileSafety = this.services.file;
+    if (fileSafety === undefined) return err(appError('INTERNAL_ERROR', 'File safety service is unavailable; refusing DOCX merge', true));
+    const prepared = await fileSafety.prepareExternalFileMutation(this.actor, workspaceId, {
+      sourcePaths: [resolvedPrimary.value, ...resolvedMergePaths],
+      targetPath: resolvedTarget.value,
+      userConfirmed: true,
+    }, signal);
+    if (!prepared.ok) return prepared;
+    const merged = await capabilities.execute('office', {
+      app: 'word',
+      action: 'merge',
+      file_path: prepared.value.sourcePaths[0],
+      merge_paths: prepared.value.sourcePaths.slice(1),
+      target_path: prepared.value.targetPath,
+      userConfirmed: true,
+    }, signal);
+    if (!merged.ok) return withReplacementRecoveryDetails(merged, prepared.value.replacementBackup);
+    return ok({
+      ...plan,
+      dryRun: false,
+      applied: true,
+      result: merged.value,
+      ...(prepared.value.replacementBackup === undefined ? {} : { replacementBackup: prepared.value.replacementBackup }),
+    });
   }
 
   private resolveProvider(): string | null {
@@ -285,7 +307,10 @@ function unavailable(tool: string, reason: string, requirements: readonly string
 
 function isWithin(root: string, candidate: string): boolean {
   const relative = path.win32.relative(root.toLowerCase(), candidate.toLowerCase());
-  return relative === '' || (relative !== '..' && !relative.startsWith(`..${path.win32.sep}`) && !path.win32.isAbsolute(relative));
+  if (relative === '') return true;
+  if (path.win32.isAbsolute(relative)) return false;
+  const [firstSegment] = relative.split(path.win32.sep);
+  return firstSegment !== '..';
 }
 
 function readString(value: unknown): string | undefined {

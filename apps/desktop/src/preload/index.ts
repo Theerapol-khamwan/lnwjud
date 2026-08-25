@@ -23,6 +23,8 @@ import {
   type McpConnectionStatus,
   type PermissionProfileName,
   type ProcessSummary,
+  type RestoreCheckpointRequest,
+  type RestoreRecoveryItemRequest,
   type SaveTunnelApiKeyRequest,
   type ScheduleRestoreBackupRequest,
   type SelectWorkspaceRequest,
@@ -283,6 +285,7 @@ function dashboard(value: unknown): DashboardSnapshot {
     stdioStrictRoots: booleanField(value, 'stdioStrictRoots'),
     stdioAllowedRoots: stringList(value.stdioAllowedRoots),
     backups: backupSummaries(value.backups),
+    recovery: recoveryCenter(value.recovery),
     connectionModes: {
       httpUrl: nullableString(value.connectionModes.httpUrl),
       stdioCommand: stringField(value.connectionModes, 'stdioCommand'),
@@ -303,6 +306,38 @@ function backupSummaries(value: unknown): readonly BackupSummary[] {
     if (reason !== 'daily' && reason !== 'manual' && reason !== 'pre-update' && reason !== 'pre-migration') throw new Error('Invalid IPC response');
     return { id: stringField(entry, 'id'), createdAt: stringField(entry, 'createdAt'), reason, sizeBytes: numberField(entry, 'sizeBytes') };
   });
+}
+
+function recoveryCenter(value: unknown): DashboardSnapshot['recovery'] {
+  if (!isRecord(value) || !Array.isArray(value.trashItems) || !Array.isArray(value.checkpoints)) throw new Error('Invalid IPC response');
+  const trashItems = value.trashItems.map((entry) => {
+    if (!isRecord(entry)) throw new Error('Invalid IPC response');
+    const rawKind = entry.kind;
+    if (rawKind !== 'deleted' && rawKind !== 'replacement_backup') throw new Error('Invalid IPC response');
+    const kind: 'deleted' | 'replacement_backup' = rawKind;
+    return {
+      recoveryId: stringField(entry, 'recoveryId'),
+      workspaceId: stringField(entry, 'workspaceId'),
+      relativePath: stringField(entry, 'relativePath'),
+      deletedAt: stringField(entry, 'deletedAt'),
+      isDirectory: booleanField(entry, 'isDirectory'),
+      payloadAvailable: booleanField(entry, 'payloadAvailable'),
+      kind,
+    };
+  });
+  const checkpoints = value.checkpoints.map((entry) => {
+    if (!isRecord(entry) || !Array.isArray(entry.files)) throw new Error('Invalid IPC response');
+    return {
+      id: stringField(entry, 'id'),
+      workspaceId: stringField(entry, 'workspaceId'),
+      createdAt: stringField(entry, 'createdAt'),
+      files: entry.files.map((file) => {
+        if (!isRecord(file)) throw new Error('Invalid IPC response');
+        return { path: stringField(file, 'path'), contentSha256: stringField(file, 'contentSha256'), size: numberField(file, 'size') };
+      }),
+    };
+  });
+  return { trashRoot: nullableString(value.trashRoot), trashItems, checkpoints };
 }
 
 function capabilitySummaries(value: unknown): DashboardSnapshot['capabilities'] {
@@ -443,13 +478,19 @@ function setWorkspaceArchived(request: SetWorkspaceArchivedRequest): Promise<Wor
   return invoke(ipcChannels.setWorkspaceArchived, { workspaceId: request.workspaceId, archived: request.archived }).then(workspaceSummary);
 }
 
-function deleteWorkspace(request: DeleteWorkspaceRequest): Promise<{ readonly deleted: boolean; readonly workspaceId: string; readonly rootPath: string }> {
-  if (!isRecord(request) || typeof request.workspaceId !== 'string' || request.workspaceId.trim().length === 0) {
+function deleteWorkspace(request: DeleteWorkspaceRequest): Promise<{ readonly deleted: boolean; readonly workspaceId: string; readonly rootPath: string; readonly backupId: string }> {
+  if (!isRecord(request) || typeof request.workspaceId !== 'string' || request.workspaceId.trim().length === 0
+    || typeof request.userConfirmed !== 'boolean') {
     return Promise.reject(new Error('Invalid IPC request'));
   }
-  return invoke(ipcChannels.deleteWorkspace, { workspaceId: request.workspaceId }).then((value: unknown) => {
+  return invoke(ipcChannels.deleteWorkspace, { workspaceId: request.workspaceId, userConfirmed: request.userConfirmed }).then((value: unknown) => {
     if (!isRecord(value)) throw new Error('Invalid IPC response');
-    return { deleted: booleanField(value, 'deleted'), workspaceId: stringField(value, 'workspaceId'), rootPath: stringField(value, 'rootPath') };
+    return {
+      deleted: booleanField(value, 'deleted'),
+      workspaceId: stringField(value, 'workspaceId'),
+      rootPath: stringField(value, 'rootPath'),
+      backupId: stringField(value, 'backupId'),
+    };
   });
 }
 
@@ -518,6 +559,28 @@ function scheduleRestoreBackup(request: ScheduleRestoreBackupRequest): Promise<{
   return invoke(ipcChannels.scheduleRestoreBackup, { backupId: request.backupId }).then((value: unknown) => {
     if (!isRecord(value)) throw new Error('Invalid IPC response');
     return { scheduled: booleanField(value, 'scheduled'), restartRequired: booleanField(value, 'restartRequired') };
+  });
+}
+
+function restoreRecoveryItem(request: RestoreRecoveryItemRequest): Promise<{ readonly restored: boolean; readonly path: string; readonly rollbackRecoveryId: string | null }> {
+  if (!isRecord(request) || typeof request.workspaceId !== 'string' || request.workspaceId.trim().length === 0
+    || typeof request.recoveryId !== 'string' || request.recoveryId.trim().length === 0) return Promise.reject(new Error('Invalid IPC request'));
+  return invoke(ipcChannels.restoreRecoveryItem, { workspaceId: request.workspaceId, recoveryId: request.recoveryId }).then((value: unknown) => {
+    if (!isRecord(value)) throw new Error('Invalid IPC response');
+    return { restored: booleanField(value, 'restored'), path: stringField(value, 'path'), rollbackRecoveryId: nullableString(value.rollbackRecoveryId) };
+  });
+}
+
+function restoreCheckpoint(request: RestoreCheckpointRequest): Promise<{ readonly restored: boolean; readonly paths: readonly string[]; readonly rollbackCheckpointId: string | null }> {
+  if (!isRecord(request) || typeof request.workspaceId !== 'string' || request.workspaceId.trim().length === 0
+    || typeof request.checkpointId !== 'string' || request.checkpointId.trim().length === 0) return Promise.reject(new Error('Invalid IPC request'));
+  return invoke(ipcChannels.restoreCheckpoint, { workspaceId: request.workspaceId, checkpointId: request.checkpointId }).then((value: unknown) => {
+    if (!isRecord(value)) throw new Error('Invalid IPC response');
+    return {
+      restored: booleanField(value, 'restored'),
+      paths: stringList(value.paths),
+      rollbackCheckpointId: nullableString(value.rollbackCheckpointId),
+    };
   });
 }
 
@@ -726,6 +789,8 @@ const api: LnwjudApi = {
   setStdioPolicy,
   createBackup,
   scheduleRestoreBackup,
+  restoreRecoveryItem,
+  restoreCheckpoint,
   listProcesses: () => invoke(ipcChannels.listProcesses).then(processList),
   startProcess,
   stopProcess,

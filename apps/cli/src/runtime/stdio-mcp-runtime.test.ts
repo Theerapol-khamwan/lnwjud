@@ -116,6 +116,7 @@ describe('stdio MCP runtime', () => {
       cwd: dataPath,
       execution: 'background',
       timeout_seconds: 30,
+      userConfirmed: true,
     });
     expect(started).toMatchObject({ ok: true, value: { task_id: expect.any(String), durable: true } });
     if (!started.ok) {

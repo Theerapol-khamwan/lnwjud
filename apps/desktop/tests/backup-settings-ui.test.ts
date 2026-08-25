@@ -20,10 +20,16 @@ const dashboard: DashboardSnapshot = {
   locale: 'en',
   unrestricted: false,
   allowAiDelete: false,
+  destructiveDeletePolicy: {
+    protectCriticalFiles: true,
+    recoverableDelete: true,
+    approvals: { delete_file: false, git_rm: false, git_clean: false, git_reset_restore: false, shell_rm_unlink: false, shell_rmdir: false, shell_del_erase: false, wsl_rm_unlink: false, wsl_rmdir: false },
+  },
   stdioPermissionProfile: 'full',
   stdioStrictRoots: false,
   stdioAllowedRoots: [],
   backups: [{ id: 'backup-2026-08-22T00-00-00-000Z-deadbeef', createdAt: '2026-08-22T00:00:00.000Z', reason: 'daily', sizeBytes: 4096 }],
+  recovery: { trashRoot: 'C:\\Users\\Tester\\AppData\\Roaming\\lnwjud\\recovery-trash', trashItems: [], checkpoints: [] },
   connectionModes: { httpUrl: null, stdioCommand: 'lnwjud --mcp-stdio' },
   workLog: [],
   inFlight: [],
@@ -40,15 +46,18 @@ describe('Backup settings UI', () => {
       onLocaleChange: noop,
       onPermissionProfileChange: noop,
       onUnrestrictedChange: async (): Promise<boolean> => false,
-      onAiDeleteChange: noop,
+      onDestructiveDeletePolicyChange: noop,
       onStdioPolicyChange: async (): Promise<boolean> => false,
       onCreateBackup: noop,
       onScheduleRestoreBackup: async (): Promise<boolean> => true,
+      onRestoreRecoveryItem: noop,
+      onRestoreCheckpoint: noop,
       onSaveTunnelApiKey: noop,
       onSetTunnelClientPath: noop,
     }));
 
-    expect(markup).toContain('Backup &amp; Restore');
+    expect(markup).toContain('Recovery Center');
+    expect(markup).toContain('Application Database Backup');
     expect(markup).toContain('Backup Now');
     expect(markup).toContain('SQLite consistent snapshots');
     expect(markup).toContain('Restore</button>');
@@ -62,15 +71,17 @@ describe('Backup settings UI', () => {
       onLocaleChange: noop,
       onPermissionProfileChange: noop,
       onUnrestrictedChange: async (): Promise<boolean> => false,
-      onAiDeleteChange: noop,
+      onDestructiveDeletePolicyChange: noop,
       onStdioPolicyChange: async (): Promise<boolean> => false,
       onCreateBackup: noop,
       onScheduleRestoreBackup: async (): Promise<boolean> => true,
+      onRestoreRecoveryItem: noop,
+      onRestoreCheckpoint: noop,
       onSaveTunnelApiKey: noop,
       onSetTunnelClientPath: noop,
     }));
 
-    expect(markup).toContain('Stop Tunnel and local MCP before scheduling a restore.');
+    expect(markup).toContain('Stop Tunnel and local MCP before scheduling a database restore.');
     expect(markup).toContain('<button type="button" disabled="">Restore</button>');
   });
 });

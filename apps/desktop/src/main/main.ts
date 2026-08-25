@@ -22,6 +22,8 @@ import {
   type ManagedBrowserStatus,
   type McpConnectionStatus,
   type ProcessSummary,
+  type RestoreCheckpointRequest,
+  type RestoreRecoveryItemRequest,
   type PermissionProfileName,
   type SaveTunnelApiKeyRequest,
   type ScheduleRestoreBackupRequest,
@@ -43,7 +45,7 @@ import {
   type UpdateStatus,
   type WorkspaceSummary,
 } from '@lnwjud/ipc-contracts';
-import { readSharedActivitySnapshot, startMcpStdio } from '@lnwjud/mcp-server';
+import { readSharedActivitySnapshot, startMcpStdio, type HostMutationApprovalRequest } from '@lnwjud/mcp-server';
 import { DEFAULT_MCP_POLL_WAIT_SECONDS, DEFAULT_SHELL_SYNCHRONOUS_WAIT_SECONDS, MAX_CONFIGURABLE_WAIT_SECONDS, MIN_CONFIGURABLE_WAIT_SECONDS, resolveLnwjudDataPath } from '@lnwjud/shared';
 import { applyPendingSqliteRestoreSync } from '@lnwjud/storage';
 import { createDesktopRuntime, type DesktopRuntime } from './desktop-services.js';
@@ -57,6 +59,7 @@ import { atomicWrite, type IncidentReport } from './incident-report.js';
 import { IncidentSaveCoordinator } from './incident-save.js';
 import { localizedUpdateStatusMessage, nativeMessages } from './native-i18n.js';
 import { CrashDiagnosticsRecorder, RendererRecoveryPolicy } from './crash-recovery.js';
+import { isMutationApprovalResponse, mutationApprovalDialogOptions } from './mutation-approval.js';
 
 export interface DesktopIpcServices {
   listWorkspaces(): Promise<IpcResponseMap[typeof ipcChannels.listWorkspaces]>;
@@ -71,6 +74,8 @@ export interface DesktopIpcServices {
   setStdioPolicy(request: SetStdioPolicyRequest): Promise<{ readonly profile: PermissionProfileName; readonly strictRoots: boolean; readonly allowedRoots: readonly string[]; readonly restartRequired: boolean }>;
   createBackup(): Promise<BackupSummary>;
   scheduleRestoreBackup(request: ScheduleRestoreBackupRequest): Promise<{ readonly scheduled: boolean; readonly restartRequired: boolean }>;
+  restoreRecoveryItem(request: RestoreRecoveryItemRequest): Promise<{ readonly restored: boolean; readonly path: string; readonly rollbackRecoveryId: string | null }>;
+  restoreCheckpoint(request: RestoreCheckpointRequest): Promise<{ readonly restored: boolean; readonly paths: readonly string[]; readonly rollbackCheckpointId: string | null }>;
   listProcesses(): Promise<IpcResponseMap[typeof ipcChannels.listProcesses]>;
   startProcess(request: StartProcessRequest): Promise<IpcResponseMap[typeof ipcChannels.startProcess]>;
   stopProcess(request: StopProcessRequest): Promise<{ readonly stopped: boolean }>;
@@ -177,6 +182,7 @@ const defaultDesktopServices: DesktopIpcServices = {
     stdioStrictRoots: false,
     stdioAllowedRoots: [],
     backups: [],
+    recovery: { trashRoot: null, trashItems: [], checkpoints: [] },
     connectionModes: { httpUrl: null, stdioCommand: 'lnwjud.exe --mcp-stdio' },
     workLog: [],
     inFlight: [],
@@ -198,6 +204,8 @@ const defaultDesktopServices: DesktopIpcServices = {
   }),
   createBackup: async (): Promise<BackupSummary> => ({ id: 'unavailable', createdAt: new Date(0).toISOString(), reason: 'manual', sizeBytes: 0 }),
   scheduleRestoreBackup: async (): Promise<{ readonly scheduled: boolean; readonly restartRequired: boolean }> => ({ scheduled: false, restartRequired: false }),
+  restoreRecoveryItem: async (): Promise<{ readonly restored: boolean; readonly path: string; readonly rollbackRecoveryId: string | null }> => ({ restored: false, path: '', rollbackRecoveryId: null }),
+  restoreCheckpoint: async (): Promise<{ readonly restored: boolean; readonly paths: readonly string[]; readonly rollbackCheckpointId: string | null }> => ({ restored: false, paths: [], rollbackCheckpointId: null }),
   listProcesses: async (): Promise<readonly ProcessSummary[]> => [],
   startProcess: async (): Promise<IpcResponseMap[typeof ipcChannels.startProcess]> => {
     throw new Error('Desktop services are not configured');
@@ -309,6 +317,14 @@ export function registerIpcHandlers(
   ipcMain.handle(ipcChannels.scheduleRestoreBackup, async (event, payload: unknown) => {
     assertTrustedSender(event, getMainWindow());
     return services.scheduleRestoreBackup(parseScheduleRestoreBackupRequest(payload));
+  });
+  ipcMain.handle(ipcChannels.restoreRecoveryItem, async (event, payload: unknown) => {
+    assertTrustedSender(event, getMainWindow());
+    return services.restoreRecoveryItem(parseRestoreRecoveryItemRequest(payload));
+  });
+  ipcMain.handle(ipcChannels.restoreCheckpoint, async (event, payload: unknown) => {
+    assertTrustedSender(event, getMainWindow());
+    return services.restoreCheckpoint(parseRestoreCheckpointRequest(payload));
   });
   ipcMain.handle(ipcChannels.listProcesses, async (event, payload: unknown) => {
     assertTrustedSender(event, getMainWindow());
@@ -466,8 +482,8 @@ function parseSetWorkspaceArchivedRequest(payload: unknown): SetWorkspaceArchive
 }
 
 function parseDeleteWorkspaceRequest(payload: unknown): DeleteWorkspaceRequest {
-  if (!isRecord(payload)) throw new Error('Invalid IPC payload');
-  return { workspaceId: nonEmptyString(payload.workspaceId, 'workspaceId') };
+  if (!isRecord(payload) || typeof payload.userConfirmed !== 'boolean') throw new Error('Invalid IPC payload');
+  return { workspaceId: nonEmptyString(payload.workspaceId, 'workspaceId'), userConfirmed: payload.userConfirmed };
 }
 
 function parseSetPermissionProfileRequest(payload: unknown): SetPermissionProfileRequest {
@@ -506,6 +522,22 @@ function parseDestructiveDeletePolicy(value: unknown): DestructiveDeletePolicy {
 function parseScheduleRestoreBackupRequest(payload: unknown): ScheduleRestoreBackupRequest {
   if (!isRecord(payload)) throw new Error('Invalid IPC payload');
   return { backupId: nonEmptyString(payload.backupId, 'backupId') };
+}
+
+function parseRestoreRecoveryItemRequest(payload: unknown): RestoreRecoveryItemRequest {
+  if (!isRecord(payload)) throw new Error('Invalid IPC payload');
+  return {
+    workspaceId: nonEmptyString(payload.workspaceId, 'workspaceId'),
+    recoveryId: nonEmptyString(payload.recoveryId, 'recoveryId'),
+  };
+}
+
+function parseRestoreCheckpointRequest(payload: unknown): RestoreCheckpointRequest {
+  if (!isRecord(payload)) throw new Error('Invalid IPC payload');
+  return {
+    workspaceId: nonEmptyString(payload.workspaceId, 'workspaceId'),
+    checkpointId: nonEmptyString(payload.checkpointId, 'checkpointId'),
+  };
 }
 
 function parseSetStdioPolicyRequest(payload: unknown): SetStdioPolicyRequest {
@@ -766,6 +798,20 @@ let currentUpdateStatus: UpdateStatus = {
   canInstall: false,
 };
 
+async function requestNativeMutationApproval(request: HostMutationApprovalRequest): Promise<boolean> {
+  const options = mutationApprovalDialogOptions(desktopLocale, request);
+  const dialogOptions = { ...options, buttons: [...options.buttons] };
+  const parent = mainWindow !== null && !mainWindow.isDestroyed()
+    ? mainWindow
+    : logViewerWindow !== null && !logViewerWindow.isDestroyed()
+      ? logViewerWindow
+      : null;
+  const result = parent === null
+    ? await dialog.showMessageBox(dialogOptions)
+    : await dialog.showMessageBox(parent, dialogOptions);
+  return isMutationApprovalResponse(result.response);
+}
+
 function openLogViewerWindow(): BrowserWindow | null {
   if (logViewerWindow !== null && !logViewerWindow.isDestroyed()) {
     if (logViewerWindow.isMinimized()) logViewerWindow.restore();
@@ -951,7 +997,10 @@ function bootstrapMcpStdio(): void {
   app.commandLine.appendSwitch('disable-software-rasterizer');
   const dataPath = configureDataPath();
   void app.whenReady().then(async () => {
-    const runtime = createDesktopRuntime(dataPath, { permissionProfile: 'full' });
+    const runtime = createDesktopRuntime(dataPath, {
+      permissionProfile: 'full',
+      hostMutationApprovalProvider: requestNativeMutationApproval,
+    });
     desktopRuntime = runtime;
     const workspacePath = readArgValue('--workspace')
       ?? process.env.LNWJUD_WORKSPACE
@@ -967,6 +1016,8 @@ function bootstrapMcpStdio(): void {
       actor: runtime.mcpActor,
       activityTracker: runtime.activityTracker,
       destructivePolicyProvider: () => runtime.getDestructivePolicy(),
+      activeWorkspaceScopeProvider: () => runtime.getActiveWorkspaceScope(),
+      hostMutationApprovalProvider: requestNativeMutationApproval,
       codexToolsEnabled: runtime.getUserSettings().codexToolsEnabled,
       onError: (error): void => {
         if (/EPIPE|ECONNRESET|broken pipe/i.test(error.message)) {
@@ -1186,7 +1237,7 @@ function bootstrapDesktop(): void {
   const dataPath = configureDataPath();
   void app.whenReady().then(async () => {
     app.setAppUserModelId('com.lnwjud.desktop');
-    const runtime = createDesktopRuntime(dataPath);
+    const runtime = createDesktopRuntime(dataPath, { hostMutationApprovalProvider: requestNativeMutationApproval });
     desktopRuntime = runtime;
     setDesktopLocale(runtime.getLocale());
     applyDesktopUserSettings(runtime.getUserSettings());
@@ -1216,7 +1267,7 @@ function bootstrapLogViewerOnly(): void {
   const dataPath = configureDataPath();
   void app.whenReady().then(async () => {
     app.setAppUserModelId('com.lnwjud.desktop');
-    const runtime = createDesktopRuntime(dataPath);
+    const runtime = createDesktopRuntime(dataPath, { hostMutationApprovalProvider: requestNativeMutationApproval });
     desktopRuntime = runtime;
     configureDesktopShutdown(runtime);
     runtime.logHub.setOnLine((line) => broadcastToAllWindows(pushChannels.logEvent, line));

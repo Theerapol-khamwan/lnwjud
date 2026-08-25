@@ -1,5 +1,5 @@
 export const APP_NAME = 'lnwjud';
-export const APP_VERSION = '4.9.1';
+export const APP_VERSION = '4.10.0';
 export { isUnrestricted, unrestrictedFromEnv, unrestrictedFromSetting, UNRESTRICTED_SETTING_KEY, type ProcessEnvLike } from './unrestricted.js';
 
 export { resolveLnwjudDataPath, type DataPathEnvironment } from './data-path.js';
@@ -22,6 +22,9 @@ export {
   type DestructiveAutoApprovalPolicy,
   type StdioPermissionProfileName,
 } from './agent-policy.js';
+
+export { prohibitedAgentCommandReason, riskyAgentCommandReason } from './agent-command-policy.js';
+export { isProvablyReadOnlyGitInvocation, prohibitedAgentGitInvocationReason } from './git-mutation-policy.js';
 
 export { protectWithWindowsDpapi, unprotectWithWindowsDpapi, loadOrCreateWindowsProtectedKey, loadCheckpointEncryptionKey } from './windows-dpapi.js';
 

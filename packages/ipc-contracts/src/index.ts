@@ -1,5 +1,5 @@
 export const APP_NAME = 'lnwjud';
-export const APP_VERSION = '4.9.1';
+export const APP_VERSION = '4.10.0';
 
 export const ipcChannels = {
   listWorkspaces: 'lnwjud:list-workspaces',
@@ -14,6 +14,8 @@ export const ipcChannels = {
   setStdioPolicy: 'lnwjud:set-stdio-policy',
   createBackup: 'lnwjud:create-backup',
   scheduleRestoreBackup: 'lnwjud:schedule-restore-backup',
+  restoreRecoveryItem: 'lnwjud:restore-recovery-item',
+  restoreCheckpoint: 'lnwjud:restore-checkpoint',
   listProcesses: 'lnwjud:list-processes',
   startProcess: 'lnwjud:start-process',
   stopProcess: 'lnwjud:stop-process',
@@ -265,6 +267,35 @@ export interface BackupSummary {
   readonly sizeBytes: number;
 }
 
+export interface RecoveryTrashItemSummary {
+  readonly recoveryId: string;
+  readonly workspaceId: string;
+  readonly relativePath: string;
+  readonly deletedAt: string;
+  readonly isDirectory: boolean;
+  readonly payloadAvailable: boolean;
+  readonly kind: 'deleted' | 'replacement_backup';
+}
+
+export interface RecoveryCheckpointFileSummary {
+  readonly path: string;
+  readonly contentSha256: string;
+  readonly size: number;
+}
+
+export interface RecoveryCheckpointSummary {
+  readonly id: string;
+  readonly workspaceId: string;
+  readonly createdAt: string;
+  readonly files: readonly RecoveryCheckpointFileSummary[];
+}
+
+export interface RecoveryCenterSummary {
+  readonly trashRoot: string | null;
+  readonly trashItems: readonly RecoveryTrashItemSummary[];
+  readonly checkpoints: readonly RecoveryCheckpointSummary[];
+}
+
 export interface DashboardSnapshot {
   readonly selectedWorkspace: WorkspaceSummary | null;
   readonly gitSummary: DashboardGitSummary;
@@ -293,6 +324,7 @@ export interface DashboardSnapshot {
   readonly stdioStrictRoots: boolean;
   readonly stdioAllowedRoots: readonly string[];
   readonly backups: readonly BackupSummary[];
+  readonly recovery: RecoveryCenterSummary;
   readonly connectionModes: ConnectionModes;
   readonly workLog: readonly WorkLogEntry[];
   readonly inFlight: readonly InFlightWorkItem[];
@@ -347,6 +379,7 @@ export interface SetWorkspaceArchivedRequest {
 
 export interface DeleteWorkspaceRequest {
   readonly workspaceId: string;
+  readonly userConfirmed: boolean;
 }
 
 export interface SetPermissionProfileRequest {
@@ -372,6 +405,16 @@ export interface SetStdioPolicyRequest {
 
 export interface ScheduleRestoreBackupRequest {
   readonly backupId: string;
+}
+
+export interface RestoreRecoveryItemRequest {
+  readonly workspaceId: string;
+  readonly recoveryId: string;
+}
+
+export interface RestoreCheckpointRequest {
+  readonly workspaceId: string;
+  readonly checkpointId: string;
 }
 
 export interface StartProcessRequest {
@@ -432,6 +475,8 @@ export interface IpcRequestMap {
   readonly [ipcChannels.setStdioPolicy]: SetStdioPolicyRequest;
   readonly [ipcChannels.createBackup]: undefined;
   readonly [ipcChannels.scheduleRestoreBackup]: ScheduleRestoreBackupRequest;
+  readonly [ipcChannels.restoreRecoveryItem]: RestoreRecoveryItemRequest;
+  readonly [ipcChannels.restoreCheckpoint]: RestoreCheckpointRequest;
   readonly [ipcChannels.listProcesses]: undefined;
   readonly [ipcChannels.startProcess]: StartProcessRequest;
   readonly [ipcChannels.stopProcess]: StopProcessRequest;
@@ -465,7 +510,7 @@ export interface IpcResponseMap {
   readonly [ipcChannels.addWorkspace]: WorkspaceSummary;
   readonly [ipcChannels.selectWorkspace]: WorkspaceSummary;
   readonly [ipcChannels.setWorkspaceArchived]: WorkspaceSummary;
-  readonly [ipcChannels.deleteWorkspace]: { readonly deleted: boolean; readonly workspaceId: string; readonly rootPath: string };
+  readonly [ipcChannels.deleteWorkspace]: { readonly deleted: boolean; readonly workspaceId: string; readonly rootPath: string; readonly backupId: string };
   readonly [ipcChannels.getDashboard]: DashboardSnapshot;
   readonly [ipcChannels.setPermissionProfile]: { readonly profile: PermissionProfileName };
   readonly [ipcChannels.setUnrestrictedMode]: { readonly unrestricted: boolean; readonly restartRequired: boolean };
@@ -473,6 +518,8 @@ export interface IpcResponseMap {
   readonly [ipcChannels.setStdioPolicy]: { readonly profile: PermissionProfileName; readonly strictRoots: boolean; readonly allowedRoots: readonly string[]; readonly restartRequired: boolean };
   readonly [ipcChannels.createBackup]: BackupSummary;
   readonly [ipcChannels.scheduleRestoreBackup]: { readonly scheduled: boolean; readonly restartRequired: boolean };
+  readonly [ipcChannels.restoreRecoveryItem]: { readonly restored: boolean; readonly path: string; readonly rollbackRecoveryId: string | null };
+  readonly [ipcChannels.restoreCheckpoint]: { readonly restored: boolean; readonly paths: readonly string[]; readonly rollbackCheckpointId: string | null };
   readonly [ipcChannels.listProcesses]: readonly ProcessSummary[];
   readonly [ipcChannels.startProcess]: ProcessSummary;
   readonly [ipcChannels.stopProcess]: { readonly stopped: boolean };
@@ -514,6 +561,8 @@ export interface LnwjudApi {
   setStdioPolicy(request: SetStdioPolicyRequest): Promise<IpcResponseMap[typeof ipcChannels.setStdioPolicy]>;
   createBackup(): Promise<IpcResponseMap[typeof ipcChannels.createBackup]>;
   scheduleRestoreBackup(request: ScheduleRestoreBackupRequest): Promise<IpcResponseMap[typeof ipcChannels.scheduleRestoreBackup]>;
+  restoreRecoveryItem(request: RestoreRecoveryItemRequest): Promise<IpcResponseMap[typeof ipcChannels.restoreRecoveryItem]>;
+  restoreCheckpoint(request: RestoreCheckpointRequest): Promise<IpcResponseMap[typeof ipcChannels.restoreCheckpoint]>;
   listProcesses(): Promise<IpcResponseMap[typeof ipcChannels.listProcesses]>;
   startProcess(request: StartProcessRequest): Promise<IpcResponseMap[typeof ipcChannels.startProcess]>;
   stopProcess(request: StopProcessRequest): Promise<IpcResponseMap[typeof ipcChannels.stopProcess]>;

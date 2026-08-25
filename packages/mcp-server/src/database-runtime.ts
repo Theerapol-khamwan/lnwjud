@@ -1,5 +1,5 @@
-import { existsSync } from 'node:fs';
 import path from 'node:path';
+import { realpath } from 'node:fs/promises';
 import { DatabaseSync } from 'node:sqlite';
 import { appError, err, ok, type Result } from '@lnwjud/domain';
 import type { FileActor } from '@lnwjud/application';
@@ -98,10 +98,21 @@ export class DatabaseRuntimeService {
     }
     const root = await this.workspaceRoot(workspaceId);
     if (!root.ok) return root;
-    const resolved = path.win32.isAbsolute(requested) ? path.win32.normalize(requested) : path.win32.join(root.value, requested);
-    if (!isWithin(root.value, resolved)) return err(appError('PATH_OUTSIDE_WORKSPACE', 'Database target must stay inside the registered workspace'));
-    if (!existsSync(resolved)) return err(appError('FILE_NOT_FOUND', `Database target was not found: ${resolved}`));
-    return ok(resolved);
+    const pathApi = path.win32.isAbsolute(root.value) ? path.win32 : path;
+    const requestedAbsolute = pathApi.isAbsolute(requested) ? pathApi.resolve(requested) : pathApi.resolve(root.value, requested);
+    if (!isWithin(root.value, requestedAbsolute)) return err(appError('PATH_OUTSIDE_WORKSPACE', 'Database target must stay inside the registered workspace'));
+    let canonicalTarget: string;
+    try {
+      canonicalTarget = await realpath(requestedAbsolute);
+    } catch (error: unknown) {
+      if (isNodeError(error, 'ENOENT')) return err(appError('FILE_NOT_FOUND', `Database target was not found: ${requestedAbsolute}`));
+      return err(appError('INVALID_INPUT', 'Database target could not be canonically resolved'));
+    }
+    if (SQLITE_EXTENSIONS.has(path.extname(canonicalTarget).toLowerCase()) === false) {
+      return err(appError('INVALID_INPUT', `Database target must resolve to ${[...SQLITE_EXTENSIONS].join(', ')}`));
+    }
+    if (!isWithin(root.value, canonicalTarget)) return err(appError('PATH_OUTSIDE_WORKSPACE', 'Database target must stay inside the registered workspace'));
+    return ok(canonicalTarget);
   }
 
   private async workspaceRoot(workspaceId: string): Promise<Result<string>> {
@@ -112,9 +123,12 @@ export class DatabaseRuntimeService {
     const rootPath = typeof (info.value as { realRootPath?: unknown }).realRootPath === 'string'
       ? (info.value as { realRootPath: string }).realRootPath
       : undefined;
-    return rootPath === undefined
-      ? err(appError('INTERNAL_ERROR', 'Workspace root could not be resolved', true))
-      : ok(path.win32.normalize(rootPath));
+    if (rootPath === undefined) return err(appError('INTERNAL_ERROR', 'Workspace root could not be resolved', true));
+    try {
+      return ok(await realpath(rootPath));
+    } catch {
+      return err(appError('INTERNAL_ERROR', 'Workspace root could not be canonically resolved', true));
+    }
   }
 }
 
@@ -146,10 +160,21 @@ function bindParameters(input: Record<string, unknown>): (null | number | bigint
 }
 
 function isWithin(root: string, candidate: string): boolean {
-  const relative = path.win32.relative(root.toLowerCase(), candidate.toLowerCase());
-  return relative === '' || (relative !== '..' && !relative.startsWith(`..${path.win32.sep}`) && !path.win32.isAbsolute(relative));
+  const pathApi = path.win32.isAbsolute(root) ? path.win32 : path;
+  const caseInsensitive = pathApi === path.win32;
+  const normalizedRoot = caseInsensitive ? root.toLowerCase() : root;
+  const normalizedCandidate = caseInsensitive ? candidate.toLowerCase() : candidate;
+  const relative = pathApi.relative(normalizedRoot, normalizedCandidate);
+  if (relative === '') return true;
+  if (pathApi.isAbsolute(relative)) return false;
+  const [firstSegment] = relative.split(pathApi.sep);
+  return firstSegment !== '..';
 }
 
 function readTrimmed(value: unknown): string | undefined {
   return typeof value === 'string' && value.trim().length > 0 ? value.trim() : undefined;
+}
+
+function isNodeError(error: unknown, code: string): boolean {
+  return typeof error === 'object' && error !== null && (error as NodeJS.ErrnoException).code === code;
 }

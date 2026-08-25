@@ -7,6 +7,7 @@ import type { FileActor } from '@lnwjud/application';
 import { UpgradeRuntimeService } from './upgrade-runtime.js';
 import { UPGRADE_TOOL_CATALOG } from './upgrade-catalog.js';
 import { ToolRegistry } from './tool-registry.js';
+import type { McpApplicationServices } from './tools/tool-types.js';
 
 const actor: FileActor = { clientId: 'test', clientName: 'test' };
 
@@ -71,6 +72,20 @@ describe('upgrade runtime', () => {
     const remove = await runtime.execute('permission_check', { action: 'filesystem.delete' });
     expect(read).toMatchObject({ ok: true, value: { decision: 'allow', contextAccess: 'unrestricted' } });
     expect(remove).toMatchObject({ ok: true, value: { decision: 'ask', contextAccess: 'unrestricted' } });
+  });
+
+  it('keeps hook and plugin installation create-only instead of silently replacing existing state', async () => {
+    const runtime = new UpgradeRuntimeService({}, actor);
+
+    await expect(runtime.execute('hook_register', { name: 'audit', event: 'beforeTool' }))
+      .resolves.toMatchObject({ ok: true, value: { registered: true } });
+    await expect(runtime.execute('hook_register', { name: 'audit', event: 'afterTool' }))
+      .resolves.toMatchObject({ ok: false, error: { code: 'INVALID_INPUT' } });
+
+    await expect(runtime.execute('plugin_install', { name: 'safe-plugin' }))
+      .resolves.toMatchObject({ ok: true, value: { changed: true, name: 'safe-plugin' } });
+    await expect(runtime.execute('plugin_install', { name: 'safe-plugin' }))
+      .resolves.toMatchObject({ ok: false, error: { code: 'INVALID_INPUT' } });
   });
 
   it('shares context economy telemetry between workspace context and the stats tool', async () => {
@@ -139,6 +154,16 @@ describe('upgrade runtime', () => {
           return ok({ app: request.app, action: request.action, ok: true });
         },
       },
+      file: {
+        async prepareExternalFileMutation(_actor, _workspaceId, request): Promise<ReturnType<typeof ok>> {
+          return ok({
+            sourcePaths: [...(request.sourcePaths ?? [])],
+            targetPath: request.targetPath,
+            targetRelativePath: 'copy.pptx',
+            replacementBackup: { recoveryId: 'backup-1', recoveryPath: 'C:\\recovery\\backup-1\\payload' },
+          });
+        },
+      } as McpApplicationServices['file'],
     }, actor);
 
     await expect(runtime.execute('office_ppt', { action: 'read', file_path: 'C:\\work\\deck.pptx' })).resolves.toMatchObject({
@@ -147,11 +172,18 @@ describe('upgrade runtime', () => {
     await expect(runtime.execute('office_ppt', { action: 'save_as', file_path: 'C:\\work\\deck.pptx', target_path: 'C:\\work\\copy.pptx' })).resolves.toMatchObject({
       ok: true, value: { dryRun: true, executed: false },
     });
+    await expect(runtime.execute('office_ppt', {
+      workspaceId: 'ws-1', action: 'save_as', file_path: 'C:\\work\\deck.pptx', target_path: 'C:\\work\\copy.pptx', dryRun: false, userConfirmed: true,
+    })).resolves.toMatchObject({
+      ok: true,
+      value: { dryRun: false, executed: true, replacementBackup: { recoveryId: 'backup-1' } },
+    });
     await expect(runtime.execute('office_outlook', { action: 'list_messages', folder: '\\Mailbox\\Inbox', max_messages: 250 })).resolves.toMatchObject({
       ok: true, value: { available: true, action: 'list_messages' },
     });
     expect(calls).toEqual([
       { app: 'powerpoint', action: 'read', file_path: 'C:\\work\\deck.pptx' },
+      { app: 'powerpoint', action: 'save_as', file_path: 'C:\\work\\deck.pptx', target_path: 'C:\\work\\copy.pptx', userConfirmed: true },
       { app: 'outlook', action: 'list_messages', folder: '\\Mailbox\\Inbox', max_messages: 100 },
     ]);
   });

@@ -394,7 +394,7 @@ function parseMcpActivityLine(raw: string): { readonly key: string; readonly lev
   const workspaceId = boundedScopeValue(record.workspaceId);
   const sessionId = boundedScopeValue(record.sessionId);
   const timestamp = boundedTimestamp(record.timestamp);
-  const kind = phase === 'started' ? 'task' : resultCode === 'SUCCESS' || resultCode === 'STARTED' ? 'result' : 'error';
+  const kind = classifyMcpWorkLogKind(toolName, phase, resultCode);
   return {
     key: mcpActivityKey(callId.length > 0 ? callId : 'unknown', phase, timestamp ?? raw.slice(0, 160), workspaceId, sessionId),
     level: kind === 'error' ? 'error' : 'info',
@@ -477,6 +477,14 @@ function matchesLogScope(line: Pick<LogLine, 'workspaceId' | 'sessionId'>, scope
   if (scope.workspaceId !== undefined && line.workspaceId !== scope.workspaceId) return false;
   if (scope.sessionId !== undefined && line.sessionId !== scope.sessionId) return false;
   return true;
+}
+
+export function classifyMcpWorkLogKind(toolName: string, phase: 'started' | 'completed', resultCode: string): 'task' | 'result' | 'error' {
+  if (phase === 'started') return 'task';
+  const normalized = resultCode.toUpperCase();
+  if (normalized === 'SUCCESS' || normalized === 'STARTED' || normalized === 'PERMISSION_REQUIRED') return 'result';
+  if ((toolName === 'process_status' || toolName === 'process_logs') && normalized === 'PROCESS_NOT_FOUND') return 'result';
+  return 'error';
 }
 
 function normalizeMcpResultCode(value: string): 'SUCCESS' | 'FAILED' | 'FATAL' | 'UNKNOWN' {

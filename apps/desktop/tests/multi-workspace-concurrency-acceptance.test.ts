@@ -32,7 +32,9 @@ describe('multi-workspace concurrency acceptance', () => {
     const dataRoot = await realpath(rawDataRoot);
     const workspaceRootA = await createWorkspaceFixture('a');
     const workspaceRootB = await createWorkspaceFixture('b');
-    const runtime = createDesktopRuntime(dataRoot);
+    const runtime = createDesktopRuntime(dataRoot, {
+      hostMutationApprovalProvider: async (): Promise<boolean> => true,
+    });
     const clientA = new Client({ name: 'multi-session-a', version: '1.0.0' });
     const clientB = new Client({ name: 'multi-session-b', version: '1.0.0' });
     let transportA: StreamableHTTPClientTransport | null = null;
@@ -53,18 +55,29 @@ describe('multi-workspace concurrency acceptance', () => {
       expect(transportA.sessionId).not.toBe(transportB.sessionId);
 
       const [toolsA, toolsB] = await Promise.all([clientA.listTools(), clientB.listTools()]);
-      expect(toolsA.tools).toHaveLength(208);
-      expect(toolsB.tools).toHaveLength(208);
+      expect(toolsA.tools).toHaveLength(212);
+      expect(toolsB.tools).toHaveLength(212);
 
-      await Promise.all([
-        prepareSessionFiles(clientA, workspaceA.id, 'a'),
-        prepareSessionFiles(clientB, workspaceB.id, 'b'),
-      ]);
+      const inactiveWrite = await clientA.callTool({
+        name: 'write_file',
+        arguments: { workspaceId: workspaceA.id, path: 'inactive-write.txt', content: 'blocked' },
+      });
+      expect(inactiveWrite.isError).toBe(true);
+      expect(errorCode(inactiveWrite)).toBe('PERMISSION_DENIED');
 
-      const [buildA, testB] = await Promise.all([
-        clientA.callTool({ name: 'project_build', arguments: { workspaceId: workspaceA.id } }),
-        clientB.callTool({ name: 'project_test', arguments: { workspaceId: workspaceB.id } }),
-      ]);
+      await runtime.services.selectWorkspace({ workspaceId: workspaceA.id });
+      await prepareSessionFiles(clientA, workspaceA.id, 'a');
+      await runtime.services.selectWorkspace({ workspaceId: workspaceB.id });
+      await prepareSessionFiles(clientB, workspaceB.id, 'b');
+
+      await runtime.services.selectWorkspace({ workspaceId: workspaceA.id });
+      const buildA = await clientA.callTool({
+        name: 'project_build', arguments: { workspaceId: workspaceA.id, userConfirmed: true },
+      });
+      await runtime.services.selectWorkspace({ workspaceId: workspaceB.id });
+      const testB = await clientB.callTool({
+        name: 'project_test', arguments: { workspaceId: workspaceB.id, userConfirmed: true },
+      });
       expect(buildA.isError).not.toBe(true);
       expect(testB.isError).not.toBe(true);
       const processA = stringField(buildA, 'processId');
@@ -105,28 +118,30 @@ describe('multi-workspace concurrency acceptance', () => {
       expect(terminalA.state).toBe('exited');
       expect(terminalB.state).toBe('exited');
 
-      const [shellA, shellB] = await Promise.all([
-        clientA.callTool({
-          name: 'shell',
-          arguments: {
-            workspaceId: workspaceA.id,
-            executable: process.execPath,
-            arguments: ['-e', "process.stdout.write('background-a')"],
-            cwd: workspaceRootA,
-            execution: 'background',
-          },
-        }),
-        clientB.callTool({
-          name: 'shell',
-          arguments: {
-            workspaceId: workspaceB.id,
-            executable: process.execPath,
-            arguments: ['-e', "process.stdout.write('background-b')"],
-            cwd: workspaceRootB,
-            execution: 'background',
-          },
-        }),
-      ]);
+      await runtime.services.selectWorkspace({ workspaceId: workspaceA.id });
+      const shellA = await clientA.callTool({
+        name: 'shell',
+        arguments: {
+          workspaceId: workspaceA.id,
+          executable: process.execPath,
+          arguments: ['background.js', 'background-a'],
+          cwd: workspaceRootA,
+          execution: 'background',
+          userConfirmed: true,
+        },
+      });
+      await runtime.services.selectWorkspace({ workspaceId: workspaceB.id });
+      const shellB = await clientB.callTool({
+        name: 'shell',
+        arguments: {
+          workspaceId: workspaceB.id,
+          executable: process.execPath,
+          arguments: ['background.js', 'background-b'],
+          cwd: workspaceRootB,
+          execution: 'background',
+          userConfirmed: true,
+        },
+      });
       expect(shellA.isError).not.toBe(true);
       expect(shellB.isError).not.toBe(true);
       const taskA = stringField(shellA, 'task_id');
@@ -171,15 +186,15 @@ describe('multi-workspace concurrency acceptance', () => {
       ]);
       expect(crossDeleteA.isError).toBe(true);
       expect(crossDeleteB.isError).toBe(true);
-      expect(errorCode(crossDeleteA)).toBe('PERMISSION_REQUIRED');
+      expect(errorCode(crossDeleteA)).toBe('PERMISSION_DENIED');
       expect(errorCode(crossDeleteB)).toBe('PERMISSION_REQUIRED');
       await expect(readFile(path.join(workspaceRootA, 'victim-a.txt'), 'utf8')).resolves.toBe('victim-a');
       await expect(readFile(path.join(workspaceRootB, 'victim-b.txt'), 'utf8')).resolves.toBe('victim-b');
 
-      const [ownDeleteA, ownDeleteB] = await Promise.all([
-        clientA.callTool({ name: 'delete_file', arguments: { workspaceId: workspaceA.id, path: 'victim-a.txt' } }),
-        clientB.callTool({ name: 'delete_file', arguments: { workspaceId: workspaceB.id, path: 'victim-b.txt' } }),
-      ]);
+      await runtime.services.selectWorkspace({ workspaceId: workspaceA.id });
+      const ownDeleteA = await clientA.callTool({ name: 'delete_file', arguments: { workspaceId: workspaceA.id, path: 'victim-a.txt' } });
+      await runtime.services.selectWorkspace({ workspaceId: workspaceB.id });
+      const ownDeleteB = await clientB.callTool({ name: 'delete_file', arguments: { workspaceId: workspaceB.id, path: 'victim-b.txt' } });
       expect(ownDeleteA.isError).not.toBe(true);
       expect(ownDeleteB.isError).not.toBe(true);
       await expect(access(path.join(workspaceRootA, 'victim-a.txt'))).rejects.toThrow();
@@ -238,7 +253,9 @@ async function createWorkspaceFixture(label: string): Promise<string> {
     "  process.stdout.write(`project-${mode}-pass\\n`);",
     "}, 5);",
   ].join('\n');
+  const backgroundScript = "process.stdout.write(process.argv[2] ?? '')\n";
   await writeFile(path.join(root, 'barrier.js'), barrierScript, 'utf8');
+  await writeFile(path.join(root, 'background.js'), backgroundScript, 'utf8');
   await writeFile(path.join(root, 'package.json'), JSON.stringify({
     name: `lnwjud-multi-${label}`,
     private: true,
@@ -251,7 +268,7 @@ async function createWorkspaceFixture(label: string): Promise<string> {
   await execFileAsync('git', ['init', '--quiet'], { cwd: root, windowsHide: true });
   await execFileAsync('git', ['config', 'user.email', 'lnwjud-test@example.invalid'], { cwd: root, windowsHide: true });
   await execFileAsync('git', ['config', 'user.name', 'lnwjud acceptance'], { cwd: root, windowsHide: true });
-  await execFileAsync('git', ['add', '--', 'barrier.js', 'package.json', 'package-lock.json'], { cwd: root, windowsHide: true });
+  await execFileAsync('git', ['add', '--', 'barrier.js', 'background.js', 'package.json', 'package-lock.json'], { cwd: root, windowsHide: true });
   await execFileAsync('git', ['commit', '--quiet', '-m', 'fixture'], { cwd: root, windowsHide: true });
   return root;
 }

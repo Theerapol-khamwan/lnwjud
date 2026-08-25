@@ -26,6 +26,7 @@ import { TunnelController } from '../src/main/tunnel-controller.js';
 import { readTunnelLock } from '../src/main/tunnel-lock.js';
 
 const temporaryRoots: string[] = [];
+const desktopMcpUrl = 'http://127.0.0.1:18765/mcp';
 
 beforeEach(() => {
   childProcessMocks.execFile.mockReset();
@@ -47,7 +48,7 @@ describe('TunnelController concurrent start', () => {
     const clientPath = path.join(dataPath, 'tunnel-client.exe');
     await (await import('node:fs/promises')).mkdir(profileDir, { recursive: true });
     await writeFile(clientPath, 'fixture', 'utf8');
-    await writeFile(path.join(profileDir, 'lnwjud.yaml'), 'mcp:\n  command: fixture\n', 'utf8');
+    await writeFile(path.join(profileDir, 'lnwjud.yaml'), 'control_plane:\n  tunnel_id: "tunnel_fixture123"\n  api_key: "env:CONTROL_PLANE_API_KEY"\nmcp:\n  commands:\n    - channel: main\n      command: fixture\n', 'utf8');
     await writeFile(path.join(profileDir, 'lnwjud.runtime.secret'), 'encrypted-fixture', 'utf8');
 
     let releaseProbe!: () => void;
@@ -77,6 +78,7 @@ describe('TunnelController concurrent start', () => {
       getClientPath: (): string => clientPath,
       setClientPath: (): void => undefined,
       getDataPath: (): string => dataPath,
+      getMcpServerUrl: (): string => desktopMcpUrl,
       isExternalTunnelRunning,
       decryptSecret,
     });
@@ -118,7 +120,7 @@ describe('TunnelController concurrent start', () => {
     const lockPath = path.join(profileDir, 'lnwjud.tunnel.lock');
     await (await import('node:fs/promises')).mkdir(profileDir, { recursive: true });
     await writeFile(clientPath, 'fixture', 'utf8');
-    await writeFile(path.join(profileDir, 'lnwjud.yaml'), 'mcp:\n  command: fixture\n', 'utf8');
+    await writeFile(path.join(profileDir, 'lnwjud.yaml'), 'control_plane:\n  tunnel_id: "tunnel_fixture456"\n  api_key: "env:CONTROL_PLANE_API_KEY"\nmcp:\n  commands:\n    - channel: main\n      command: fixture\n', 'utf8');
     await writeFile(path.join(profileDir, 'lnwjud.runtime.secret'), 'encrypted-fixture', 'utf8');
 
     const owner = {
@@ -148,6 +150,7 @@ describe('TunnelController concurrent start', () => {
       getClientPath: (): string => clientPath,
       setClientPath: (): void => undefined,
       getDataPath: (): string => dataPath,
+      getMcpServerUrl: (): string => desktopMcpUrl,
       isExternalTunnelRunning: async (): Promise<boolean> => false,
       decryptSecret,
     });

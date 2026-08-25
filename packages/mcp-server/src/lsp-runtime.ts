@@ -338,7 +338,10 @@ function uriToPath(uri: string): string {
 
 function isWithin(root: string, candidate: string): boolean {
   const relative = path.win32.relative(root.toLowerCase(), candidate.toLowerCase());
-  return relative === '' || (relative !== '..' && !relative.startsWith(`..${path.win32.sep}`) && !path.win32.isAbsolute(relative));
+  if (relative === '') return true;
+  if (path.win32.isAbsolute(relative)) return false;
+  const [firstSegment] = relative.split(path.win32.sep);
+  return firstSegment !== '..';
 }
 
 function readString(value: unknown): string | undefined {

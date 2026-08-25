@@ -112,12 +112,15 @@ describe('production desktop IPC acceptance', () => {
     await expect(requiredHandler(ipcChannels.setWorkspaceArchived)(trusted, { workspaceId: 'workspace-production', archived: 'yes' }))
       .rejects.toThrow(/archived/);
 
-    await expect(requiredHandler(ipcChannels.deleteWorkspace)(trusted, { workspaceId: 'workspace-production' })).resolves.toEqual({
+    await expect(requiredHandler(ipcChannels.deleteWorkspace)(trusted, { workspaceId: 'workspace-production' }))
+      .rejects.toThrow('Invalid IPC payload');
+    await expect(requiredHandler(ipcChannels.deleteWorkspace)(trusted, { workspaceId: 'workspace-production', userConfirmed: true })).resolves.toEqual({
       deleted: true,
       workspaceId: 'workspace-production',
       rootPath: 'E:\\workspace-production',
+      backupId: 'backup-production',
     });
-    expect(services.deleteWorkspace).toHaveBeenCalledWith({ workspaceId: 'workspace-production' });
+    expect(services.deleteWorkspace).toHaveBeenCalledWith({ workspaceId: 'workspace-production', userConfirmed: true });
   });
 
   it('notifies the native tray after a trusted locale change', async () => {
@@ -190,7 +193,7 @@ function desktopServices(): DesktopIpcServices {
     addWorkspace: vi.fn(async () => { throw new Error('unused'); }),
     selectWorkspace: vi.fn(async () => { throw new Error('unused'); }),
     setWorkspaceArchived: vi.fn(async (request) => ({ id: request.workspaceId, displayName: 'Production', rootPath: 'E:\\workspace-production', realRootPath: 'E:\\workspace-production', createdAt: new Date(0).toISOString(), archivedAt: request.archived ? new Date().toISOString() : null, kind: 'project' as const })),
-    deleteWorkspace: vi.fn(async (request) => ({ deleted: true, workspaceId: request.workspaceId, rootPath: 'E:\\workspace-production' })),
+    deleteWorkspace: vi.fn(async (request) => ({ deleted: true, workspaceId: request.workspaceId, rootPath: 'E:\\workspace-production', backupId: 'backup-production' })),
     getDashboard: vi.fn(async () => { throw new Error('unused'); }),
     setPermissionProfile: vi.fn(async (request) => ({ profile: request.profile })),
     setUnrestrictedMode: vi.fn(async (request) => ({ unrestricted: request.enabled, restartRequired: false })),

@@ -1,4 +1,4 @@
-import { mkdtemp, writeFile } from 'node:fs/promises';
+import { mkdtemp, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
@@ -69,6 +69,22 @@ describe('DatabaseRuntimeService', () => {
       await expect(runtime.inspect({ workspaceId: 'ws-1', target: path.join(root, '..', 'notes.txt') })).resolves.toMatchObject({ ok: false, error: { code: 'INVALID_INPUT' } });
       await expect(runtime.inspect({ workspaceId: 'ws-1', target: 'missing.db' })).resolves.toMatchObject({ ok: false, error: { code: 'FILE_NOT_FOUND' } });
       await expect(runtime.query({ workspaceId: 'missing-ws', target: 'app.db', sql: 'SELECT 1' })).resolves.toMatchObject({ ok: false, error: { code: 'WORKSPACE_NOT_FOUND' } });
+    });
+  });
+
+  it('rejects a junction or symlink whose canonical SQLite target escapes the workspace', async () => {
+    await withDatabase(async (root) => {
+      const outside = path.win32.normalize(await mkdtemp(path.join(tmpdir(), 'lnwjud-db-outside-')));
+      const outsideDatabase = path.join(outside, 'outside.db');
+      const connection = new DatabaseSync(outsideDatabase);
+      connection.exec('CREATE TABLE outside_data (id INTEGER PRIMARY KEY);');
+      connection.close();
+      const escape = path.join(root, 'escape');
+      await symlink(outside, escape, process.platform === 'win32' ? 'junction' : 'dir');
+
+      const runtime = new DatabaseRuntimeService(servicesWithRoot(root), actor);
+      await expect(runtime.inspect({ workspaceId: 'ws-1', target: path.join('escape', 'outside.db') }))
+        .resolves.toMatchObject({ ok: false, error: { code: 'PATH_OUTSIDE_WORKSPACE' } });
     });
   });
 

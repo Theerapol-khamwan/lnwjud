@@ -473,6 +473,18 @@
   background: rgba(255, 255, 255, .025);
 }
 
+.settings-path-display {
+  display: block;
+  overflow-wrap: anywhere;
+  padding: 10px 12px;
+  border: 1px solid var(--settings-soft-border);
+  border-radius: 10px;
+  background: rgba(0, 0, 0, .22);
+  color: var(--text-secondary);
+  font: 12px/1.5 Consolas, "Cascadia Mono", monospace;
+  user-select: text;
+}
+
 @media (max-width: 1100px) {
   .settings-shell-v2 {
     grid-template-columns: 205px minmax(0, 1fr);

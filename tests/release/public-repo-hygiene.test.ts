@@ -68,7 +68,7 @@ describe('public repository hygiene', () => {
     expect(readme).toContain(`The Windows installer for the current version is \`lnwjud-Setup-${rootPackage.version as string}.exe\``);
     expect(readme).not.toContain('current source/release candidate is');
     expect(readme).not.toContain('pending publication');
-    expect(readme).toContain('214 configurable tools');
+    expect(readme).toContain('218 configurable tools');
     expect(readme).not.toContain(['Verify the ', '184-tool catalog'].join(''));
     expect(readme).not.toContain(['current v3.0.0 catalog contains ', '184 tools'].join(''));
     expect(readme).not.toContain('packaged v3.0.0 build');

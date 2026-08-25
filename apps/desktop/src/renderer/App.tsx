@@ -227,7 +227,7 @@ export function App(): ReactElement {
   async function deleteWorkspace(workspaceId: string): Promise<void> {
     setError(null);
     try {
-      await window.lnwjud.deleteWorkspace({ workspaceId });
+      await window.lnwjud.deleteWorkspace({ workspaceId, userConfirmed: true });
       await refresh();
     } catch (cause: unknown) {
       setError(errorMessage(cause, t('error.workspaceDelete')));
@@ -344,6 +344,16 @@ export function App(): ReactElement {
     const result = await window.lnwjud.scheduleRestoreBackup({ backupId });
     await refresh();
     return result.restartRequired;
+  }
+
+  async function restoreRecoveryItem(workspaceId: string, recoveryId: string): Promise<void> {
+    await window.lnwjud.restoreRecoveryItem({ workspaceId, recoveryId });
+    await refresh();
+  }
+
+  async function restoreCheckpoint(workspaceId: string, checkpointId: string): Promise<void> {
+    await window.lnwjud.restoreCheckpoint({ workspaceId, checkpointId });
+    await refresh();
   }
 
   async function saveTunnelApiKey(apiKey: string): Promise<void> {
@@ -485,6 +495,8 @@ export function App(): ReactElement {
           onStdioPolicyChange={setStdioPolicy}
           onCreateBackup={createBackup}
           onScheduleRestoreBackup={scheduleRestoreBackup}
+          onRestoreRecoveryItem={restoreRecoveryItem}
+          onRestoreCheckpoint={restoreCheckpoint}
           onSaveTunnelApiKey={saveTunnelApiKey}
           onSetTunnelClientPath={setTunnelClientPath}
           onUserSettingsChange={setUserSettings}

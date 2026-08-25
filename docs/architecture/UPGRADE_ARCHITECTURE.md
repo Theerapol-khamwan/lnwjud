@@ -41,7 +41,7 @@ MCP clients (ChatGPT / Codex / Claude / other agents)
              MCP stdio or loopback Streamable HTTP
                          |
                          v
-                  ToolRegistry (214 configurable tools; 208 advertised by default)
+                  ToolRegistry (218 configurable tools; 212 advertised by default)
                          |
        +-----------------+------------------+
        |                 |                  |
@@ -108,8 +108,8 @@ builds the high-impact slices on top of it:
 Long-running operations use the existing task handles where a concrete backend
 exists. Activity events now carry bounded `traceId`/`traceParent` values into
 NDJSON and SQLite audit metadata. The 184-tool snapshot remains a historical
-compatibility baseline. Current transports support 214 configurable tools and
-advertise 208 by default because the six Codex delegation tools are opt-in;
+compatibility baseline. Current transports support 218 configurable tools and
+advertise 212 by default because the six Codex delegation tools are opt-in;
 registry additions remain append-only.
 
 ## Request and side-effect pipeline
@@ -136,10 +136,10 @@ continuation rather than lowering an existing limit silently.
 ### stdio
 
 - MCP protocol is the only stdout payload; diagnostics go to stderr.
-- The packaged Windows tunnel command is the direct-node
-  `lnwjud-mcp-stdio.cmd` launcher backed by the private Node 24 runtime shipped with the installer. The GUI Electron executable is not used as a
-  tunnel child because its stdio handles can close when started by
-  `tunnel-client`.
+- The packaged direct-node `lnwjud-mcp-stdio.cmd` launcher remains available
+  for direct local stdio hosts such as Codex CLI. Secure Tunnel does **not** use
+  this headless runtime; it forwards to the Desktop loopback HTTP MCP so host
+  Active Project and native approval remain authoritative.
 - Closing the peer is a normal shutdown; owned runtime resources are closed once.
 
 ### loopback Streamable HTTP
@@ -154,11 +154,14 @@ continuation rather than lowering an existing limit silently.
 
 ### Secure MCP Tunnel
 
-The desktop owns the `tunnel-client` child it starts, rewrites the profile to the
-packaged stdio launcher, records the persistent tunnel log, and distinguishes an
-owned process from an externally started client. Unexpected exits are surfaced
-as errors and reconnect state; the MCP child must remain alive before a tunnel
-connection is considered healthy.
+The desktop owns the `tunnel-client` child it starts, ensures its loopback HTTP
+MCP is running, and rewrites the tunnel profile to `mcp.server_urls` using the
+current Desktop `/mcp` endpoint. The tunnel therefore shares the same dynamic
+Active Project provider, permission profile, activity tracker, and native
+exact-action approval provider as local Desktop MCP. Standalone/headless stdio
+still fails closed for mutations requiring host approval. The controller records
+the persistent tunnel log, distinguishes owned from externally started clients,
+and surfaces unexpected exits/reconnect state.
 
 ## Security and permission boundary
 

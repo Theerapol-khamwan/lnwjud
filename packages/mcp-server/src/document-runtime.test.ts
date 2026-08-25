@@ -21,6 +21,15 @@ function servicesWithOffice(root: string, officeResults: Record<string, unknown>
           : ok(handler);
       },
     },
+    file: {
+      async prepareExternalFileMutation(_actor, _workspaceId, request) {
+        return ok({
+          sourcePaths: [...(request.sourcePaths ?? [])],
+          targetPath: request.targetPath,
+          targetRelativePath: path.relative(root, request.targetPath),
+        });
+      },
+    } as McpApplicationServices['file'],
   } as unknown as McpApplicationServices;
 }
 
@@ -98,10 +107,10 @@ describe('DocumentRuntimeService', () => {
       const second = path.join(root, 'b.docx');
       const third = path.join(root, 'c.docx');
       await Promise.all([writeFile(primary, 'a'), writeFile(second, 'b'), writeFile(third, 'c')]);
-      const merges: { file_path?: string; merge_paths?: string[]; target_path?: string }[] = [];
+      const merges: { file_path?: string; merge_paths?: string[]; target_path?: string; userConfirmed?: boolean }[] = [];
       const runtime = new DocumentRuntimeService(servicesWithOffice(root, {
-        'word:merge': (request: { file_path?: string; merge_paths?: string[]; target_path?: string }) => {
-          merges.push({ file_path: request.file_path, merge_paths: request.merge_paths, target_path: request.target_path });
+        'word:merge': (request: { file_path?: string; merge_paths?: string[]; target_path?: string; userConfirmed?: boolean }) => {
+          merges.push({ file_path: request.file_path, merge_paths: request.merge_paths, target_path: request.target_path, userConfirmed: request.userConfirmed });
           return ok({ app: 'word', action: 'merge', saved: true });
         },
       }), actor);
@@ -110,7 +119,7 @@ describe('DocumentRuntimeService', () => {
       await expect(runtime.docxMerge({ ...input })).resolves.toMatchObject({ ok: true, value: { dryRun: true, applied: false } });
       await expect(runtime.docxMerge({ ...input, dryRun: false })).resolves.toMatchObject({ ok: false, error: { code: 'PERMISSION_REQUIRED' } });
       await expect(runtime.docxMerge({ ...input, dryRun: false, userConfirmed: true })).resolves.toMatchObject({ ok: true, value: { applied: true } });
-      expect(merges).toEqual([{ file_path: primary, merge_paths: [second, third], target_path: path.join(root, 'merged.docx') }]);
+      expect(merges).toEqual([{ file_path: primary, merge_paths: [second, third], target_path: path.join(root, 'merged.docx'), userConfirmed: true }]);
       await expect(runtime.docxMerge({ workspaceId: 'ws-1', file_path: primary, target_path: 'x.docx' })).resolves.toMatchObject({ ok: false, error: { code: 'INVALID_INPUT' } });
     });
   });

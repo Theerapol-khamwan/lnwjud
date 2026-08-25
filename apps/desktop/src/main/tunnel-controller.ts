@@ -10,7 +10,7 @@ import type { TunnelRunState, TunnelStatus } from '@lnwjud/ipc-contracts';
 import { probeProcessStart, type ProcessProbeResult } from '@lnwjud/mcp-server';
 import { formatTunnelExitMessage, tunnelExitHintFromLog } from './tunnel-exit.js';
 import { acquireTunnelLock, readTunnelLock, type TunnelLockAcquisition, type TunnelLockOwner } from './tunnel-lock.js';
-import { rewriteTunnelYamlMcpCommand } from './tunnel-profile.js';
+import { normalizeLoopbackMcpUrl, rewriteTunnelYamlMcpServerUrl, rewriteTunnelYamlRuntimeApiKeyRef } from './tunnel-profile.js';
 
 const execFileAsync = promisify(execFile);
 
@@ -40,7 +40,7 @@ export interface TunnelControllerOptions {
   readonly getClientPath: () => string | null;
   readonly setClientPath: (value: string) => void;
   readonly getDataPath: () => string;
-  readonly getStdioLauncherPath?: () => string | null;
+  readonly getMcpServerUrl?: () => string | null | Promise<string | null>;
   readonly isExternalTunnelRunning?: () => Promise<boolean>;
   readonly verifiedExternalTunnelPids?: () => Promise<readonly number[]>;
   readonly currentLockOwner?: () => Promise<TunnelLockOwner>;
@@ -129,22 +129,15 @@ export class TunnelController {
     if (!/^tunnel_[A-Za-z0-9_-]{8,128}$/.test(normalizedTunnelId)) throw new Error('Tunnel ID is invalid');
     const clientPath = this.resolveClientPath();
     if (clientPath === null || !existsSync(clientPath)) throw new Error('tunnel-client.exe was not found');
-    const launcher = this.options.getStdioLauncherPath?.() ?? null;
-    if (launcher === null || !existsSync(launcher)) throw new Error('Packaged lnwjud MCP stdio launcher was not found');
+    const mcpServerUrl = await this.requireMcpServerUrl();
     if (!(await this.hasApiKey())) throw new Error('Save a Runtime API key first');
     const encryptedSecret = await readFile(this.secretPath(), 'utf8');
     const apiKey = (await (this.options.decryptSecret?.(encryptedSecret) ?? decryptWithDpapi(encryptedSecret))).trim();
     if (apiKey.length === 0) throw new Error('Saved Runtime API key is empty; save it again in Settings');
     await mkdir(this.profileDirectory(), { recursive: true });
     try {
-      await execFileAsync(clientPath, [
-        'init',
-        '--sample', 'sample_mcp_stdio_local',
-        '--profile', PROFILE_NAME,
-        '--tunnel-id', normalizedTunnelId,
-        '--mcp-command', launcher,
-      ], {
-        env: tunnelClientEnv(apiKey, this.profileDirectory(), this.options.getDataPath()),
+      await execFileAsync(clientPath, buildTunnelInitArgs(normalizedTunnelId, mcpServerUrl, this.profileDirectory()), {
+        env: tunnelClientEnv(apiKey, this.profileDirectory()),
         windowsHide: true,
         encoding: 'utf8',
         timeout: 60_000,
@@ -153,8 +146,8 @@ export class TunnelController {
       const detail = extractExecDetail(error);
       throw new Error(detail.length > 0 ? detail : 'tunnel-client init failed');
     }
-    await this.preferPackagedStdioCommand();
-    await runTunnelDoctor(clientPath, apiKey, this.profileDirectory(), this.options.getDataPath());
+    await this.repairDesktopTunnelProfile();
+    await runTunnelDoctor(clientPath, apiKey, this.profileDirectory());
     return this.profilePath();
   }
 
@@ -280,9 +273,9 @@ export class TunnelController {
       this.message = null;
       await mkdir(this.profileDirectory(), { recursive: true });
       throwIfStartCancelled(signal);
-      await this.preferPackagedStdioCommand();
+      await this.repairDesktopTunnelProfile();
       throwIfStartCancelled(signal);
-      await runTunnelDoctor(clientPath, apiKey, this.profileDirectory(), this.options.getDataPath());
+      await runTunnelDoctor(clientPath, apiKey, this.profileDirectory());
       throwIfStartCancelled(signal);
       this.spawnRun(clientPath, apiKey);
       this.state = 'running';
@@ -492,7 +485,7 @@ export class TunnelController {
         '--mcp.connection-max-ttl', MCP_CONNECTION_MAX_TTL,
       ],
       {
-        env: tunnelClientEnv(apiKey, this.profileDirectory(), this.options.getDataPath()),
+        env: tunnelClientEnv(apiKey, this.profileDirectory()),
         windowsHide: true,
         // detached:true on Windows gives the child its own console window.
         detached: false,
@@ -560,7 +553,7 @@ export class TunnelController {
     this.restartTimer = setTimeout(() => {
       this.restartTimer = null;
       if (this.intentionalStop || this.lastApiKey === null) return;
-      void this.preferPackagedStdioCommand()
+      void this.repairDesktopTunnelProfile()
         .then(() => {
           if (this.intentionalStop || this.lastApiKey === null) return;
           this.spawnRun(clientPath, this.lastApiKey);
@@ -604,20 +597,41 @@ export class TunnelController {
     }
   }
 
-  private async preferPackagedStdioCommand(): Promise<void> {
-    const launcher = this.options.getStdioLauncherPath?.() ?? null;
-    if (launcher === null) return;
-    try {
-      const yaml = await readFile(this.profilePath(), 'utf8');
-      const next = rewriteTunnelYamlMcpCommand(yaml, launcher);
-      if (next !== yaml) await writeFile(this.profilePath(), next, 'utf8');
-    } catch {
-      // Profile rewrite is best-effort; tunnel-client still starts with the existing YAML.
+  private async requireMcpServerUrl(): Promise<string> {
+    const value = await this.options.getMcpServerUrl?.();
+    if (value === null || value === undefined || value.trim().length === 0) {
+      throw new Error('Desktop MCP is unavailable; start lnwjud and try again');
     }
+    return normalizeLoopbackMcpUrl(value);
+  }
+
+  private async repairDesktopTunnelProfile(): Promise<void> {
+    const serverUrl = await this.requireMcpServerUrl();
+    const yaml = await readFile(this.profilePath(), 'utf8');
+    const withDesktopMcp = rewriteTunnelYamlMcpServerUrl(yaml, serverUrl);
+    if (withDesktopMcp === yaml && !/^mcp:\s*$/im.test(yaml)) {
+      throw new Error('Tunnel profile does not contain an MCP section; run Configure Tunnel again');
+    }
+    const next = rewriteTunnelYamlRuntimeApiKeyRef(withDesktopMcp);
+    if (next !== yaml) await writeFile(this.profilePath(), next, 'utf8');
   }
 }
 
 export { CLIENT_PATH_SETTING };
+
+export function buildTunnelInitArgs(tunnelId: string, mcpServerUrl: string, profileDirectory: string): string[] {
+  return [
+    'init',
+    '--force',
+    '--sample', 'sample_mcp_remote_no_auth',
+    '--profile', PROFILE_NAME,
+    '--profile-dir', profileDirectory,
+    '--tunnel-id', tunnelId,
+    '--control-plane-api-key-ref', 'env:CONTROL_PLANE_API_KEY',
+    '--health-listen-addr', '127.0.0.1:0',
+    '--mcp-server-url', normalizeLoopbackMcpUrl(mcpServerUrl),
+  ];
+}
 
 async function encryptWithDpapi(plain: string): Promise<string> {
   const script = [
@@ -669,14 +683,16 @@ function runPowerShellWithStdin(command: string, input: string): Promise<string>
   });
 }
 
-export function tunnelClientEnv(apiKey: string, profileDirectory: string, dataPath: string): NodeJS.ProcessEnv {
+export function tunnelClientEnv(apiKey: string, profileDirectory: string): NodeJS.ProcessEnv {
   const env: NodeJS.ProcessEnv = { ...process.env };
   const userProfile = process.env.USERPROFILE ?? os.homedir();
   const appData = process.env.APPDATA ?? path.join(userProfile, 'AppData', 'Roaming');
   env.CONTROL_PLANE_API_KEY = apiKey.trim();
   env.MCP_CONNECTION_MAX_TTL = MCP_CONNECTION_MAX_TTL;
-  env.LNWJUD_DATA_PATH = dataPath;
-  env.LNWJUD_UNRESTRICTED = '1';
+  // Secure Tunnel forwards to the already-running Desktop HTTP MCP. Do not pass
+  // headless lnwjud authorization/scope settings to the transport-only child.
+  delete env.LNWJUD_DATA_PATH;
+  delete env.LNWJUD_UNRESTRICTED;
   env.TUNNEL_CLIENT_PROFILE = PROFILE_NAME;
   env.TUNNEL_CLIENT_PROFILE_DIR = profileDirectory;
   env.USERPROFILE = userProfile;
@@ -686,10 +702,10 @@ export function tunnelClientEnv(apiKey: string, profileDirectory: string, dataPa
   return env;
 }
 
-async function runTunnelDoctor(clientPath: string, apiKey: string, profileDirectory: string, dataPath: string): Promise<void> {
+async function runTunnelDoctor(clientPath: string, apiKey: string, profileDirectory: string): Promise<void> {
   try {
     await execFileAsync(clientPath, ['doctor', '--profile', PROFILE_NAME, '--profile-dir', profileDirectory, '--explain'], {
-      env: tunnelClientEnv(apiKey, profileDirectory, dataPath),
+      env: tunnelClientEnv(apiKey, profileDirectory),
       windowsHide: true,
       encoding: 'utf8',
       timeout: 60_000,

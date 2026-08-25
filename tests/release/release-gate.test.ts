@@ -49,6 +49,22 @@ describe('MVP release verification gate', () => {
       expect(checklist.toLowerCase()).toContain(evidence.toLowerCase());
     }
   });
+
+  it('keeps public safety copy aligned with the exact mutation policy', async () => {
+    const readme = await readFile(path.join(repositoryRoot, 'README.md'), 'utf8');
+    const checklist = await readFile(path.join(repositoryRoot, '.github', 'RELEASE_CHECKLIST.md'), 'utf8');
+    const publicCopy = `${readme}\n${checklist}`;
+
+    expect(publicCopy).toContain('exact `delete_file`');
+    expect(publicCopy).toMatch(/only.*auto-approv|auto-approv.*only/i);
+    expect(publicCopy).toContain('Recovery Trash');
+    expect(publicCopy).toContain('Active Project');
+    expect(publicCopy).toMatch(/host.*approval|native.*approval/i);
+    expect(publicCopy).toMatch(/standalone|headless/i);
+    expect(publicCopy).not.toMatch(/Git delete\/discard commands.*can be enabled independently/i);
+    expect(publicCopy).not.toMatch(/opt in independently to scoped `delete_file`, `git rm`, `git clean`/i);
+  });
+
   it('installs the Electron runtime before clean-machine desktop execution', async () => {
     const rootPackage = JSON.parse(await readFile(path.join(repositoryRoot, 'package.json'), 'utf8')) as { scripts?: Record<string, string> };
     const desktopPackage = JSON.parse(
@@ -81,4 +97,19 @@ describe('MVP release verification gate', () => {
     expect(acceptance).toContain('tests/multi-workspace-concurrency-acceptance.test.ts');
   });
 
+  it('keeps Secure Tunnel on the Desktop HTTP runtime instead of headless stdio', async () => {
+    const controller = await readFile(path.join(repositoryRoot, 'apps', 'desktop', 'src', 'main', 'tunnel-controller.ts'), 'utf8');
+    const services = await readFile(path.join(repositoryRoot, 'apps', 'desktop', 'src', 'main', 'desktop-services.ts'), 'utf8');
+    const readme = await readFile(path.join(repositoryRoot, 'README.md'), 'utf8');
+
+    expect(controller).toContain("'--sample', 'sample_mcp_remote_no_auth'");
+    expect(controller).toContain("'--mcp-server-url'");
+    expect(controller).toContain('buildTunnelInitArgs(normalizedTunnelId, mcpServerUrl');
+    expect(controller).toContain('repairDesktopTunnelProfile()');
+    expect(controller).not.toContain("'--sample', 'sample_mcp_stdio_local'");
+    expect(services).toContain('getMcpServerUrl: async ()');
+    expect(services).toContain('await mcpLifecycle.start()');
+    expect(readme).toContain('Desktop loopback HTTP MCP');
+    expect(readme).toContain('sample_mcp_remote_no_auth');
+  });
 });

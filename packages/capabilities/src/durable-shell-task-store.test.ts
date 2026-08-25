@@ -24,6 +24,7 @@ describe('durable shell background tasks', () => {
       cwd: root,
       execution: 'background',
       timeout_seconds: 30,
+      userConfirmed: true,
     });
 
     expect(started).toMatchObject({ ok: true, value: { task_id: expect.any(String), durable: true } });
@@ -58,9 +59,21 @@ describe('durable shell background tasks', () => {
       cwd: root,
       execution: 'auto',
       timeout_seconds: 30,
+      userConfirmed: true,
     });
 
-    expect(result).toMatchObject({ ok: true, value: { state: 'completed', exit_code: 0, stdout: 'fast', durable: true } });
+    expect(result).toMatchObject({ ok: true, value: { task_id: expect.any(String), durable: true } });
+    if (!result.ok) return;
+    const taskId = String((result.value as Record<string, unknown>).task_id);
+    const terminal = (result.value as Record<string, unknown>).state === 'running'
+      ? await backend.execute({ operation: 'wait', task_id: taskId, timeout_seconds: 5 })
+      : result;
+    expect(terminal).toMatchObject({ ok: true, value: { state: 'completed', exit_code: 0, stdout: 'fast', durable: true } });
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    await expect(backend.execute({ operation: 'status', task_id: taskId })).resolves.toMatchObject({
+      ok: true,
+      value: { state: 'completed', exit_code: 0, stdout: 'fast', durable: true },
+    });
   });
 
   it('cancels a durable task from a replacement backend', async () => {
@@ -75,6 +88,7 @@ describe('durable shell background tasks', () => {
       cwd: root,
       execution: 'background',
       timeout_seconds: 30,
+      userConfirmed: true,
     });
     expect(started.ok).toBe(true);
     if (!started.ok) return;
@@ -85,7 +99,7 @@ describe('durable shell background tasks', () => {
       const status = await replacementRuntime.execute({ operation: 'status', task_id: taskId });
       return status.ok && typeof (status.value as Record<string, unknown>).worker_pid === 'number';
     }, 1500);
-    const cancelled = await replacementRuntime.execute({ operation: 'cancel', task_id: taskId });
+    const cancelled = await replacementRuntime.execute({ operation: 'cancel', task_id: taskId, userConfirmed: true });
 
     expect(cancelled).toMatchObject({ ok: true, value: { task_id: taskId, state: 'cancelled', durable: true } });
   });
@@ -108,6 +122,7 @@ describe('durable shell background tasks', () => {
       cwd: root,
       execution: 'auto',
       timeout_seconds: 30,
+      userConfirmed: true,
     }, controller.signal);
     setTimeout(() => controller.abort(), 100);
 
