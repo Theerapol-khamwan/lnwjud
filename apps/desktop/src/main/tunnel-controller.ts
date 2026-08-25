@@ -10,7 +10,11 @@ import type { TunnelRunState, TunnelStatus } from '@lnwjud/ipc-contracts';
 import { probeProcessStart, type ProcessProbeResult } from '@lnwjud/mcp-server';
 import { formatTunnelExitMessage, tunnelExitHintFromLog } from './tunnel-exit.js';
 import { acquireTunnelLock, readTunnelLock, type TunnelLockAcquisition, type TunnelLockOwner } from './tunnel-lock.js';
-import { normalizeLoopbackMcpUrl, rewriteTunnelYamlMcpServerUrl, rewriteTunnelYamlRuntimeApiKeyRef } from './tunnel-profile.js';
+import { extractTunnelId, normalizeLoopbackMcpUrl, rewriteTunnelYamlMcpServerUrl, rewriteTunnelYamlRuntimeApiKeyRef } from './tunnel-profile.js';
+import { TunnelRuntimeAdapter } from './tunnel-runtime-adapter.js';
+import { TunnelRuntimeReconciler } from './tunnel-runtime-reconciler.js';
+import { TunnelRuntimeSupervisor } from './tunnel-runtime-supervisor.js';
+import type { TunnelRuntimeSnapshot } from './tunnel-runtime-state.js';
 
 const execFileAsync = promisify(execFile);
 
@@ -56,6 +60,8 @@ export interface TunnelControllerOptions {
   readonly inspectFileVersion?: (filePath: string) => Promise<string | null>;
   readonly autoReconnect?: () => boolean;
   readonly maxAutoRestarts?: () => number;
+  readonly getTunnelId?: () => string | null;
+  readonly setTunnelId?: (value: string) => void;
 }
 
 export class TunnelController {
@@ -77,6 +83,9 @@ export class TunnelController {
   private startInFlight: Promise<TunnelStatus> | null = null;
   private startAbortController: AbortController | null = null;
   private stopInFlight: Promise<TunnelStatus> | null = null;
+  private runtimeSupervisor: TunnelRuntimeSupervisor | null = null;
+  private runtimeSnapshot: TunnelRuntimeSnapshot | null = null;
+  private runtimeMode: 'native-managed' | 'profile-child' | null = null;
 
   public constructor(private readonly options: TunnelControllerOptions) {}
 
@@ -122,6 +131,7 @@ export class TunnelController {
     await mkdir(this.profileDirectory(), { recursive: true });
     const encrypted = await encryptWithDpapi(trimmed);
     await writeFile(this.secretPath(), encrypted, 'utf8');
+    this.lastApiKey = trimmed;
   }
 
   public async configureProfile(tunnelId: string): Promise<string> {
@@ -148,6 +158,8 @@ export class TunnelController {
     }
     await this.repairDesktopTunnelProfile();
     await runTunnelDoctor(clientPath, apiKey, this.profileDirectory());
+    this.options.setTunnelId?.(normalizedTunnelId);
+    this.disposeRuntimeSupervisor();
     return this.profilePath();
   }
 
@@ -160,6 +172,10 @@ export class TunnelController {
 
   public async status(): Promise<TunnelStatus> {
     const clientPath = this.resolveClientPath();
+    if (this.runtimeMode === 'native-managed') {
+      const snapshot = this.runtimeSupervisor?.snapshot() ?? this.runtimeSnapshot;
+      if (snapshot !== null) return this.statusFromRuntimeSnapshot(snapshot, clientPath);
+    }
     let source: TunnelStatus['source'] = 'desktop';
     if (this.child !== null && this.child.exitCode === null) {
       this.state = 'running';
@@ -238,6 +254,8 @@ export class TunnelController {
       if (this.child !== null && this.child.exitCode === null) return this.status();
       const externalProbe = this.tunnelLock === null ? await this.probeExternalRunning(true) : 'gone';
       throwIfStartCancelled(signal);
+      const managedStatus = await this.tryStartNativeManagedRuntime(externalProbe, signal);
+      if (managedStatus !== null) return managedStatus;
       if (externalProbe === 'live') {
         this.state = 'running';
         this.message = null;
@@ -277,6 +295,7 @@ export class TunnelController {
       throwIfStartCancelled(signal);
       await runTunnelDoctor(clientPath, apiKey, this.profileDirectory());
       throwIfStartCancelled(signal);
+      this.runtimeMode = 'profile-child';
       this.spawnRun(clientPath, apiKey);
       this.state = 'running';
       this.scheduleStableReset();
@@ -313,14 +332,44 @@ export class TunnelController {
   }
 
   private async stopOnce(): Promise<TunnelStatus> {
+    if (this.runtimeMode === 'native-managed' && this.runtimeSupervisor !== null) {
+      await this.runtimeSupervisor.stopRuntime();
+      this.disposeRuntimeSupervisor();
+      this.state = 'stopped';
+      this.message = null;
+      this.lastApiKey = null;
+      this.restartAttempts = 0;
+      this.clearStableTimer();
+      return this.status();
+    }
     await this.killOwnedChild();
     await this.releaseTunnelLock();
     this.state = 'stopped';
     this.message = null;
     this.lastApiKey = null;
     this.restartAttempts = 0;
+    this.runtimeMode = null;
     this.clearStableTimer();
     return this.status();
+  }
+
+  public async shutdownForDesktopExit(): Promise<void> {
+    this.intentionalStop = true;
+    this.clearRestartTimer();
+    this.clearStableTimer();
+    this.startAbortController?.abort();
+    if (this.runtimeMode === 'native-managed') {
+      // Native runtimes are intentionally allowed to survive the short Desktop
+      // restart gap. The next Desktop launch reconciles the same alias/tunnel ID
+      // to the new loopback MCP URL.
+      this.disposeRuntimeSupervisor();
+      this.state = 'stopped';
+      this.message = null;
+      return;
+    }
+    await this.killOwnedChild();
+    await this.releaseTunnelLock();
+    this.runtimeMode = null;
   }
 
   private enqueueLifecycle<T>(operation: () => Promise<T>): Promise<T> {
@@ -528,10 +577,9 @@ export class TunnelController {
     }
     this.restartAttempts += 1;
     if (!this.autoReconnectEnabled()) return;
-    const maxAutoRestarts = this.maxAutoRestarts();
-    if (this.restartAttempts > maxAutoRestarts) {
-      this.message = `${this.message} — automatic reconnect paused after ${maxAutoRestarts} rapid exits; press Start Tunnel to retry`;
-      return;
+    const rapidThreshold = this.maxAutoRestarts();
+    if (rapidThreshold > 0 && this.restartAttempts > rapidThreshold) {
+      this.message = `${this.message} — reconnect continues with capped backoff after ${rapidThreshold} rapid exits`;
     }
     this.scheduleRestart(clientPath);
   }
@@ -558,7 +606,7 @@ export class TunnelController {
           if (this.intentionalStop || this.lastApiKey === null) return;
           this.spawnRun(clientPath, this.lastApiKey);
           this.state = 'running';
-          this.message = `Tunnel reconnecting (attempt ${this.restartAttempts}/${this.maxAutoRestarts()})…`;
+          this.message = `Tunnel reconnecting (attempt ${this.restartAttempts}; retries continue until stopped)…`;
           this.scheduleStableReset();
         })
         .catch(() => undefined);
@@ -595,6 +643,129 @@ export class TunnelController {
       clearTimeout(this.stableTimer);
       this.stableTimer = null;
     }
+  }
+
+  private async tryStartNativeManagedRuntime(externalProbe: ExternalTunnelProbe, signal: AbortSignal): Promise<TunnelStatus | null> {
+    // Native supervision is opt-in at the composition boundary. Legacy/test
+    // controllers without persistent identity storage keep the v4.10 fallback.
+    if (this.options.getTunnelId === undefined || this.options.setTunnelId === undefined) return null;
+    const clientPath = this.resolveClientPath();
+    if (clientPath === null || !existsSync(clientPath)) return null;
+    if (!existsSync(this.profilePath())) return null;
+
+    const encryptedSecret = await readFile(this.secretPath(), 'utf8').catch(() => null);
+    if (encryptedSecret === null) return null;
+    const apiKey = (await (this.options.decryptSecret?.(encryptedSecret) ?? decryptWithDpapi(encryptedSecret))).trim();
+    throwIfStartCancelled(signal);
+    if (apiKey.length === 0) return null;
+    this.lastApiKey = apiKey;
+
+    const desiredTunnelId = await this.resolvePersistentTunnelId();
+    if (desiredTunnelId === null) return null;
+    const mcpServerUrl = await this.requireMcpServerUrl();
+    throwIfStartCancelled(signal);
+
+    const adapter = new TunnelRuntimeAdapter({
+      clientPath,
+      profileDirectory: this.profileDirectory(),
+      environment: tunnelClientEnv(apiKey, this.profileDirectory()),
+    });
+    const capabilities = await adapter.capabilities();
+    throwIfStartCancelled(signal);
+    if (!capabilities.managedConnect) return null;
+
+    let nativeStatus;
+    try {
+      nativeStatus = await adapter.status();
+    } catch (error: unknown) {
+      this.state = 'error';
+      this.message = error instanceof Error ? error.message : 'Native tunnel runtime status failed';
+      return this.status();
+    }
+    throwIfStartCancelled(signal);
+    // A legacy/profile process may already be running outside native alias
+    // supervision. Never create a second tunnel-client in that case.
+    if (!nativeStatus.exists && externalProbe === 'live') return null;
+    if (!nativeStatus.exists && externalProbe === 'unverifiable') {
+      this.state = 'error';
+      this.message = 'Tunnel process liveness is unverifiable; refusing to start a possible duplicate';
+      return this.status();
+    }
+
+    this.disposeRuntimeSupervisor();
+    const reconciler = new TunnelRuntimeReconciler({
+      adapter,
+      desiredState: async () => ({
+        enabled: this.autoReconnectEnabled(),
+        tunnelId: desiredTunnelId,
+        mcpServerUrl: await this.requireMcpServerUrl(),
+      }),
+    });
+    const supervisor = new TunnelRuntimeSupervisor({
+      reconciler,
+      enabled: () => this.autoReconnectEnabled(),
+      onUpdate: (snapshot) => {
+        if (this.runtimeSupervisor !== supervisor) return;
+        this.runtimeSnapshot = snapshot;
+        this.applyRuntimeSnapshot(snapshot);
+      },
+    });
+    this.runtimeSupervisor = supervisor;
+    this.runtimeMode = 'native-managed';
+    const result = await supervisor.start();
+    throwIfStartCancelled(signal);
+    if (result === null) {
+      this.disposeRuntimeSupervisor();
+      return null;
+    }
+    if (result.action === 'fallback-required') {
+      this.disposeRuntimeSupervisor();
+      return null;
+    }
+    this.runtimeSnapshot = supervisor.snapshot() ?? result.snapshot;
+    this.applyRuntimeSnapshot(this.runtimeSnapshot);
+    return this.statusFromRuntimeSnapshot(this.runtimeSnapshot, clientPath);
+  }
+
+  private async resolvePersistentTunnelId(): Promise<string | null> {
+    const stored = this.options.getTunnelId?.()?.trim();
+    if (stored !== undefined && stored.length > 0) return stored;
+    try {
+      const yaml = await readFile(this.profilePath(), 'utf8');
+      const tunnelId = extractTunnelId(yaml);
+      if (tunnelId !== null) this.options.setTunnelId?.(tunnelId);
+      return tunnelId;
+    } catch {
+      return null;
+    }
+  }
+
+  private applyRuntimeSnapshot(snapshot: TunnelRuntimeSnapshot): void {
+    this.state = snapshot.state === 'running' ? 'running'
+      : snapshot.state === 'stopped' ? 'stopped'
+        : snapshot.state === 'starting' || snapshot.state === 'reconnecting' ? 'starting'
+          : 'error';
+    this.message = snapshot.message;
+  }
+
+  private async statusFromRuntimeSnapshot(snapshot: TunnelRuntimeSnapshot, clientPath: string | null): Promise<TunnelStatus> {
+    this.applyRuntimeSnapshot(snapshot);
+    return {
+      state: this.state,
+      source: 'desktop',
+      hasApiKey: await this.hasApiKey(),
+      clientPath,
+      profileExists: existsSync(this.profilePath()),
+      message: this.message,
+      logPath: this.logPath(),
+    };
+  }
+
+  private disposeRuntimeSupervisor(): void {
+    this.runtimeSupervisor?.dispose();
+    this.runtimeSupervisor = null;
+    this.runtimeSnapshot = null;
+    if (this.runtimeMode === 'native-managed') this.runtimeMode = null;
   }
 
   private async requireMcpServerUrl(): Promise<string> {

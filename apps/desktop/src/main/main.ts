@@ -1252,6 +1252,9 @@ function bootstrapDesktop(): void {
     }
     createDesktopWindow();
     createDesktopTray();
+    void runtime.autoStartTunnel().catch((error: unknown) => {
+      console.error(`Tunnel persistent runtime auto-start failed: ${error instanceof Error ? error.message : 'unknown error'}`);
+    });
     initAutoUpdater(runtime);
     app.on('activate', () => {
       if (BrowserWindow.getAllWindows().length === 0) createDesktopWindow(true);

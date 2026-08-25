@@ -137,6 +137,7 @@ const permissionSettingKey = 'permission_profile';
 const selectedWorkspaceSettingKey = 'selected_workspace_id';
 const workLogClearedSettingKey = 'work_log_cleared_at';
 const localeSettingKey = 'ui_locale';
+const tunnelIdentitySettingKey = 'tunnel_identity_id';
 
 export interface DesktopRuntime {
   readonly services: DesktopIpcServices;
@@ -151,6 +152,7 @@ export interface DesktopRuntime {
   createBackup(reason?: BackupReason): Promise<BackupSummary>;
   ensureDefaultWorkspace(rootPath: string): Promise<string>;
   autoStartMcp(): Promise<McpConnectionStatus>;
+  autoStartTunnel(): Promise<TunnelStatus | null>;
   close(): Promise<void>;
 }
 
@@ -331,6 +333,8 @@ export function createDesktopRuntime(dataPath: string, options: DesktopRuntimeOp
     },
     autoReconnect: (): boolean => readSettings().tunnelAutoReconnect,
     maxAutoRestarts: (): number => readSettings().tunnelMaxAutoRestarts,
+    getTunnelId: (): string | null => settingsRepository.get(tunnelIdentitySettingKey),
+    setTunnelId: (value: string): void => { settingsRepository.set(tunnelIdentitySettingKey, value.trim()); },
   });
   const logHub = new LogHub({
     tunnelLogPath: tunnelController.logPath(),
@@ -767,8 +771,14 @@ export function createDesktopRuntime(dataPath: string, options: DesktopRuntimeOp
       }
       return mcpLifecycle.start();
     },
+    autoStartTunnel: async (): Promise<TunnelStatus | null> => {
+      if (!readSettings().tunnelAutoReconnect) return null;
+      const status = await tunnelController.status();
+      if (!status.profileExists || !status.hasApiKey || status.clientPath === null) return status;
+      return tunnelController.start();
+    },
     close: async (): Promise<void> => {
-      await tunnelController.stopOwned();
+      await tunnelController.shutdownForDesktopExit();
       logHub.stop();
       await mcpLifecycle.close();
       await extensionsService.close().catch(() => undefined);
