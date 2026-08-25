@@ -1,4 +1,4 @@
-import { mkdtemp, rm, symlink, writeFile } from 'node:fs/promises';
+import { mkdtemp, realpath, rm, symlink, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -47,9 +47,10 @@ describe('ShellCapabilityBackend', () => {
     const root = await mkdtemp(path.join(os.tmpdir(), 'lnwjud-shell-'));
     temporaryRoots.push(root);
     const backend = new ShellCapabilityBackend({ allowedRoots: [root] });
+    const canonicalRoot = await realpath(root);
     await expect(backend.execute({
       operation: 'run', executable: 'missing-command', arguments: [], cwd: root, dry_run: true,
-    })).resolves.toMatchObject({ ok: true, value: { dry_run: true, executable: 'missing-command', cwd: root } });
+    })).resolves.toMatchObject({ ok: true, value: { dry_run: true, executable: 'missing-command', cwd: canonicalRoot } });
   });
 
   it.each([
