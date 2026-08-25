@@ -27,6 +27,7 @@ const RESTART_DELAY_MS = 3_000;
 const MAX_AUTO_RESTARTS = 5;
 const RESTART_WINDOW_MS = 30_000;
 const MAX_HEALTH_METADATA_BYTES = 64 * 1024;
+const MAX_HEALTH_URL_BYTES = 2 * 1024;
 type ExternalTunnelProbe = 'live' | 'gone' | 'unverifiable';
 
 class StartCancelledError extends Error {}
@@ -225,11 +226,22 @@ export class TunnelController {
     this.externalProbeAt = now;
     try {
       const result = await (this.options.isExternalTunnelRunning?.() ?? isLnwjudTunnelProcessRunning());
-      this.lastExternalProbe = result ? 'live' : 'gone';
+      this.lastExternalProbe = result || await this.configuredHealthIsLive() ? 'live' : 'gone';
     } catch {
-      this.lastExternalProbe = 'unverifiable';
+      this.lastExternalProbe = await this.configuredHealthIsLive() ? 'live' : 'unverifiable';
     }
     return this.lastExternalProbe;
+  }
+
+  private async configuredHealthIsLive(): Promise<boolean> {
+    const address = await this.resolveHealthAddress();
+    if (address === null) return false;
+    try {
+      return await (this.options.probeHealthEndpoint?.(address.host, address.port)
+        ?? probeLoopbackHealth(address.host, address.port, this.options.healthProbeTimeoutMs ?? 1_500));
+    } catch {
+      return false;
+    }
   }
 
   public start(): Promise<TunnelStatus> {
@@ -478,6 +490,12 @@ export class TunnelController {
   private async resolveHealthAddress(): Promise<{ readonly host: string; readonly port: number } | null> {
     try {
       const profile = await readBoundedPrefix(this.profilePath(), MAX_HEALTH_METADATA_BYTES);
+      const healthUrlFile = extractHealthUrlFile(profile);
+      if (healthUrlFile !== null) {
+        const resolvedUrlFile = path.isAbsolute(healthUrlFile) ? healthUrlFile : path.resolve(this.profileDirectory(), healthUrlFile);
+        const currentRuntime = toHealthUrlAddress(await readBoundedPrefix(resolvedUrlFile, MAX_HEALTH_URL_BYTES).catch(() => ''));
+        if (currentRuntime !== null) return currentRuntime;
+      }
       const tail = await readBoundedTail(this.logPath(), MAX_HEALTH_METADATA_BYTES).catch(() => '');
       const runtimeAddresses = [...tail.matchAll(/health(?: server)?[^\r\n]{0,120}?(?:listening|listen_addr)[^\r\n]{0,120}?((?:127\.0\.0\.1|localhost):(\d{1,5}))/ig)]
         .map((match) => toHealthAddress(match[1], match[2]))
@@ -1130,6 +1148,32 @@ function toHealthAddress(address: string | undefined, portValue: string | undefi
   const port = Number(portValue);
   if ((host !== '127.0.0.1' && host !== 'localhost') || !Number.isInteger(port) || port <= 0 || port > 65_535) return null;
   return { host, port };
+}
+
+function extractHealthUrlFile(profile: string): string | null {
+  try {
+    const parsed: unknown = JSON.parse(profile);
+    if (typeof parsed === 'object' && parsed !== null && !Array.isArray(parsed)) {
+      const health = (parsed as Record<string, unknown>).health;
+      if (typeof health === 'object' && health !== null && !Array.isArray(health)) {
+        const value = (health as Record<string, unknown>).url_file;
+        if (typeof value === 'string' && value.trim().length > 0 && value.length <= 4_096 && !value.includes('\0')) return value.trim();
+      }
+    }
+  } catch { /* YAML profile fallback below */ }
+  const match = /^\s*url_file\s*:\s*(?:"([^"]+)"|'([^']+)'|([^#\r\n]+))/im.exec(profile);
+  const value = (match?.[1] ?? match?.[2] ?? match?.[3])?.trim();
+  return value !== undefined && value.length > 0 && value.length <= 4_096 && !value.includes('\0') ? value : null;
+}
+
+function toHealthUrlAddress(rawUrl: string): { readonly host: string; readonly port: number } | null {
+  try {
+    const parsed = new URL(rawUrl.trim());
+    if (parsed.protocol !== 'http:' || (parsed.hostname !== '127.0.0.1' && parsed.hostname !== 'localhost')) return null;
+    return toHealthAddress(`${parsed.hostname}:${parsed.port}`, parsed.port);
+  } catch {
+    return null;
+  }
 }
 
 function isLiveHealthBody(body: string): boolean {
