@@ -455,7 +455,7 @@ Secure Tunnel จะส่งงานเข้าที่ Desktop loopback HTT
 
 ### 1. ติดตั้ง lnwjud
 
-1. ดาวน์โหลด `lnwjud-Setup-4.10.0.exe` จากหน้า GitHub Releases ของ lnwjud
+1. ดาวน์โหลด `lnwjud-Setup-4.11.0.exe` จากหน้า GitHub Releases ของ lnwjud
 2. เปิดตัวติดตั้งและติดตั้งตามปกติ
 3. เปิด **lnwjud Agent Control Center**
 4. เพิ่มหรือเลือก Project/Workspace ที่ต้องการให้ ChatGPT ทำงานด้วย
