@@ -502,6 +502,8 @@ export function App(): ReactElement {
           onUserSettingsChange={setUserSettings}
           onChooseTunnelClientPath={chooseTunnelClientPath}
           onConfigureTunnelProfile={configureTunnelProfile}
+          onStartTunnel={startTunnel}
+          onStopTunnel={stopTunnel}
         />
       ) : null}
       {screen === 'doctor' ? (

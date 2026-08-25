@@ -21,6 +21,8 @@ interface SettingsPageProps {
   readonly onUserSettingsChange: (settings: UserSettings) => Promise<boolean>;
   readonly onChooseTunnelClientPath: () => Promise<string | null>;
   readonly onConfigureTunnelProfile: (tunnelId: string) => Promise<string>;
+  readonly onStartTunnel: () => Promise<void>;
+  readonly onStopTunnel: () => Promise<void>;
   readonly initialSection?: SettingsSection;
 }
 
@@ -161,6 +163,28 @@ export function SettingsPage(props: SettingsPageProps): ReactElement {
     } finally {
       setTunnelBusy(false);
     }
+  }
+
+  async function reconnectSameTunnel(): Promise<void> {
+    setTunnelBusy(true);
+    setTunnelMessage(null);
+    try {
+      await props.onStartTunnel();
+      setTunnelMessage(props.locale === 'th' ? 'สั่ง Reconnect Tunnel ID เดิมแล้ว' : 'Reconnect of the same tunnel identity requested.');
+    } catch (cause: unknown) {
+      setTunnelMessage(cause instanceof Error ? cause.message : (props.locale === 'th' ? 'Reconnect ไม่สำเร็จ' : 'Reconnect failed.'));
+    } finally { setTunnelBusy(false); }
+  }
+
+  async function stopPersistentTunnel(): Promise<void> {
+    setTunnelBusy(true);
+    setTunnelMessage(null);
+    try {
+      await props.onStopTunnel();
+      setTunnelMessage(props.locale === 'th' ? 'หยุด Persistent Tunnel แล้ว' : 'Persistent tunnel stopped.');
+    } catch (cause: unknown) {
+      setTunnelMessage(cause instanceof Error ? cause.message : (props.locale === 'th' ? 'หยุด Tunnel ไม่สำเร็จ' : 'Could not stop tunnel.'));
+    } finally { setTunnelBusy(false); }
   }
 
   async function createBackupNow(): Promise<void> {
@@ -358,6 +382,26 @@ export function SettingsPage(props: SettingsPageProps): ReactElement {
                   <div className="form-row"><input id="tunnel-client-path" placeholder="C:\tools\tunnel-client.exe" value={clientPath} onChange={(event) => setClientPath(event.target.value)} /><button type="button" onClick={() => { void browseTunnelClient(); }}>{props.locale === 'th' ? 'เลือกไฟล์…' : 'Browse…'}</button><button type="button" className="btn-save-gold" onClick={() => { void props.onSetTunnelClientPath(clientPath).then(() => setSavedMessage(t('settings.saved'))); }}>{t('settings.savePath')}</button></div>
                 </div>
               </div>
+              {props.dashboard.tunnel.persistent === null ? null : (
+                <div className="tunnel-setup-box persistent-runtime-card">
+                  <div className="settings-mini-heading"><strong>Persistent Tunnel Identity</strong><span>{props.dashboard.tunnel.persistent.runtimeAlias}</span></div>
+                  <div className="setting-grid two-col">
+                    <div className="setting-field"><span className="field-label">Tunnel ID</span><code className="settings-path-display">{props.dashboard.tunnel.persistent.tunnelIdMasked ?? '—'}</code></div>
+                    <div className="setting-field"><span className="field-label">Runtime mode</span><strong>{props.dashboard.tunnel.persistent.mode}</strong></div>
+                    <div className="setting-field"><span className="field-label">Status</span><strong>{props.dashboard.tunnel.persistent.state}</strong></div>
+                    <div className="setting-field"><span className="field-label">Reconnect count</span><strong>{props.dashboard.tunnel.persistent.reconnectCount}</strong></div>
+                    <div className="setting-field"><span className="field-label">Health / Ready / Poll</span><strong>{formatTunnelTriState(props.dashboard.tunnel.persistent.healthy)} / {formatTunnelTriState(props.dashboard.tunnel.persistent.ready)} / {formatTunnelTriState(props.dashboard.tunnel.persistent.pollHealthy)}</strong></div>
+                    <div className="setting-field"><span className="field-label">Local MCP</span><code className="settings-path-display">{props.dashboard.tunnel.persistent.localMcpUrl ?? '—'}</code></div>
+                  </div>
+                  <div className={props.dashboard.tunnel.persistent.strictZeroDowntime ? 'toast-success-banner' : 'alert-box-warning'}>
+                    {props.dashboard.tunnel.persistent.strictZeroDowntime
+                      ? (props.locale === 'th' ? '✓ Capability gate: strict zero-downtime handoff ผ่านการพิสูจน์' : '✓ Capability gate: strict zero-downtime handoff is proven')
+                      : (props.locale === 'th' ? 'ℹ ยังไม่อ้าง strict zero-downtime: tunnel-client รุ่นนี้ยังไม่มีหลักฐาน ready-before-retire overlap ที่พิสูจน์ได้' : 'ℹ Strict zero-downtime is not claimed: this tunnel-client has no proven ready-before-retire overlap primitive.')}
+                  </div>
+                  <div className="inline-actions"><button type="button" className="btn-save-gold" disabled={tunnelBusy} onClick={() => { void reconnectSameTunnel(); }}>{props.locale === 'th' ? 'Reconnect Tunnel เดิม' : 'Reconnect same tunnel'}</button><button type="button" disabled={tunnelBusy || props.dashboard.tunnel.state === 'stopped'} onClick={() => { void stopPersistentTunnel(); }}>{props.locale === 'th' ? 'หยุด Tunnel' : 'Stop tunnel'}</button></div>
+                  {props.dashboard.tunnel.persistent.capabilityEvidence === null ? null : <p className="hint">{props.dashboard.tunnel.persistent.capabilityEvidence}</p>}
+                </div>
+              )}
               <div className="tunnel-setup-box">
                 <div className="settings-mini-heading"><strong>Setup Wizard</strong><span>{props.locale === 'th' ? 'ไม่ต้องเปิด PowerShell init เอง' : 'No manual PowerShell init'}</span></div>
                 <label className="field-label" htmlFor="tunnel-id">OpenAI Tunnel ID</label>
@@ -438,6 +482,10 @@ function profileHint(locale: UiLocale, profile: PermissionProfileName): string {
   const th = { safe: 'ปลอดภัยสูงสุด: งานเขียนและรันคำสั่งต้องขออนุญาต', balanced: 'สมดุล: งานทั่วไปใน workspace ทำได้คล่องขึ้น', full: 'เต็มสิทธิ์ตาม policy ที่ยังคงบล็อก operation อันตรายระดับระบบ', custom: 'ใช้กฎ READ / WRITE / EXECUTE / DANGEROUS และ executable ที่กำหนดเอง' } as const;
   const en = { safe: 'Maximum safety: writes and execution require approval.', balanced: 'Balanced: common workspace work is less restrictive.', full: 'Full access within policy; machine-destructive operations remain blocked.', custom: 'Uses your READ / WRITE / EXECUTE / DANGEROUS rules and custom executables.' } as const;
   return (locale === 'th' ? th : en)[profile];
+}
+
+function formatTunnelTriState(value: boolean | null): string {
+  return value === null ? '—' : value ? 'OK' : 'FAIL';
 }
 
 function formatBytes(value: number): string {

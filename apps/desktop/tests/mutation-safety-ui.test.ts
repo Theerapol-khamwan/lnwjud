@@ -35,7 +35,7 @@ const dashboard: DashboardSnapshot = {
   connectionModes: { httpUrl: null, stdioCommand: 'lnwjud --mcp-stdio' },
   workLog: [],
   inFlight: [],
-  tunnel: { state: 'stopped', source: 'desktop', hasApiKey: false, clientPath: null, profileExists: false, message: null, logPath: null },
+  tunnel: { state: 'stopped', source: 'desktop', hasApiKey: false, clientPath: null, profileExists: false, message: null, logPath: null, persistent: null },
   settings: {
     customPermission: { read: 'ALLOW', write: 'ASK', execute: 'ASK', dangerous: 'DENY', allowedExecutables: [] },
     mcpCallTimeoutMs: 60_000, mcpIdleTimeoutMs: 300_000, processTimeoutMs: 3_600_000, mcpPollWaitSeconds: 5, shellSynchronousWaitSeconds: 60,
@@ -66,6 +66,8 @@ function settingsMarkup(locale: 'th' | 'en'): string {
     onUserSettingsChange: async (): Promise<boolean> => false,
     onChooseTunnelClientPath: async (): Promise<string | null> => null,
     onConfigureTunnelProfile: async (): Promise<string> => '',
+    onStartTunnel: noop,
+    onStopTunnel: noop,
   }));
 }
 
@@ -88,6 +90,8 @@ function recoveryMarkup(locale: 'th' | 'en'): string {
     onUserSettingsChange: async (): Promise<boolean> => false,
     onChooseTunnelClientPath: async (): Promise<string | null> => null,
     onConfigureTunnelProfile: async (): Promise<string> => '',
+    onStartTunnel: noop,
+    onStopTunnel: noop,
   }));
 }
 

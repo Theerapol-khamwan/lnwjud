@@ -6,15 +6,15 @@ import path from 'node:path';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { request as httpRequest } from 'node:http';
-import type { TunnelRunState, TunnelStatus } from '@lnwjud/ipc-contracts';
+import type { TunnelPersistentStatus, TunnelRunState, TunnelStatus } from '@lnwjud/ipc-contracts';
 import { probeProcessStart, type ProcessProbeResult } from '@lnwjud/mcp-server';
 import { formatTunnelExitMessage, tunnelExitHintFromLog } from './tunnel-exit.js';
 import { acquireTunnelLock, readTunnelLock, type TunnelLockAcquisition, type TunnelLockOwner } from './tunnel-lock.js';
-import { extractTunnelId, normalizeLoopbackMcpUrl, rewriteTunnelYamlMcpServerUrl, rewriteTunnelYamlRuntimeApiKeyRef } from './tunnel-profile.js';
+import { extractTunnelId, extractTunnelMcpServerUrl, normalizeLoopbackMcpUrl, rewriteTunnelYamlMcpServerUrl, rewriteTunnelYamlRuntimeApiKeyRef } from './tunnel-profile.js';
 import { TunnelRuntimeAdapter } from './tunnel-runtime-adapter.js';
 import { TunnelRuntimeReconciler } from './tunnel-runtime-reconciler.js';
 import { TunnelRuntimeSupervisor } from './tunnel-runtime-supervisor.js';
-import type { TunnelRuntimeSnapshot } from './tunnel-runtime-state.js';
+import { maskTunnelId, type TunnelRuntimeSnapshot } from './tunnel-runtime-state.js';
 
 const execFileAsync = promisify(execFile);
 
@@ -132,6 +132,7 @@ export class TunnelController {
     const encrypted = await encryptWithDpapi(trimmed);
     await writeFile(this.secretPath(), encrypted, 'utf8');
     this.lastApiKey = trimmed;
+    if (this.runtimeMode === 'native-managed') this.disposeRuntimeSupervisor();
   }
 
   public async configureProfile(tunnelId: string): Promise<string> {
@@ -167,6 +168,7 @@ export class TunnelController {
     const resolved = path.resolve(clientPath.trim());
     if (!existsSync(resolved)) throw new Error('tunnel-client.exe was not found');
     this.options.setClientPath(resolved);
+    if (this.runtimeMode === 'native-managed') this.disposeRuntimeSupervisor();
     return resolved;
   }
 
@@ -213,6 +215,7 @@ export class TunnelController {
       profileExists: existsSync(this.profilePath()),
       message: this.message,
       logPath: this.logPath(),
+      persistent: await this.fallbackPersistentStatus(source),
     };
   }
 
@@ -250,6 +253,15 @@ export class TunnelController {
     this.restartWindowStartedAt = 0;
     try {
       throwIfStartCancelled(signal);
+      if (this.runtimeMode === 'native-managed' && this.runtimeSupervisor !== null) {
+        const result = await this.runtimeSupervisor.kick();
+        throwIfStartCancelled(signal);
+        if (result !== null) {
+          this.runtimeSnapshot = this.runtimeSupervisor.snapshot() ?? result.snapshot;
+          this.applyRuntimeSnapshot(this.runtimeSnapshot);
+          return this.statusFromRuntimeSnapshot(this.runtimeSnapshot, this.resolveClientPath());
+        }
+      }
       if (this.state === 'running' || this.state === 'starting') return this.status();
       if (this.child !== null && this.child.exitCode === null) return this.status();
       const externalProbe = this.tunnelLock === null ? await this.probeExternalRunning(true) : 'gone';
@@ -758,6 +770,59 @@ export class TunnelController {
       profileExists: existsSync(this.profilePath()),
       message: this.message,
       logPath: this.logPath(),
+      persistent: this.persistentStatusFromSnapshot(snapshot),
+    };
+  }
+
+  private persistentStatusFromSnapshot(snapshot: TunnelRuntimeSnapshot): TunnelPersistentStatus {
+    return {
+      enabled: this.autoReconnectEnabled(),
+      tunnelIdMasked: maskTunnelId(snapshot.tunnelId),
+      runtimeAlias: snapshot.alias,
+      mode: snapshot.mode,
+      state: snapshot.state,
+      healthy: snapshot.healthy,
+      ready: snapshot.ready,
+      pollHealthy: snapshot.pollHealthy,
+      reconnectCount: snapshot.reconnectCount,
+      lastConnectedAt: snapshot.lastConnectedAt,
+      lastReconnectAt: snapshot.lastReconnectAt,
+      nextReconnectAt: snapshot.nextReconnectAt,
+      lastErrorCode: snapshot.lastErrorCode,
+      clientVersion: snapshot.capabilities.clientVersion,
+      localMcpUrl: snapshot.mcpServerUrl,
+      uiUrl: snapshot.uiUrl,
+      readyBeforeRetire: snapshot.capabilities.readyBeforeRetire,
+      strictZeroDowntime: snapshot.capabilities.strictZeroDowntime,
+      capabilityEvidence: snapshot.capabilities.evidence,
+    };
+  }
+
+  private async fallbackPersistentStatus(source: TunnelStatus['source']): Promise<TunnelPersistentStatus | null> {
+    const tunnelId = await this.resolvePersistentTunnelId();
+    if (tunnelId === null && !existsSync(this.profilePath())) return null;
+    let localMcpUrl: string | null = null;
+    try { localMcpUrl = extractTunnelMcpServerUrl(await readFile(this.profilePath(), 'utf8')); } catch { /* profile unavailable */ }
+    return {
+      enabled: this.autoReconnectEnabled(),
+      tunnelIdMasked: maskTunnelId(tunnelId),
+      runtimeAlias: PROFILE_NAME,
+      mode: source === 'external' ? 'external' : 'profile-child',
+      state: this.state === 'running' ? 'running' : this.state === 'starting' ? 'starting' : this.state === 'error' ? 'error' : 'stopped',
+      healthy: null,
+      ready: null,
+      pollHealthy: null,
+      reconnectCount: this.restartAttempts,
+      lastConnectedAt: null,
+      lastReconnectAt: null,
+      nextReconnectAt: null,
+      lastErrorCode: this.state === 'error' ? 'PROFILE_RUNTIME_ERROR' : null,
+      clientVersion: null,
+      localMcpUrl,
+      uiUrl: null,
+      readyBeforeRetire: false,
+      strictZeroDowntime: false,
+      capabilityEvidence: 'Compatibility profile runtime; ready-before-retire overlap is not proven',
     };
   }
 

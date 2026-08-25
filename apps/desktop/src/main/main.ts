@@ -119,6 +119,7 @@ const emptyTunnel: TunnelStatus = {
   profileExists: false,
   message: null,
   logPath: null,
+  persistent: null,
 };
 const defaultUserSettings: UserSettings = {
   customPermission: { read: 'ALLOW', write: 'ASK', execute: 'ASK', dangerous: 'DENY', allowedExecutables: [] },

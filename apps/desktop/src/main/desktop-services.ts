@@ -633,14 +633,23 @@ export function createDesktopRuntime(dataPath: string, options: DesktopRuntimeOp
     },
     saveTunnelApiKey: async (request: SaveTunnelApiKeyRequest): Promise<{ readonly saved: boolean }> => {
       await tunnelController.saveApiKey(request.apiKey);
+      if (readSettings().tunnelAutoReconnect) {
+        const status = await tunnelController.status();
+        if (status.profileExists && status.clientPath !== null) await tunnelController.start();
+      }
       return { saved: true };
     },
     startTunnel: (): Promise<TunnelStatus> => tunnelController.start(),
     stopTunnel: (): Promise<TunnelStatus> => tunnelController.stop(),
     getTunnelStatus: (): Promise<TunnelStatus> => tunnelController.status(),
-    setTunnelClientPath: async (request: SetTunnelClientPathRequest): Promise<{ readonly clientPath: string }> => ({
-      clientPath: tunnelController.setClientPath(request.clientPath),
-    }),
+    setTunnelClientPath: async (request: SetTunnelClientPathRequest): Promise<{ readonly clientPath: string }> => {
+      const clientPath = tunnelController.setClientPath(request.clientPath);
+      if (readSettings().tunnelAutoReconnect) {
+        const status = await tunnelController.status();
+        if (status.profileExists && status.hasApiKey) await tunnelController.start();
+      }
+      return { clientPath };
+    },
     setLocale: async (request: SetLocaleRequest): Promise<{ readonly locale: UiLocale }> => {
       settingsRepository.set(localeSettingKey, request.locale);
       return { locale: request.locale };
@@ -651,10 +660,11 @@ export function createDesktopRuntime(dataPath: string, options: DesktopRuntimeOp
       const next = readSettings();
       return { settings: next, restartRequired: runtimeRestartRequired(previous, next) };
     },
-    configureTunnelProfile: async (request: ConfigureTunnelProfileRequest): Promise<{ readonly configured: boolean; readonly profilePath: string }> => ({
-      configured: true,
-      profilePath: await tunnelController.configureProfile(request.tunnelId),
-    }),
+    configureTunnelProfile: async (request: ConfigureTunnelProfileRequest): Promise<{ readonly configured: boolean; readonly profilePath: string }> => {
+      const profilePath = await tunnelController.configureProfile(request.tunnelId);
+      if (readSettings().tunnelAutoReconnect) await tunnelController.start();
+      return { configured: true, profilePath };
+    },
     launchManagedBrowser: async (): Promise<ManagedBrowserStatus> => {
       const result = await capabilityRuntime.service.execute('dom_cdp', { action: 'launch' });
       return toManagedBrowserStatus(unwrap(result, 'Managed Chrome could not be started'));

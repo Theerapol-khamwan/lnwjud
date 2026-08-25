@@ -181,6 +181,31 @@ export interface ConnectionModes {
   readonly stdioCommand: string;
 }
 
+export type TunnelPersistentRunState = 'stopped' | 'starting' | 'running' | 'reconnecting' | 'error' | 'auth-required';
+export type TunnelPersistentMode = 'native-managed' | 'profile-child' | 'external';
+
+export interface TunnelPersistentStatus {
+  readonly enabled: boolean;
+  readonly tunnelIdMasked: string | null;
+  readonly runtimeAlias: string;
+  readonly mode: TunnelPersistentMode;
+  readonly state: TunnelPersistentRunState;
+  readonly healthy: boolean | null;
+  readonly ready: boolean | null;
+  readonly pollHealthy: boolean | null;
+  readonly reconnectCount: number;
+  readonly lastConnectedAt: string | null;
+  readonly lastReconnectAt: string | null;
+  readonly nextReconnectAt: string | null;
+  readonly lastErrorCode: string | null;
+  readonly clientVersion: string | null;
+  readonly localMcpUrl: string | null;
+  readonly uiUrl: string | null;
+  readonly readyBeforeRetire: boolean;
+  readonly strictZeroDowntime: boolean;
+  readonly capabilityEvidence: string | null;
+}
+
 export interface TunnelStatus {
   readonly state: TunnelRunState;
   /** desktop = started by this app; external = started by a script or another process. */
@@ -190,6 +215,7 @@ export interface TunnelStatus {
   readonly profileExists: boolean;
   readonly message: string | null;
   readonly logPath: string | null;
+  readonly persistent: TunnelPersistentStatus | null;
 }
 
 export type LogSource = 'tunnel' | 'mcp' | 'process';

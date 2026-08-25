@@ -57,6 +57,7 @@ const stoppedTunnel: TunnelStatus = {
   profileExists: false,
   message: null,
   logPath: null,
+  persistent: null,
 };
 
 describe('production desktop IPC acceptance', () => {
