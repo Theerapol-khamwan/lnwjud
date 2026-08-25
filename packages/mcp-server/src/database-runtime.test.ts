@@ -1,4 +1,4 @@
-import { mkdtemp, symlink, writeFile } from 'node:fs/promises';
+import { mkdtemp, realpath, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
@@ -45,7 +45,7 @@ describe('DatabaseRuntimeService', () => {
         views: ['fancy_users'],
         indexes: [expect.objectContaining({ name: 'users_name', table: 'users' })],
       } });
-      if (result.ok) expect(result.value.target).toBe(database);
+      if (result.ok) expect(result.value.target).toBe(await realpath(database));
     });
   }, 15_000);
 
