@@ -170,7 +170,13 @@ export class TunnelController {
   }
 
   public setClientPath(clientPath: string): string {
-    const resolved = path.resolve(clientPath.trim());
+    const trimmed = clientPath.trim();
+    if (trimmed.length === 0) {
+      this.options.setClientPath('');
+      if (this.runtimeMode === 'native-managed') this.disposeRuntimeSupervisor();
+      return '';
+    }
+    const resolved = path.resolve(trimmed);
     if (!existsSync(resolved)) throw new Error('tunnel-client.exe was not found');
     this.options.setClientPath(resolved);
     if (this.runtimeMode === 'native-managed') this.disposeRuntimeSupervisor();

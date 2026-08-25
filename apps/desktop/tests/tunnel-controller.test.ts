@@ -482,6 +482,23 @@ describe('TunnelController lifecycle', () => {
     } finally { await server.close(); }
   });
 
+  it('clears a custom client override so the bundled client can be selected again', async () => {
+    const dataPath = await mkdtemp(path.join(os.tmpdir(), 'lnwjud-tunnel-controller-'));
+    temporaryRoots.push(dataPath);
+    const bundled = path.join(dataPath, 'bundled-tunnel-client.exe');
+    await writeFile(bundled, 'bundled', 'utf8');
+    let configured = path.join(dataPath, 'missing-custom.exe');
+    const controller = new TunnelController({
+      getClientPath: (): string => configured,
+      getBundledClientPath: (): string => bundled,
+      setClientPath: (value): void => { configured = value; },
+      getDataPath: (): string => dataPath,
+    });
+    expect(controller.setClientPath('   ')).toBe('');
+    expect(configured).toBe('');
+    expect(controller.resolveClientPath()).toBe(bundled);
+  });
+
   it('reads tunnel-client version from injected file metadata without executing it', async () => {
     const dataPath = await mkdtemp(path.join(os.tmpdir(), 'lnwjud-tunnel-controller-'));
     temporaryRoots.push(dataPath);

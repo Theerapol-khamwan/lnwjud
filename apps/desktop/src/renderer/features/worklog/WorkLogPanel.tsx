@@ -206,6 +206,7 @@ function collectWorkspaceOptions(entries: readonly WorkLogEntry[], inFlight: rea
   const canonicalWorkspaces: WorkspaceSummary[] = [];
   const seenRoots = new Set<string>();
   for (const workspace of workspaceList) {
+    if (workspace.kind === 'machine_root') continue;
     const rootKey = normalizeWorkspaceRoot(workspace.realRootPath);
     if (seenRoots.has(rootKey)) continue;
     seenRoots.add(rootKey);
@@ -232,7 +233,7 @@ function collectWorkspaceOptions(entries: readonly WorkLogEntry[], inFlight: rea
 }
 
 function normalizeWorkspaceRoot(value: string): string {
-  return value.trim().replace(/[\\/]+$/, '').toLocaleLowerCase();
+  return value.trim().replace(/\\/g, '/').replace(/\/+$/, '').toLocaleLowerCase();
 }
 
 function collectSessionOptions(entries: readonly WorkLogEntry[], inFlight: readonly InFlightWorkItem[], workspaceId: string | null): readonly string[] {

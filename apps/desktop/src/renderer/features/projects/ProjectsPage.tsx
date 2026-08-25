@@ -34,6 +34,7 @@ export function ProjectsPage(props: ProjectsPageProps): ReactElement {
   function renderProjectRow(workspace: WorkspaceSummary, archived: boolean): ReactElement {
     const selected = workspace.id === props.selectedWorkspaceId;
     const active = props.activeWorkspaceIds.includes(workspace.id);
+    const lastActive = active && props.activeWorkspaceIds.length <= 1;
     const busy = workspace.id === busyWorkspaceId;
     const confirmingDelete = workspace.id === confirmingDeleteId;
     return (
@@ -55,7 +56,7 @@ export function ProjectsPage(props: ProjectsPageProps): ReactElement {
             </button>
           ) : (
             <>
-              <button type="button" disabled={busy} onClick={() => { void runWorkspaceAction(workspace.id, () => props.onSetWorkspaceActive(workspace.id, !active)); }}>
+              <button type="button" disabled={busy || lastActive} title={lastActive ? (props.locale === 'th' ? 'ต้องมี Active Project อย่างน้อย 1 โปรเจกต์' : 'At least one Active Project is required') : undefined} onClick={() => { void runWorkspaceAction(workspace.id, () => props.onSetWorkspaceActive(workspace.id, !active)); }}>
                 {active ? (props.locale === 'th' ? 'ปิด Active' : 'Deactivate') : (props.locale === 'th' ? 'เปิด Active' : 'Activate')}
               </button>
               <button type="button" disabled={busy || selected} onClick={() => { void runWorkspaceAction(workspace.id, () => props.onSelectWorkspace(workspace.id)); }}>
@@ -105,7 +106,7 @@ export function ProjectsPage(props: ProjectsPageProps): ReactElement {
       </section>
       <section className="panel project-list-panel">
         <div className="project-list-scroll">
-          <ProjectSection title={t('project.activeList')} count={groups.active.length} emptyText={t('project.emptyActive')}>
+          <ProjectSection title={props.locale === 'th' ? 'โปรเจกต์' : 'Projects'} count={groups.active.length} emptyText={props.locale === 'th' ? 'ยังไม่มีโปรเจกต์' : 'No projects yet'}>
             {groups.active.map((workspace) => renderProjectRow(workspace, false))}
           </ProjectSection>
           <ProjectSection title={t('project.archivedList')} count={groups.archived.length} emptyText={t('project.emptyArchived')}>

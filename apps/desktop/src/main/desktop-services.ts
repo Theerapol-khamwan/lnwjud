@@ -412,17 +412,20 @@ export function createDesktopRuntime(dataPath: string, options: DesktopRuntimeOp
     const workspaces = (await workspaceService.list()).filter((workspace) => !isDriveRoot(workspace.realRootPath) && !isDriveRoot(workspace.rootPath));
     if (workspaces.length === 0) {
       settingsRepository.delete(activeWorkspaceIdsSettingKey);
+      settingsRepository.delete(selectedWorkspaceSettingKey);
       return [];
     }
     const byId = new Map(workspaces.map((workspace) => [workspace.id, workspace]));
-    const selectedId = settingsRepository.get(selectedWorkspaceSettingKey);
     const storedIds = parseStoredWorkspaceIds(settingsRepository.get(activeWorkspaceIdsSettingKey));
     const ids = storedIds.filter((id) => byId.has(id));
-    if (selectedId !== null && byId.has(selectedId) && !ids.includes(selectedId)) ids.unshift(selectedId);
-    if (ids.length === 0) ids.push(selectedId !== null && byId.has(selectedId) ? selectedId : workspaces[0]!.id);
-    const orderedIds = selectedId !== null && ids.includes(selectedId)
-      ? [selectedId, ...ids.filter((id) => id !== selectedId)]
-      : ids;
+    const storedSelectedId = settingsRepository.get(selectedWorkspaceSettingKey);
+    let selectedId = storedSelectedId !== null && byId.has(storedSelectedId) ? storedSelectedId : null;
+    if (selectedId === null) {
+      selectedId = ids[0] ?? workspaces[0]!.id;
+      settingsRepository.set(selectedWorkspaceSettingKey, selectedId);
+    }
+    if (!ids.includes(selectedId)) ids.unshift(selectedId);
+    const orderedIds = [selectedId, ...ids.filter((id) => id !== selectedId)];
     persistStoredWorkspaceIds(settingsRepository, activeWorkspaceIdsSettingKey, orderedIds);
     return orderedIds.map((id) => byId.get(id)!).filter(Boolean);
   }

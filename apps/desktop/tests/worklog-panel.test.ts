@@ -107,8 +107,9 @@ describe('WorkLogPanel', () => {
   });
   it('disambiguates duplicate workspace names and suppresses duplicate registrations for the same root', () => {
     const workspaces = [
+      { id: 'drive-e', displayName: 'Local Disk E:', rootPath: 'E:\\', realRootPath: 'E:\\', createdAt: '2026-08-01T00:00:00.000Z', kind: 'machine_root' as const },
       { id: 'workspace-a', displayName: 'lnwjud', rootPath: 'E:\\lnwjud', realRootPath: 'E:\\lnwjud', createdAt: '2026-08-01T00:00:00.000Z' },
-      { id: 'workspace-alias', displayName: 'lnwjud', rootPath: 'E:\\lnwjud\\.', realRootPath: 'E:\\lnwjud\\', createdAt: '2026-08-01T00:00:00.000Z' },
+      { id: 'workspace-alias', displayName: 'lnwjud', rootPath: 'E:/lnwjud/', realRootPath: 'E:/lnwjud/', createdAt: '2026-08-01T00:00:00.000Z' },
       { id: 'workspace-b', displayName: 'lnwjud', rootPath: 'D:\\projects\\lnwjud', realRootPath: 'D:\\projects\\lnwjud', createdAt: '2026-08-01T00:00:00.000Z' },
     ];
     const markup = renderToStaticMarkup(createElement(WorkLogPanel, {
@@ -119,6 +120,7 @@ describe('WorkLogPanel', () => {
     expect(markup).toContain('lnwjud — E:\\lnwjud');
     expect(markup).toContain('lnwjud — D:\\projects\\lnwjud');
     expect(markup.match(/value="workspace-alias"/g)).toBeNull();
+    expect(markup).not.toContain('Local Disk E:');
   });
 
   it('filters by workspace and session without collapsing identical in-flight call IDs', () => {

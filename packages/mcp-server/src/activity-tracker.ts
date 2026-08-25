@@ -140,11 +140,19 @@ export function summarizeToolTarget(toolName: string, input: unknown): string | 
         : '';
     return summarizeForLog(args.length > 0 ? `${executable} ${args}` : executable);
   }
+  const bareArgs = readStringArray(input.arguments) ?? readStringArray(input.args);
+  if (bareArgs !== undefined && bareArgs.length > 0) {
+    const prefix = toolName === 'git' ? 'git' : toolName;
+    return summarizeForLog(`${prefix} ${bareArgs.join(' ')}`);
+  }
   const operation = firstString(input, ['operation', 'action', 'mode']);
-  if (operation !== undefined) return summarizeForLog(`${toolName}:${operation}`);
+  if (operation !== undefined) {
+    const taskId = firstString(input, ['task_id', 'taskId']);
+    return summarizeForLog(taskId === undefined ? `${toolName}:${operation}` : `${toolName}:${operation} task=${shortOpaqueId(taskId)}`);
+  }
   const skillId = firstString(input, ['skillId', 'serverId', 'name']);
   if (skillId !== undefined) return summarizeForLog(skillId);
-  return undefined;
+  return defaultToolSummary(toolName) ?? toolName.replace(/_/g, ' ');
 }
 
 export function readTraceContext(input: unknown): TraceContext {
@@ -171,6 +179,28 @@ function firstString(input: Readonly<Record<string, unknown>>, keys: readonly st
     if (typeof value === 'string' && value.trim().length > 0) return value;
   }
   return undefined;
+}
+
+function readStringArray(value: unknown): readonly string[] | undefined {
+  if (!Array.isArray(value)) return undefined;
+  const strings = value.filter((entry): entry is string => typeof entry === 'string' && entry.length > 0);
+  return strings.length === 0 ? undefined : strings;
+}
+
+function shortOpaqueId(value: string): string {
+  return value.length <= 14 ? value : `${value.slice(0, 8)}…${value.slice(-4)}`;
+}
+
+function defaultToolSummary(toolName: string): string | undefined {
+  switch (toolName) {
+    case 'git_status': return 'git status';
+    case 'git_log': return 'git log';
+    case 'git_diff': return 'git diff';
+    case 'workspace_list': return 'list registered workspaces';
+    case 'workspace_info': return 'workspace info';
+    case 'workspace_snapshot': return 'workspace snapshot';
+    default: return undefined;
+  }
 }
 
 const MAX_LOG_TARGET_CHARS = 4_096;

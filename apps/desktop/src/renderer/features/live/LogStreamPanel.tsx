@@ -154,9 +154,34 @@ export function filterLogLinesByScope(lines: readonly LogLine[], scope: LogScope
 }
 
 function collectWorkspaceOptions(lines: readonly LogLine[], workspaces: readonly WorkspaceSummary[] | undefined): readonly { readonly id: string; readonly label: string }[] {
+  const workspaceList = workspaces ?? [];
+  const knownWorkspaceIds = new Set(workspaceList.map((workspace) => workspace.id));
+  const canonicalWorkspaces: WorkspaceSummary[] = [];
+  const seenRoots = new Set<string>();
+  for (const workspace of workspaceList) {
+    if (workspace.kind === 'machine_root') continue;
+    const rootKey = workspace.realRootPath.trim().replace(/\\/g, '/').replace(/\/+$/, '').toLocaleLowerCase();
+    if (seenRoots.has(rootKey)) continue;
+    seenRoots.add(rootKey);
+    canonicalWorkspaces.push(workspace);
+  }
+
+  const nameCounts = new Map<string, number>();
+  for (const workspace of canonicalWorkspaces) {
+    const key = workspace.displayName.trim().toLocaleLowerCase();
+    nameCounts.set(key, (nameCounts.get(key) ?? 0) + 1);
+  }
+
   const labels = new Map<string, string>();
-  for (const workspace of workspaces ?? []) labels.set(workspace.id, workspace.displayName);
-  for (const line of lines) if (line.workspaceId !== null && !labels.has(line.workspaceId)) labels.set(line.workspaceId, shortScopeId(line.workspaceId));
+  for (const workspace of canonicalWorkspaces) {
+    const key = workspace.displayName.trim().toLocaleLowerCase();
+    const duplicateName = (nameCounts.get(key) ?? 0) > 1;
+    labels.set(workspace.id, duplicateName ? workspace.displayName + ' — ' + workspace.realRootPath : workspace.displayName);
+  }
+  for (const line of lines) {
+    if (line.workspaceId === null || labels.has(line.workspaceId) || knownWorkspaceIds.has(line.workspaceId)) continue;
+    labels.set(line.workspaceId, shortScopeId(line.workspaceId));
+  }
   return [...labels.entries()].map(([id, label]) => ({ id, label })).sort((a, b) => a.label.localeCompare(b.label));
 }
 

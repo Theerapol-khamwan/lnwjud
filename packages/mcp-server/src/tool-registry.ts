@@ -4,7 +4,7 @@ import { sanitizeException, type DiagnosticLogger, type FileActor } from '@lnwju
 import { CAPABILITY_ACTIVE_WORKSPACE_ROOT_METADATA_KEY } from '@lnwjud/capabilities';
 import { DefaultPermissionEngine, permissionProfiles, type PermissionProfile } from '@lnwjud/permissions';
 import { DEFAULT_DESTRUCTIVE_AUTO_APPROVAL_POLICY, prohibitedAgentCommandReason, prohibitedAgentGitInvocationReason, type DestructiveAutoApprovalPolicy } from '@lnwjud/shared';
-import { ActivityTracker, type ActivitySink, type TraceContext } from './activity-tracker.js';
+import { ActivityTracker, summarizeToolTarget, type ActivitySink, type TraceContext } from './activity-tracker.js';
 import { ContextEngine } from './context-engine.js';
 import { ContextEconomyRuntime } from './context-economy.js';
 import { hasExplicitUserConfirmation } from './destructive-policy.js';
@@ -71,6 +71,7 @@ export interface HostMutationApprovalRequest {
 
 const DEFAULT_MCP_TOOL_RESPONSE_BUDGET_MS: number | null = null;
 const MAX_APPROVAL_SUMMARY_LENGTH = 8_192;
+const MAX_REMEMBERED_SHELL_TASKS = 512;
 
 interface BudgetedToolExecution {
   readonly response: McpToolResponse;
@@ -99,6 +100,7 @@ export class ToolRegistry {
   private readonly hostMutationApprovalProvider: ToolRegistryOptions['hostMutationApprovalProvider'];
   private readonly activityWorkspaceResolver: (cwd: string) => Promise<string | undefined>;
   private readonly shellTaskWorkspaces = new Map<string, string>();
+  private readonly shellTaskTargets = new Map<string, string>();
   private readonly maxToolDurationMs: number | null;
 
   public constructor(services: McpApplicationServices, actor: FileActor, options: ToolRegistryOptions = {}) {
@@ -156,7 +158,8 @@ export class ToolRegistry {
 
   public async invoke(name: string, input: unknown, traceContext?: TraceContext, parentSignal?: AbortSignal): Promise<McpToolResponse> {
     const activityWorkspaceId = await this.resolveActivityWorkspaceId(name, input);
-    const activityInput = withActivityWorkspaceId(input, activityWorkspaceId);
+    const workspaceActivityInput = withActivityWorkspaceId(input, activityWorkspaceId);
+    const activityInput = this.withRememberedShellTaskTarget(name, workspaceActivityInput);
     const callId = await this.activity.begin(name, activityInput, { ...(traceContext ?? {}), ...(this.sessionId === undefined ? {} : { sessionId: this.sessionId }) });
     const started = Date.now();
     try {
@@ -276,7 +279,7 @@ export class ToolRegistry {
       }
       const execution = await this.executeWithinResponseBudget(tool, approvalExecutionInput, parentSignal);
       const response = execution.response;
-      this.rememberShellTaskWorkspace(name, response, activityWorkspaceId);
+      this.rememberShellTaskContext(name, response, activityWorkspaceId, summarizeToolTarget(name, activityInput));
       const resultCode = response.isError === true ? readErrorCode(response) ?? 'ERROR' : 'SUCCESS';
       const resultMessage = readErrorMessage(response);
       if (execution.deferredSettlement !== undefined) {
@@ -314,20 +317,39 @@ export class ToolRegistry {
   private async resolveActivityWorkspaceId(name: string, input: unknown): Promise<string | undefined> {
     const explicitWorkspaceId = readExplicitWorkspaceId(input);
     if (explicitWorkspaceId !== undefined) return explicitWorkspaceId;
-    if (name !== 'shell' || !isRecord(input)) return undefined;
-    const taskId = readTrimmedString(input.task_id);
-    if (taskId !== undefined) {
-      const remembered = this.shellTaskWorkspaces.get(taskId);
-      if (remembered !== undefined) return remembered;
+    if (!isRecord(input)) return undefined;
+    if (name === 'shell') {
+      const taskId = readTrimmedString(input.task_id);
+      if (taskId !== undefined) {
+        const remembered = this.shellTaskWorkspaces.get(taskId);
+        if (remembered !== undefined) return remembered;
+      }
     }
-    const cwd = readTrimmedString(input.cwd);
-    return cwd === undefined ? undefined : this.activityWorkspaceResolver(cwd);
+    const candidatePath = firstAbsoluteActivityPath(input);
+    return candidatePath === undefined ? undefined : this.activityWorkspaceResolver(candidatePath);
   }
 
-  private rememberShellTaskWorkspace(name: string, response: McpToolResponse, workspaceId: string | undefined): void {
-    if (name !== 'shell' || workspaceId === undefined || response.isError === true) return;
+  private withRememberedShellTaskTarget(name: string, input: unknown): unknown {
+    if (name !== 'shell' || !isRecord(input)) return input;
+    const taskId = readTrimmedString(input.task_id);
+    if (taskId === undefined) return input;
+    const target = this.shellTaskTargets.get(taskId);
+    if (target === undefined) return input;
+    return { ...input, command: target };
+  }
+
+  private rememberShellTaskContext(name: string, response: McpToolResponse, workspaceId: string | undefined, targetSummary: string | undefined): void {
+    if (name !== 'shell' || response.isError === true) return;
     const taskId = readTrimmedString(response.structuredContent?.task_id);
-    if (taskId !== undefined) this.shellTaskWorkspaces.set(taskId, workspaceId);
+    if (taskId === undefined) return;
+    if (workspaceId !== undefined) this.shellTaskWorkspaces.set(taskId, workspaceId);
+    if (targetSummary !== undefined) this.shellTaskTargets.set(taskId, targetSummary);
+    while (this.shellTaskTargets.size > MAX_REMEMBERED_SHELL_TASKS || this.shellTaskWorkspaces.size > MAX_REMEMBERED_SHELL_TASKS) {
+      const oldestTaskId = this.shellTaskTargets.keys().next().value ?? this.shellTaskWorkspaces.keys().next().value;
+      if (typeof oldestTaskId !== 'string') break;
+      this.shellTaskTargets.delete(oldestTaskId);
+      this.shellTaskWorkspaces.delete(oldestTaskId);
+    }
   }
 
   private async resolveActiveWorkspaceScope(workspaceId?: string): Promise<WorkspaceScope | null> {
@@ -445,6 +467,14 @@ function normalizedActivityPath(value: string): string {
 
 function readTrimmedString(value: unknown): string | undefined { return typeof value === 'string' && value.trim().length > 0 ? value.trim() : undefined; }
 function isRecord(value: unknown): value is Record<string, unknown> { return typeof value === 'object' && value !== null && !Array.isArray(value); }
+
+function firstAbsoluteActivityPath(input: Readonly<Record<string, unknown>>): string | undefined {
+  for (const key of ['cwd', 'path', 'filePath', 'targetPath', 'sourcePath', 'destinationPath']) {
+    const value = readTrimmedString(input[key]);
+    if (value !== undefined && isAbsoluteActivityPath(value)) return value;
+  }
+  return undefined;
+}
 
 type ActiveWorkspaceScopeOptions = Pick<ToolRegistryOptions, 'activeWorkspaceScopeProvider' | 'activeWorkspaceScopesProvider' | 'activeProjectProvider'>;
 function normalizeActiveWorkspaceScopeProvider(options: ActiveWorkspaceScopeOptions): () => Promise<WorkspaceScope | null> {

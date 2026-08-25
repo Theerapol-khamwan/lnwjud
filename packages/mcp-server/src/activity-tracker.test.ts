@@ -45,6 +45,11 @@ describe('ActivityTracker', () => {
   it('summarizes common tool targets', () => {
     expect(summarizeToolTarget('search_text', { query: 'hello' })).toBe('hello');
     expect(summarizeToolTarget('shell', { executable: 'node', arguments: ['-e', '1'] })).toBe('node -e 1');
+    expect(summarizeToolTarget('git', { args: ['status', '--short'] })).toBe('git status --short');
+    expect(summarizeToolTarget('git_status', { workspaceId: 'workspace-1' })).toBe('git status');
+    expect(summarizeToolTarget('workspace_list', {})).toBe('list registered workspaces');
+    expect(summarizeToolTarget('shell', { operation: 'result', task_id: '1234567890abcdef' })).toBe('shell:result task=12345678…cdef');
+    expect(summarizeToolTarget('process_status', { processId: 'process-1' })).toBe('process status');
   });
 
   it('keeps long shell arguments copyable while redacting credential-like values', () => {

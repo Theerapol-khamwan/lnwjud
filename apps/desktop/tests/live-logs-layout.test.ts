@@ -83,6 +83,21 @@ describe('viewport-sized log and list layout', () => {
     expect(markup).toContain('scope-badge session');
   });
 
+  it('shows each project root once and hides machine roots in the workspace selector', () => {
+    const workspaces = [
+      { id: 'drive-e', displayName: 'Local Disk E:', rootPath: 'E:\\', realRootPath: 'E:\\', createdAt: '2026-08-01T00:00:00.000Z', kind: 'machine_root' as const },
+      { id: 'project-a', displayName: 'lnwjud', rootPath: 'E:\\lnwjud', realRootPath: 'E:\\lnwjud', createdAt: '2026-08-01T00:00:00.000Z' },
+      { id: 'project-alias', displayName: 'lnwjud', rootPath: 'E:/lnwjud/', realRootPath: 'E:/lnwjud/', createdAt: '2026-08-01T00:00:00.000Z' },
+    ];
+    const markup = renderToStaticMarkup(createElement(LogStreamPanel, {
+      source: 'mcp', title: 'MCP', lines: [], tunnelLogPath: null, tunnelLogExists: false,
+      filterPlaceholder: 'filter', pauseLabel: 'pause', followLabel: 'follow', clearLabel: 'clear', clearSessionLabel: 'clear session', clearWorkspaceLabel: 'clear workspace', exportLabel: 'export',
+      workspaceLabel: 'Workspace', sessionLabel: 'Session', scopeAllLabel: 'All', onClear: noop, onExport: noop, workspaces,
+    }));
+    expect(markup).not.toContain('Local Disk E:');
+    expect((markup.match(/>lnwjud<\/option>/g) ?? [])).toHaveLength(1);
+  });
+
   it('keeps Live Logs inside the window and scrolls only the log table', () => {
     const css = readFileSync(new URL('../src/renderer/styles.css', import.meta.url), 'utf8');
     expect(css).toMatch(/\.live-logs-page\s*\{[^}]*flex:\s*1[^}]*min-height:\s*0[^}]*overflow:\s*hidden/s);
