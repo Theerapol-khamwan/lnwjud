@@ -27,6 +27,14 @@ function Assert-RepositoryChecks {
     }
 
     $trackedFiles = @(git ls-files)
+    $requiredTrackedFiles = @(
+        'docs/architecture/MUTATION_SAFETY_MATRIX.md'
+    )
+    $missingRequiredTrackedFiles = @($requiredTrackedFiles | Where-Object { $_ -notin $trackedFiles })
+    if ($missingRequiredTrackedFiles.Count -gt 0) {
+        throw "Required release files are not tracked: $($missingRequiredTrackedFiles -join ', ')"
+    }
+
     $forbiddenTrackedFiles = @($trackedFiles | Where-Object {
         $normalized = $_.Replace('\', '/')
         (($normalized -match '(^|/)(\.env|\.env\..+)$') -and ($normalized -notmatch '(^|/)\.env\.example$')) -or
@@ -39,6 +47,7 @@ function Assert-RepositoryChecks {
 
 Push-Location $repositoryRoot
 try {
+    Assert-RepositoryChecks
     Invoke-ReleaseStage 'install --frozen-lockfile' @('install', '--frozen-lockfile')
     Invoke-ReleaseStage 'lint' @('lint')
     Invoke-ReleaseStage 'typecheck' @('typecheck')
