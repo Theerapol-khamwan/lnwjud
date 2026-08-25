@@ -41,13 +41,22 @@ over outbound HTTPS, forwards MCP work to lnwjud's Desktop loopback HTTP MCP,
 and returns the response without opening a public inbound port on the Windows
 machine.
 
-## Current version: v4.10.0
+## Current version: v4.11.0
 
-The v4.10.0 release target and runtime contract contain **218 configurable MCP tools**,
+The v4.11.0 release target and runtime contract contain **218 configurable MCP tools**,
 with **212 advertised by default** because
 the six `codex_*` delegation tools are opt-in. The earlier 184-tool snapshot remains
 only as the compatibility baseline used by the v4 architecture; new v4 gateway
 capabilities are additive.
+
+### What's new in v4.11.0
+
+- Adds a **Persistent OpenAI Tunnel Runtime** around the official `tunnel-client runtimes` lifecycle. lnwjud saves one tunnel identity, uses runtime alias `lnwjud`, and reconciles that same `tunnel_id` back to the current Desktop loopback MCP URL instead of creating replacement tunnels.
+- Lets a supported native tunnel runtime survive a short Desktop restart gap. On the next launch, Desktop MCP starts first and the reconciler rebinds the same remote tunnel identity even when the local ephemeral MCP port changes.
+- Reconnects transient runtime/control-plane failures indefinitely with capped backoff instead of permanently giving up after a fixed rapid-exit count. Authentication and operator-action failures fail closed without a tight retry loop; repairing the runtime key resumes the same saved tunnel identity.
+- Adds persistent tunnel status and controls to Settings plus Doctor checks for identity, runtime process, health, readiness, control-plane polling, local MCP reachability/binding, tunnel-ID mismatch, and runtime-key availability. Tunnel IDs are masked and secrets are never included in status/log evidence.
+- Adds deterministic continuity acceptance for runtime death, Desktop restart/rebind, short and >5-minute transient outages, revoked-key recovery, tunnel-ID mismatch, durable task resilience, and an unchanged 2026-07-28 MCP catalog. The local catalog remains **212 tools by default** and is byte-stable across a Desktop MCP listener restart.
+- Keeps the release claim capability-gated: the installed official tunnel client supports managed runtimes plus health/readiness/poll gates, but does not expose a proven ready-before-retire overlap primitive. v4.11 therefore **does not claim strict zero downtime**; it truthfully provides persistent same-ID reconnect continuity without requiring a VPS, public domain, or Cloudflare relay.
 
 ### What's new in v4.10.0
 
@@ -303,7 +312,7 @@ stops the current local HTTP listener.
 
 1. Download the latest published installer from
    [GitHub Releases](https://github.com/engasnm111/lnwjud/releases/latest).
-   The Windows installer for the current version is `lnwjud-Setup-4.10.0.exe`; download the published artifact from GitHub Releases.
+   The Windows installer for the current version is `lnwjud-Setup-4.11.0.exe`; download the published artifact from GitHub Releases.
 2. Run the NSIS installer and launch **lnwjud Agent Control Center**.
 3. Add or select the project/workspace you want lnwjud to operate on.
 4. Review **Settings** before attaching an AI client, especially Permission
@@ -343,7 +352,7 @@ Wizard uses onboarding/profile-management commands such as `init` and
 | Normal Windows 10/11 PC with Intel or AMD 64-bit CPU | `tunnel-client-v<version>-windows-amd64.zip` |
 | Windows on ARM / Snapdragon ARM64 PC | `tunnel-client-v<version>-windows-arm64.zip` |
 
-At the time this v4.10.0 README was updated, the latest stable tunnel-client is
+At the time this v4.11.0 README was updated, the latest stable tunnel-client is
 `v0.0.12`, so most Windows users should download:
 
 ```text
@@ -696,7 +705,7 @@ corepack pnpm@10.15.0 package:windows
 The x64 NSIS installer is written to:
 
 ```text
-apps/desktop/dist/installers/lnwjud-Setup-4.10.0.exe
+apps/desktop/dist/installers/lnwjud-Setup-4.11.0.exe
 ```
 
 The installer is per-user by default. A common installed executable path is:
