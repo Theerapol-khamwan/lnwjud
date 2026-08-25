@@ -272,7 +272,7 @@ lnwjud simply repairs the tunnel-client local binding to the current URL.
 
 A dynamic loopback port is safer against conflicts and does not affect the ChatGPT tunnel identity.
 
-## 30-minute limit vs tunnel continuity
+## Outcome-driven work vs tunnel continuity
 
 These are different problems.
 
@@ -286,9 +286,9 @@ connection/process later restarts
 next call still reaches same lnwjud installation/tunnel
 ```
 
-### Long single operation
+### Long-running work
 
-A remote MCP command can still have a response deadline or ChatGPT tool-call/turn limit. A static tunnel identity cannot make a synchronous request infinite.
+A remote MCP command can carry an individual response deadline. That does not justify a run-wide elapsed-time timer or a handoff instruction injected into unrelated tool results.
 
 For long work lnwjud must continue using:
 
@@ -297,10 +297,10 @@ shell/build/test
    -> return durable task_id quickly
    -> task runs locally
    -> tunnel can reconnect
-   -> later task status/result
+   -> status/result until terminal
 ```
 
-This is already the correct local-first solution.
+This is the local-first execution path for naturally asynchronous commands. ChatGPT should continue the remaining reasoning and verification in the same run whenever it remains active, stopping only on completed acceptance or a real blocker.
 
 ## Request delivery safety
 

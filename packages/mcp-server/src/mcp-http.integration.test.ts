@@ -58,6 +58,22 @@ describe('MCP localhost HTTP transport', () => {
     }
   });
 
+  it('advertises outcome-driven continuation without an elapsed-time cutoff', async () => {
+    const client = new Client({ name: 'continuity-policy-client', version: '0.1.0' });
+    const transport = new StreamableHTTPClientTransport(handle.endpoint);
+
+    try {
+      await client.connect(transport);
+      const instructions = client.getInstructions();
+
+      expect(instructions).toContain('until the requested outcome is complete');
+      expect(instructions).toContain('because elapsed time has passed');
+      expect(instructions).not.toMatch(/\b(?:22|25|60)\s*minutes?\b/i);
+    } finally {
+      await client.close();
+    }
+  });
+
   it('keeps one legacy 2025 session alive across sequential production tool calls', async () => {
     const client = new Client({ name: 'codex-compatible-http-test-client', version: '0.1.0' });
     const transport = new StreamableHTTPClientTransport(handle.endpoint);

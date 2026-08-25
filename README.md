@@ -51,6 +51,7 @@ capabilities are additive.
 
 ### What's new in v4.11.0
 
+- Removes the former 22-minute Budget Guard that appended a handoff/background instruction to tool results. MCP initialization now advertises an outcome-driven contract: ChatGPT keeps using lnwjud until the requested result is complete and never stops merely because elapsed time passed.
 - Adds a **Persistent OpenAI Tunnel Runtime** around the official `tunnel-client runtimes` lifecycle. lnwjud saves one tunnel identity, uses runtime alias `lnwjud`, and reconciles that same `tunnel_id` back to the current Desktop loopback MCP URL instead of creating replacement tunnels.
 - Lets a supported native tunnel runtime survive a short Desktop restart gap. On the next launch, Desktop MCP starts first and the reconciler rebinds the same remote tunnel identity even when the local ephemeral MCP port changes.
 - Reconnects transient runtime/control-plane failures indefinitely with capped backoff instead of permanently giving up after a fixed rapid-exit count. Authentication and operator-action failures fail closed without a tight retry loop; repairing the runtime key resumes the same saved tunnel identity.
@@ -1113,7 +1114,7 @@ This index is generated from the current `ToolRegistry`, not copied from an olde
 | 75 | `workspace_index_status` | READ | Return persistent index metadata and lossless watcher queue telemetry. |
 | 76 | `workspace_index_watch` | READ | Watch all workspace paths and incrementally re-index only changed paths with configurable debounce/concurrency. |
 | 77 | `workspace_index_stop` | READ | Stop a workspace watcher after draining all queued path updates. |
-| 78 | `session_handoff` | READ | Create a concise same-chat continuation message from the real phase tracker, current git status/diff, and durable background task IDs. Use near the end of a run so the next run can resume without re-reading the whole project. If a tool schema looks stale, Refresh connector first; open a new chat only if refresh does not fix it. |
+| 78 | `session_handoff` | READ | Create a concise same-chat recovery message from the real phase tracker, current git status/diff, and durable background task IDs. Use only when the user requests a handoff or an unavoidable client/platform interruption requires recovery; never trigger it merely because elapsed time passed. If a tool schema looks stale, Refresh connector first; open a new chat only if refresh does not fix it. |
 | 79 | `verify_incremental` | EXECUTE | Run the detected project typecheck only when the current git status/diff fingerprint changed. Starting a new verification process requires explicit user confirmation. Returns cache=hit when unchanged and cache=miss after a new verification. Prefer this during iterative edits; use project_test/project_lint/project_build only when that specific verification is needed. For full suites or packaging expected to exceed ~5 minutes, launch a durable shell background task and record its task_id in the tracker. |
 | 80 | `symbol_search` | READ | Search indexed symbols across the workspace. |
 | 81 | `find_definition` | READ | Find deterministic symbol definitions. |

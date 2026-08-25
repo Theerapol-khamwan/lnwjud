@@ -10,6 +10,13 @@ import { registerTasksProtocol } from './tasks-protocol.js';
 import { ToolRegistry, type ActiveProjectScope, type HostMutationApprovalRequest, type McpApplicationServices, type WorkspaceScope } from './tool-registry.js';
 import { actorForRequestScope, type McpRequestScope } from './request-scope.js';
 
+export const MCP_OUTCOME_DRIVEN_INSTRUCTIONS = [
+  'Continue using lnwjud tools until the requested outcome is complete.',
+  'Do not stop, hand off, or ask the user to say "continue" merely because elapsed time has passed.',
+  'Stop only when the outcome is complete, a user decision or new authority is required, or an external blocker prevents safe progress.',
+  'Use durable background tasks for naturally long-running commands, then keep checking them and continue the work while the current run remains active.',
+].join(' ');
+
 export interface McpServerOptions {
   readonly services: McpApplicationServices;
   readonly actor: FileActor;
@@ -30,7 +37,7 @@ export interface McpServerOptions {
   readonly codexToolsEnabled?: boolean;
   /** Shared across per-request server factories so repeated diff fingerprints can hit cache. */
   readonly incrementalVerifier?: IncrementalVerifier;
-  /** Shared across per-request server factories so the run clock starts at the first tool call. */
+  /** Compatibility result guard; it must not apply elapsed-time behavior. */
   readonly runBudgetGuard?: RunBudgetGuard;
 }
 
@@ -61,6 +68,7 @@ export function createMcpServer(options: McpServerOptions): McpServer {
       tools: {},
       tasks: { list: {}, cancel: {} },
     },
+    instructions: MCP_OUTCOME_DRIVEN_INSTRUCTIONS,
   });
   registerTasksProtocol(server, options.services, { actor });
   for (const tool of registry.list()) {
