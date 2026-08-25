@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { TunnelRuntimeReconciler, type TunnelRuntimeReconcilerAdapter } from '../src/main/tunnel-runtime-reconciler.js';
+import { TunnelRuntimeReconciler, type TunnelRuntimeDesiredState, type TunnelRuntimeReconcilerAdapter } from '../src/main/tunnel-runtime-reconciler.js';
 import type { NativeTunnelRuntimeStatus, TunnelRuntimeCapabilities } from '../src/main/tunnel-runtime-state.js';
 
 const capabilities: TunnelRuntimeCapabilities = {
@@ -48,7 +48,7 @@ function adapter(status: NativeTunnelRuntimeStatus, connect = runtime()): Tunnel
 describe('TunnelRuntimeReconciler', () => {
   it('does nothing when the same tunnel and local binding are already healthy', async () => {
     const runtimeAdapter = adapter(runtime());
-    const reconciler = new TunnelRuntimeReconciler({ adapter: runtimeAdapter, desiredState: () => desired });
+    const reconciler = new TunnelRuntimeReconciler({ adapter: runtimeAdapter, desiredState: (): TunnelRuntimeDesiredState => desired });
     const result = await reconciler.reconcile();
     expect(result.action).toBe('healthy');
     expect(result.snapshot).toMatchObject({ state: 'running', reconnectCount: 0, consecutiveFailures: 0 });
@@ -59,8 +59,8 @@ describe('TunnelRuntimeReconciler', () => {
     const runtimeAdapter = adapter(runtime({ exists: false, running: false, tunnelId: null, mcpServerUrl: null }));
     const reconciler = new TunnelRuntimeReconciler({
       adapter: runtimeAdapter,
-      desiredState: () => desired,
-      now: () => new Date('2026-08-25T12:00:00.000Z'),
+      desiredState: (): TunnelRuntimeDesiredState => desired,
+      now: (): Date => new Date('2026-08-25T12:00:00.000Z'),
     });
     const result = await reconciler.reconcile();
     expect(result.action).toBe('connected');
@@ -70,7 +70,7 @@ describe('TunnelRuntimeReconciler', () => {
 
   it('rebinds the same tunnel when the Desktop MCP loopback port changes', async () => {
     const runtimeAdapter = adapter(runtime({ mcpServerUrl: 'http://127.0.0.1:19999/mcp' }));
-    const reconciler = new TunnelRuntimeReconciler({ adapter: runtimeAdapter, desiredState: () => desired });
+    const reconciler = new TunnelRuntimeReconciler({ adapter: runtimeAdapter, desiredState: (): TunnelRuntimeDesiredState => desired });
     const result = await reconciler.reconcile();
     expect(result.action).toBe('reconnected');
     expect(runtimeAdapter.connect).toHaveBeenCalledWith({ tunnelId: desired.tunnelId, mcpServerUrl: desired.mcpServerUrl });
@@ -80,7 +80,7 @@ describe('TunnelRuntimeReconciler', () => {
 
   it('refuses automatic replacement when an existing alias reports a different tunnel ID', async () => {
     const runtimeAdapter = adapter(runtime({ tunnelId: 'tunnel_other0123456' }));
-    const reconciler = new TunnelRuntimeReconciler({ adapter: runtimeAdapter, desiredState: () => desired });
+    const reconciler = new TunnelRuntimeReconciler({ adapter: runtimeAdapter, desiredState: (): TunnelRuntimeDesiredState => desired });
     const result = await reconciler.reconcile();
     expect(result.action).toBe('operator-required');
     expect(result.snapshot).toMatchObject({ state: 'error', lastErrorCode: 'TUNNEL_ID_MISMATCH' });
@@ -90,7 +90,7 @@ describe('TunnelRuntimeReconciler', () => {
   it('classifies revoked credentials as auth-required instead of a transient reconnect', async () => {
     const runtimeAdapter = adapter(runtime({ exists: false, running: false, tunnelId: null, mcpServerUrl: null }));
     vi.mocked(runtimeAdapter.connect).mockRejectedValue(new Error('control plane returned 401: API key revoked'));
-    const reconciler = new TunnelRuntimeReconciler({ adapter: runtimeAdapter, desiredState: () => desired });
+    const reconciler = new TunnelRuntimeReconciler({ adapter: runtimeAdapter, desiredState: (): TunnelRuntimeDesiredState => desired });
     const result = await reconciler.reconcile();
     expect(result.action).toBe('auth-required');
     expect(result.snapshot).toMatchObject({ state: 'auth-required', lastFailureClass: 'auth', lastErrorCode: 'AUTH_REQUIRED', consecutiveFailures: 1 });
@@ -99,7 +99,7 @@ describe('TunnelRuntimeReconciler', () => {
   it('requires compatibility fallback if native runtimes are not supported', async () => {
     const runtimeAdapter = adapter(runtime());
     vi.mocked(runtimeAdapter.capabilities).mockResolvedValue({ ...capabilities, nativeRuntimes: false, managedConnect: false });
-    const reconciler = new TunnelRuntimeReconciler({ adapter: runtimeAdapter, desiredState: () => desired });
+    const reconciler = new TunnelRuntimeReconciler({ adapter: runtimeAdapter, desiredState: (): TunnelRuntimeDesiredState => desired });
     const result = await reconciler.reconcile();
     expect(result.action).toBe('fallback-required');
     expect(runtimeAdapter.status).not.toHaveBeenCalled();

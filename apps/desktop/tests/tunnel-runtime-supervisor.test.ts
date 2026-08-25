@@ -51,8 +51,8 @@ describe('TunnelRuntimeSupervisor', () => {
       };
       const supervisor = new TunnelRuntimeSupervisor({
         reconciler,
-        enabled: () => true,
-        jitter: (base) => base,
+        enabled: (): boolean => true,
+        jitter: (base: number): number => base,
       });
 
       await supervisor.start();
@@ -83,7 +83,7 @@ describe('TunnelRuntimeSupervisor', () => {
         stop: vi.fn(async () => result('disabled', { state: 'stopped' })),
         snapshot: vi.fn(() => current),
       };
-      const supervisor = new TunnelRuntimeSupervisor({ reconciler, enabled: () => true, jitter: (base) => base });
+      const supervisor = new TunnelRuntimeSupervisor({ reconciler, enabled: (): boolean => true, jitter: (base: number): number => base });
       await supervisor.start();
       await vi.advanceTimersByTimeAsync(10 * 60_000);
       expect(reconciler.reconcile).toHaveBeenCalledTimes(1);
@@ -107,7 +107,7 @@ describe('TunnelRuntimeSupervisor', () => {
         stop: vi.fn(async () => result('disabled', { state: 'stopped' })),
         snapshot: vi.fn(() => current),
       };
-      const supervisor = new TunnelRuntimeSupervisor({ reconciler, enabled: () => true, healthyIntervalMs: 1000 });
+      const supervisor = new TunnelRuntimeSupervisor({ reconciler, enabled: (): boolean => true, healthyIntervalMs: 1000 });
       await supervisor.start();
       supervisor.dispose();
       await vi.advanceTimersByTimeAsync(5000);

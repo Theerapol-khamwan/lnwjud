@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { TunnelRuntimeReconciler, type TunnelRuntimeReconcilerAdapter } from '../src/main/tunnel-runtime-reconciler.js';
+import { TunnelRuntimeReconciler, type TunnelRuntimeDesiredState, type TunnelRuntimeReconcilerAdapter } from '../src/main/tunnel-runtime-reconciler.js';
 import { TunnelRuntimeSupervisor, TRANSIENT_BACKOFF_MS } from '../src/main/tunnel-runtime-supervisor.js';
 import type { NativeRuntimeConnectRequest } from '../src/main/tunnel-runtime-adapter.js';
 import type { NativeTunnelRuntimeStatus, TunnelRuntimeCapabilities } from '../src/main/tunnel-runtime-state.js';
@@ -70,7 +70,7 @@ describe('v4.11 persistent tunnel continuity acceptance', () => {
   it('keeps one immutable tunnel identity through runtime death, Desktop restart, and local MCP port rebinding', async () => {
     const adapter = new MutableRuntimeAdapter();
     let desiredMcp = MCP_A;
-    const desiredState = () => ({ enabled: true, tunnelId: TUNNEL_ID, mcpServerUrl: desiredMcp });
+    const desiredState = (): TunnelRuntimeDesiredState => ({ enabled: true, tunnelId: TUNNEL_ID, mcpServerUrl: desiredMcp });
 
     const firstDesktop = new TunnelRuntimeReconciler({ adapter, desiredState });
     await expect(firstDesktop.reconcile()).resolves.toMatchObject({ action: 'healthy', snapshot: { tunnelId: TUNNEL_ID, mcpServerUrl: MCP_A } });
@@ -103,9 +103,9 @@ describe('v4.11 persistent tunnel continuity acceptance', () => {
       adapter.fault = 'network';
       const reconciler = new TunnelRuntimeReconciler({
         adapter,
-        desiredState: () => ({ enabled: true, tunnelId: TUNNEL_ID, mcpServerUrl: MCP_A }),
+        desiredState: (): TunnelRuntimeDesiredState => ({ enabled: true, tunnelId: TUNNEL_ID, mcpServerUrl: MCP_A }),
       });
-      const supervisor = new TunnelRuntimeSupervisor({ reconciler, enabled: () => true, jitter: (base) => base });
+      const supervisor = new TunnelRuntimeSupervisor({ reconciler, enabled: (): boolean => true, jitter: (base: number): number => base });
 
       await supervisor.start();
       let elapsed = 0;
@@ -138,9 +138,9 @@ describe('v4.11 persistent tunnel continuity acceptance', () => {
       adapter.fault = 'auth';
       const reconciler = new TunnelRuntimeReconciler({
         adapter,
-        desiredState: () => ({ enabled: true, tunnelId: TUNNEL_ID, mcpServerUrl: MCP_A }),
+        desiredState: (): TunnelRuntimeDesiredState => ({ enabled: true, tunnelId: TUNNEL_ID, mcpServerUrl: MCP_A }),
       });
-      const supervisor = new TunnelRuntimeSupervisor({ reconciler, enabled: () => true, jitter: (base) => base });
+      const supervisor = new TunnelRuntimeSupervisor({ reconciler, enabled: (): boolean => true, jitter: (base: number): number => base });
 
       await supervisor.start();
       expect(supervisor.snapshot()).toMatchObject({ state: 'auth-required', lastErrorCode: 'AUTH_REQUIRED' });
@@ -164,7 +164,7 @@ describe('v4.11 persistent tunnel continuity acceptance', () => {
     const adapter = new MutableRuntimeAdapter({ tunnelId: 'tunnel_different987654321' });
     const reconciler = new TunnelRuntimeReconciler({
       adapter,
-      desiredState: () => ({ enabled: true, tunnelId: TUNNEL_ID, mcpServerUrl: MCP_A }),
+      desiredState: (): TunnelRuntimeDesiredState => ({ enabled: true, tunnelId: TUNNEL_ID, mcpServerUrl: MCP_A }),
     });
 
     await expect(reconciler.reconcile()).resolves.toMatchObject({

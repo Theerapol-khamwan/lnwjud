@@ -12,7 +12,7 @@ import { formatTunnelExitMessage, tunnelExitHintFromLog } from './tunnel-exit.js
 import { acquireTunnelLock, readTunnelLock, type TunnelLockAcquisition, type TunnelLockOwner } from './tunnel-lock.js';
 import { extractTunnelId, extractTunnelMcpServerUrl, normalizeLoopbackMcpUrl, rewriteTunnelYamlMcpServerUrl, rewriteTunnelYamlRuntimeApiKeyRef } from './tunnel-profile.js';
 import { TunnelRuntimeAdapter } from './tunnel-runtime-adapter.js';
-import { TunnelRuntimeReconciler } from './tunnel-runtime-reconciler.js';
+import { TunnelRuntimeReconciler, type TunnelRuntimeDesiredState } from './tunnel-runtime-reconciler.js';
 import { TunnelRuntimeSupervisor } from './tunnel-runtime-supervisor.js';
 import { maskTunnelId, type TunnelRuntimeSnapshot } from './tunnel-runtime-state.js';
 
@@ -674,7 +674,7 @@ export class TunnelController {
 
     const desiredTunnelId = await this.resolvePersistentTunnelId();
     if (desiredTunnelId === null) return null;
-    const mcpServerUrl = await this.requireMcpServerUrl();
+    await this.requireMcpServerUrl();
     throwIfStartCancelled(signal);
 
     const adapter = new TunnelRuntimeAdapter({
@@ -707,7 +707,7 @@ export class TunnelController {
     this.disposeRuntimeSupervisor();
     const reconciler = new TunnelRuntimeReconciler({
       adapter,
-      desiredState: async () => ({
+      desiredState: async (): Promise<TunnelRuntimeDesiredState> => ({
         enabled: this.autoReconnectEnabled(),
         tunnelId: desiredTunnelId,
         mcpServerUrl: await this.requireMcpServerUrl(),
@@ -715,8 +715,8 @@ export class TunnelController {
     });
     const supervisor = new TunnelRuntimeSupervisor({
       reconciler,
-      enabled: () => this.autoReconnectEnabled(),
-      onUpdate: (snapshot) => {
+      enabled: (): boolean => this.autoReconnectEnabled(),
+      onUpdate: (snapshot: TunnelRuntimeSnapshot): void => {
         if (this.runtimeSupervisor !== supervisor) return;
         this.runtimeSnapshot = snapshot;
         this.applyRuntimeSnapshot(snapshot);

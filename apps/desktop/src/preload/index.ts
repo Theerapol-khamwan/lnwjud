@@ -164,7 +164,11 @@ function tunnelPersistentStatus(value: unknown): TunnelStatus['persistent'] {
   const mode = value.mode;
   if (state !== 'stopped' && state !== 'starting' && state !== 'running' && state !== 'reconnecting' && state !== 'error' && state !== 'auth-required') throw new Error('Invalid IPC response');
   if (mode !== 'native-managed' && mode !== 'profile-child' && mode !== 'external') throw new Error('Invalid IPC response');
-  const nullableBoolean = (entry: unknown): boolean | null => entry === null ? null : typeof entry === 'boolean' ? entry : (() => { throw new Error('Invalid IPC response'); })();
+  const nullableBoolean = (entry: unknown): boolean | null => {
+    if (entry === null) return null;
+    if (typeof entry === 'boolean') return entry;
+    throw new Error('Invalid IPC response');
+  };
   return {
     enabled: booleanField(value, 'enabled'),
     tunnelIdMasked: nullableString(value.tunnelIdMasked),
