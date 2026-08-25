@@ -105,6 +105,22 @@ describe('WorkLogPanel', () => {
     expect(errorMatches).toHaveLength(1);
     expect(errorMatches[0]?.id).toBe('entry-2');
   });
+  it('disambiguates duplicate workspace names and suppresses duplicate registrations for the same root', () => {
+    const workspaces = [
+      { id: 'workspace-a', displayName: 'lnwjud', rootPath: 'E:\\lnwjud', realRootPath: 'E:\\lnwjud', createdAt: '2026-08-01T00:00:00.000Z' },
+      { id: 'workspace-alias', displayName: 'lnwjud', rootPath: 'E:\\lnwjud\\.', realRootPath: 'E:\\lnwjud\\', createdAt: '2026-08-01T00:00:00.000Z' },
+      { id: 'workspace-b', displayName: 'lnwjud', rootPath: 'D:\\projects\\lnwjud', realRootPath: 'D:\\projects\\lnwjud', createdAt: '2026-08-01T00:00:00.000Z' },
+    ];
+    const markup = renderToStaticMarkup(createElement(WorkLogPanel, {
+      title: 'Work log', emptyLabel: 'Empty', filterAllLabel: 'All', filterErrorLabel: 'Errors',
+      clearSessionLabel: 'Clear session', clearWorkspaceLabel: 'Clear workspace', clearAllLabel: 'Clear all',
+      filter: 'all', onFilterChange: () => {}, onClear: async () => {}, entries: [], inFlight: [], workspaces,
+    }));
+    expect(markup).toContain('lnwjud — E:\\lnwjud');
+    expect(markup).toContain('lnwjud — D:\\projects\\lnwjud');
+    expect(markup.match(/value="workspace-alias"/g)).toBeNull();
+  });
+
   it('filters by workspace and session without collapsing identical in-flight call IDs', () => {
     const inFlight: InFlightWorkItem[] = [
       { ...mockInFlight[0]!, callId: 'same-call', workspaceId: 'workspace-1', sessionId: 'session-a' },

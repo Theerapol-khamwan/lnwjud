@@ -568,7 +568,7 @@
 }
 
 .recovery-scroll-list {
-  max-height: 760px;
+  max-height: 560px;
   overflow-y: auto;
   overscroll-behavior: contain;
   padding-right: 6px;

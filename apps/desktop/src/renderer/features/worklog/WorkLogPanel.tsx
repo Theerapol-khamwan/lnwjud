@@ -47,6 +47,9 @@ export function WorkLogPanel(props: WorkLogPanelProps): ReactElement {
   const workspaceOptions = useMemo(() => collectWorkspaceOptions(props.entries, props.inFlight, props.workspaces), [props.entries, props.inFlight, props.workspaces]);
   const sessionOptions = useMemo(() => collectSessionOptions(props.entries, props.inFlight, workspaceId), [props.entries, props.inFlight, workspaceId]);
   useEffect(() => {
+    if (workspaceId !== null && !workspaceOptions.some((option) => option.id === workspaceId)) setWorkspaceId(null);
+  }, [workspaceId, workspaceOptions]);
+  useEffect(() => {
     if (sessionId !== null && !sessionOptions.includes(sessionId)) setSessionId(null);
   }, [sessionId, sessionOptions]);
   const scope = useMemo<LogScopeSelection>(() => ({ workspaceId, sessionId }), [workspaceId, sessionId]);
@@ -198,10 +201,38 @@ function scopedActivityId(item: InFlightWorkItem): string {
 }
 
 function collectWorkspaceOptions(entries: readonly WorkLogEntry[], inFlight: readonly InFlightWorkItem[], workspaces: readonly WorkspaceSummary[] | undefined): readonly { readonly id: string; readonly label: string }[] {
+  const workspaceList = workspaces ?? [];
+  const knownWorkspaceIds = new Set(workspaceList.map((workspace) => workspace.id));
+  const canonicalWorkspaces: WorkspaceSummary[] = [];
+  const seenRoots = new Set<string>();
+  for (const workspace of workspaceList) {
+    const rootKey = normalizeWorkspaceRoot(workspace.realRootPath);
+    if (seenRoots.has(rootKey)) continue;
+    seenRoots.add(rootKey);
+    canonicalWorkspaces.push(workspace);
+  }
+
+  const nameCounts = new Map<string, number>();
+  for (const workspace of canonicalWorkspaces) {
+    const key = workspace.displayName.trim().toLocaleLowerCase();
+    nameCounts.set(key, (nameCounts.get(key) ?? 0) + 1);
+  }
+
   const labels = new Map<string, string>();
-  for (const workspace of workspaces ?? []) labels.set(workspace.id, workspace.displayName);
-  for (const item of [...entries, ...inFlight]) if (item.workspaceId !== null && !labels.has(item.workspaceId)) labels.set(item.workspaceId, shortScopeId(item.workspaceId));
+  for (const workspace of canonicalWorkspaces) {
+    const key = workspace.displayName.trim().toLocaleLowerCase();
+    const duplicateName = (nameCounts.get(key) ?? 0) > 1;
+    labels.set(workspace.id, duplicateName ? workspace.displayName + ' — ' + workspace.realRootPath : workspace.displayName);
+  }
+  for (const item of [...entries, ...inFlight]) {
+    if (item.workspaceId === null || labels.has(item.workspaceId) || knownWorkspaceIds.has(item.workspaceId)) continue;
+    labels.set(item.workspaceId, shortScopeId(item.workspaceId));
+  }
   return [...labels.entries()].map(([id, label]) => ({ id, label })).sort((a, b) => a.label.localeCompare(b.label));
+}
+
+function normalizeWorkspaceRoot(value: string): string {
+  return value.trim().replace(/[\\/]+$/, '').toLocaleLowerCase();
 }
 
 function collectSessionOptions(entries: readonly WorkLogEntry[], inFlight: readonly InFlightWorkItem[], workspaceId: string | null): readonly string[] {
@@ -214,13 +245,20 @@ function collectSessionOptions(entries: readonly WorkLogEntry[], inFlight: reado
 }
 
 function ScopeBadges(props: { readonly item: Pick<WorkLogEntry, 'workspaceId' | 'sessionId'> | Pick<InFlightWorkItem, 'workspaceId' | 'sessionId'>; readonly showWorkspace: boolean; readonly showSession: boolean; readonly workspaces: readonly WorkspaceSummary[] | undefined }): ReactElement | null {
-  const workspaceLabel = props.item.workspaceId === null ? null : props.workspaces?.find((workspace) => workspace.id === props.item.workspaceId)?.displayName ?? shortScopeId(props.item.workspaceId);
+  const workspaceLabel = props.item.workspaceId === null ? null : displayWorkspaceLabel(props.workspaces, props.item.workspaceId);
   const sessionLabel = props.item.sessionId === null ? null : shortScopeId(props.item.sessionId);
   if ((!props.showWorkspace || workspaceLabel === null) && (!props.showSession || sessionLabel === null)) return null;
   return <span className="scope-badges">
     {props.showWorkspace && workspaceLabel !== null ? <span className="scope-badge workspace">{workspaceLabel}</span> : null}
     {props.showSession && sessionLabel !== null ? <span className="scope-badge session">{sessionLabel}</span> : null}
   </span>;
+}
+
+function displayWorkspaceLabel(workspaces: readonly WorkspaceSummary[] | undefined, workspaceId: string): string {
+  const workspace = workspaces?.find((candidate) => candidate.id === workspaceId);
+  if (workspace === undefined) return shortScopeId(workspaceId);
+  const duplicateName = (workspaces ?? []).some((candidate) => candidate.id !== workspace.id && candidate.displayName.trim().toLocaleLowerCase() === workspace.displayName.trim().toLocaleLowerCase());
+  return duplicateName ? workspace.displayName + ' — ' + workspace.realRootPath : workspace.displayName;
 }
 
 function shortScopeId(value: string): string {

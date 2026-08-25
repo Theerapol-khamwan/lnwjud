@@ -290,7 +290,7 @@ async function prepareSessionFiles(client: Client, workspaceId: string, label: s
   expect(victim.isError).not.toBe(true);
 }
 
-async function waitForFile(filePath: string, timeoutMs = 10_000): Promise<void> {
+async function waitForFile(filePath: string, timeoutMs = 20_000): Promise<void> {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
     try {

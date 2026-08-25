@@ -360,12 +360,12 @@ export function createDesktopRuntime(dataPath: string, options: DesktopRuntimeOp
     if (retentionDays <= 0) return;
     const now = Date.now();
     if (!force && now - lastRecoveryRetentionSweepAt < recoveryRetentionSweepIntervalMs) return;
-    lastRecoveryRetentionSweepAt = now;
     const cutoffIso = new Date(now - retentionDays * 24 * 60 * 60 * 1000).toISOString();
     const [trashDeleted, checkpointsDeleted] = await Promise.all([
       fileService.purgeRecoveryItemsOlderThan(cutoffIso),
       checkpointRepository.deleteOlderThan(cutoffIso),
     ]);
+    lastRecoveryRetentionSweepAt = now;
     if (trashDeleted > 0 || checkpointsDeleted > 0) {
       console.log('[Recovery] retention=' + retentionDays + 'd purged trash=' + trashDeleted + ' checkpoints=' + checkpointsDeleted);
     }
@@ -888,10 +888,6 @@ export function createDesktopRuntime(dataPath: string, options: DesktopRuntimeOp
         await activateWorkspace(projects[0].id);
         return projects[0].id;
       }
-      if (matched !== undefined) {
-        settingsRepository.set(selectedWorkspaceSettingKey, matched.id);
-        return matched.id;
-      }
       throw new Error('No project workspace is available');
     },
     autoStartMcp: async (): Promise<McpConnectionStatus> => {
@@ -911,18 +907,8 @@ export function createDesktopRuntime(dataPath: string, options: DesktopRuntimeOp
       }
       const selected = await resolveSelectedWorkspace(workspaceService, settingsRepository);
       if (selected === null) {
-        const workspacePath = process.cwd();
-        await ensureMachineRoots(workspacePath);
-        const workspaceId = await (async (): Promise<string> => {
-          const existing = await workspaceService.list();
-          const matched = existing.find((workspace) => workspace.realRootPath.toLowerCase() === path.resolve(workspacePath).toLowerCase());
-          if (matched !== undefined) return matched.id;
-          const displayName = path.basename(path.resolve(workspacePath)) || 'Workspace';
-          const added = unwrap(await workspaceService.add(displayName, workspacePath), 'Workspace could not be added');
-          return added.id;
-        })();
-        settingsRepository.set(selectedWorkspaceSettingKey, workspaceId);
-        await activateWorkspace(workspaceId);
+        // First run: machine-root workspaces are system scopes, not user projects.
+        // Start MCP without inventing a project from process.cwd(); the user can add a real project in the UI.
         return mcpLifecycle.start();
       }
       await activateWorkspace(selected.id);
@@ -963,7 +949,7 @@ async function resolveSelectedWorkspace(
   workspaceService: WorkspaceService,
   settingsRepository: SqliteSettingsRepository,
 ): Promise<Workspace | null> {
-  const workspaces = await workspaceService.list();
+  const workspaces = (await workspaceService.list()).filter((workspace) => !isDriveRoot(workspace.realRootPath) && !isDriveRoot(workspace.rootPath));
   if (workspaces.length === 0) return null;
   const selectedId = settingsRepository.get(selectedWorkspaceSettingKey);
   const selected = selectedId === null ? undefined : workspaces.find((workspace) => workspace.id === selectedId);

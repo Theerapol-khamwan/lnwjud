@@ -189,15 +189,22 @@ export function SettingsPage(props: SettingsPageProps): ReactElement {
   }
 
   async function setRecoveryRetentionDays(days: number): Promise<void> {
+    const previousDays = props.dashboard.settings.recoveryRetentionDays;
+    if (days > 0 && (previousDays === 0 || days < previousDays)) {
+      const confirmed = window.confirm(props.locale === 'th'
+        ? `เปิดลบข้อมูลกู้คืนอัตโนมัติที่เก่ากว่า ${days} วัน? ข้อมูลที่เก่ากว่านี้อาจถูกลบทันทีและกู้คืนไม่ได้`
+        : `Enable automatic cleanup for recovery data older than ${days} days? Older recovery data may be removed immediately and cannot be restored.`);
+      if (!confirmed) return;
+    }
     setRetentionBusy(true);
     setRecoveryError(null);
     try {
       await props.onUserSettingsChange({ ...props.dashboard.settings, recoveryRetentionDays: days });
       setRecoveryMessage(days === 0
-        ? (props.locale === 'th' ? 'เธ•เธฑเนเธเธเนเธฒเนเธซเนเน€เธเนเธเธเนเธญเธกเธนเธฅเธเธนเนเธเธทเธเนเธงเนเธเธเธเธงเนเธฒเธเธฐเธฅเธเน€เธญเธ' : 'Recovery data will be kept until you remove it manually.')
-        : (props.locale === 'th' ? `เธ•เธฑเนเธเธเนเธฒเธฅเธเธเนเธญเธกเธนเธฅเธเธนเนเธเธทเธเธ—เธตเนเน€เธเนเธฒเธเธงเนเธฒ ${days} เธงเธฑเธเธญเธฑเธ•เนเธเธกเธฑเธ•เธดเนเธฅเนเธง` : `Recovery data older than ${days} days will be removed automatically.`));
+        ? (props.locale === 'th' ? 'ตั้งค่าให้เก็บข้อมูลกู้คืนไว้จนกว่าจะลบเอง' : 'Recovery data will be kept until you remove it manually.')
+        : (props.locale === 'th' ? `ตั้งค่าลบข้อมูลกู้คืนที่เก่ากว่า ${days} วันอัตโนมัติแล้ว` : `Recovery data older than ${days} days will be removed automatically.`));
     } catch (cause: unknown) {
-      setRecoveryError(cause instanceof Error ? cause.message : (props.locale === 'th' ? 'เธเธฑเธเธ—เธถเธเธญเธฒเธขเธธเธเนเธญเธกเธนเธฅเธเธนเนเธเธทเธเนเธกเนเธชเธณเน€เธฃเนเธ' : 'Could not save recovery retention.'));
+      setRecoveryError(cause instanceof Error ? cause.message : (props.locale === 'th' ? 'บันทึกอายุข้อมูลกู้คืนไม่สำเร็จ' : 'Could not save recovery retention.'));
     } finally {
       setRetentionBusy(false);
     }
@@ -399,6 +406,13 @@ export function SettingsPage(props: SettingsPageProps): ReactElement {
                   <p className="hint">{props.locale === 'th' ? 'lnwjud ฝัง OpenAI tunnel-client v0.0.12 (Windows x64) ใน installer และเลือกให้เองอัตโนมัติ ช่องนี้ใช้เฉพาะกรณีต้องการ override/troubleshoot' : 'lnwjud bundles OpenAI tunnel-client v0.0.12 (Windows x64) in the installer and selects it automatically. Use this field only to override it for troubleshooting.'}</p>
                 </div>
               </div>
+              <div className="tunnel-setup-box">
+                <div className="settings-mini-heading"><strong>Setup Wizard</strong><span>{props.locale === 'th' ? 'ไม่ต้องเปิด PowerShell init เอง' : 'No manual PowerShell init'}</span></div>
+                <label className="field-label" htmlFor="tunnel-id">OpenAI Tunnel ID</label>
+                <div className="form-row"><input id="tunnel-id" placeholder="tunnel_0123456789abcdef..." value={tunnelId} onChange={(event) => setTunnelId(event.target.value)} /><button type="button" className="btn-save-gold" disabled={tunnelBusy} onClick={() => { void configureTunnel(); }}>{tunnelBusy ? (props.locale === 'th' ? 'กำลังตั้งค่า…' : 'Configuring…') : (props.locale === 'th' ? 'Configure Tunnel' : 'Configure Tunnel')}</button></div>
+              </div>
+              {savedMessage === null ? null : <div className="toast-success-banner" role="status">✓ {savedMessage}</div>}
+              {tunnelMessage === null ? null : <div className="alert-box-warning" role="status">{tunnelMessage}</div>}
               {props.dashboard.tunnel.persistent === null ? null : (
                 <div className="tunnel-setup-box persistent-runtime-card">
                   <div className="settings-mini-heading"><strong>Persistent Tunnel Identity</strong><span>{props.dashboard.tunnel.persistent.runtimeAlias}</span></div>
@@ -419,13 +433,6 @@ export function SettingsPage(props: SettingsPageProps): ReactElement {
                   {props.dashboard.tunnel.persistent.capabilityEvidence === null ? null : <p className="hint">{props.dashboard.tunnel.persistent.capabilityEvidence}</p>}
                 </div>
               )}
-              <div className="tunnel-setup-box">
-                <div className="settings-mini-heading"><strong>Setup Wizard</strong><span>{props.locale === 'th' ? 'ไม่ต้องเปิด PowerShell init เอง' : 'No manual PowerShell init'}</span></div>
-                <label className="field-label" htmlFor="tunnel-id">OpenAI Tunnel ID</label>
-                <div className="form-row"><input id="tunnel-id" placeholder="tunnel_0123456789abcdef..." value={tunnelId} onChange={(event) => setTunnelId(event.target.value)} /><button type="button" className="btn-save-gold" disabled={tunnelBusy} onClick={() => { void configureTunnel(); }}>{tunnelBusy ? (props.locale === 'th' ? 'กำลังตั้งค่า…' : 'Configuring…') : (props.locale === 'th' ? 'Configure Tunnel' : 'Configure Tunnel')}</button></div>
-              </div>
-              {savedMessage === null ? null : <div className="toast-success-banner" role="status">✓ {savedMessage}</div>}
-              {tunnelMessage === null ? null : <div className="alert-box-warning" role="status">{tunnelMessage}</div>}
             </section>
           ) : null}
 
@@ -435,7 +442,7 @@ export function SettingsPage(props: SettingsPageProps): ReactElement {
                 <SettingsCardHeading
                   icon="↶"
                   title={props.locale === 'th' ? 'Recovery Center' : 'Recovery Center'}
-                  subtitle={props.locale === 'th' ? 'ไฟล์ที่ลบ สำเนาก่อนไฟล์ไบนารีถูกเขียนทับ และ checkpoint ของ Active Project' : 'Deleted items, binary pre-replacement backups, and checkpoints for the Active Project'}
+                  subtitle={props.locale === 'th' ? 'ไฟล์ที่ลบ สำเนาก่อนไฟล์ไบนารีถูกเขียนทับ และ checkpoint ของโปรเจกต์หลัก (Primary)' : 'Deleted items, binary pre-replacement backups, and checkpoints for the Primary Project'}
                   badge={`${props.dashboard.recovery.trashItems.length + props.dashboard.recovery.checkpoints.length} ITEMS`}
                 />
                 <div className="setting-field">

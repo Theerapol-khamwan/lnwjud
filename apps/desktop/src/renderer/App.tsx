@@ -47,7 +47,7 @@ export function App(): ReactElement {
   const logIds = useRef<Set<number>>(new Set());
 
   const t = createTranslator(locale);
-  const activeWorkspaces = workspaces.filter((workspace) => workspace.archivedAt === undefined || workspace.archivedAt === null);
+  const projectWorkspaces = workspaces.filter((workspace) => workspace.kind !== 'machine_root' && (workspace.archivedAt === undefined || workspace.archivedAt === null));
 
   const appendLogLine = useCallback((line: LogLine): void => {
     if (logIds.current.has(line.id)) return;
@@ -435,7 +435,7 @@ export function App(): ReactElement {
       {screen === 'home' ? (
         <ControlCenterPage
           dashboard={dashboard}
-          workspaces={activeWorkspaces}
+          workspaces={projectWorkspaces}
           locale={locale}
           mcpBusy={mcpBusy}
           tunnelBusy={tunnelBusy}
@@ -472,7 +472,7 @@ export function App(): ReactElement {
           locale={locale}
           gitSummary={dashboard.gitSummary}
           selectedWorkspace={dashboard.selectedWorkspace}
-          workspaces={activeWorkspaces}
+          workspaces={projectWorkspaces}
           onSelectWorkspace={selectWorkspace}
           onRefresh={refresh}
         />
