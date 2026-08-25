@@ -16,6 +16,7 @@ test('control center auto-starts MCP and supports project + doctor journey', asy
   const fixtureRoot = await mkdtemp(path.join(os.tmpdir(), 'lnwjud-dashboard-'));
   const fixtureRealRoot = await realpath(fixtureRoot);
   const dataRoot = await mkdtemp(path.join(os.tmpdir(), 'lnwjud-dashboard-data-'));
+  const gitCeilingDirectories = [path.dirname(fixtureRoot), path.dirname(fixtureRealRoot)].filter((value, index, values) => values.indexOf(value) === index).join(path.delimiter);
   await writeFile(path.join(fixtureRoot, '.env'), 'SECRET_NOT_FOR_UI=do-not-display\n', 'utf8');
   const devToolsPort = await findEphemeralPort();
   const launchExecutable = packagedExecutable ?? electronExecutable;
@@ -33,6 +34,7 @@ test('control center auto-starts MCP and supports project + doctor journey', asy
       LNWJUD_UNRESTRICTED: '1',
       LNWJUD_E2E_FIXTURE: '1',
       LNWJUD_E2E_NODE_PATH: process.execPath,
+      GIT_CEILING_DIRECTORIES: gitCeilingDirectories,
     },
   });
   const stderr: string[] = [];
