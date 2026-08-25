@@ -51,7 +51,7 @@ try {
     Invoke-ReleaseStage 'install --frozen-lockfile' @('install', '--frozen-lockfile')
     Invoke-ReleaseStage 'lint' @('lint')
     Invoke-ReleaseStage 'typecheck' @('typecheck')
-    Invoke-ReleaseStage 'test' @('test')
+    Invoke-ReleaseStage 'test:release' @('test:release')
     Invoke-ReleaseStage 'test:acceptance' @('test:acceptance')
     Invoke-ReleaseStage 'test:integration' @('test:integration')
     Invoke-ReleaseStage 'test:e2e' @('test:e2e')

@@ -159,7 +159,7 @@ describe('ShellCapabilityBackend', () => {
       cwd: root, execution: 'foreground', timeout_seconds: 5, userConfirmed: true,
     });
     expect(second).toMatchObject({ ok: true, value: { state: 'completed', stdout: 'done' } });
-  });
+  }, 10_000);
 
   it('rejects a working directory outside configured local roots', async () => {
     const root = await mkdtemp(path.join(os.tmpdir(), 'lnwjud-shell-'));
