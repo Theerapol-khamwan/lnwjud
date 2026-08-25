@@ -96,13 +96,13 @@ function recoveryMarkup(locale: 'th' | 'en'): string {
 }
 
 describe('mutation safety UI contract', () => {
-  it('renders the actual 4.10.0 application version', () => {
-    expect(APP_VERSION).toBe('4.10.0');
+  it('renders the actual 4.11.0 application version', () => {
+    expect(APP_VERSION).toBe('4.11.0');
     const markup = renderToStaticMarkup(createElement(AppShell, {
       locale: 'en', appVersion: APP_VERSION, mcpRunning: false, updateStatus: null, screen: 'settings',
       onNavigate: () => undefined, onLocaleChange: () => undefined, onUpdateAction: () => undefined, children: createElement('div'),
     }));
-    expect(markup).toContain('v4.10.0');
+    expect(markup).toContain('v4.11.0');
   });
 
   it('renders all destructive auto-approval settings and keeps critical/recovery safeguards locked', () => {
