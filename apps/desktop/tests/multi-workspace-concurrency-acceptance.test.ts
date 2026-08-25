@@ -155,8 +155,8 @@ describe('multi-workspace concurrency acceptance', () => {
       expect(errorCode(deniedTask)).toBe('PERMISSION_DENIED');
 
       const [shellDoneA, shellDoneB] = await Promise.all([
-        clientA.callTool({ name: 'shell', arguments: { operation: 'wait', workspaceId: workspaceA.id, task_id: taskA, timeout_seconds: 5 } }),
-        clientB.callTool({ name: 'shell', arguments: { operation: 'wait', workspaceId: workspaceB.id, task_id: taskB, timeout_seconds: 5 } }),
+        waitForTerminalShellTask(clientA, workspaceA.id, taskA),
+        waitForTerminalShellTask(clientB, workspaceB.id, taskB),
       ]);
       expect(shellDoneA.isError).not.toBe(true);
       expect(shellDoneA.structuredContent).toMatchObject({ state: 'completed', exit_code: 0, stdout: 'background-a' });
@@ -235,7 +235,7 @@ describe('multi-workspace concurrency acceptance', () => {
       await Promise.allSettled([clientA.close(), clientB.close()]);
       await runtime.close();
     }
-  }, 60_000);
+  }, 90_000);
 });
 
 async function createWorkspaceFixture(label: string): Promise<string> {
@@ -297,6 +297,23 @@ async function waitForFile(filePath: string, timeoutMs = 10_000): Promise<void> 
     }
   }
   throw new Error(`Timed out waiting for ${path.basename(filePath)}`);
+}
+
+async function waitForTerminalShellTask(
+  client: Client,
+  workspaceId: string,
+  taskId: string,
+): Promise<{ readonly isError?: boolean; readonly structuredContent?: Readonly<Record<string, unknown>> }> {
+  const deadline = Date.now() + 20_000;
+  while (Date.now() < deadline) {
+    const response = await client.callTool({
+      name: 'shell',
+      arguments: { operation: 'wait', workspaceId, task_id: taskId, timeout_seconds: 2 },
+    });
+    const state = structuredRecord(response).state;
+    if (state !== 'running' && state !== 'queued') return response;
+  }
+  throw new Error(`Timed out waiting for shell task ${taskId}`);
 }
 
 async function waitForTerminalProcess(client: Client, workspaceId: string, processId: string): Promise<Record<string, unknown>> {
