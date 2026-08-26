@@ -96,6 +96,7 @@ describe('i18n translations', () => {
       'guidedTunnel.linkError',
       'guidedTunnel.copyLink',
       'guidedTunnel.retry',
+      'guidedTunnel.externalRuntime',
       'guidedTunnel.showApiKey',
       'guidedTunnel.hideApiKey',
       'guidedTunnel.advanced',

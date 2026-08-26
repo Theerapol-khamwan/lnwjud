@@ -30,6 +30,7 @@ export type MessageKey =
   | 'tunnel.needProfile'
   | 'tunnel.running'
   | 'tunnel.runningExternal'
+  | 'tunnel.incompleteExternal'
   | 'tunnel.stopped'
   | 'tunnel.starting'
   | 'tunnel.error'
@@ -188,6 +189,7 @@ export type MessageKey =
   | 'guidedTunnel.linkError'
   | 'guidedTunnel.copyLink'
   | 'guidedTunnel.retry'
+  | 'guidedTunnel.externalRuntime'
   | 'guidedTunnel.showApiKey'
   | 'guidedTunnel.hideApiKey'
   | 'guidedTunnel.advanced'
@@ -228,6 +230,7 @@ export const th: Messages = {
   'tunnel.needProfile': 'ยังไม่มีโปรไฟล์ lnwjud.yaml',
   'tunnel.running': 'Tunnel เชื่อมต่อแล้ว (จากแอพนี้)',
   'tunnel.runningExternal': 'Tunnel เชื่อมต่อแล้ว (จากสคริปต์) — ปุ่ม Start ถูกปิดไว้แล้ว',
+  'tunnel.incompleteExternal': 'พบ Tunnel process ที่ยังทำงานอยู่ แต่การตั้งค่า lnwjud ยังไม่ครบ — กดหยุด Tunnel ก่อนเริ่มตั้งค่าใหม่',
   'tunnel.stopped': 'Tunnel หยุดอยู่',
   'tunnel.starting': 'กำลังเริ่ม Tunnel',
   'tunnel.error': 'Tunnel มีข้อผิดพลาด',
@@ -273,6 +276,7 @@ export const th: Messages = {
   'guidedTunnel.linkError': 'เปิดลิงก์ไม่ได้ กรุณาคัดลอกลิงก์ด้านล่างไปเปิดในเบราว์เซอร์',
   'guidedTunnel.copyLink': 'คัดลอกลิงก์',
   'guidedTunnel.retry': 'ลองอีกครั้ง',
+  'guidedTunnel.externalRuntime': 'พบ Tunnel ที่กำลังรันจากภายนอก แต่ยังไม่ใช่ Tunnel ที่ lnwjud Desktop เป็นเจ้าของ ให้หยุด Tunnel เดิมก่อน แล้วกด Start Tunnel อีกครั้ง',
   'guidedTunnel.showApiKey': 'แสดง',
   'guidedTunnel.hideApiKey': 'ซ่อน',
   'guidedTunnel.advanced': 'การตั้งค่าขั้นสูงและแก้ปัญหา',
@@ -425,6 +429,7 @@ export const en: Messages = {
   'tunnel.needProfile': 'Missing lnwjud.yaml tunnel profile',
   'tunnel.running': 'Tunnel connected (from this app)',
   'tunnel.runningExternal': 'Tunnel connected (from script) — Start is disabled',
+  'tunnel.incompleteExternal': 'A tunnel process is still running, but lnwjud setup is incomplete. Stop the tunnel before starting setup again.',
   'tunnel.stopped': 'Tunnel stopped',
   'tunnel.starting': 'Starting tunnel',
   'tunnel.error': 'Tunnel error',
@@ -470,6 +475,7 @@ export const en: Messages = {
   'guidedTunnel.linkError': 'Could not open the link. Copy the address below into your browser.',
   'guidedTunnel.copyLink': 'Copy link',
   'guidedTunnel.retry': 'Try again',
+  'guidedTunnel.externalRuntime': 'A tunnel is running externally, but lnwjud Desktop does not own it yet. Stop the existing tunnel, then select Start Tunnel again.',
   'guidedTunnel.showApiKey': 'Show',
   'guidedTunnel.hideApiKey': 'Hide',
   'guidedTunnel.advanced': 'Advanced settings and troubleshooting',

@@ -61,6 +61,19 @@ describe('guided tunnel onboarding UI', () => {
     expect(guideMarkup('en', tunnel({ hasApiKey: true, profileExists: true }))).toContain('4. Start the Tunnel');
   });
 
+  it('does not jump to ChatGPT when a stale external runtime is running without local prerequisites', () => {
+    const stale = guideMarkup('en', tunnel({ state: 'running', source: 'external' }));
+    expect(stale).toContain('1. Create an OpenAI Tunnel');
+    expect(stale).not.toContain('Local setup is complete.');
+    expect(stale).not.toContain('Open ChatGPT Plugins');
+  });
+
+  it('does not treat a configured externally-owned runtime as locally complete', () => {
+    const external = guideMarkup('en', tunnel({ state: 'running', source: 'external', hasApiKey: true, profileExists: true }));
+    expect(external).toContain('4. Start the Tunnel');
+    expect(external).not.toContain('Local setup is complete.');
+  });
+
   it('disables Start Tunnel until both the key and profile are ready', () => {
     const pristine = guideMarkup('en', tunnel());
     const configured = guideMarkup('en', tunnel({ hasApiKey: true, profileExists: true }));

@@ -927,9 +927,12 @@ export function createDesktopRuntime(dataPath: string, options: DesktopRuntimeOp
       return mcpLifecycle.start();
     },
     autoStartTunnel: async (): Promise<TunnelStatus | null> => {
-      if (!readSettings().tunnelAutoReconnect) return null;
+      const settings = readSettings();
       const status = await tunnelController.status();
-      if (!status.profileExists || !status.hasApiKey || status.clientPath === null) return status;
+      if (!settings.tunnelAutoReconnect || !status.profileExists || !status.hasApiKey || status.clientPath === null) {
+        await tunnelController.stopPersistedNativeRuntimeIfOwned();
+        return tunnelController.status();
+      }
       return tunnelController.startAutomatically();
     },
     close: async (): Promise<void> => {

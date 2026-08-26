@@ -28,6 +28,8 @@ import { DoctorPanel } from './features/doctor/DoctorPanel.js';
 import { FirstRunTunnelTip } from './features/onboarding/FirstRunTunnelTip.js';
 import {
   guidedTunnelLaunchDecision,
+  guidedTunnelPrerequisiteSignature,
+  isTunnelRunning,
   readGuidedTunnelSetupState,
   writeGuidedTunnelSetupState,
 } from './features/onboarding/guided-tunnel-setup-state.js';
@@ -57,7 +59,7 @@ export function App(): ReactElement {
   const [requestedSettingsSection, setRequestedSettingsSection] = useState<{ readonly section: SettingsSection; readonly requestId: number } | undefined>(undefined);
   const incidentBusyRef = useRef(false);
   const logIds = useRef<Set<number>>(new Set());
-  const guidedTunnelLaunchHandled = useRef(false);
+  const guidedTunnelLaunchSignature = useRef<string | null>(null);
   const settingsRequestId = useRef(0);
 
   const t = createTranslator(locale);
@@ -194,10 +196,13 @@ export function App(): ReactElement {
   }, [refresh]);
 
   useEffect(() => {
-    if (dashboard === null || guidedTunnelLaunchHandled.current) return;
-    guidedTunnelLaunchHandled.current = true;
+    if (dashboard === null) return;
+    const tunnel = dashboard.tunnel;
+    const signature = guidedTunnelPrerequisiteSignature(tunnel);
+    if (guidedTunnelLaunchSignature.current === signature) return;
+    guidedTunnelLaunchSignature.current = signature;
     const state = readGuidedTunnelSetupState(window.localStorage);
-    const decision = guidedTunnelLaunchDecision(dashboard.tunnel, state);
+    const decision = guidedTunnelLaunchDecision(tunnel, state);
     if (decision === 'show_tip') {
       setFirstRunTunnelTipOpen(true);
       return;
@@ -226,7 +231,7 @@ export function App(): ReactElement {
       setGuidedTunnelSetupOpen(false);
       return;
     }
-    openGuidedTunnelSettings(dashboard?.tunnel.state !== 'running');
+    openGuidedTunnelSettings(dashboard === null || !isTunnelRunning(dashboard.tunnel));
   }
 
   function completeGuidedTunnelSetup(): void {
@@ -521,7 +526,7 @@ export function App(): ReactElement {
           onAddWorkspace={addWorkspace}
           onStartTunnel={startTunnel}
           onStopTunnel={stopTunnel}
-          onOpenTunnelSetup={() => openGuidedTunnelSettings(dashboard.tunnel.state !== 'running')}
+          onOpenTunnelSetup={() => openGuidedTunnelSettings(!isTunnelRunning(dashboard.tunnel))}
           onCaptureIncident={captureIncident}
           incidentBusy={incidentBusy}
           incidentClassification={incidentClassification}

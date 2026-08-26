@@ -14,11 +14,7 @@ const guidedTunnelSetupStates = new Set<GuidedTunnelSetupState>([
 ]);
 
 export function isFreshTunnelSetup(tunnel: TunnelStatus): boolean {
-  return (
-    !tunnel.hasApiKey &&
-    !tunnel.profileExists &&
-    (tunnel.persistent?.tunnelIdMasked ?? null) === null
-  );
+  return !tunnel.hasApiKey && !tunnel.profileExists;
 }
 
 export function isTunnelConfigured(tunnel: TunnelStatus): boolean {
@@ -26,23 +22,34 @@ export function isTunnelConfigured(tunnel: TunnelStatus): boolean {
 }
 
 export function isTunnelRunning(tunnel: TunnelStatus): boolean {
-  return tunnel.state === 'running';
+  return isTunnelConfigured(tunnel) && tunnel.state === 'running' && tunnel.source === 'desktop';
+}
+
+export function guidedTunnelPrerequisiteSignature(tunnel: TunnelStatus): string {
+  const runtime = isTunnelRunning(tunnel)
+    ? 'desktop-running'
+    : tunnel.source === 'external' && tunnel.state === 'running'
+      ? 'external-running'
+      : 'not-running';
+  return `${tunnel.hasApiKey ? 'key' : 'no-key'}:${tunnel.profileExists ? 'profile' : 'no-profile'}:${runtime}`;
 }
 
 export function guidedTunnelLaunchDecision(
   tunnel: TunnelStatus,
   state: GuidedTunnelSetupState,
 ): GuidedTunnelLaunchDecision {
-  if (state === 'dismissed' || state === 'completed' || isTunnelRunning(tunnel)) return 'none';
+  if (isTunnelRunning(tunnel)) return 'none';
+  if (state === 'dismissed') return isFreshTunnelSetup(tunnel) ? 'none' : 'resume_settings';
+  if (state === 'completed') return isFreshTunnelSetup(tunnel) ? 'show_tip' : isTunnelConfigured(tunnel) ? 'none' : 'resume_settings';
   if (state === 'in_progress') return 'resume_settings';
-  return isFreshTunnelSetup(tunnel) ? 'show_tip' : 'none';
+  return isFreshTunnelSetup(tunnel) ? 'show_tip' : 'resume_settings';
 }
 
 export function initialGuidedTunnelStep(tunnel: TunnelStatus): GuidedTunnelStep {
-  if (tunnel.profileExists && tunnel.state === 'running') return 'connect_chatgpt';
-  if (tunnel.profileExists && !tunnel.hasApiKey) return 'save_key';
-  if (tunnel.profileExists) return 'start';
-  return 'create_tunnel';
+  if (!tunnel.profileExists) return 'create_tunnel';
+  if (!tunnel.hasApiKey) return 'save_key';
+  if (isTunnelRunning(tunnel)) return 'connect_chatgpt';
+  return 'start';
 }
 
 export function readGuidedTunnelSetupState(storage: Pick<Storage, 'getItem'>): GuidedTunnelSetupState {

@@ -9,6 +9,7 @@ import { copyTextToClipboard } from '../../clipboard.js';
 import { createTranslator } from '../../i18n/index.js';
 import {
   initialGuidedTunnelStep,
+  isTunnelRunning,
   type GuidedTunnelStep,
 } from './guided-tunnel-setup-state.js';
 
@@ -57,12 +58,12 @@ export function GuidedTunnelSetup(props: GuidedTunnelSetupProps): ReactElement |
   }, [props.open, props.tunnel]);
 
   useEffect(() => {
-    if (!props.open || props.tunnel.state !== 'running') return;
+    if (!props.open || !isTunnelRunning(props.tunnel)) return;
     setStep('connect_chatgpt');
     if (completionReported.current) return;
     completionReported.current = true;
     props.onLocalComplete();
-  }, [props.open, props.tunnel.state, props.onLocalComplete]);
+  }, [props.open, props.tunnel, props.onLocalComplete]);
 
   if (!props.open) return null;
 
@@ -148,9 +149,9 @@ export function GuidedTunnelSetup(props: GuidedTunnelSetupProps): ReactElement |
     try {
       const status = await props.onStartTunnel();
       await props.onRefresh();
-      if (status.state !== 'running') {
+      if (!isTunnelRunning(status)) {
         setNotice(null);
-        setError(status.message?.trim() || t('guidedTunnel.retry'));
+        setError(status.message?.trim() || (status.source === 'external' ? t('guidedTunnel.externalRuntime') : t('guidedTunnel.retry')));
         return;
       }
       setNotice(t('guidedTunnel.running'));
@@ -319,21 +320,21 @@ function SummaryRow(props: { readonly label: string; readonly value: string }): 
 
 function maskTunnelId(value: string): string {
   const normalized = value.trim();
-  if (normalized.length <= 16) return normalized || '—';
-  return `${normalized.slice(0, 12)}…${normalized.slice(-4)}`;
+  if (normalized.length <= 14) return normalized;
+  return `${normalized.slice(0, 11)}${'*'.repeat(Math.max(4, normalized.length - 15))}${normalized.slice(-4)}`;
 }
 
 function safeErrorMessage(cause: unknown, fallback: string): string {
-  if (!(cause instanceof Error)) return fallback;
-  const message = cause.message.trim();
-  if (message.length === 0) return fallback;
-  return message.replace(/sk-[A-Za-z0-9_-]+/g, '[REDACTED]');
+  const raw = cause instanceof Error ? cause.message : typeof cause === 'string' ? cause : fallback;
+  return raw.replace(/\bsk-[A-Za-z0-9_-]{8,}\b/g, '[REDACTED]');
 }
 
 function progressLabel(step: GuidedTunnelStep, t: ReturnType<typeof createTranslator>): string {
-  if (step === 'create_tunnel') return t('guidedTunnel.tunnelIdLabel');
-  if (step === 'save_key') return t('guidedTunnel.apiKeyLabel');
-  if (step === 'configure') return t('guidedTunnel.configure');
-  if (step === 'start') return t('guidedTunnel.startTunnel');
-  return 'ChatGPT';
+  switch (step) {
+    case 'create_tunnel': return t('guidedTunnel.tunnelIdLabel');
+    case 'save_key': return t('guidedTunnel.apiKeyLabel');
+    case 'configure': return t('guidedTunnel.configure');
+    case 'start': return t('guidedTunnel.startTunnel');
+    case 'connect_chatgpt': return 'ChatGPT';
+  }
 }

@@ -46,6 +46,7 @@ function render(dashboard: DashboardSnapshot, locale: 'th' | 'en' = 'en'): strin
     onAddWorkspace: async () => undefined,
     onStartTunnel: async () => undefined,
     onStopTunnel: async () => undefined,
+    onOpenTunnelSetup: () => undefined,
     onCaptureIncident: async () => undefined,
     incidentBusy: false,
     incidentClassification: null,
@@ -76,6 +77,24 @@ describe('Security Overview', () => {
     expect(markup).toContain('Broad access');
     expect(markup).toContain('registered machine roots may be visible');
     expect(markup).toContain('AI File Delete');
+  });
+
+  it('does not claim an orphan external tunnel is fully connected when local setup is missing', () => {
+    const markup = render({
+      ...baseDashboard,
+      tunnel: {
+        state: 'running',
+        source: 'external',
+        hasApiKey: false,
+        clientPath: 'C:\\fixture\\tunnel-client.exe',
+        profileExists: false,
+        message: null,
+        logPath: null,
+        persistent: null,
+      },
+    });
+    expect(markup).toContain('A tunnel process is still running, but lnwjud setup is incomplete.');
+    expect(markup).not.toContain('Tunnel connected (from script) — Start is disabled');
   });
 
   it('localizes the security summary to Thai', () => {

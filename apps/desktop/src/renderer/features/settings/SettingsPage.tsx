@@ -2,6 +2,7 @@ import { useEffect, useState, type ReactElement } from 'react';
 import type { DashboardSnapshot, DestructiveDeletePolicy, ExternalSetupTarget, PermissionProfileName, TunnelStatus, UiLocale, UserSettings } from '@lnwjud/ipc-contracts';
 import { createTranslator } from '../../i18n/index.js';
 import { GuidedTunnelSetup } from '../onboarding/GuidedTunnelSetup.js';
+import { isTunnelRunning } from '../onboarding/guided-tunnel-setup-state.js';
 import { SettingSwitch } from './SettingSwitch.js';
 import { UserConfigPanel, type UserConfigSection } from './UserConfigPanel.js';
 
@@ -38,6 +39,8 @@ type DestructiveApprovalKey = keyof DestructiveDeletePolicy['approvals'];
 
 export function SettingsPage(props: SettingsPageProps): ReactElement {
   const t = createTranslator(props.locale);
+  const guidedTunnelRunning = isTunnelRunning(props.dashboard.tunnel);
+  const guidedTunnelConfigured = props.dashboard.tunnel.hasApiKey && props.dashboard.tunnel.profileExists;
   const [activeSection, setActiveSection] = useState<SettingsSection>(props.initialSection ?? 'general');
   const [apiKey, setApiKey] = useState('');
   const [showApiKey, setShowApiKey] = useState(false);
@@ -406,8 +409,8 @@ export function SettingsPage(props: SettingsPageProps): ReactElement {
           {activeSection === 'tunnel' ? (
             <>
               <section className="panel settings-card settings-card-polished guided-tunnel-launch-card" aria-label={t('guidedTunnel.openGuide')}>
-                <SettingsCardHeading icon="↗" title={t('guidedTunnel.openGuide')} subtitle={t('guidedTunnel.privacy')} badge={props.dashboard.tunnel.state === 'running' ? 'RUNNING' : props.dashboard.tunnel.profileExists ? 'READY' : 'SETUP'} />
-                <p className="hint">{props.dashboard.tunnel.state === 'running' ? t('guidedTunnel.localComplete') : t('guidedTunnel.dismissedHint')}</p>
+                <SettingsCardHeading icon="↗" title={t('guidedTunnel.openGuide')} subtitle={t('guidedTunnel.privacy')} badge={guidedTunnelRunning ? 'RUNNING' : guidedTunnelConfigured ? 'READY' : 'SETUP'} />
+                <p className="hint">{guidedTunnelRunning ? t('guidedTunnel.localComplete') : t('guidedTunnel.dismissedHint')}</p>
                 <button type="button" className="btn-save-gold" onClick={() => props.onGuidedTunnelSetupOpenChange(true)}>{t('guidedTunnel.openGuide')}</button>
               </section>
 

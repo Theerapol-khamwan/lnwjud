@@ -46,7 +46,7 @@ export function ControlCenterPage(props: ControlCenterPageProps): ReactElement {
 
   const tunnelLabel = dashboard.tunnel.state === 'running'
     ? dashboard.tunnel.source === 'external'
-      ? t('tunnel.runningExternal')
+      ? (!dashboard.tunnel.hasApiKey || !dashboard.tunnel.profileExists ? t('tunnel.incompleteExternal') : t('tunnel.runningExternal'))
       : t('tunnel.running')
     : dashboard.tunnel.state === 'starting'
       ? t('tunnel.starting')
