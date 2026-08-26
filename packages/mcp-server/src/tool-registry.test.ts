@@ -33,6 +33,7 @@ describe('MCP tool registry', () => {
       'read_file_page', 'read_file_page_continue',
       'workspace_index', 'workspace_index_status', 'workspace_index_watch', 'workspace_index_stop',
       'session_handoff', 'verify_incremental',
+      'run_goal', 'get_goal', 'checkpoint_goal', 'finish_goal', 'list_goals',
       ...UPGRADE_TOOL_CATALOG.map((entry) => entry.name),
       'tool_batch',
     ]);

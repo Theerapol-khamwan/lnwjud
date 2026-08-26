@@ -6,6 +6,10 @@ The packaged MCP stdio launcher is self-contained: `lnwjud-mcp-stdio.cmd` launch
 
 The current release target is x64 only. Windows 7/8/8.1 and 32-bit Windows are not supported release targets.
 
+Windows 10 and Windows 11 use different renderer compatibility defaults. `windows-compatibility.ts` recognizes NT build 10240+ as Windows 10 and build 22000+ as Windows 11. Windows 10 disables Electron hardware acceleration before `app.whenReady()` so older Intel/AMD/NVIDIA drivers use software rendering; Windows 11 keeps hardware acceleration enabled. This does not weaken `sandbox`, `contextIsolation`, or `webSecurity`.
+
+Product-internal Windows plumbing uses built-in `powershell.exe` rather than requiring PowerShell 7. Runtime child launches use `windowsHide: true`. Durable shell workers have a default global cap of 16 active tasks per runtime process and `ProcessManager` has a default cap of 24 active managed processes, preventing an unbounded child/conhost fan-out when multiple chats/projects submit work concurrently.
+
 ## Build
 
 From the repository root in PowerShell:
@@ -15,7 +19,7 @@ corepack pnpm@10.15.0 install --frozen-lockfile
 corepack pnpm@10.15.0 package:windows
 ```
 
-The package script rebuilds the workspace, generates the current MCP stdio bundle/launcher, and writes both Windows artifacts to `apps/desktop/dist/installers/`.
+The package script rebuilds the workspace, generates the current MCP stdio bundle/launcher, writes both Windows executables to `apps/desktop/dist/installers/`, and writes update metadata for both distribution channels.
 
 ## Current electron-builder contract
 
@@ -29,6 +33,11 @@ The package script rebuilds the workspace, generates the current MCP stdio bundl
 - `signAndEditExecutable: true` for executable metadata/icon editing.
 - `deleteAppDataOnUninstall: false`; uninstalling the application does **not** automatically remove lnwjud user data.
 - Portable mode launches without installation but intentionally uses the same per-user lnwjud data/settings location as the installed build. It is portable as an executable, not a "keep every setting beside the EXE" mode.
+- Installer auto-update remains on electron-builder's normal `latest.yml` channel and installs `lnwjud-Setup-<version>.exe`.
+- Portable auto-update uses a separate generated `portable.yml` channel and downloads only `lnwjud-Portable-<version>.exe`.
+- Portable downloads are verified by electron-updater against the SHA-512/size in `portable.yml`, then replaced in place only after the running process exits. The helper keeps a rollback backup, restores it on replacement failure, restarts the exact outer Portable path, and cleans itself up.
+- The updater never crosses distribution types: an installed user remains on Setup/NSIS updates and a Portable user remains on Portable EXE updates.
+- Installer and Portable intentionally continue to share the same per-user lnwjud settings/data location.
 - The Windows capability bridge is copied as an extra resource.
 - The generated `lnwjud-mcp-stdio.cjs`, `lnwjud-mcp-stdio.cmd`, and private `lnwjud-node.exe` are copied both into resources and beside the packaged application for tunnel/local stdio use.
 - The launcher never falls back to Program Files, LocalAppData, or Node from PATH; a missing bundled runtime fails closed.
@@ -58,6 +67,8 @@ For v4.11.0:
 
 ```text
 apps/desktop/dist/installers/lnwjud-Setup-4.11.0.exe
+apps/desktop/dist/installers/latest.yml
+apps/desktop/dist/installers/portable.yml
 apps/desktop/dist/installers/lnwjud-Portable-4.11.0.exe
 ```
 
@@ -68,7 +79,7 @@ lnwjud-Setup-<version>.exe
 lnwjud-Portable-<version>.exe
 ```
 
-The NSIS installer also produces its blockmap/update metadata. The portable executable is a separate release asset and is not the auto-updater installation target.
+The NSIS installer produces its blockmap plus `latest.yml`. Portable has its own `portable.yml` and is an auto-updater target through the dedicated Portable channel; it is never installed through NSIS during a Portable update.
 
 ## Clean-machine smoke
 
@@ -84,5 +95,7 @@ Use a clean Windows 10/11 x64 account or VM with no repository checkout:
 8. Close the app, uninstall it from Windows Settings, and confirm the application binaries are removed while user data remains according to `deleteAppDataOnUninstall: false`.
 9. Launch `lnwjud-Portable-*.exe` without installing it and repeat dashboard/workspace/Doctor/tunnel smoke checks.
 10. Confirm no visible CMD/PowerShell window flashes during normal internal operations. Short-lived hidden `conhost.exe` processes are acceptable; sustained high CPU is not.
+11. From an installed build, verify an available update resolves through `latest.yml` to the next Setup executable; from a Portable build, verify it resolves through `portable.yml` to the next Portable executable and never switches distribution type.
+12. For Portable replacement, verify the same outer EXE path restarts after update and that a forced replacement failure restores the backup instead of leaving the app missing.
 
 Record artifact path, OS architecture, launch result, database creation, workspace add, Doctor result, stdio/tunnel result when tested, and uninstall/portable result. Do not record credentials, environment-variable values, runtime API keys, or full terminal history.

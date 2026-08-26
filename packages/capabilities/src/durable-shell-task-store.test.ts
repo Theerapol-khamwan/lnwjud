@@ -3,6 +3,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { ShellCapabilityBackend } from './shell-backend.js';
+import { DurableShellTaskStore } from './durable-shell-task-store.js';
 
 const temporaryRoots: string[] = [];
 
@@ -134,6 +135,39 @@ describe('durable shell background tasks', () => {
     const replacementRuntime = new ShellCapabilityBackend({ allowedRoots: [root], taskStateDirectory });
     const finished = await replacementRuntime.execute({ operation: 'wait', task_id: taskId, timeout_seconds: 5 });
     expect(finished).toMatchObject({ ok: true, value: { state: 'completed', exit_code: 0, stdout: 'after-abort', durable: true } });
+  });
+
+  it('caps concurrent durable workers so many chats cannot exhaust a Windows 10/11 machine with child consoles', async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), 'lnwjud-durable-shell-cap-'));
+    temporaryRoots.push(root);
+    const taskStateDirectory = path.join(root, '.tasks');
+    const store = new DurableShellTaskStore(taskStateDirectory, { maxConcurrentTasks: 1 });
+    const owner = { clientId: 'chatgpt', sessionId: 'session-a', workspaceId: 'workspace-a' };
+    const common = {
+      executable: process.execPath,
+      arguments: ['-e', 'setTimeout(() => {}, 10000)'],
+      cwd: root,
+      timeoutSeconds: 30,
+      maxOutputBytes: 1024,
+      includeStdout: true,
+      includeStderr: true,
+      owner,
+    } as const;
+
+    const first = await store.launch({ taskId: 'task-one', ...common });
+    expect(first).toMatchObject({ ok: true, value: { task_id: 'task-one', state: 'running' } });
+
+    const second = await store.launch({ taskId: 'task-two', ...common });
+    expect(second).toMatchObject({
+      ok: false,
+      error: {
+        code: 'CONFLICT',
+        recoverable: true,
+      },
+    });
+
+    const cancelled = await store.cancel('task-one', owner);
+    expect(cancelled).toMatchObject({ ok: true, value: { state: 'cancelled' } });
   });
 });
 

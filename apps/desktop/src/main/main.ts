@@ -1,5 +1,6 @@
 import { app, BrowserWindow, dialog, ipcMain, Menu, nativeImage, Tray, type IpcMainInvokeEvent } from 'electron';
 import path from 'node:path';
+import os from 'node:os';
 import { access } from 'node:fs/promises';
 import { autoUpdater } from 'electron-updater';
 import {
@@ -56,6 +57,14 @@ import { createLogViewerWindow, createMainWindow, getRendererEntryPath, getWindo
 import { createTrayMenuTemplate, createTrayToolTip, createTrayUpdateLabel, shouldHideMainWindowOnClose } from './tray.js';
 import { UpdateInstallCoordinator, type UpdateSharedActivitySnapshot } from './update-install.js';
 import { UpdateCheckScheduler } from './update-check-scheduler.js';
+import {
+  configureUpdaterForDistribution,
+  currentPortableExecutablePath,
+  detectWindowsDistribution,
+  launchPortableReplacement,
+  preparePortableReplacement,
+} from './portable-update.js';
+import { windowsCompatibilityProfile } from './windows-compatibility.js';
 import { atomicWrite, type IncidentReport } from './incident-report.js';
 import { IncidentSaveCoordinator } from './incident-save.js';
 import { localizedUpdateStatusMessage, nativeMessages } from './native-i18n.js';
@@ -803,6 +812,9 @@ let desktopShutdownCoordinator: DesktopShutdownCoordinator | null = null;
 let updateInstallCoordinator: UpdateInstallCoordinator | null = null;
 let updateCheckScheduler: UpdateCheckScheduler | null = null;
 let pendingUpdateCheckSource: 'automatic' | 'tray' | 'renderer' | null = null;
+const windowsDistribution = detectWindowsDistribution(app.isPackaged);
+const windowsCompatibility = windowsCompatibilityProfile(process.platform, os.release(), process.arch);
+let pendingPortableUpdate: { readonly version: string; readonly downloadedFile: string } | null = null;
 let crashDiagnostics: CrashDiagnosticsRecorder | null = null;
 const rendererRecoveryPolicy = new RendererRecoveryPolicy();
 let crashRecoveryConfigured = false;
@@ -1100,6 +1112,7 @@ function initAutoUpdater(runtime: DesktopRuntime): void {
     return;
   }
   try {
+    configureUpdaterForDistribution(autoUpdater, windowsDistribution);
     autoUpdater.autoDownload = desktopUserSettings.updateAutoDownload;
     autoUpdater.autoInstallOnAppQuit = false;
     updateInstallCoordinator = new UpdateInstallCoordinator({
@@ -1128,7 +1141,28 @@ function initAutoUpdater(runtime: DesktopRuntime): void {
         void runtime.createBackup('pre-update').catch((error: unknown) => {
           console.error(`Pre-update backup failed: ${error instanceof Error ? error.message : 'unknown error'}`);
         }).finally(() => {
-          void desktopShutdownCoordinator?.requestQuit(() => autoUpdater.quitAndInstall(), 'install');
+          if (windowsDistribution === 'installer') {
+            void desktopShutdownCoordinator?.requestQuit(() => autoUpdater.quitAndInstall(), 'install');
+            return;
+          }
+          const portableUpdate = pendingPortableUpdate;
+          if (portableUpdate === null) {
+            patchUpdateStatus({ phase: 'error', message: 'Portable update file is unavailable. Check for updates again.', canInstall: false });
+            return;
+          }
+          void preparePortableReplacement({
+            downloadedFile: portableUpdate.downloadedFile,
+            currentExecutablePath: currentPortableExecutablePath(),
+          }).then((prepared) => {
+            void desktopShutdownCoordinator?.requestQuit(() => {
+              launchPortableReplacement(prepared);
+              app.quit();
+            }, 'install');
+          }).catch((error: unknown) => {
+            const message = error instanceof Error ? error.message : 'Portable update could not be prepared.';
+            console.error(`[AutoUpdater] portable install preparation failed: ${message}`);
+            patchUpdateStatus({ phase: 'error', message, canInstall: false });
+          });
         });
       },
     });
@@ -1143,6 +1177,7 @@ function initAutoUpdater(runtime: DesktopRuntime): void {
       recordUpdaterEvent(`update-available:${info.version}`);
       const requestedFromTray = pendingUpdateCheckSource === 'tray';
       pendingUpdateCheckSource = null;
+      pendingPortableUpdate = null;
       console.log(`[AutoUpdater] Update available: v${info.version}`);
       const messages = nativeMessages(desktopLocale);
       patchUpdateStatus({
@@ -1204,6 +1239,9 @@ function initAutoUpdater(runtime: DesktopRuntime): void {
 
     autoUpdater.on('update-downloaded', (info) => {
       recordUpdaterDownload(info.version);
+      if (windowsDistribution === 'portable') {
+        pendingPortableUpdate = { version: info.version, downloadedFile: info.downloadedFile };
+      }
       patchUpdateStatus({
         phase: 'ready',
         availableVersion: info.version,
@@ -1253,9 +1291,14 @@ function initAutoUpdater(runtime: DesktopRuntime): void {
 }
 
 function bootstrapDesktop(): void {
+  if (windowsCompatibility.disableHardwareAcceleration) app.disableHardwareAcceleration();
   const dataPath = configureDataPath();
   void app.whenReady().then(async () => {
     app.setAppUserModelId('com.lnwjud.desktop');
+    console.log(
+      `[WindowsCompatibility] ${windowsCompatibility.generation} build=${windowsCompatibility.build ?? 'unknown'} arch=${process.arch} gpu=${windowsCompatibility.disableHardwareAcceleration ? 'software' : 'hardware'}; ${windowsCompatibility.reason}`,
+    );
+
     const runtime = createDesktopRuntime(dataPath, { hostMutationApprovalProvider: requestNativeMutationApproval });
     desktopRuntime = runtime;
     setDesktopLocale(runtime.getLocale());
@@ -1287,6 +1330,7 @@ function bootstrapDesktop(): void {
 
 function bootstrapLogViewerOnly(): void {
   const dataPath = configureDataPath();
+  if (windowsCompatibility.disableHardwareAcceleration) app.disableHardwareAcceleration();
   void app.whenReady().then(async () => {
     app.setAppUserModelId('com.lnwjud.desktop');
     const runtime = createDesktopRuntime(dataPath, { hostMutationApprovalProvider: requestNativeMutationApproval });

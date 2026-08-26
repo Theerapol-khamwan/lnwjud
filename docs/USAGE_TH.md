@@ -11,6 +11,10 @@ lnwjud คือ Windows-first local AI-agent runtime / MCP gateway สำหร
 สำหรับผู้ใช้ทั่วไปที่ใช้ Windows release:
 
 - Windows 10/11 x64
+
+สำหรับ v4.11.0 ตัวโปรแกรมแยก compatibility profile ตามระบบ: Windows 10 x64 ใช้ software rendering เป็นค่าเริ่มต้นเพื่อลดปัญหาหน้าจอ Electron/Chromium ค้าง, วาดไม่ครบ หรือบาง control กดไม่ได้บน GPU/driver รุ่นเก่า ส่วน Windows 11 x64 ยังใช้ hardware acceleration ตามปกติ
+
+งานภายในโปรแกรมที่ต้องเรียก PowerShell ใช้ `powershell.exe` ที่มากับ Windows ไม่บังคับให้ติดตั้ง PowerShell 7 และ child process ภายในถูกเปิดแบบซ่อนหน้าต่าง console. ระบบยังจำกัด durable background task พร้อมกันไว้ 16 งาน และ managed process พร้อมกันไว้ 24 งาน เพื่อกันกรณีหลายแชทสั่งงานพร้อมกันจนเกิด `conhost.exe` จำนวนมาก/CPU เต็ม
 - `lnwjud-Setup-4.11.0.exe` หรือ `lnwjud-Portable-4.11.0.exe`
 - OpenAI Platform tunnel ที่ผูกกับ ChatGPT workspace ที่จะใช้
 - Runtime API key ที่มีสิทธิ์ **Tunnels Read + Use**
@@ -46,6 +50,16 @@ Node.js, pnpm และ Git จำเป็นเฉพาะกรณีพั�
 Portable ของ lnwjud หมายถึง **ตัวโปรแกรมเปิดได้โดยไม่ต้องติดตั้ง** แต่ตั้งใจใช้ข้อมูล/Settings ต่อผู้ใช้ Windows ชุดเดียวกับตัวติดตั้ง จึงไม่ใช่โหมดที่เก็บ database/settings ทุกอย่างไว้ข้างไฟล์ EXE ถ้าเคยใช้ตัวติดตั้งใน Windows account เดียวกัน Portable จะเห็นการตั้งค่าชุดเดียวกัน
 
 ทั้ง Installer และ Portable รวม `tunnel-client.exe` และ private Node runtime ไว้ใน package โดย lnwjud จะเลือก path ภายใน package เองเมื่อช่อง Tunnel Client Override ว่าง
+
+### Auto Update แยกตามชนิดที่ใช้อยู่
+
+- ถ้ากำลังใช้ **Installer** โปรแกรมจะอ่าน `latest.yml` และดาวน์โหลด/ติดตั้ง `lnwjud-Setup-<version>.exe` รุ่นใหม่
+- ถ้ากำลังใช้ **Portable** โปรแกรมจะอ่าน `portable.yml` และดาวน์โหลด `lnwjud-Portable-<version>.exe` รุ่นใหม่เท่านั้น
+- Portable updater จะรอให้โปรแกรมเดิมปิด, สำรอง EXE เดิม, วาง EXE ใหม่ทับ **path เดิมที่ผู้ใช้เปิดอยู่**, เปิดโปรแกรมใหม่ และ rollback กลับ EXE เดิมถ้าการ replace ล้มเหลว
+- Auto Update จะ **ไม่เปลี่ยนชนิดให้เอง**: Portable จะไม่กลายเป็น Installer และ Installer จะไม่ถูกเปลี่ยนเป็น Portable
+- ไฟล์ update ถูกตรวจตาม SHA-512/size ใน update manifest ก่อนเข้าสู่ขั้นตอน install/replace
+
+ดังนั้นผู้ใช้เลือกแบบไหนตอนดาวน์โหลดครั้งแรก ก็จะได้รับ update ของแบบนั้นต่อไป ข้อมูล/Settings ต่อผู้ใช้ Windows ยังคงใช้ชุดเดิมตามปกติ
 
 ## 3. สร้าง OpenAI Tunnel และ Runtime API key
 
@@ -126,7 +140,21 @@ ChatGPT → OpenAI Secure MCP Tunnel → bundled tunnel-client → lnwjud Deskto
 
 ประวัติเก่าที่บันทึกมาตั้งแต่ build ก่อนมี target detail ไม่สามารถย้อนสร้าง command ที่ไม่เคยถูกเก็บได้ จึงจะแสดง `details unavailable (legacy log)` แทนการทำให้เข้าใจผิดว่า `SUCCESS` คือรายละเอียดคำสั่ง
 
-## 8. Active Projects และหลายแชทพร้อมกัน
+## 8. Durable Goal Continuation / ทำงานต่อจากจุดเดิม
+
+v4.11.0 เพิ่มเครื่องมือ `run_goal`, `get_goal`, `checkpoint_goal`, `finish_goal` และ `list_goals` สำหรับงานที่ต้องทำต่อหลายรอบ/หลาย session โดยไม่พึ่งข้อความแชทอย่างเดียว
+
+- Goal ถูกเก็บใน SQLite ด้วย `workspaceId + goalKey` ที่คงที่
+- checkpoint เป็นประวัติ append-only และแต่ละการแก้ state ใช้ revision compare-and-swap เพื่อกันสอง turn เขียนทับกัน
+- lease มีเวลาหมดอายุและ takeover ได้หลัง expiry; raw lease token ไม่ถูกเก็บลงฐานข้อมูล มีเฉพาะ SHA-256 hash
+- owner ผูกกับ stable MCP `clientId` จึง resume ต่อได้แม้ session/tunnel reconnect เปลี่ยนไป แต่ client อื่นไม่สามารถแย่ง goal ได้
+- `activeTaskIds` ถูกเก็บไว้ใน checkpoint เพื่อให้ turn ถัดไปตรวจ task เดิมก่อน ไม่สั่ง build/test/mutation ซ้ำโดยไม่จำเป็น
+- `finish_goal` ปิด goal เป็น `completed`, `failed` หรือ `blocked`; goal ที่จบแล้วจะไม่ถูกเปิดกลับเอง
+- ข้อมูล summary/evidence ที่เข้าข่าย token/password/API key ถูก redact ก่อน persist/log
+
+สำหรับงานยาว ให้ checkpoint หลังจบ phase สำคัญหรือหลังเริ่ม durable background task แล้วใส่ `nextAction` ให้ชัดว่า turn ถัดไปต้องตรวจอะไรต่อ
+
+## 9. Active Projects และหลายแชทพร้อมกัน
 
 v4.11.0 รองรับ Active Projects หลายรายการพร้อมกัน
 
@@ -138,7 +166,7 @@ v4.11.0 รองรับ Active Projects หลายรายการพร�
 
 อย่าเลือกทั้งไดรฟ์เป็น Active Project เพียงเพื่อความสะดวก ถ้างานจริงอยู่ใน project folder ที่เจาะจง
 
-## 9. Permission และการลบไฟล์
+## 10. Permission และการลบไฟล์
 
 Profile หลัก:
 
@@ -151,7 +179,7 @@ Profile หลัก:
 
 `delete_file` เป็น deletion primitive ที่ออกแบบให้ทำงานร่วมกับ Recovery Trash เมื่อ target รองรับการกู้คืน ส่วนคำสั่ง arbitrary shell/script ถือเป็น opaque execution และไม่ควรสมมติว่าสามารถกู้ผ่าน Recovery Trash ได้ทุกกรณี
 
-## 10. Recovery Center
+## 11. Recovery Center
 
 เปิด **Settings → Recovery Center**
 
@@ -168,7 +196,7 @@ Profile หลัก:
 
 เมื่อเปลี่ยนจากไม่ลบอัตโนมัติไปเป็น retention ที่สั้นลง โปรแกรมจะเตือนก่อน เพราะข้อมูลเก่าอาจถูก cleanup ทันที
 
-## 11. Live Logs
+## 12. Live Logs
 
 Live Logs ใช้ดูสถานะ realtime ของ:
 
@@ -178,7 +206,7 @@ Live Logs ใช้ดูสถานะ realtime ของ:
 
 ถ้างาน fail ให้ดู Live Logs และหน้า Doctor ก่อน ไม่จำเป็นต้องเปิด PowerShell เพื่อรัน tunnel-client เอง
 
-## 12. Doctor / Troubleshooting
+## 13. Doctor / Troubleshooting
 
 อาการที่พบบ่อย:
 
@@ -197,7 +225,7 @@ Live Logs ใช้ดูสถานะ realtime ของ:
 
 หน้า Doctor ของ v4.11.0 ตรวจ Persistent Tunnel identity/runtime, readiness, health, polling, local MCP binding และ tunnel-ID mismatch ได้ด้วย
 
-## 13. Local STDIO สำหรับ Codex/IDE
+## 14. Local STDIO สำหรับ Codex/IDE
 
 Secure Tunnel สำหรับ ChatGPT web ใช้ **Desktop HTTP MCP** และ bundled tunnel-client
 
@@ -209,7 +237,7 @@ lnwjud-mcp-stdio.cmd --workspace E:\projects\my-app
 
 ตัว release bundle private Node.js 24 มาให้ launcher นี้แล้ว จึงไม่ต้องลง Node.js system-wide
 
-## 14. Build จาก source
+## 15. Build จาก source
 
 เฉพาะนักพัฒนา:
 
@@ -237,6 +265,8 @@ corepack pnpm@10.15.0 package:windows
 ```text
 apps/desktop/dist/installers/lnwjud-Setup-4.11.0.exe
 apps/desktop/dist/installers/lnwjud-Portable-4.11.0.exe
+apps/desktop/dist/installers/latest.yml
+apps/desktop/dist/installers/portable.yml
 ```
 
 ดูรายละเอียด architecture/tool catalog เพิ่มเติมที่ `README.md`, `docs/mcp/MCP_TOOL_CATALOG.md` และ `docs/architecture/`

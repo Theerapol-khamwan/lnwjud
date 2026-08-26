@@ -10,6 +10,7 @@ import type {
   FileActor,
   FileService,
   GitService,
+  GoalContinuationService,
   MoveFileRequest,
   ProcessService,
   ProjectService,
@@ -53,6 +54,7 @@ export interface McpApplicationServices {
   readonly project?: Pick<ProjectService, 'detect'>;
   readonly file?: Pick<FileService, 'readFile' | 'readFiles' | 'writeFile' | 'applyPatch' | 'editFile' | 'moveFile' | 'copyFile' | 'deleteFile' | 'listRecoveryItems' | 'restoreDeletedFile' | 'prepareExternalFileMutation'>;
   readonly checkpoint?: Pick<CheckpointService, 'list' | 'restore'>;
+  readonly goals?: Pick<GoalContinuationService, 'runGoal' | 'getGoal' | 'checkpointGoal' | 'finishGoal' | 'listGoals'>;
   readonly search?: Pick<SearchService, 'searchFiles' | 'searchText'>;
   readonly workspaceIndex?: Pick<WorkspaceIndexService, 'indexWorkspace' | 'status' | 'startWatch' | 'stopWatch'>;
   readonly git?: Pick<GitService, 'status' | 'diff' | 'log' | 'run'>;

@@ -6,7 +6,9 @@ $installerDirectory = Join-Path $desktopDirectory 'dist\installers'
 $rootPackage = Get-Content -LiteralPath (Join-Path $repositoryRoot 'package.json') -Raw | ConvertFrom-Json
 $expectedArtifacts = @(
     "lnwjud-Setup-$($rootPackage.version).exe",
-    "lnwjud-Portable-$($rootPackage.version).exe"
+    "lnwjud-Portable-$($rootPackage.version).exe",
+    'latest.yml',
+    'portable.yml'
 )
 
 Push-Location $repositoryRoot

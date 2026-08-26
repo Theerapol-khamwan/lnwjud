@@ -23,7 +23,7 @@ describe('Windows desktop packaging', () => {
       repository?: { type?: unknown; url?: unknown };
     };
 
-    expect(desktopPackage.description).toBe('Windows-first local AI-agent runtime and MCP gateway with 218 configurable tools.');
+    expect(desktopPackage.description).toBe('Windows-first local AI-agent runtime and MCP gateway with 223 configurable tools.');
     expect(desktopPackage.author).toBe('Adisorn');
     expect(desktopPackage.homepage).toBe('https://github.com/engasnm111/lnwjud#readme');
     expect(desktopPackage.repository).toEqual({ type: 'git', url: 'https://github.com/engasnm111/lnwjud.git' });
@@ -43,6 +43,7 @@ describe('Windows desktop packaging', () => {
     expect(config).toContain('portable:');
     expect(config).toContain('artifactName: lnwjud-Portable-${version}.${ext}');
     expect(desktopPackage.scripts?.['package:windows']).toContain('--win nsis portable --x64');
+    expect(desktopPackage.scripts?.['package:windows']).toContain('write-portable-update-manifest.mjs');
     expect(config).toContain('icon: build/icon.ico');
     expect(config).toContain('signAndEditExecutable: true');
     expect(config).not.toContain('signAndEditExecutable: false');
@@ -126,4 +127,12 @@ describe('Windows desktop packaging', () => {
     }
   }, 30_000);
 
+  it('defines a dedicated Portable update manifest instead of reusing the Installer feed', async () => {
+    const manifestScript = await readFile(path.join(desktopRoot, 'scripts', 'write-portable-update-manifest.mjs'), 'utf8');
+    expect(manifestScript).toContain('lnwjud-Portable-${version}.exe');
+    expect(manifestScript).toContain("createHash('sha512')");
+    expect(manifestScript).toContain('size: ${metadata.size}');
+    expect(manifestScript).toContain("'portable.yml'");
+    expect(manifestScript).not.toContain('lnwjud-Setup-${version}.exe');
+  });
 });

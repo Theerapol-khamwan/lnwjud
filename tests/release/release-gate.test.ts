@@ -11,7 +11,7 @@ describe('MVP release verification gate', () => {
       'install --frozen-lockfile',
       'lint',
       'typecheck',
-      'test',
+      'test:release',
       'test:acceptance',
       'test:integration',
       'test:e2e',
@@ -27,6 +27,8 @@ describe('MVP release verification gate', () => {
       previousIndex = index;
     }
     expect(script).toContain('if ($LASTEXITCODE -ne 0)');
+    expect(script).toContain("'latest.yml'");
+    expect(script).toContain("'portable.yml'");
     expect(script).toContain('git diff --check');
     expect(script).toContain('lnwjud-Setup-$($rootPackage.version).exe');
     expect(script).toContain('lnwjud-Portable-$($rootPackage.version).exe');
@@ -89,6 +91,9 @@ describe('MVP release verification gate', () => {
     const release = await readFile(path.join(repositoryRoot, '.github', 'workflows', 'release.yml'), 'utf8');
 
     expect(ci).toContain('actions/upload-artifact@v4');
+    expect(ci).toContain('apps/desktop/dist/installers/latest.yml');
+    expect(ci).toContain('apps/desktop/dist/installers/portable.yml');
+    expect(ci).toContain('apps/desktop/dist/installers/*.blockmap');
     expect(ci).toContain('windows-release-${{ github.sha }}');
     expect(ci).toContain('apps/desktop/dist/installers/*.exe');
     expect(ci.indexOf('Run authoritative verification gate')).toBeLessThan(ci.indexOf('Upload verified Windows release artifact'));
@@ -102,6 +107,8 @@ describe('MVP release verification gate', () => {
     expect(release).toContain('successful CI run for exact commit');
     expect(release).toContain('lnwjud-Portable-$($package.version).exe');
     expect(release).not.toContain('verify-release.ps1');
+    expect(release).toContain('apps/desktop/dist/installers/latest.yml');
+    expect(release).toContain('apps/desktop/dist/installers/portable.yml');
     expect(release).not.toContain('Run authoritative verification gate');
     expect(release).not.toContain('package:windows');
     expect(release).not.toContain('Install ripgrep for E2E search');

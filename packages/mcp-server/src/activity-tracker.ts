@@ -136,6 +136,9 @@ export class ActivityTracker {
 export function summarizeToolTarget(toolName: string, input: unknown): string | undefined {
   if (!isRecord(input)) return humanizeToolName(toolName);
 
+  const goalTarget = goalActivitySummary(toolName, input);
+  if (goalTarget !== undefined) return goalTarget;
+
   const command = commandSummary(toolName, input);
   if (command !== undefined) return command;
 
@@ -269,6 +272,7 @@ function identifierSummary(input: Readonly<Record<string, unknown>>): string | u
     ['taskId', 'task'],
     ['codexTaskId', 'codex-task'],
     ['checkpointId', 'checkpoint'],
+    ['goalId', 'goal'],
     ['recoveryId', 'recovery'],
     ['continuationToken', 'continuation'],
     ['observationId', 'observation'],
@@ -340,6 +344,17 @@ function shortOpaqueId(value: string): string {
   return value.length <= 14 ? value : `${value.slice(0, 8)}…${value.slice(-4)}`;
 }
 
+function goalActivitySummary(toolName: string, input: Readonly<Record<string, unknown>>): string | undefined {
+  if (!['run_goal', 'get_goal', 'checkpoint_goal', 'finish_goal', 'list_goals'].includes(toolName)) return undefined;
+  const goalId = firstString(input, ['goalId']);
+  if (goalId !== undefined) return `goal=${shortOpaqueId(goalId)}`;
+  const goalKey = firstString(input, ['goalKey']);
+  const workspaceId = firstString(input, ['workspaceId']);
+  if (goalKey !== undefined && workspaceId !== undefined) return summarizeForLog(`goalKey=${goalKey} workspace=${shortOpaqueId(workspaceId)}`);
+  if (workspaceId !== undefined) return `workspace=${shortOpaqueId(workspaceId)}`;
+  return toolName === 'list_goals' ? 'list durable goals' : humanizeToolName(toolName);
+}
+
 function defaultToolSummary(toolName: string): string | undefined {
   switch (toolName) {
     case 'git_status': return 'git status';
@@ -353,6 +368,7 @@ function defaultToolSummary(toolName: string): string | undefined {
     case 'codex_task_list': return 'list codex tasks';
     case 'mcp_list': return 'list child MCP servers';
     case 'verify_incremental': return 'project typecheck (incremental verification)';
+    case 'list_goals': return 'list durable goals';
     default: return undefined;
   }
 }

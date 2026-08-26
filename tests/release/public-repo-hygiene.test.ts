@@ -71,7 +71,8 @@ describe('public repository hygiene', () => {
     expect(readme).toContain(`apps/desktop/dist/installers/lnwjud-Portable-${version}.exe`);
     expect(readme).not.toContain('current source/release candidate is');
     expect(readme).not.toContain('pending publication');
-    expect(readme).toContain('218 configurable tools');
+    expect(readme).toContain('223 configurable tools');
+    expect(readme).toContain('217 advertised by default');
     expect(readme).not.toContain(['Verify the ', '184-tool catalog'].join(''));
     expect(readme).not.toContain(['current v3.0.0 catalog contains ', '184 tools'].join(''));
     expect(readme).not.toContain('packaged v3.0.0 build');

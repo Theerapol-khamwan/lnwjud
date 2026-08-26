@@ -49,6 +49,7 @@ jobs:
             apps/desktop/dist/installers/*.exe
             apps/desktop/dist/installers/*.blockmap
             apps/desktop/dist/installers/latest.yml
+            apps/desktop/dist/installers/portable.yml
           if-no-files-found: error
           retention-days: 14
           compression-level: 0

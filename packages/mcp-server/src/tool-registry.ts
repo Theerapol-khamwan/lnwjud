@@ -23,6 +23,7 @@ import { codexTools } from './tools/codex-tools.js';
 import { capabilityTools } from './tools/capability-tools.js';
 import { fileTools } from './tools/file-tools.js';
 import { gitTools } from './tools/git-tools.js';
+import { goalTools } from './tools/goal-tools.js';
 import { mcpBridgeTools } from './tools/mcp-bridge-tools.js';
 import { processTools } from './tools/process-tools.js';
 import { sessionTools } from './tools/session-tools.js';
@@ -141,6 +142,7 @@ export class ToolRegistry {
       ...filePageTools(filePageEngine),
       ...workspaceIndexTools(context),
       ...sessionTools(context, incrementalVerifier),
+      ...goalTools(context),
       ...upgradeTools(context),
     ];
     this.tools = [

@@ -6,6 +6,7 @@ import {
   CodexService,
   FileService,
   GitService,
+  GoalContinuationService,
   ProjectService,
   ProjectSnapshotService,
   ProcessService,
@@ -82,6 +83,7 @@ import {
   type DestructiveAutoApprovalPolicy,
 } from '@lnwjud/shared';
 import { AesGcmCheckpointCipher, SqliteAuditRepository, SqliteBackupService, SqliteCheckpointRepository, SqliteDatabase, SqliteSettingsRepository, SqliteWorkspaceRepository, type BackupReason, type BackupSummary } from '@lnwjud/storage';
+import { SqliteGoalRepository } from '@lnwjud/storage';
 import type { Workspace } from '@lnwjud/workspace';
 import { isDriveRoot, machineRootPath, SecretPolicy, WorkspacePathGuard, WorkspaceService } from '@lnwjud/workspace';
 import {
@@ -170,6 +172,8 @@ export function createDesktopRuntime(dataPath: string, options: DesktopRuntimeOp
   const backupDirectory = path.join(dataPath, 'backups');
   const database = new SqliteDatabase(databaseFilename, { backupDirectory });
   const workspaceRepository = new SqliteWorkspaceRepository(database);
+  const goalRepository = new SqliteGoalRepository(database);
+  const goalService = new GoalContinuationService(workspaceRepository, goalRepository);
   const workspaceIndex = new WorkspaceIndexService(workspaceRepository, new JsonWorkspaceIndexStore(path.join(dataPath, 'workspace-index')));
   const settingsRepository = new SqliteSettingsRepository(database);
   const workLogViewState = new WorkLogViewState(settingsRepository);
@@ -272,6 +276,7 @@ export function createDesktopRuntime(dataPath: string, options: DesktopRuntimeOp
     project: projectService,
     file: fileService,
     checkpoint: checkpointService,
+    goals: goalService,
     search: searchService,
     workspaceIndex,
     git: gitService,

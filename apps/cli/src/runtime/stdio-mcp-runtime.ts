@@ -6,6 +6,7 @@ import {
   CodexService,
   FileService,
   GitService,
+  GoalContinuationService,
   ProcessService,
   ProjectService,
   ProjectSnapshotService,
@@ -49,6 +50,7 @@ import {
   SqliteAuditRepository,
   SqliteCheckpointRepository,
   SqliteDatabase,
+  SqliteGoalRepository,
   SqliteSettingsRepository,
   SqliteWorkspaceRepository,
 } from '@lnwjud/storage';
@@ -87,6 +89,8 @@ export function createStdioMcpRuntime(
   const workspaceRepository = options.strictAllowedRoots === undefined
     ? rawWorkspaceRepository
     : new StrictWorkspaceRepository(rawWorkspaceRepository, options.strictAllowedRoots);
+  const goalRepository = new SqliteGoalRepository(database);
+  const goalService = new GoalContinuationService(workspaceRepository, goalRepository);
   const workspaceIndex = new WorkspaceIndexService(workspaceRepository, new JsonWorkspaceIndexStore(path.join(dataPath, 'workspace-index')));
   const settingsRepository = new SqliteSettingsRepository(database);
   const auditRepository = new SqliteAuditRepository(database);
@@ -206,6 +210,7 @@ export function createStdioMcpRuntime(
     project: projectService,
     file: fileService,
     checkpoint: checkpointService,
+    goals: goalService,
     search: new SearchService(workspaceRepository),
     workspaceIndex,
     git: gitService,

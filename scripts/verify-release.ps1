@@ -68,7 +68,9 @@ try {
     $rootPackage = Get-Content -LiteralPath (Join-Path $repositoryRoot 'package.json') -Raw | ConvertFrom-Json
     $requiredWindowsArtifacts = @(
         "lnwjud-Setup-$($rootPackage.version).exe",
-        "lnwjud-Portable-$($rootPackage.version).exe"
+        "lnwjud-Portable-$($rootPackage.version).exe",
+        'latest.yml',
+        'portable.yml'
     )
     foreach ($artifactName in $requiredWindowsArtifacts) {
         $artifactPath = Join-Path $installerDirectory $artifactName

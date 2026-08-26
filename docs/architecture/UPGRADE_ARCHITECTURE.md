@@ -41,7 +41,7 @@ MCP clients (ChatGPT / Codex / Claude / other agents)
              MCP stdio or loopback Streamable HTTP
                          |
                          v
-                  ToolRegistry (218 configurable tools; 212 advertised by default)
+                  ToolRegistry (223 configurable tools; 217 advertised by default)
                          |
        +-----------------+------------------+
        |                 |                  |
@@ -103,13 +103,14 @@ builds the high-impact slices on top of it:
 | Set-of-Marks | `SetOfMarksService` correlates Accessibility observation + vision PNG, stores TTL/hash, then revalidates the mark before action | unknown, stale, expired, cross-workspace, or unconfirmed actions are rejected |
 | WinRT OCR | `VisionCapabilityBackend` routes only `action: ocr` to `WindowsOcrCapabilityBackend` and the packaged C# helper | no package identity/helper/language returns `available: false` |
 | Router | deterministic token/tag scorer with primitive visibility, reason codes, permission metadata, and local-rerank fallback | ranking never grants permission and local data never leaves the machine |
+| Durable Goal Continuation | `GoalContinuationService` + SQLite `goals`/append-only `goal_checkpoints`; stable client ownership, expiring hashed-token leases, revision CAS, active task IDs | corrupt state, stale revisions, wrong owner/lease, or terminal mutations fail closed; a resumed turn inspects persisted state instead of repeating work |
 | Later Windows/dev/productivity waves | catalog descriptors include requirements, availability, cancellation, dry-run, and audit target; Sandbox has an artifact-only WSB plan | missing optional runtime is `optional`/`planned`, never a fake successful execution |
 
 Long-running operations use the existing task handles where a concrete backend
 exists. Activity events now carry bounded `traceId`/`traceParent` values into
 NDJSON and SQLite audit metadata. The 184-tool snapshot remains a historical
-compatibility baseline. Current transports support 218 configurable tools and
-advertise 212 by default because the six Codex delegation tools are opt-in;
+compatibility baseline. Current transports support 223 configurable tools and
+advertise 217 by default because the six Codex delegation tools are opt-in;
 registry additions remain append-only.
 
 ## Request and side-effect pipeline
