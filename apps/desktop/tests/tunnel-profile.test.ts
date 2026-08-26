@@ -107,6 +107,40 @@ describe('tunnel profile MCP target', () => {
     expect(next.indexOf('api_key:')).toBeLessThan(next.indexOf('mcp:'));
   });
 
+  it('reads and repairs tunnel-client JSON profiles even when the file extension is .yaml', () => {
+    const profile = JSON.stringify({
+      config_version: 1,
+      control_plane: {
+        base_url: 'https://api.openai.com',
+        tunnel_id: 'tunnel_0123456789abcdef0123456789abcdef',
+        api_key: 'literal-must-not-remain',
+      },
+      mcp: {
+        server_urls: [
+          { channel: 'backup', url: 'http://127.0.0.1:19999/mcp' },
+          { channel: 'main', url: 'http://127.0.0.1:3001/mcp' },
+        ],
+      },
+      log: { level: 'info' },
+    }, null, 2) + '\n';
+
+    const withMcp = rewriteTunnelYamlMcpServerUrl(profile, 'http://127.0.0.1:18765/mcp');
+    const next = rewriteTunnelYamlRuntimeApiKeyRef(withMcp);
+    const parsed = JSON.parse(next) as {
+      control_plane: { tunnel_id: string; api_key: string };
+      mcp: { connection_max_ttl: string; server_urls: Array<{ channel: string; url: string }> };
+      log: { level: string };
+    };
+
+    expect(extractTunnelId(next)).toBe('tunnel_0123456789abcdef0123456789abcdef');
+    expect(extractTunnelMcpServerUrl(next)).toBe('http://127.0.0.1:18765/mcp');
+    expect(parsed.control_plane.api_key).toBe('env:CONTROL_PLANE_API_KEY');
+    expect(parsed.mcp.connection_max_ttl).toBe('168h0m0s');
+    expect(parsed.mcp.server_urls.find((entry) => entry.channel === 'main')?.url).toBe('http://127.0.0.1:18765/mcp');
+    expect(parsed.mcp.server_urls.find((entry) => entry.channel === 'backup')?.url).toBe('http://127.0.0.1:19999/mcp');
+    expect(parsed.log.level).toBe('info');
+  });
+
   it('normalizes only loopback HTTP MCP endpoints', () => {
     expect(normalizeLoopbackMcpUrl('http://localhost:3001/anything?x=1#fragment')).toBe('http://localhost:3001/mcp');
     expect(() => normalizeLoopbackMcpUrl('https://127.0.0.1:3001/mcp')).toThrow(/loopback HTTP/i);

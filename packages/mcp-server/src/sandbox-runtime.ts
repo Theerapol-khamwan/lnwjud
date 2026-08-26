@@ -64,7 +64,10 @@ export class SandboxRuntimeService {
     options: SandboxRuntimeOptions = {},
   ) {
     this.platform = options.platform ?? process.platform;
-    this.sandboxExecutable = options.sandboxExecutable ?? path.join(process.env.SystemRoot ?? 'C:\\Windows', 'System32', 'WindowsSandbox.exe');
+    const systemRoot = process.env.SystemRoot ?? process.env.WINDIR;
+    this.sandboxExecutable = options.sandboxExecutable ?? (systemRoot === undefined
+      ? 'WindowsSandbox.exe'
+      : path.join(systemRoot, 'System32', 'WindowsSandbox.exe'));
     this.pollMs = Math.max(100, options.pollMs ?? DEFAULT_POLL_MS);
     this.startupGraceSeconds = Math.max(0, options.startupGraceSeconds ?? DEFAULT_STARTUP_GRACE_SECONDS);
     this.maxArtifactBytes = Math.max(1_024, options.maxArtifactBytes ?? DEFAULT_MAX_ARTIFACT_BYTES);

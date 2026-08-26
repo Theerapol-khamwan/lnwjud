@@ -82,6 +82,59 @@ describe('TunnelController lifecycle', () => {
     expect(probes).toBe(1);
   });
 
+  it('enriches Doctor status from a live external runtime alias without taking ownership', async () => {
+    const dataPath = await mkdtemp(path.join(os.tmpdir(), 'lnwjud-tunnel-doctor-observe-'));
+    temporaryRoots.push(dataPath);
+    const appData = path.join(dataPath, 'appdata');
+    vi.stubEnv('APPDATA', appData);
+    const profileDir = path.join(appData, 'tunnel-client');
+    await (await import('node:fs/promises')).mkdir(profileDir, { recursive: true });
+    await writeFile(path.join(profileDir, 'lnwjud.yaml'), JSON.stringify({
+      control_plane: { tunnel_id: 'tunnel_fixture012345' },
+      mcp: { server_urls: [{ channel: 'main', url: 'http://127.0.0.1:18765/mcp' }] },
+    }, null, 2), 'utf8');
+    const clientPath = path.join(dataPath, 'tunnel-client.exe');
+    await writeFile(clientPath, 'fixture', 'utf8');
+    const adapter: TunnelRuntimeReconcilerAdapter = {
+      runtimeAlias: (): string => 'lnwjud',
+      capabilities: vi.fn(async () => ({
+        clientVersion: '0.0.12+fixture', nativeRuntimes: true, managedConnect: true, healthProbe: true,
+        pollHealthGate: true, readyBeforeRetire: false, strictZeroDowntime: false, evidence: 'fixture',
+      })),
+      status: vi.fn(async () => ({
+        exists: true, running: true, healthy: true, ready: true, pollHealthy: null,
+        tunnelId: 'tunnel_fixture012345', mcpServerUrl: 'http://127.0.0.1:18765/mcp', pid: 4321, uiUrl: null, message: null,
+      })),
+      connect: vi.fn(async () => { throw new Error('connect should not be called'); }),
+      stop: vi.fn(async () => { throw new Error('stop should not be called'); }),
+    };
+    const controller = new TunnelController({
+      getClientPath: (): string => clientPath,
+      setClientPath: (): void => undefined,
+      getDataPath: (): string => dataPath,
+      getTunnelId: (): string => 'tunnel_fixture012345',
+      setTunnelId: (): void => undefined,
+      createRuntimeAdapter: (): TunnelRuntimeReconcilerAdapter => adapter,
+      isExternalTunnelRunning: async (): Promise<boolean> => true,
+    });
+
+    await expect(controller.diagnosticStatus()).resolves.toMatchObject({
+      state: 'running',
+      source: 'external',
+      persistent: {
+        mode: 'external',
+        runtimeAliasActive: true,
+        healthy: true,
+        ready: true,
+        pollHealthy: null,
+        localMcpUrl: 'http://127.0.0.1:18765/mcp',
+      },
+    });
+    expect(adapter.status).toHaveBeenCalledTimes(1);
+    expect(adapter.connect).not.toHaveBeenCalled();
+    expect(adapter.stop).not.toHaveBeenCalled();
+  });
+
   it('stops the persisted native lnwjud alias after Desktop restart when the stored Tunnel ID still matches', async () => {
     const dataPath = await mkdtemp(path.join(os.tmpdir(), 'lnwjud-tunnel-persisted-stop-'));
     temporaryRoots.push(dataPath);

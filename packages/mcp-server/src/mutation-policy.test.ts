@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { inspectMutationOperation, requiresMutationConfirmation } from './mutation-policy.js';
+import { inspectMutationOperation, permissionLevelForMutationDecision, requiresMutationConfirmation } from './mutation-policy.js';
 import type { McpPermissionLevel } from './tools/tool-types.js';
 
 type MutationKind = 'read' | 'execute' | 'bounded_write' | 'replace' | 'delete' | 'opaque_mutation';
@@ -55,28 +55,41 @@ const cases: readonly MutationCase[] = [
   { label: 'Office replacement dry run', tool: 'office', input: { action: 'replace', dry_run: true }, permission: 'WRITE', kind: 'read' },
   { label: 'DOCX merge preview by default', tool: 'docx_merge', input: {}, permission: 'WRITE', kind: 'read' },
   { label: 'DOCX merge apply', tool: 'docx_merge', input: { dryRun: false }, permission: 'WRITE', kind: 'replace' },
-  { label: 'PowerPoint save-as preview by default', tool: 'office_ppt', input: { action: 'save_as' }, permission: 'DANGEROUS', kind: 'read' },
-  { label: 'PowerPoint save-as apply', tool: 'office_ppt', input: { action: 'save_as', dryRun: false }, permission: 'DANGEROUS', kind: 'replace' },
+  { label: 'PowerPoint save-as preview by default', tool: 'office_ppt', input: { action: 'save_as' }, permission: 'WRITE', kind: 'read' },
+  { label: 'PowerPoint save-as apply', tool: 'office_ppt', input: { action: 'save_as', dryRun: false }, permission: 'WRITE', kind: 'replace' },
+  { label: 'browser launch is ordinary execution', tool: 'dom_cdp', input: { action: 'launch' }, permission: 'READ', kind: 'execute' },
   { label: 'opaque browser evaluation', tool: 'dom_cdp', input: { action: 'evaluate' }, permission: 'READ', kind: 'opaque_mutation' },
   { label: 'opaque browser typing', tool: 'dom_cdp', input: { action: 'type' }, permission: 'READ', kind: 'opaque_mutation' },
   { label: 'opaque browser navigation', tool: 'dom_cdp', input: { action: 'navigate' }, permission: 'READ', kind: 'opaque_mutation' },
+  { label: 'accessibility focus is ordinary execution', tool: 'accessibility', input: { action: 'focus' }, permission: 'READ', kind: 'execute' },
+  { label: 'accessibility click remains opaque', tool: 'accessibility', input: { action: 'click' }, permission: 'READ', kind: 'opaque_mutation' },
+  { label: 'marked value read is read-only', tool: 'ui_target_action', input: { action: 'read_value' }, permission: 'EXECUTE', kind: 'read' },
+  { label: 'marked focus is ordinary execution', tool: 'ui_target_action', input: { action: 'focus' }, permission: 'EXECUTE', kind: 'execute' },
   { label: 'delegated coding agent', tool: 'codex_run', input: { instruction: 'edit files' }, permission: 'EXECUTE', kind: 'opaque_mutation' },
   { label: 'child MCP call', tool: 'mcp_call', input: { server: 'child', tool: 'read_file' }, permission: 'EXECUTE', kind: 'opaque_mutation' },
   { label: 'batch dispatcher delegates policy to each child', tool: 'tool_batch', input: { calls: [] }, permission: 'EXECUTE', kind: 'read' },
-  { label: 'workspace registration listing', tool: 'workspace_list', input: {}, permission: 'DANGEROUS', kind: 'read' },
+  { label: 'workspace registration listing', tool: 'workspace_list', input: {}, permission: 'READ', kind: 'read' },
   { label: 'bounded workspace registration', tool: 'workspace_register', input: {}, permission: 'WRITE', kind: 'bounded_write' },
-  { label: 'skill catalog listing', tool: 'skills_list', input: {}, permission: 'DANGEROUS', kind: 'read' },
-  { label: 'skill content read', tool: 'skills_read', input: { skillId: 'a/b' }, permission: 'DANGEROUS', kind: 'read' },
-  { label: 'MCP server listing', tool: 'mcp_list', input: {}, permission: 'DANGEROUS', kind: 'read' },
-  { label: 'MCP server description', tool: 'mcp_describe', input: { server: 'child' }, permission: 'DANGEROUS', kind: 'read' },
-  { label: 'clipboard text read', tool: 'clipboard', input: { action: 'get_text' }, permission: 'DANGEROUS', kind: 'read' },
-  { label: 'clipboard write', tool: 'clipboard', input: { action: 'set_text', text: 'value' }, permission: 'DANGEROUS', kind: 'opaque_mutation' },
-  { label: 'audio recording replacement', tool: 'audio', input: { action: 'record', output_path: 'capture.wav' }, permission: 'DANGEROUS', kind: 'replace' },
-  { label: 'audio recording dry run', tool: 'audio', input: { action: 'record', output_path: 'capture.wav', dry_run: true }, permission: 'DANGEROUS', kind: 'read' },
-  { label: 'audio playback remains opaque', tool: 'audio', input: { action: 'play', file_path: 'capture.wav' }, permission: 'DANGEROUS', kind: 'opaque_mutation' },
-  { label: 'screen recording status', tool: 'screen_record', input: { action: 'status' }, permission: 'DANGEROUS', kind: 'read' },
-  { label: 'screen recording replacement', tool: 'screen_record', input: { action: 'start', output_path: 'capture.mp4' }, permission: 'DANGEROUS', kind: 'replace' },
-  { label: 'screen recording dry run', tool: 'screen_record', input: { action: 'start', output_path: 'capture.mp4', dry_run: true }, permission: 'DANGEROUS', kind: 'read' },
+  { label: 'skill catalog listing', tool: 'skills_list', input: {}, permission: 'READ', kind: 'read' },
+  { label: 'skill content read', tool: 'skills_read', input: { skillId: 'a/b' }, permission: 'READ', kind: 'read' },
+  { label: 'MCP server listing', tool: 'mcp_list', input: {}, permission: 'READ', kind: 'read' },
+  { label: 'MCP server description', tool: 'mcp_describe', input: { server: 'child' }, permission: 'READ', kind: 'read' },
+  { label: 'clipboard text read', tool: 'clipboard', input: { action: 'get_text' }, permission: 'EXECUTE', kind: 'read' },
+  { label: 'clipboard write', tool: 'clipboard', input: { action: 'set_text', text: 'value' }, permission: 'EXECUTE', kind: 'opaque_mutation' },
+  { label: 'audio recording is privacy-sensitive', tool: 'audio', input: { action: 'record', output_path: 'capture.wav' }, permission: 'EXECUTE', kind: 'opaque_mutation' },
+  { label: 'audio recording dry run', tool: 'audio', input: { action: 'record', output_path: 'capture.wav', dry_run: true }, permission: 'EXECUTE', kind: 'read' },
+  { label: 'audio playback is ordinary execution', tool: 'audio', input: { action: 'play', file_path: 'capture.wav' }, permission: 'EXECUTE', kind: 'execute' },
+  { label: 'screen recording status', tool: 'screen_record', input: { action: 'status' }, permission: 'EXECUTE', kind: 'read' },
+  { label: 'screen recording start is privacy-sensitive', tool: 'screen_record', input: { action: 'start', output_path: 'capture.mp4' }, permission: 'EXECUTE', kind: 'opaque_mutation' },
+  { label: 'screen recording dry run', tool: 'screen_record', input: { action: 'start', output_path: 'capture.mp4', dry_run: true }, permission: 'EXECUTE', kind: 'read' },
+  { label: 'bounded read-only SQLite query', tool: 'db_query', input: { sql: 'SELECT 1' }, permission: 'READ', kind: 'read' },
+  { label: 'plugin descriptor registration', tool: 'plugin_install', input: { name: 'example' }, permission: 'WRITE', kind: 'bounded_write' },
+  { label: 'worktree creation preview', tool: 'git_worktree_spawn', input: { workspaceId: 'w', worktreePath: '.worktrees/a' }, permission: 'WRITE', kind: 'read' },
+  { label: 'confined worktree creation', tool: 'git_worktree_spawn', input: { workspaceId: 'w', worktreePath: '.worktrees/a', dryRun: false }, permission: 'WRITE', kind: 'bounded_write' },
+  { label: 'worktree removal preview', tool: 'git_worktree_remove', input: { workspaceId: 'w', worktreePath: '.worktrees/a' }, permission: 'DANGEROUS', kind: 'read' },
+  { label: 'worktree removal apply', tool: 'git_worktree_remove', input: { workspaceId: 'w', worktreePath: '.worktrees/a', dryRun: false }, permission: 'DANGEROUS', kind: 'delete' },
+  { label: 'self-heal apply preview', tool: 'self_heal_apply', input: {}, permission: 'DANGEROUS', kind: 'read' },
+  { label: 'self-heal apply execution', tool: 'self_heal_apply', input: { dryRun: false }, permission: 'DANGEROUS', kind: 'opaque_mutation' },
   { label: 'unknown READ tool', tool: 'future_read_tool', input: {}, permission: 'READ', kind: 'read' },
   { label: 'unknown WRITE tool', tool: 'future_write_tool', input: {}, permission: 'WRITE', kind: 'opaque_mutation' },
   { label: 'unknown EXECUTE tool', tool: 'future_execute_tool', input: {}, permission: 'EXECUTE', kind: 'opaque_mutation' },
@@ -105,5 +118,16 @@ describe('central mutation policy', () => {
     ['opaque_mutation', true],
   ] as const)('requires confirmation for %s = %s', (kind, expected) => {
     expect(requiresMutationConfirmation({ kind, reason: 'test' })).toBe(expected);
+  });
+
+  it.each([
+    ['read', 'READ'],
+    ['execute', 'EXECUTE'],
+    ['bounded_write', 'WRITE'],
+    ['replace', 'WRITE'],
+    ['delete', 'DANGEROUS'],
+    ['opaque_mutation', 'DANGEROUS'],
+  ] as const)('maps %s to effective permission %s', (kind, expected) => {
+    expect(permissionLevelForMutationDecision({ kind, reason: 'test' })).toBe(expected);
   });
 });

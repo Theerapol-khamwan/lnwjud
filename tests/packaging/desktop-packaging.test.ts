@@ -49,6 +49,8 @@ describe('Windows desktop packaging', () => {
     expect(config).not.toContain('signAndEditExecutable: false');
     expect(config).toContain('createStartMenuShortcut: false');
     expect(config).not.toMatch(/[A-Z]:\\Users\\[^\r\n]+/i);
+    const tunnelControllerSource = await readFile(path.join(desktopRoot, 'src', 'main', 'tunnel-controller.ts'), 'utf8');
+    expect(tunnelControllerSource).not.toContain("'Downloads', 'tunnel', 'tunnel-client.exe'");
     const installerScript = await readFile(path.join(desktopRoot, 'build', 'installer.nsh'), 'utf8');
     expect(installerScript).toContain('CreateShortCut "$SMPROGRAMS\\lnwjud.lnk" "$INSTDIR\\lnwjud.exe"');
     expect(installerScript).toContain('SetOutPath "$INSTDIR"');
@@ -60,6 +62,13 @@ describe('Windows desktop packaging', () => {
     expect(config).toContain('build/runtime-tools');
     expect(config).toContain('to: runtime-tools');
     expect(desktopPackage.scripts?.['package:windows']).toContain('prepare-ripgrep.ps1');
+    expect(desktopPackage.scripts?.['package:windows']).toContain('../../scripts/prepare-windows-ocr.ps1');
+    const prepareOcr = await readFile(path.join(repositoryRoot, 'scripts', 'prepare-windows-ocr.ps1'), 'utf8');
+    expect(prepareOcr).toContain('--list-sdks');
+    expect(prepareOcr).toContain('Core installer/portable packaging will continue without OCR.');
+    const registerOcr = await readFile(path.join(repositoryRoot, 'scripts', 'register-windows-ocr.ps1'), 'utf8');
+    expect(registerOcr).toContain("GetEnvironmentVariable('ProgramFiles(x86)')");
+    expect(registerOcr).not.toContain('C:\\Program Files (x86)\\Windows Kits');
     await access(path.join(desktopRoot, 'build', 'lnwjud-node.exe'));
     const stdioLauncher = await readFile(path.join(desktopRoot, 'build', 'lnwjud-mcp-stdio.cmd'), 'utf8');
     expect(stdioLauncher).toContain('lnwjud-node.exe');

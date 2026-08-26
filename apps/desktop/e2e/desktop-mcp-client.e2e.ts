@@ -38,6 +38,7 @@ test('desktop serves the real MCP client development workflow', async () => {
       windowsHide: true,
       env: {
         ...process.env,
+        APPDATA: dataRoot,
         LNWJUD_DATA_PATH: dataRoot,
         LNWJUD_WORKSPACE: fixtureRoot,
         LNWJUD_UNRESTRICTED: '1',
@@ -55,6 +56,10 @@ test('desktop serves the real MCP client development workflow', async () => {
     await expect.poll(() => context.pages().length).toBeGreaterThan(0);
     page = context.pages()[0];
     if (page === undefined) throw new Error('Electron did not create a renderer page');
+
+    const firstRunDialog = page.getByRole('dialog', { name: /ตั้งค่า ChatGPT ให้ใช้ lnwjud|Set up ChatGPT to use lnwjud/ });
+    await page.getByRole('button', { name: /ไว้ทีหลัง|Set up later/ }).click({ timeout: 30_000 });
+    await expect(firstRunDialog).toBeHidden();
 
     await expect(page.getByRole('heading', { name: 'ศูนย์ควบคุม Agent' })).toBeVisible({ timeout: 30_000 });
     await expect(page.getByTestId('workspace-real-root')).toHaveText(fixtureRealRoot, { timeout: 30_000 });

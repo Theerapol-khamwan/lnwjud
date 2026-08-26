@@ -20,7 +20,7 @@ Run `pnpm docs:tools` after intentionally changing the registry; CI runs `pnpm d
 
 | # | Tool | Permission | Read-only | Destructive |
 | ---: | --- | --- | :---: | :---: |
-| 1 | `workspace_list` | DANGEROUS | no | no |
+| 1 | `workspace_list` | READ | yes | no |
 | 2 | `workspace_register` | WRITE | no | no |
 | 3 | `workspace_info` | READ | yes | no |
 | 4 | `workspace_tree` | READ | yes | no |
@@ -60,27 +60,27 @@ Run `pnpm docs:tools` after intentionally changing the registry; CI runs `pnpm d
 | 38 | `codex_task_logs` | READ | yes | no |
 | 39 | `codex_stop` | EXECUTE | no | no |
 | 40 | `shell` | EXECUTE | no | yes |
-| 41 | `dom_cdp` | DANGEROUS | no | yes |
-| 42 | `accessibility` | DANGEROUS | no | yes |
-| 43 | `input_event` | DANGEROUS | no | yes |
+| 41 | `dom_cdp` | READ | no | yes |
+| 42 | `accessibility` | READ | no | yes |
+| 43 | `input_event` | EXECUTE | no | yes |
 | 44 | `vision` | READ | yes | no |
 | 45 | `vision_annotated_capture` | READ | yes | no |
-| 46 | `ui_target_action` | DANGEROUS | no | yes |
-| 47 | `window` | DANGEROUS | no | yes |
+| 46 | `ui_target_action` | EXECUTE | no | yes |
+| 47 | `window` | EXECUTE | no | yes |
 | 48 | `health` | READ | yes | no |
 | 49 | `system_info` | READ | yes | no |
 | 50 | `notification` | EXECUTE | no | no |
 | 51 | `file_dialog` | EXECUTE | yes | no |
-| 52 | `clipboard` | DANGEROUS | no | no |
-| 53 | `web_fetch` | DANGEROUS | yes | no |
-| 54 | `audio` | DANGEROUS | no | no |
-| 55 | `screen_record` | DANGEROUS | no | no |
-| 56 | `office` | DANGEROUS | no | no |
-| 57 | `scheduler` | DANGEROUS | no | yes |
+| 52 | `clipboard` | EXECUTE | no | no |
+| 53 | `web_fetch` | READ | no | yes |
+| 54 | `audio` | EXECUTE | no | yes |
+| 55 | `screen_record` | EXECUTE | no | yes |
+| 56 | `office` | WRITE | no | no |
+| 57 | `scheduler` | EXECUTE | no | yes |
 | 58 | `wsl_exec` | EXECUTE | no | yes |
 | 59 | `wsl_fs` | READ | yes | no |
-| 60 | `skills_list` | DANGEROUS | no | yes |
-| 61 | `skills_read` | DANGEROUS | no | yes |
+| 60 | `skills_list` | READ | yes | no |
+| 61 | `skills_read` | READ | yes | no |
 | 62 | `mcp_list` | READ | yes | no |
 | 63 | `mcp_describe` | READ | yes | no |
 | 64 | `mcp_call` | DANGEROUS | no | yes |
@@ -147,7 +147,7 @@ Run `pnpm docs:tools` after intentionally changing the registry; CI runs `pnpm d
 | 125 | `hook_remove` | WRITE | no | no |
 | 126 | `skill_match` | READ | yes | no |
 | 127 | `skill_load` | READ | yes | no |
-| 128 | `plugin_install` | DANGEROUS | no | yes |
+| 128 | `plugin_install` | WRITE | no | no |
 | 129 | `plugin_list` | READ | yes | no |
 | 130 | `plugin_enable` | WRITE | no | no |
 | 131 | `plugin_disable` | WRITE | no | no |
@@ -230,11 +230,11 @@ Run `pnpm docs:tools` after intentionally changing the registry; CI runs `pnpm d
 | 208 | `lsp_rename` | WRITE | no | no |
 | 209 | `debug_attach` | EXECUTE | no | no |
 | 210 | `debug_step` | EXECUTE | no | no |
-| 211 | `git_worktree_spawn` | DANGEROUS | no | yes |
+| 211 | `git_worktree_spawn` | WRITE | no | no |
 | 212 | `git_worktree_remove` | DANGEROUS | no | yes |
 | 213 | `db_inspect` | READ | yes | no |
-| 214 | `db_query` | DANGEROUS | no | yes |
-| 215 | `office_ppt` | DANGEROUS | no | yes |
+| 214 | `db_query` | READ | yes | no |
+| 215 | `office_ppt` | WRITE | no | no |
 | 216 | `office_outlook` | READ | yes | no |
 | 217 | `pdf_extract_tables` | READ | yes | no |
 | 218 | `docx_merge` | WRITE | no | no |
@@ -242,7 +242,7 @@ Run `pnpm docs:tools` after intentionally changing the registry; CI runs `pnpm d
 | 220 | `self_heal_apply` | DANGEROUS | no | yes |
 | 221 | `skills_import` | WRITE | no | no |
 | 222 | `agent_swarm_run` | EXECUTE | no | no |
-| 223 | `tool_batch` | DANGEROUS | no | yes |
+| 223 | `tool_batch` | EXECUTE | no | yes |
 <!-- END GENERATED TOOL REGISTRY -->
 
 ## Protocol and result rules

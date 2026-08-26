@@ -128,8 +128,13 @@ export function inspectMutationOperation(
     case 'codex_run':
     case 'codex_stop':
     case 'sandbox_exec':
-    case 'self_heal_apply':
       return opaque(`${toolName} can execute or interrupt effects that cannot be proven at the gateway`);
+    case 'self_heal_apply':
+      return inputUsesDefaultDryRun(value)
+        ? read('self_heal_apply defaults to a no-side-effect recovery preview')
+        : opaque('self_heal_apply can reindex workspace state or cancel stale durable tasks');
+    case 'db_query':
+      return read('db_query runtime accepts only bounded read-only SQLite statements');
     case 'mcp_call':
       return inspectMcpCall(value);
     case 'web_fetch':
@@ -146,24 +151,35 @@ export function inspectMutationOperation(
         : replace('DOCX merge can replace its target document');
     case 'dom_cdp':
       return inspectDomCdp(value);
-    case 'accessibility':
-      return ['status', 'list_windows', 'observe', 'observe_summary', 'observe_changes', 'inspect_elements', 'find_element', 'read_value'].includes(normalized(value.action))
-        ? read('accessibility inspection action')
-        : opaque('native UI action can trigger unbounded application side effects');
+    case 'accessibility': {
+      const action = normalized(value.action);
+      if (['status', 'list_windows', 'observe', 'observe_summary', 'observe_changes', 'inspect_elements', 'find_element', 'read_value'].includes(action)) {
+        return read('accessibility inspection action');
+      }
+      if (['launch_app', 'activate_app', 'focus', 'minimize_window', 'maximize_window', 'restore_window', 'set_window_frame'].includes(action)) {
+        return execute('accessibility app/window state action');
+      }
+      return opaque('native UI action can trigger unbounded application side effects');
+    }
     case 'input_event':
       return value.dry_run === true
         ? read('input_event dry run')
         : opaque('low-level input can trigger unbounded application side effects');
-    case 'ui_target_action':
-      return ['focus', 'read_value'].includes(normalized(value.action ?? 'click'))
-        ? read('marked UI inspection action')
-        : opaque('marked UI action can trigger unbounded application side effects');
-    case 'window':
-      return normalized(value.operation) === 'close'
-        ? opaque('closing a window can discard unsaved application state')
-        : permission === 'READ'
-          ? read('window inspection action')
-          : boundedWrite('window state change does not authorize project-data replacement');
+    case 'ui_target_action': {
+      const action = normalized(value.action ?? 'click');
+      if (action === 'read_value') return read('marked UI value inspection');
+      if (action === 'focus') return execute('marked UI focus action');
+      return opaque('marked UI action can trigger unbounded application side effects');
+    }
+    case 'window': {
+      const operation = normalized(value.operation);
+      if (['list', 'get_active', 'get_bounds', 'get_display'].includes(operation)) return read('window inspection action');
+      if (operation === 'close') return opaque('closing a window can discard unsaved application state');
+      if (['activate', 'move', 'resize', 'minimize', 'maximize', 'restore', 'set_window_frame'].includes(operation)) {
+        return boundedWrite('window state change does not authorize project-data replacement');
+      }
+      return opaque('unknown window action is not provably safe');
+    }
     case 'clipboard':
       return ['get_text', 'get_image'].includes(normalized(value.action))
         ? read('clipboard read action')
@@ -174,13 +190,18 @@ export function inspectMutationOperation(
       return inspectScreenRecord(value);
     case 'plugin_remove':
     case 'hook_remove':
-    case 'git_worktree_remove':
       return deletion(`${toolName} removes persisted state`);
+    case 'git_worktree_remove':
+      return inputUsesDefaultDryRun(value)
+        ? read('git_worktree_remove defaults to a no-side-effect preview')
+        : deletion('git_worktree_remove removes a ledger-owned worktree');
     case 'plugin_install':
     case 'hook_register':
       return boundedWrite(`${toolName} creates persisted application state`);
     case 'git_worktree_spawn':
-      return opaque('Git worktree creation executes Git and changes repository state');
+      return inputUsesDefaultDryRun(value)
+        ? read('git_worktree_spawn defaults to a no-side-effect preview')
+        : boundedWrite('git_worktree_spawn creates a confined, ledger-owned worktree and refuses path escape');
     default:
       return permission === 'READ'
         ? read('tool declares a read-only permission')
@@ -190,6 +211,26 @@ export function inspectMutationOperation(
 
 export function requiresMutationConfirmation(decision: MutationPolicyDecision): boolean {
   return decision.kind === 'replace' || decision.kind === 'delete' || decision.kind === 'opaque_mutation';
+}
+
+/**
+ * Convert the action-level mutation classification into the permission level
+ * that should actually be evaluated for this invocation. Mixed-action tools
+ * can therefore expose safe reads without weakening their destructive paths.
+ */
+export function permissionLevelForMutationDecision(decision: MutationPolicyDecision): McpPermissionLevel {
+  switch (decision.kind) {
+    case 'read':
+      return 'READ';
+    case 'execute':
+      return 'EXECUTE';
+    case 'bounded_write':
+    case 'replace':
+      return 'WRITE';
+    case 'delete':
+    case 'opaque_mutation':
+      return 'DANGEROUS';
+  }
 }
 
 function inspectGit(value: Readonly<Record<string, unknown>>): MutationPolicyDecision {
@@ -315,16 +356,18 @@ function inspectPowerPoint(value: Readonly<Record<string, unknown>>): MutationPo
 function inspectAudio(value: Readonly<Record<string, unknown>>): MutationPolicyDecision {
   if (value.dry_run === true) return read('audio dry run');
   const action = normalized(value.action);
-  if (action === 'record') return replace('audio recording creates or replaces a workspace media target');
-  return opaque(`audio ${action || 'action'} changes local playback or capture state`);
+  if (action === 'record') return opaque('microphone capture is privacy-sensitive and creates or replaces a workspace media target');
+  if (action === 'play' || action === 'stop') return execute(`audio ${action} changes local playback state`);
+  return opaque('unknown audio action is not provably safe');
 }
 
 function inspectScreenRecord(value: Readonly<Record<string, unknown>>): MutationPolicyDecision {
   if (value.dry_run === true) return read('screen recording dry run');
   const action = normalized(value.action);
   if (action === 'status') return read('screen recording status');
-  if (action === 'start') return replace('screen recording creates or replaces a workspace media target');
-  return opaque('screen recording action changes capture state');
+  if (action === 'start') return opaque('screen capture is privacy-sensitive and creates or replaces a workspace media target');
+  if (action === 'stop') return execute('screen recording stop finalizes local capture state');
+  return opaque('unknown screen recording action is not provably safe');
 }
 
 function inputUsesDefaultDryRun(value: Readonly<Record<string, unknown>>): boolean {
@@ -332,14 +375,21 @@ function inputUsesDefaultDryRun(value: Readonly<Record<string, unknown>>): boole
 }
 
 function inspectDomCdp(value: Readonly<Record<string, unknown>>): MutationPolicyDecision {
-  const readOnlyActions = new Set(['status', 'list_tabs', 'query', 'wait', 'screenshot']);
-  const action = normalized(value.action);
-  if (action.length > 0 && !readOnlyActions.has(action)) return opaque('browser action can trigger local or remote side effects');
-  const steps = Array.isArray(value.steps) ? value.steps : [];
-  if (steps.some((step) => {
+  const classify = (actionValue: unknown): MutationPolicyDecision => {
+    const action = normalized(actionValue);
+    if (['status', 'list_tabs', 'query', 'wait', 'screenshot'].includes(action)) return read('browser inspection action');
+    if (['launch', 'new_tab'].includes(action)) return execute(`browser ${action} action`);
+    return opaque('browser action can trigger local or remote side effects');
+  };
+  const decisions: MutationPolicyDecision[] = [];
+  if (value.action !== undefined) decisions.push(classify(value.action));
+  for (const step of Array.isArray(value.steps) ? value.steps : []) {
     const record = asRecord(step);
-    return record !== null && !readOnlyActions.has(normalized(record.action));
-  })) return opaque('batched browser action can trigger local or remote side effects');
+    decisions.push(record === null ? opaque('invalid browser step is not provably safe') : classify(record.action));
+  }
+  if (decisions.length === 0) return read('browser inspection action');
+  if (decisions.some((decision) => decision.kind === 'opaque_mutation')) return opaque('browser action can trigger local or remote side effects');
+  if (decisions.some((decision) => decision.kind === 'execute')) return execute('browser lifecycle action');
   return read('browser inspection action');
 }
 

@@ -138,4 +138,36 @@ describe('parseNativeRuntimeStatus', () => {
       uiUrl: 'http://127.0.0.1:9123/ui',
     }));
   });
+
+  it('understands tunnel-client 0.0.12 target_value and explicit unknown poll-health state', () => {
+    expect(parseNativeRuntimeStatus(JSON.stringify({
+      alias: 'lnwjud',
+      tunnel_id: 'tunnel_fixture012345',
+      healthy: true,
+      ready: true,
+      runtime_state: 'ready',
+      process_running: true,
+      target_kind: 'server_url',
+      target_value: 'http://127.0.0.1:18765/mcp',
+      process: {
+        pid: 21980,
+        running: true,
+        target_kind: 'server_url',
+        target_value: 'http://127.0.0.1:18765/mcp',
+      },
+      control_plane_poll_health: {
+        state: 'unknown',
+        reason: 'no live admin UI system snapshot',
+      },
+    }))).toEqual(expect.objectContaining({
+      exists: true,
+      running: true,
+      healthy: true,
+      ready: true,
+      pollHealthy: null,
+      tunnelId: 'tunnel_fixture012345',
+      mcpServerUrl: 'http://127.0.0.1:18765/mcp',
+      pid: 21980,
+    }));
+  });
 });

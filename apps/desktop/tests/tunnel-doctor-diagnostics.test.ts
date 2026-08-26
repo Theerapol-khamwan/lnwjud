@@ -65,6 +65,32 @@ describe('persistent tunnel doctor diagnostics', () => {
     expect(messages).not.toContain('secret-value');
   });
 
+  it('accepts a live runtime alias observed read-only even when Desktop does not own the process', () => {
+    const external = tunnel({
+      source: 'external',
+      persistent: {
+        ...tunnel().persistent!,
+        mode: 'external',
+        runtimeAliasActive: true,
+        ready: true,
+        healthy: true,
+        pollHealthy: null,
+        localMcpUrl: 'http://127.0.0.1:18765/mcp',
+      },
+    });
+    const checks = buildPersistentTunnelDoctorChecks({
+      tunnel: external,
+      mcp,
+      tunnelHealth: { state: 'live', message: 'live' },
+      persistentEnabled: true,
+    });
+    const byId = new Map(checks.map((check) => [check.id, check]));
+    expect(byId.get('runtime_alias_state')?.status).toBe('pass');
+    expect(byId.get('tunnel_ready')?.status).toBe('pass');
+    expect(byId.get('local_mcp_binding')?.status).toBe('pass');
+    expect(byId.get('control_plane_poll_health')?.status).toBe('warn');
+  });
+
   it('distinguishes operator, local, runtime, control-plane, binding, and auth failures', () => {
     const broken = tunnel({
       state: 'error',

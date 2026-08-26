@@ -194,6 +194,8 @@ export interface TunnelPersistentStatus {
   readonly enabled: boolean;
   readonly tunnelIdMasked: string | null;
   readonly runtimeAlias: string;
+  /** True when tunnel-client runtimes status confirms this alias currently has a live process. */
+  readonly runtimeAliasActive?: boolean;
   readonly mode: TunnelPersistentMode;
   readonly state: TunnelPersistentRunState;
   readonly healthy: boolean | null;

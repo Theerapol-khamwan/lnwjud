@@ -103,9 +103,10 @@ function unprotectLegacySecureString(cipherText: string): string {
 
 function runPowerShellDpapi(script: string, input: string): string {
   if (process.platform !== 'win32') throw new Error('Windows DPAPI is only available on Windows');
-  const powershell = process.env.SystemRoot === undefined
+  const systemRoot = process.env.SystemRoot ?? process.env.WINDIR;
+  const powershell = systemRoot === undefined
     ? 'powershell.exe'
-    : path.join(process.env.SystemRoot, 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe');
+    : path.join(systemRoot, 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe');
   const result = spawnSync(powershell, ['-NoProfile', '-NonInteractive', '-Command', script], {
     input,
     encoding: 'utf8',

@@ -212,9 +212,9 @@ export function parseNativeRuntimeStatus(stdout: string, stderr = ''): NativeTun
     running: pickBoolean(flat, ['process.running', 'runtime.running', 'running', 'process_running']) ?? inferRunning(flat),
     healthy: pickBoolean(flat, ['health.healthy', 'healthy', 'health.live', 'healthz.live', 'health_ok']),
     ready: pickBoolean(flat, ['health.ready', 'ready', 'readyz.ready', 'ready_ok']),
-    pollHealthy: pickBoolean(flat, ['control_plane.poll_healthy', 'controlplanepollhealthy', 'poll_healthy', 'pollhealthy', 'control_plane_poll_healthy']),
+    pollHealthy: pickControlPlanePollHealth(flat),
     tunnelId: pickString(flat, ['tunnel_id', 'tunnel.id', 'tunnelid']) ?? matchTunnelId(text),
-    mcpServerUrl: pickString(flat, ['mcp_server_url', 'mcp.server_url', 'mcp.url', 'server_url']) ?? matchMcpUrl(text),
+    mcpServerUrl: pickRuntimeMcpServerUrl(flat, text),
     pid: pickNumber(flat, ['process.pid', 'pid', 'runtime.pid']),
     uiUrl: pickString(flat, ['ui_url', 'health.ui_url', 'admin_ui_url', 'url']) ?? matchUiUrl(text),
     message: pickString(flat, ['message', 'error', 'status_message']) ?? normalizedCliMessage(stderr),
@@ -284,6 +284,41 @@ function pickNumber(flat: ReadonlyMap<string, unknown>, keys: readonly string[])
     if (Number.isInteger(parsed) && parsed > 0 && parsed <= 2_147_483_647) return parsed;
   }
   return null;
+}
+
+function pickControlPlanePollHealth(flat: ReadonlyMap<string, unknown>): boolean | null {
+  const direct = pickBoolean(flat, [
+    'control_plane.poll_healthy',
+    'controlplanepollhealthy',
+    'poll_healthy',
+    'pollhealthy',
+    'control_plane_poll_healthy',
+  ]);
+  if (direct !== null) return direct;
+
+  const state = pickString(flat, [
+    'control_plane_poll_health.state',
+    'local.control_plane_poll_health.state',
+    'control_plane.poll_health.state',
+  ]);
+  if (state === null || /^(unknown|unavailable|not_observable|not-observable)$/i.test(state)) return null;
+  if (/^(true|ok|healthy|ready|live|connected)$/i.test(state)) return true;
+  if (/^(false|down|unhealthy|failed|error|dead|disconnected)$/i.test(state)) return false;
+  return null;
+}
+
+function pickRuntimeMcpServerUrl(flat: ReadonlyMap<string, unknown>, text: string): string | null {
+  const direct = pickString(flat, ['mcp_server_url', 'mcp.server_url', 'mcp.url', 'server_url']);
+  const directMatch = direct === null ? null : matchMcpUrl(direct);
+  if (directMatch !== null) return directMatch;
+
+  const targetKind = pickString(flat, ['target_kind', 'process.target_kind', 'runtime.target_kind']);
+  if (targetKind === null || /server[_-]?url|mcp/i.test(targetKind)) {
+    const target = pickString(flat, ['target_value', 'process.target_value', 'runtime.target_value']);
+    const targetMatch = target === null ? null : matchMcpUrl(target);
+    if (targetMatch !== null) return targetMatch;
+  }
+  return matchMcpUrl(text);
 }
 
 function inferRunning(flat: ReadonlyMap<string, unknown>): boolean {

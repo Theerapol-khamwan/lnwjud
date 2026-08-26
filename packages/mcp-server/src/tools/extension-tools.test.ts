@@ -4,7 +4,7 @@ import { ToolRegistry } from '../tool-registry.js';
 import type { ExtensionsService } from '@lnwjud/extensions';
 
 describe('skills and mcp bridge tools', () => {
-  it('registers skill tools as dangerous, MCP inspection as read-only, and mcp_call as opaque mutation', async () => {
+  it('registers skill and MCP inspection as read-only while mcp_call remains opaque mutation', async () => {
     const extensions: ExtensionsService = {
       listSkills: async () => ok({ skills: [{ id: 'a/b', name: 'b', description: 'd', source: 'a', rootPath: '/', skillPath: '/SKILL.md' }] }),
       readSkill: async () => ok({ id: 'a/b', name: 'b', description: 'd', source: 'a', path: '/SKILL.md', content: '# b' }),
@@ -22,8 +22,9 @@ describe('skills and mcp bridge tools', () => {
 
     for (const name of ['skills_list', 'skills_read']) {
       const tool = tools.find((entry) => entry.name === name);
-      expect(tool?.permission).toBe('DANGEROUS');
-      expect(tool?.annotations.readOnlyHint).toBe(false);
+      expect(tool?.permission).toBe('READ');
+      expect(tool?.annotations.readOnlyHint).toBe(true);
+      expect(tool?.annotations.destructiveHint).toBe(false);
     }
     for (const name of ['mcp_list', 'mcp_describe']) {
       const tool = tools.find((entry) => entry.name === name);

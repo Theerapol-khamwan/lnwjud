@@ -807,7 +807,8 @@ export function createDesktopRuntime(dataPath: string, options: DesktopRuntimeOp
     runDoctor: async (): Promise<DoctorReport> => {
       await ensureMachineRoots();
       const base = await doctorService.run();
-      const tunnel = await observedTunnelStatus();
+      const tunnel = await tunnelController.diagnosticStatus();
+      recordPersistentTunnelStatus(tunnel);
       const mcp = mcpLifecycle.status();
       const tunnelHealth = await tunnelController.incidentHealth();
       const checks = [...base.checks, ...buildPersistentTunnelDoctorChecks({ tunnel, mcp, tunnelHealth, persistentEnabled: readSettings().tunnelAutoReconnect })];
@@ -1305,7 +1306,7 @@ export function buildPersistentTunnelDoctorChecks(input: {
   const persistent = input.tunnel.persistent;
   const required = input.persistentEnabled;
   const identityPresent = persistent?.tunnelIdMasked !== null && persistent?.tunnelIdMasked !== undefined;
-  const nativeRuntime = persistent?.mode === 'native-managed';
+  const nativeRuntime = persistent?.mode === 'native-managed' || persistent?.runtimeAliasActive === true;
   const runtimeRunning = input.tunnel.state === 'running' && (persistent === null || persistent.state === 'running');
   const localBindingMatches = persistent?.localMcpUrl !== null && persistent?.localMcpUrl !== undefined
     && input.mcp.url !== null && sameLocalMcpEndpoint(persistent.localMcpUrl, input.mcp.url);

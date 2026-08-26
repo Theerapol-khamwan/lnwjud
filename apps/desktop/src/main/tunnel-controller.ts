@@ -108,17 +108,11 @@ export class TunnelController {
     return path.join(this.profileDirectory(), 'lnwjud-tunnel.log');
   }
 
-  public defaultClientPath(): string {
-    return path.join(os.homedir(), 'Downloads', 'tunnel', 'tunnel-client.exe');
-  }
-
   public resolveClientPath(): string | null {
     const configured = this.options.getClientPath();
     if (configured !== null && configured.trim().length > 0 && existsSync(configured)) return configured;
     const bundled = this.options.getBundledClientPath?.() ?? null;
     if (bundled !== null && bundled.trim().length > 0 && existsSync(bundled)) return bundled;
-    const fallback = this.defaultClientPath();
-    if (existsSync(fallback)) return fallback;
     return configured ?? bundled;
   }
 
@@ -229,6 +223,47 @@ export class TunnelController {
       logPath: this.logPath(),
       persistent: await this.fallbackPersistentStatus(source),
     };
+  }
+
+  /**
+   * Enrich Doctor diagnostics with the official runtime alias status without
+   * taking ownership, reconnecting, or stopping the currently running tunnel.
+   */
+  public async diagnosticStatus(): Promise<TunnelStatus> {
+    const status = await this.status();
+    if (status.persistent === null || status.persistent.mode === 'native-managed') return status;
+    const clientPath = status.clientPath;
+    if (clientPath === null || !existsSync(clientPath)) return status;
+
+    try {
+      const observed = await this.createRuntimeAdapter(clientPath, '').status();
+      if (!observed.exists) return {
+        ...status,
+        persistent: { ...status.persistent, runtimeAliasActive: false },
+      };
+      const savedTunnelId = await this.resolvePersistentTunnelId();
+      const mismatch = savedTunnelId !== null && observed.tunnelId !== null && savedTunnelId !== observed.tunnelId;
+      const observedRunning = observed.running;
+      return {
+        ...status,
+        state: observedRunning ? 'running' : status.state,
+        source: observedRunning ? 'external' : status.source,
+        persistent: {
+          ...status.persistent,
+          runtimeAliasActive: observedRunning,
+          state: observedRunning ? 'running' : status.persistent.state,
+          healthy: observed.healthy ?? status.persistent.healthy,
+          ready: observed.ready ?? status.persistent.ready,
+          pollHealthy: observed.pollHealthy ?? status.persistent.pollHealthy,
+          localMcpUrl: observed.mcpServerUrl ?? status.persistent.localMcpUrl,
+          uiUrl: observed.uiUrl ?? status.persistent.uiUrl,
+          lastErrorCode: mismatch ? 'TUNNEL_ID_MISMATCH' : status.persistent.lastErrorCode,
+          capabilityEvidence: 'Runtime alias observed read-only via tunnel-client runtimes status; ' + status.persistent.capabilityEvidence,
+        },
+      };
+    } catch {
+      return status;
+    }
   }
 
   private invalidateExternalProbeCache(): void {
@@ -860,6 +895,7 @@ export class TunnelController {
       enabled: this.autoReconnectEnabled(),
       tunnelIdMasked: maskTunnelId(snapshot.tunnelId),
       runtimeAlias: snapshot.alias,
+      runtimeAliasActive: snapshot.state === 'running' || snapshot.state === 'reconnecting',
       mode: snapshot.mode,
       state: snapshot.state,
       healthy: snapshot.healthy,
@@ -927,8 +963,8 @@ export class TunnelController {
     const serverUrl = await this.requireMcpServerUrl();
     const yaml = await readFile(this.profilePath(), 'utf8');
     const withDesktopMcp = rewriteTunnelYamlMcpServerUrl(yaml, serverUrl);
-    if (withDesktopMcp === yaml && !/^mcp:\s*$/im.test(yaml)) {
-      throw new Error('Tunnel profile does not contain an MCP section; run Configure Tunnel again');
+    if (extractTunnelMcpServerUrl(withDesktopMcp) === null) {
+      throw new Error('Tunnel profile does not contain a usable Desktop MCP binding; run Configure Tunnel again');
     }
     const next = rewriteTunnelYamlRuntimeApiKeyRef(withDesktopMcp);
     if (next !== yaml) await writeFile(this.profilePath(), next, 'utf8');

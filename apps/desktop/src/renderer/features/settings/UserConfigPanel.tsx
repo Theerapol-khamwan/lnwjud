@@ -207,7 +207,7 @@ export function UserConfigPanel({ locale, settings, section, onSave }: UserConfi
               <Field
                 label={locale === 'th' ? 'PDF Provider (pdftotext.exe)' : 'PDF Provider (pdftotext.exe)'}
                 value={draft.pdfProviderPath}
-                placeholder={'C:\\Program Files\\poppler\\Library\\bin\\pdftotext.exe'}
+                placeholder={locale === 'th' ? 'พาธไปยัง pdftotext.exe (ถ้ามี)' : 'Path to pdftotext.exe (optional)'}
                 onChange={(value) => patch({ pdfProviderPath: value })}
               />
               <TextArea

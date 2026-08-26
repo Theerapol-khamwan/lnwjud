@@ -111,7 +111,7 @@ describe('public repository hygiene', () => {
 
   it('does not retain stale permission examples in the detailed README guide', async () => {
     const readme = await readFile(path.join(repositoryRoot, 'README.md'), 'utf8');
-    expect(readme).not.toContain('| workspace_list | READ |');
-    expect(readme).toContain('| workspace_list | DANGEROUS |');
+    expect(readme).not.toContain('| workspace_list | DANGEROUS |');
+    expect(readme).toContain('| workspace_list | EXECUTE |');
   });
 });
