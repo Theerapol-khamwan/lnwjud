@@ -21,6 +21,8 @@ interface SettingsPageProps {
   readonly onUserSettingsChange: (settings: UserSettings) => Promise<boolean>;
   readonly onChooseTunnelClientPath: () => Promise<string | null>;
   readonly onConfigureTunnelProfile: (tunnelId: string) => Promise<string>;
+  readonly onStartTunnel: () => Promise<void>;
+  readonly onStopTunnel: () => Promise<void>;
   readonly initialSection?: SettingsSection;
 }
 
@@ -50,6 +52,7 @@ export function SettingsPage(props: SettingsPageProps): ReactElement {
   const [recoveryBusyId, setRecoveryBusyId] = useState<string | null>(null);
   const [recoveryMessage, setRecoveryMessage] = useState<string | null>(null);
   const [recoveryError, setRecoveryError] = useState<string | null>(null);
+  const [retentionBusy, setRetentionBusy] = useState(false);
 
   const persistedRootsText = props.dashboard.stdioAllowedRoots.join('\n');
   useEffect(() => {
@@ -160,6 +163,50 @@ export function SettingsPage(props: SettingsPageProps): ReactElement {
       setTunnelMessage(cause instanceof Error ? cause.message : (props.locale === 'th' ? 'ตั้งค่า Tunnel ไม่สำเร็จ' : 'Tunnel setup failed.'));
     } finally {
       setTunnelBusy(false);
+    }
+  }
+
+  async function reconnectSameTunnel(): Promise<void> {
+    setTunnelBusy(true);
+    setTunnelMessage(null);
+    try {
+      await props.onStartTunnel();
+      setTunnelMessage(props.locale === 'th' ? 'สั่ง Reconnect Tunnel ID เดิมแล้ว' : 'Reconnect of the same tunnel identity requested.');
+    } catch (cause: unknown) {
+      setTunnelMessage(cause instanceof Error ? cause.message : (props.locale === 'th' ? 'Reconnect ไม่สำเร็จ' : 'Reconnect failed.'));
+    } finally { setTunnelBusy(false); }
+  }
+
+  async function stopPersistentTunnel(): Promise<void> {
+    setTunnelBusy(true);
+    setTunnelMessage(null);
+    try {
+      await props.onStopTunnel();
+      setTunnelMessage(props.locale === 'th' ? 'หยุด Persistent Tunnel แล้ว' : 'Persistent tunnel stopped.');
+    } catch (cause: unknown) {
+      setTunnelMessage(cause instanceof Error ? cause.message : (props.locale === 'th' ? 'หยุด Tunnel ไม่สำเร็จ' : 'Could not stop tunnel.'));
+    } finally { setTunnelBusy(false); }
+  }
+
+  async function setRecoveryRetentionDays(days: number): Promise<void> {
+    const previousDays = props.dashboard.settings.recoveryRetentionDays;
+    if (days > 0 && (previousDays === 0 || days < previousDays)) {
+      const confirmed = window.confirm(props.locale === 'th'
+        ? `เปิดลบข้อมูลกู้คืนอัตโนมัติที่เก่ากว่า ${days} วัน? ข้อมูลที่เก่ากว่านี้อาจถูกลบทันทีและกู้คืนไม่ได้`
+        : `Enable automatic cleanup for recovery data older than ${days} days? Older recovery data may be removed immediately and cannot be restored.`);
+      if (!confirmed) return;
+    }
+    setRetentionBusy(true);
+    setRecoveryError(null);
+    try {
+      await props.onUserSettingsChange({ ...props.dashboard.settings, recoveryRetentionDays: days });
+      setRecoveryMessage(days === 0
+        ? (props.locale === 'th' ? 'ตั้งค่าให้เก็บข้อมูลกู้คืนไว้จนกว่าจะลบเอง' : 'Recovery data will be kept until you remove it manually.')
+        : (props.locale === 'th' ? `ตั้งค่าลบข้อมูลกู้คืนที่เก่ากว่า ${days} วันอัตโนมัติแล้ว` : `Recovery data older than ${days} days will be removed automatically.`));
+    } catch (cause: unknown) {
+      setRecoveryError(cause instanceof Error ? cause.message : (props.locale === 'th' ? 'บันทึกอายุข้อมูลกู้คืนไม่สำเร็จ' : 'Could not save recovery retention.'));
+    } finally {
+      setRetentionBusy(false);
     }
   }
 
@@ -354,8 +401,9 @@ export function SettingsPage(props: SettingsPageProps): ReactElement {
                   <p className="hint">{props.dashboard.tunnel.hasApiKey ? 'Protected with Windows DPAPI' : t('tunnel.needKey')}</p>
                 </div>
                 <div className="setting-field">
-                  <label className="field-label" htmlFor="tunnel-client-path">{t('settings.clientPath')}</label>
-                  <div className="form-row"><input id="tunnel-client-path" placeholder="C:\tools\tunnel-client.exe" value={clientPath} onChange={(event) => setClientPath(event.target.value)} /><button type="button" onClick={() => { void browseTunnelClient(); }}>{props.locale === 'th' ? 'เลือกไฟล์…' : 'Browse…'}</button><button type="button" className="btn-save-gold" onClick={() => { void props.onSetTunnelClientPath(clientPath).then(() => setSavedMessage(t('settings.saved'))); }}>{t('settings.savePath')}</button></div>
+                  <label className="field-label" htmlFor="tunnel-client-path">{props.locale === 'th' ? 'tunnel-client (รวมมากับโปรแกรมแล้ว)' : 'tunnel-client (bundled)'}</label>
+                  <div className="form-row"><input id="tunnel-client-path" placeholder={props.locale === 'th' ? 'ใช้ v0.0.12 ที่มากับ lnwjud อัตโนมัติ' : 'Bundled v0.0.12 is used automatically'} value={clientPath} onChange={(event) => setClientPath(event.target.value)} /><button type="button" onClick={() => { void browseTunnelClient(); }}>{props.locale === 'th' ? 'เลือกไฟล์…' : 'Browse…'}</button><button type="button" className="btn-save-gold" onClick={() => { void props.onSetTunnelClientPath(clientPath).then(() => setSavedMessage(clientPath.trim().length === 0 ? (props.locale === 'th' ? 'กลับมาใช้ tunnel-client ที่มากับโปรแกรมแล้ว' : 'Using the bundled tunnel-client again.') : t('settings.saved'))); }}>{clientPath.trim().length === 0 ? (props.locale === 'th' ? 'ใช้ตัวที่มากับโปรแกรม' : 'Use bundled') : (props.locale === 'th' ? 'บันทึก Override' : 'Save override')}</button></div>
+                  <p className="hint">{props.locale === 'th' ? 'lnwjud ฝัง OpenAI tunnel-client v0.0.12 (Windows x64) ใน installer และเลือกให้เองอัตโนมัติ ช่องนี้ใช้เฉพาะกรณีต้องการ override/troubleshoot' : 'lnwjud bundles OpenAI tunnel-client v0.0.12 (Windows x64) in the installer and selects it automatically. Use this field only to override it for troubleshooting.'}</p>
                 </div>
               </div>
               <div className="tunnel-setup-box">
@@ -365,6 +413,26 @@ export function SettingsPage(props: SettingsPageProps): ReactElement {
               </div>
               {savedMessage === null ? null : <div className="toast-success-banner" role="status">✓ {savedMessage}</div>}
               {tunnelMessage === null ? null : <div className="alert-box-warning" role="status">{tunnelMessage}</div>}
+              {props.dashboard.tunnel.persistent === null ? null : (
+                <div className="tunnel-setup-box persistent-runtime-card">
+                  <div className="settings-mini-heading"><strong>Persistent Tunnel Identity</strong><span>{props.dashboard.tunnel.persistent.runtimeAlias}</span></div>
+                  <div className="setting-grid two-col">
+                    <div className="setting-field"><span className="field-label">Tunnel ID</span><code className="settings-path-display">{props.dashboard.tunnel.persistent.tunnelIdMasked ?? '—'}</code></div>
+                    <div className="setting-field"><span className="field-label">Runtime mode</span><strong>{props.dashboard.tunnel.persistent.mode}</strong></div>
+                    <div className="setting-field"><span className="field-label">Status</span><strong>{props.dashboard.tunnel.persistent.state}</strong></div>
+                    <div className="setting-field"><span className="field-label">Reconnect count</span><strong>{props.dashboard.tunnel.persistent.reconnectCount}</strong></div>
+                    <div className="setting-field"><span className="field-label">Health / Ready / Poll</span><strong>{formatTunnelTriState(props.dashboard.tunnel.persistent.healthy)} / {formatTunnelTriState(props.dashboard.tunnel.persistent.ready)} / {formatTunnelTriState(props.dashboard.tunnel.persistent.pollHealthy)}</strong></div>
+                    <div className="setting-field"><span className="field-label">Local MCP</span><code className="settings-path-display">{props.dashboard.tunnel.persistent.localMcpUrl ?? '—'}</code></div>
+                  </div>
+                  <div className={props.dashboard.tunnel.persistent.strictZeroDowntime ? 'toast-success-banner' : 'alert-box-warning'}>
+                    {props.dashboard.tunnel.persistent.strictZeroDowntime
+                      ? (props.locale === 'th' ? '✓ Capability gate: strict zero-downtime handoff ผ่านการพิสูจน์' : '✓ Capability gate: strict zero-downtime handoff is proven')
+                      : (props.locale === 'th' ? 'ℹ ยังไม่อ้าง strict zero-downtime: tunnel-client รุ่นนี้ยังไม่มีหลักฐาน ready-before-retire overlap ที่พิสูจน์ได้' : 'ℹ Strict zero-downtime is not claimed: this tunnel-client has no proven ready-before-retire overlap primitive.')}
+                  </div>
+                  <div className="inline-actions"><button type="button" className="btn-save-gold" disabled={tunnelBusy} onClick={() => { void reconnectSameTunnel(); }}>{props.locale === 'th' ? 'Reconnect Tunnel เดิม' : 'Reconnect same tunnel'}</button><button type="button" disabled={tunnelBusy || props.dashboard.tunnel.state === 'stopped'} onClick={() => { void stopPersistentTunnel(); }}>{props.locale === 'th' ? 'หยุด Tunnel' : 'Stop tunnel'}</button></div>
+                  {props.dashboard.tunnel.persistent.capabilityEvidence === null ? null : <p className="hint">{props.dashboard.tunnel.persistent.capabilityEvidence}</p>}
+                </div>
+              )}
             </section>
           ) : null}
 
@@ -374,16 +442,26 @@ export function SettingsPage(props: SettingsPageProps): ReactElement {
                 <SettingsCardHeading
                   icon="↶"
                   title={props.locale === 'th' ? 'Recovery Center' : 'Recovery Center'}
-                  subtitle={props.locale === 'th' ? 'ไฟล์ที่ลบ สำเนาก่อนไฟล์ไบนารีถูกเขียนทับ และ checkpoint ของ Active Project' : 'Deleted items, binary pre-replacement backups, and checkpoints for the Active Project'}
+                  subtitle={props.locale === 'th' ? 'ไฟล์ที่ลบ สำเนาก่อนไฟล์ไบนารีถูกเขียนทับ และ checkpoint ของโปรเจกต์หลัก (Primary)' : 'Deleted items, binary pre-replacement backups, and checkpoints for the Primary Project'}
                   badge={`${props.dashboard.recovery.trashItems.length + props.dashboard.recovery.checkpoints.length} ITEMS`}
                 />
                 <div className="setting-field">
                   <span className="field-label">{props.locale === 'th' ? 'ตำแหน่ง Recovery Trash บนเครื่อง' : 'Local Recovery Trash location'}</span>
                   <code className="settings-path-display">{props.dashboard.recovery.trashRoot ?? (props.locale === 'th' ? 'ยังไม่ได้ตั้งค่า' : 'Not configured')}</code>
                 </div>
+                <div className="recovery-retention-row">
+                  <div>
+                    <strong>{props.locale === 'th' ? 'ลบข้อมูลกู้คืนอัตโนมัติ' : 'Automatic recovery cleanup'}</strong>
+                    <p className="hint">{props.locale === 'th' ? 'เลือกอายุที่ต้องการเก็บ Recovery Trash และ Checkpoint; ค่าเริ่มต้นคือไม่ลบอัตโนมัติ' : 'Choose how long to keep Recovery Trash and checkpoints. The default is never delete automatically.'}</p>
+                  </div>
+                  <select aria-label={props.locale === 'th' ? 'อายุข้อมูลกู้คืน' : 'Recovery retention'} disabled={retentionBusy} value={props.dashboard.settings.recoveryRetentionDays} onChange={(event) => { void setRecoveryRetentionDays(Number(event.target.value)); }}>
+                    <option value={0}>{props.locale === 'th' ? 'ไม่ลบอัตโนมัติ' : 'Never'}</option>
+                    {[7, 14, 30, 60, 90, 180, 365].map((days) => <option key={days} value={days}>{days} {props.locale === 'th' ? 'วัน' : 'days'}</option>)}
+                  </select>
+                </div>
                 <div className="settings-mini-heading"><strong>{props.locale === 'th' ? 'ไฟล์ที่ลบ / สำเนาก่อนเขียนทับ' : 'Deleted / pre-replacement backups'}</strong><span>{props.dashboard.recovery.trashItems.length}</span></div>
                 {props.dashboard.recovery.trashItems.length === 0 ? <div className="empty-setting-state">{props.locale === 'th' ? 'Recovery Trash ยังว่าง' : 'Recovery Trash is empty'}</div> : (
-                  <div className="backup-list settings-backup-list">{props.dashboard.recovery.trashItems.map((item) => (
+                  <div className="backup-list settings-backup-list recovery-scroll-list">{props.dashboard.recovery.trashItems.map((item) => (
                     <div key={item.recoveryId} className="backup-item">
                       <div><strong>{item.relativePath}</strong><p className="hint">{new Date(item.deletedAt).toLocaleString(props.locale === 'th' ? 'th-TH' : 'en-US')} · {item.kind === 'replacement_backup' ? (props.locale === 'th' ? 'สำเนาก่อนเขียนทับ' : 'pre-replacement') : item.isDirectory ? 'folder' : 'file'} · {item.payloadAvailable ? (props.locale === 'th' ? 'พร้อมกู้คืน' : 'ready') : (props.locale === 'th' ? 'payload ไม่ครบ' : 'payload missing')}</p></div>
                       <button type="button" disabled={!item.payloadAvailable || recoveryBusyId !== null} onClick={() => { void restoreTrashItem(item.workspaceId, item.recoveryId, item.relativePath, item.kind); }}>{recoveryBusyId === item.recoveryId ? (props.locale === 'th' ? 'กำลังกู้…' : 'Restoring…') : (props.locale === 'th' ? 'กู้คืน' : 'Restore')}</button>
@@ -392,7 +470,7 @@ export function SettingsPage(props: SettingsPageProps): ReactElement {
                 )}
                 <div className="settings-mini-heading"><strong>{props.locale === 'th' ? 'Checkpoint ก่อนแก้/เขียนทับ' : 'Pre-change checkpoints'}</strong><span>{props.dashboard.recovery.checkpoints.length}</span></div>
                 {props.dashboard.recovery.checkpoints.length === 0 ? <div className="empty-setting-state">{props.locale === 'th' ? 'ยังไม่มี checkpoint' : 'No checkpoints yet'}</div> : (
-                  <div className="backup-list settings-backup-list">{props.dashboard.recovery.checkpoints.slice(0, 20).map((checkpoint) => {
+                  <div className="backup-list settings-backup-list recovery-scroll-list">{props.dashboard.recovery.checkpoints.map((checkpoint) => {
                     const paths = checkpoint.files.map((file) => file.path);
                     return <div key={checkpoint.id} className="backup-item"><div><strong>{new Date(checkpoint.createdAt).toLocaleString(props.locale === 'th' ? 'th-TH' : 'en-US')}</strong><p className="hint">{paths.join(', ')} · {formatBytes(checkpoint.files.reduce((total, file) => total + file.size, 0))}</p></div><button type="button" disabled={recoveryBusyId !== null} onClick={() => { void restoreCheckpoint(checkpoint.workspaceId, checkpoint.id, paths); }}>{recoveryBusyId === checkpoint.id ? (props.locale === 'th' ? 'กำลังกู้…' : 'Restoring…') : (props.locale === 'th' ? 'ย้อนกลับจุดนี้' : 'Restore point')}</button></div>;
                   })}</div>
@@ -438,6 +516,10 @@ function profileHint(locale: UiLocale, profile: PermissionProfileName): string {
   const th = { safe: 'ปลอดภัยสูงสุด: งานเขียนและรันคำสั่งต้องขออนุญาต', balanced: 'สมดุล: งานทั่วไปใน workspace ทำได้คล่องขึ้น', full: 'เต็มสิทธิ์ตาม policy ที่ยังคงบล็อก operation อันตรายระดับระบบ', custom: 'ใช้กฎ READ / WRITE / EXECUTE / DANGEROUS และ executable ที่กำหนดเอง' } as const;
   const en = { safe: 'Maximum safety: writes and execution require approval.', balanced: 'Balanced: common workspace work is less restrictive.', full: 'Full access within policy; machine-destructive operations remain blocked.', custom: 'Uses your READ / WRITE / EXECUTE / DANGEROUS rules and custom executables.' } as const;
   return (locale === 'th' ? th : en)[profile];
+}
+
+function formatTunnelTriState(value: boolean | null): string {
+  return value === null ? '—' : value ? 'OK' : 'FAIL';
 }
 
 function formatBytes(value: number): string {

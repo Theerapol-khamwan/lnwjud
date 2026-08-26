@@ -47,6 +47,9 @@ export function WorkLogPanel(props: WorkLogPanelProps): ReactElement {
   const workspaceOptions = useMemo(() => collectWorkspaceOptions(props.entries, props.inFlight, props.workspaces), [props.entries, props.inFlight, props.workspaces]);
   const sessionOptions = useMemo(() => collectSessionOptions(props.entries, props.inFlight, workspaceId), [props.entries, props.inFlight, workspaceId]);
   useEffect(() => {
+    if (workspaceId !== null && !workspaceOptions.some((option) => option.id === workspaceId)) setWorkspaceId(null);
+  }, [workspaceId, workspaceOptions]);
+  useEffect(() => {
     if (sessionId !== null && !sessionOptions.includes(sessionId)) setSessionId(null);
   }, [sessionId, sessionOptions]);
   const scope = useMemo<LogScopeSelection>(() => ({ workspaceId, sessionId }), [workspaceId, sessionId]);
@@ -55,9 +58,10 @@ export function WorkLogPanel(props: WorkLogPanelProps): ReactElement {
     [props.entries, props.inFlight, props.filter, search, scope],
   );
   const visible = props.compact ? rows.slice(0, 40) : rows;
+  const resolvedTargets = useMemo(() => completedTargetByCallId(props.entries), [props.entries]);
 
   async function copyRow(row: WorkLogRow): Promise<void> {
-    if (!(await copyTextToClipboard(formatWorkLogCopyText(row)))) return;
+    if (!(await copyTextToClipboard(formatWorkLogCopyText(row, resolvedTargets)))) return;
     setCopiedId(row.id);
     window.setTimeout(() => setCopiedId((current) => current === row.id ? null : current), 1_200);
   }
@@ -126,7 +130,7 @@ export function WorkLogPanel(props: WorkLogPanelProps): ReactElement {
             <time>{formatTime(row.item.timestamp)}</time>
             <span className={`tag ${row.item.kind}-tag`}>{tagFor(row.item.kind)}</span>
             <strong>{row.item.toolName}</strong>
-            <span className="worklog-summary"><ScopeBadges item={row.item} showWorkspace={workspaceId === null} showSession={sessionId === null} workspaces={props.workspaces} />{renderEntryDetail(row.item)}</span>
+            <span className="worklog-summary"><ScopeBadges item={row.item} showWorkspace={workspaceId === null} showSession={sessionId === null} workspaces={props.workspaces} />{renderEntryDetail(row.item, resolvedTargets)}</span>
             {row.item.kind !== 'task' ? <em>{row.item.durationMs}ms</em> : <span className="worklog-duration" />}
             <CopyButton row={row} copiedId={copiedId} copyLabel={props.copyLabel} copiedLabel={props.copiedLabel} onCopy={copyRow} />
           </div>
@@ -198,10 +202,39 @@ function scopedActivityId(item: InFlightWorkItem): string {
 }
 
 function collectWorkspaceOptions(entries: readonly WorkLogEntry[], inFlight: readonly InFlightWorkItem[], workspaces: readonly WorkspaceSummary[] | undefined): readonly { readonly id: string; readonly label: string }[] {
+  const workspaceList = workspaces ?? [];
+  const knownWorkspaceIds = new Set(workspaceList.map((workspace) => workspace.id));
+  const canonicalWorkspaces: WorkspaceSummary[] = [];
+  const seenRoots = new Set<string>();
+  for (const workspace of workspaceList) {
+    if (workspace.kind === 'machine_root') continue;
+    const rootKey = normalizeWorkspaceRoot(workspace.realRootPath);
+    if (seenRoots.has(rootKey)) continue;
+    seenRoots.add(rootKey);
+    canonicalWorkspaces.push(workspace);
+  }
+
+  const nameCounts = new Map<string, number>();
+  for (const workspace of canonicalWorkspaces) {
+    const key = workspace.displayName.trim().toLocaleLowerCase();
+    nameCounts.set(key, (nameCounts.get(key) ?? 0) + 1);
+  }
+
   const labels = new Map<string, string>();
-  for (const workspace of workspaces ?? []) labels.set(workspace.id, workspace.displayName);
-  for (const item of [...entries, ...inFlight]) if (item.workspaceId !== null && !labels.has(item.workspaceId)) labels.set(item.workspaceId, shortScopeId(item.workspaceId));
+  for (const workspace of canonicalWorkspaces) {
+    const key = workspace.displayName.trim().toLocaleLowerCase();
+    const duplicateName = (nameCounts.get(key) ?? 0) > 1;
+    labels.set(workspace.id, duplicateName ? workspace.displayName + ' — ' + workspace.realRootPath : workspace.displayName);
+  }
+  for (const item of [...entries, ...inFlight]) {
+    if (item.workspaceId === null || labels.has(item.workspaceId) || knownWorkspaceIds.has(item.workspaceId)) continue;
+    labels.set(item.workspaceId, shortScopeId(item.workspaceId));
+  }
   return [...labels.entries()].map(([id, label]) => ({ id, label })).sort((a, b) => a.label.localeCompare(b.label));
+}
+
+function normalizeWorkspaceRoot(value: string): string {
+  return value.trim().replace(/\\/g, '/').replace(/\/+$/, '').toLocaleLowerCase();
 }
 
 function collectSessionOptions(entries: readonly WorkLogEntry[], inFlight: readonly InFlightWorkItem[], workspaceId: string | null): readonly string[] {
@@ -214,7 +247,7 @@ function collectSessionOptions(entries: readonly WorkLogEntry[], inFlight: reado
 }
 
 function ScopeBadges(props: { readonly item: Pick<WorkLogEntry, 'workspaceId' | 'sessionId'> | Pick<InFlightWorkItem, 'workspaceId' | 'sessionId'>; readonly showWorkspace: boolean; readonly showSession: boolean; readonly workspaces: readonly WorkspaceSummary[] | undefined }): ReactElement | null {
-  const workspaceLabel = props.item.workspaceId === null ? null : props.workspaces?.find((workspace) => workspace.id === props.item.workspaceId)?.displayName ?? shortScopeId(props.item.workspaceId);
+  const workspaceLabel = props.item.workspaceId === null ? null : displayWorkspaceLabel(props.workspaces, props.item.workspaceId);
   const sessionLabel = props.item.sessionId === null ? null : shortScopeId(props.item.sessionId);
   if ((!props.showWorkspace || workspaceLabel === null) && (!props.showSession || sessionLabel === null)) return null;
   return <span className="scope-badges">
@@ -223,40 +256,72 @@ function ScopeBadges(props: { readonly item: Pick<WorkLogEntry, 'workspaceId' | 
   </span>;
 }
 
+function displayWorkspaceLabel(workspaces: readonly WorkspaceSummary[] | undefined, workspaceId: string): string {
+  const workspace = workspaces?.find((candidate) => candidate.id === workspaceId);
+  if (workspace === undefined) return shortScopeId(workspaceId);
+  const duplicateName = (workspaces ?? []).some((candidate) => candidate.id !== workspace.id && candidate.displayName.trim().toLocaleLowerCase() === workspace.displayName.trim().toLocaleLowerCase());
+  return duplicateName ? workspace.displayName + ' — ' + workspace.realRootPath : workspace.displayName;
+}
+
 function shortScopeId(value: string): string {
   return value.length <= 14 ? value : value.slice(0, 8) + '…' + value.slice(-4);
 }
 
-function renderEntryDetail(entry: WorkLogEntry): ReactElement | string {
+function renderEntryDetail(entry: WorkLogEntry, resolvedTargets: ReadonlyMap<string, string>): ReactElement | string {
+  const targetSummary = resolvedTargetSummary(entry, resolvedTargets);
   if (entry.kind === 'error') {
-    if (entry.targetSummary && entry.errorMessage) {
+    if (targetSummary && entry.errorMessage) {
       return (
         <>
-          <span>{entry.targetSummary}</span>
+          <span>{targetSummary}</span>
           <span className="worklog-error-detail"> — {entry.errorMessage}</span>
         </>
       );
     }
     if (entry.errorMessage) return <span className="worklog-error-detail">{entry.errorMessage}</span>;
-    return entry.targetSummary ?? entry.resultCode;
+    return targetSummary ?? legacyEntryDetail(entry);
   }
-  return entry.targetSummary ?? entry.resultCode;
+  return targetSummary ?? legacyEntryDetail(entry);
 }
 
-function entryDetailText(entry: WorkLogEntry): string {
+function entryDetailText(entry: WorkLogEntry, resolvedTargets: ReadonlyMap<string, string>): string {
+  const targetSummary = resolvedTargetSummary(entry, resolvedTargets);
   if (entry.kind === 'error') {
-    if (entry.targetSummary && entry.errorMessage) return `${entry.targetSummary} — ${entry.errorMessage}`;
-    return entry.errorMessage ?? entry.targetSummary ?? entry.resultCode;
+    if (targetSummary && entry.errorMessage) return `${targetSummary} — ${entry.errorMessage}`;
+    return entry.errorMessage ?? targetSummary ?? legacyEntryDetail(entry);
   }
-  return entry.targetSummary ?? entry.resultCode;
+  return targetSummary ?? legacyEntryDetail(entry);
 }
 
-export function formatWorkLogCopyText(row: WorkLogRow): string {
+export function formatWorkLogCopyText(row: WorkLogRow, resolvedTargets: ReadonlyMap<string, string> = new Map()): string {
   if (row.kind === 'inflight') {
     return `${row.item.startedAt} [TASK] ${row.item.toolName}${row.item.targetSummary === null ? '' : ` ${row.item.targetSummary}`}`;
   }
   const duration = row.item.kind === 'task' ? '' : ` ${row.item.durationMs}ms`;
-  return `${row.item.timestamp} ${tagFor(row.item.kind)} ${row.item.toolName} ${entryDetailText(row.item)}${duration}`.trim();
+  return `${row.item.timestamp} ${tagFor(row.item.kind)} ${row.item.toolName} ${entryDetailText(row.item, resolvedTargets)}${duration}`.trim();
+}
+
+function completedTargetByCallId(entries: readonly WorkLogEntry[]): ReadonlyMap<string, string> {
+  const targets = new Map<string, string>();
+  for (const entry of entries) {
+    if (entry.kind === 'task' || entry.callId === undefined || entry.targetSummary === null || entry.targetSummary.trim().length === 0) continue;
+    targets.set(entry.callId, entry.targetSummary);
+  }
+  return targets;
+}
+
+function resolvedTargetSummary(entry: WorkLogEntry, resolvedTargets: ReadonlyMap<string, string>): string | null {
+  if (entry.targetSummary !== null && entry.targetSummary.trim().length > 0) {
+    if (entry.kind !== 'task' || entry.callId === undefined) return entry.targetSummary;
+    return resolvedTargets.get(entry.callId) ?? entry.targetSummary;
+  }
+  if (entry.callId === undefined) return null;
+  return resolvedTargets.get(entry.callId) ?? null;
+}
+
+function legacyEntryDetail(entry: WorkLogEntry): string {
+  if (entry.kind === 'task' || entry.resultCode === 'SUCCESS') return 'details unavailable (legacy log)';
+  return `${entry.resultCode} · details unavailable (legacy log)`;
 }
 
 function tagFor(kind: WorkLogEntry['kind']): string {

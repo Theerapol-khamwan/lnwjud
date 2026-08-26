@@ -1,4 +1,4 @@
-﻿appId: com.lnwjud.desktop
+appId: com.lnwjud.desktop
 productName: lnwjud
 asar: true
 npmRebuild: false
@@ -30,6 +30,8 @@ extraResources:
     to: lnwjud-node.exe
   - from: ../../native/windows-ocr/bin
     to: windows-ocr
+  - from: build/tunnel-client
+    to: tunnel-client
 # Tunnel profile expects these next to lnwjud.exe (not only under resources/).
 extraFiles:
   - from: build/lnwjud-mcp-stdio.cjs
@@ -42,6 +44,9 @@ win:
   icon: build/icon.ico
   target:
     - target: nsis
+      arch:
+        - x64
+    - target: portable
       arch:
         - x64
   artifactName: lnwjud-Setup-${version}.${ext}
@@ -58,3 +63,5 @@ nsis:
   uninstallerIcon: build/icon.ico
   uninstallDisplayName: ${productName}
   include: build/installer.nsh
+portable:
+  artifactName: lnwjud-Portable-${version}.${ext}

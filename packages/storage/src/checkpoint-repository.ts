@@ -41,6 +41,12 @@ export class SqliteCheckpointRepository implements CheckpointRepository {
     });
   }
 
+  public async deleteOlderThan(cutoffIso: string): Promise<number> {
+    if (!Number.isFinite(Date.parse(cutoffIso))) throw new Error('Checkpoint retention cutoff is invalid');
+    const result = this.database.connection.prepare('DELETE FROM checkpoints WHERE created_at < ?').run(cutoffIso);
+    return Number(result.changes);
+  }
+
   private toCheckpoint(value: unknown): Checkpoint | null {
     if (!this.isCheckpointRow(value)) return null;
     let files: unknown;

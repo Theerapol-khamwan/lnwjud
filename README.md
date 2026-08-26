@@ -6,7 +6,7 @@
 
 <p align="center">
   <strong>Windows-first local AI-agent runtime and MCP gateway</strong><br />
-  <em>218 configurable tools for local files, Git, processes, Windows automation, WSL, browser control, indexing, observability, and extensibility; 212 are advertised by default because codex_* delegation is opt-in.</em>
+  <em>223 configurable tools for local files, Git, processes, Windows automation, WSL, browser control, durable goal continuation, indexing, observability, and extensibility; 217 are advertised by default because codex_* delegation is opt-in.</em>
 </p>
 
 <p align="center">
@@ -14,7 +14,7 @@
   <a href="LICENSE"><img alt="License" src="https://img.shields.io/badge/license-MIT-blue.svg" /></a>
   <img alt="Platform" src="https://img.shields.io/badge/platform-Windows%20x64-0078D4" />
   <img alt="Node" src="https://img.shields.io/badge/Node.js-24.x-339933" />
-  <img alt="MCP" src="https://img.shields.io/badge/MCP-218%20tools-6f42c1" />
+  <img alt="MCP" src="https://img.shields.io/badge/MCP-223%20tools-6f42c1" />
 </p>
 
 ---
@@ -41,13 +41,31 @@ over outbound HTTPS, forwards MCP work to lnwjud's Desktop loopback HTTP MCP,
 and returns the response without opening a public inbound port on the Windows
 machine.
 
-## Current version: v4.10.0
+## Current version: v4.11.0
 
-The v4.10.0 release target and runtime contract contain **218 configurable MCP tools**,
-with **212 advertised by default** because
+The v4.11.0 release target and runtime contract contain **223 configurable MCP tools**,
+with **217 advertised by default** because
 the six `codex_*` delegation tools are opt-in. The earlier 184-tool snapshot remains
 only as the compatibility baseline used by the v4 architecture; new v4 gateway
 capabilities are additive.
+
+### What's new in v4.11.0
+
+- Adds **multiple simultaneous Active Projects** for parallel ChatGPT chats/projects. One project remains **Primary** only as the fallback when a tool call omits `workspaceId`; explicit workspace-scoped calls stay isolated per project/session.
+- Updates **Recovery Center** to render the full recovery/checkpoint history inside a fixed-height scroll area (roughly ten visible rows) and adds user-selectable automatic retention: Never, 7, 14, 30, 60, 90, 180, or 365 days. The safe upgrade default is **Never**.
+- Bundles the official **OpenAI tunnel-client v0.0.12 Windows x64** inside the lnwjud Windows packages. Packaging verifies the pinned release archive SHA-256 before inclusion; users only need to provide the Runtime API key and Tunnel ID. A manual executable path remains an advanced override/troubleshooting option.
+- Adds a single-file **`lnwjud-Portable-4.11.0.exe`** alongside the NSIS installer for Windows 10/11 x64. Portable mode needs no installation and intentionally reuses the same per-user lnwjud settings/data location as the installed build.
+- Hardens **Windows 10/11 x64 compatibility**: Windows 10 uses a conservative software-rendering profile to avoid blank/partially unclickable Chromium surfaces on older GPU drivers, while Windows 11 keeps hardware acceleration. Internal Windows child processes remain hidden and use built-in Windows PowerShell where product plumbing needs PowerShell; durable shell workers are capped at 16 concurrent tasks and managed process handles at 24 to prevent runaway `conhost.exe`/CPU growth when many chats run work in parallel.
+- Adds **distribution-aware automatic updates**. Installed builds stay on `latest.yml` and update with `lnwjud-Setup-<version>.exe`; Portable builds use the separate `portable.yml` channel and update with `lnwjud-Portable-<version>.exe`. Portable replacement waits for the running process to exit, backs up the current EXE, replaces that exact Portable path, rolls back on failure, and restarts it. Auto-update never switches a user from Portable to Installer or vice versa.
+- Adds **Durable Goal Continuation** with `run_goal`, `get_goal`, `checkpoint_goal`, `finish_goal`, and `list_goals`. Goal state survives runtime/session interruptions in SQLite, uses append-only checkpoints plus revision compare-and-swap, stores only SHA-256 lease-token hashes, and persists active task IDs so a resumed turn can inspect existing work instead of repeating it.
+- Improves Tunnel Settings spacing so status, warning, action, and evidence blocks are visually separated.
+- Removes the former 22-minute Budget Guard that appended a handoff/background instruction to tool results. MCP initialization now advertises an outcome-driven contract: ChatGPT keeps using lnwjud until the requested result is complete and never stops merely because elapsed time passed.
+- Adds a **Persistent OpenAI Tunnel Runtime** around the official `tunnel-client runtimes` lifecycle. lnwjud saves one tunnel identity, uses runtime alias `lnwjud`, and reconciles that same `tunnel_id` back to the current Desktop loopback MCP URL instead of creating replacement tunnels.
+- Lets a supported native tunnel runtime survive a short Desktop restart gap. On the next launch, Desktop MCP starts first and the reconciler rebinds the same remote tunnel identity even when the local ephemeral MCP port changes.
+- Reconnects transient runtime/control-plane failures indefinitely with capped backoff instead of permanently giving up after a fixed rapid-exit count. Authentication and operator-action failures fail closed without a tight retry loop; repairing the runtime key resumes the same saved tunnel identity.
+- Adds persistent tunnel status and controls to Settings plus Doctor checks for identity, runtime process, health, readiness, control-plane polling, local MCP reachability/binding, tunnel-ID mismatch, and runtime-key availability. Tunnel IDs are masked and secrets are never included in status/log evidence.
+- Adds deterministic continuity acceptance for runtime death, Desktop restart/rebind, short and >5-minute transient outages, revoked-key recovery, tunnel-ID mismatch, durable task resilience, and the 2026-07-28 MCP protocol catalog. The v4.11 catalog is **217 tools by default** and is byte-stable across a Desktop MCP listener restart.
+- Keeps the release claim capability-gated: the installed official tunnel client supports managed runtimes plus health/readiness/poll gates, but does not expose a proven ready-before-retire overlap primitive. v4.11 therefore **does not claim strict zero downtime**; it truthfully provides persistent same-ID reconnect continuity without requiring a VPS, public domain, or Cloudflare relay.
 
 ### What's new in v4.10.0
 
@@ -57,7 +75,7 @@ capabilities are additive.
 - Makes direct file operations recoverable without making Full Access noisy: Safe/Balanced retain conservative replacement rules, while Full can `write_file`, `apply_patch`, edit, copy, move, and replace ordinary targets without prompts. Existing content is checkpointed/backed up where supported, and deletion remains limited to one file or one empty directory.
 - Applies the same profile-aware mutation classifier across Git, shell/WSL, process/Codex, Office, scheduler, HTTP mutations, browser/UI actions, and Windows-native side effects, so Full does not receive duplicate backend prompts for ordinary work. Destructive actions are never automatically retried.
 - Adds a Recovery Center that shows the real local Recovery Trash path, deleted items, pre-replacement binary backups, checkpoints, and rollback IDs. Critical-path deletion remains guarded; ordinary Full-profile edits/replacements use recovery/checkpoint protections without an extra prompt.
-- Synchronizes the live catalog at **218 configurable tools / 212 advertised by default**, including the recovery/checkpoint tools, and makes README catalog drift a generated release-check failure.
+- Synchronizes the live catalog at **223 configurable tools / 217 advertised by default**, including Durable Goal Continuation and the recovery/checkpoint tools, and makes README catalog drift a generated release-check failure.
 
 ### What's new in v4.9.1
 
@@ -238,7 +256,7 @@ Current v4 highlights include:
 Authoritative in-repository references:
 
 - [Tool contract](docs/architecture/TOOL_CONTRACT.md) — core primitive schemas,
-  policy classes, and compatibility rules; the 218-tool configurable index below comes from the live runtime registry.
+  policy classes, and compatibility rules; the 223-tool configurable index below comes from the live runtime registry.
 - [Upgrade architecture](docs/architecture/UPGRADE_ARCHITECTURE.md) — v4 runtime
   architecture and additive gateway design.
 - [Roadmap phase status](docs/architecture/ROADMAP_PHASE_STATUS.md) — completed
@@ -303,69 +321,56 @@ stops the current local HTTP listener.
 
 1. Download the latest published installer from
    [GitHub Releases](https://github.com/engasnm111/lnwjud/releases/latest).
-   The Windows installer for the current version is `lnwjud-Setup-4.10.0.exe`; download the published artifact from GitHub Releases.
+   Current Windows 10/11 x64 artifacts are `lnwjud-Setup-4.11.0.exe` (recommended installer) and `lnwjud-Portable-4.11.0.exe` (no installation required).
 2. Run the NSIS installer and launch **lnwjud Agent Control Center**.
 3. Add or select the project/workspace you want lnwjud to operate on.
 4. Review **Settings** before attaching an AI client, especially Permission
    Profile and Unrestricted Mode.
 
+If you prefer not to install the app, run `lnwjud-Portable-4.11.0.exe` directly.
+Portable mode uses the same per-user lnwjud data/settings location as the installer;
+it is a portable executable, not a keep-all-data-next-to-the-EXE mode.
+Automatic updates preserve the distribution you chose. Installer users read
+`latest.yml` and receive the next `lnwjud-Setup-<version>.exe`. Portable users
+read `portable.yml` and receive the next `lnwjud-Portable-<version>.exe`, which
+is verified by the updater and then replaces the same Portable EXE path with a
+backup/rollback/restart flow after the running process exits. The updater never
+converts a Portable install into an Installer install or the reverse.
+
+
 The graphical desktop app and the packaged **local STDIO** launcher are
-self-contained. The installer ships Electron for the dashboard and a private
+self-contained. Both Windows packages ship Electron for the dashboard and a private
 Node.js 24 runtime for `lnwjud-mcp-stdio.cmd`, so end users do **not** need a
 separate system Node.js installation. Secure Tunnel uses the running Desktop HTTP
-MCP plus the separately downloaded official `tunnel-client.exe`; it does not
+MCP plus the bundled official `tunnel-client.exe`; it does not
 spawn the packaged STDIO launcher.
 
 ### 2. Prepare OpenAI Secure MCP Tunnel for ChatGPT web
 
-OpenAI's Secure MCP Tunnel flow requires a Platform tunnel ID, a runtime API
-key, and the official `tunnel-client` binary. Creating or editing a tunnel
-requires **Tunnels Read + Manage**; running `tunnel-client` or selecting a
-tunnel while creating the ChatGPT app requires **Tunnels Read + Use**.
+OpenAI's Secure MCP Tunnel flow requires a Platform tunnel ID and a runtime
+API key. The published Windows x64 installer and portable executable already contain the official
+OpenAI `tunnel-client v0.0.12`, so release users do **not** download or
+extract a separate tunnel-client package. Creating or editing a tunnel requires
+**Tunnels Read + Manage**; the runtime key needs **Tunnels Read + Use**.
 
 1. Open [OpenAI Platform tunnel settings](https://platform.openai.com/settings/organization/tunnels).
 2. Create a tunnel named `lnwjud` and associate it with the Platform organization
    that owns it and the ChatGPT workspace that should use it.
 3. Create a restricted runtime API key with **Tunnels Read + Use**.
-4. Open the official [openai/tunnel-client releases](https://github.com/openai/tunnel-client/releases)
-   page and choose the latest **stable** release, not a `-dev` pre-release.
+4. Open **lnwjud → Settings → OpenAI Secure MCP Tunnel**. Save the runtime API
+   key, leave the **tunnel-client (bundled)** override field empty, paste the
+   tunnel ID, and click **Configure Tunnel**.
+5. The Setup Wizard selects the bundled client automatically, starts or reuses
+   lnwjud's **Desktop loopback HTTP MCP**, creates or repairs
+   `%APPDATA%/tunnel-client/lnwjud.yaml`, and runs the required tunnel diagnostics.
+   Secure Tunnel does not spawn a separate headless lnwjud MCP runtime, so the
+   Desktop-selected Active Projects and native exact-action approval remain
+   authoritative for remote ChatGPT calls.
 
-#### Which tunnel-client ZIP should Windows users download?
-
-For lnwjud, use the **full tunnel-client** archive. Do not choose a
-`tunnel-client-runtime-*` or `tunnel-client-runtime-cloudflared-*` archive:
-the runtime variants are intended for run-only deployments, while lnwjud's Setup
-Wizard uses onboarding/profile-management commands such as `init` and
-`doctor` in addition to `run`.
-
-| Windows machine | Download |
-| --- | --- |
-| Normal Windows 10/11 PC with Intel or AMD 64-bit CPU | `tunnel-client-v<version>-windows-amd64.zip` |
-| Windows on ARM / Snapdragon ARM64 PC | `tunnel-client-v<version>-windows-arm64.zip` |
-
-At the time this v4.10.0 README was updated, the latest stable tunnel-client is
-`v0.0.12`, so most Windows users should download:
-
-```text
-tunnel-client-v0.0.12-windows-amd64.zip
-```
-
-Use `tunnel-client-v0.0.12-windows-arm64.zip` only on Windows ARM64 devices.
-Do not download `Source code (zip)`, SPDX/license files, or the runtime-only
-archives for this lnwjud Setup Wizard flow. After extracting the ZIP, keep
-`tunnel-client.exe` in a stable folder, for example
-`C:\Tools\tunnel-client\tunnel-client.exe`.
-
-5. Open **lnwjud → Settings → OpenAI Secure MCP Tunnel**. Save the runtime API
-   key, browse to the extracted `tunnel-client.exe`, paste the tunnel ID, and
-   click **Configure Tunnel**. This is the recommended end-user path; no manual
-   PowerShell `init` is required.
-6. The Setup Wizard starts or reuses lnwjud's **Desktop loopback HTTP MCP**,
-   creates or repairs `%APPDATA%/tunnel-client/lnwjud.yaml` with
-   `sample_mcp_remote_no_auth`, and runs `tunnel-client doctor`. Secure
-   Tunnel no longer spawns a separate headless lnwjud MCP runtime, so the
-   Desktop-selected **Active Project** and native exact-action approval dialog
-   remain authoritative for remote ChatGPT calls.
+The tunnel-client path field is an **override/troubleshooting** control only.
+Clear it and choose **Use bundled** to return to the package-supplied client.
+Source builds may prepare the pinned client during `package:windows`; that build
+step is not an end-user installation step.
 
 If you intentionally need to initialize the profile by hand, keep lnwjud running
 and copy the **Local MCP endpoint** shown by lnwjud (it is loopback-only and ends
@@ -398,7 +403,9 @@ In **Settings → OpenAI Secure MCP Tunnel**:
 1. Save the runtime API key. lnwjud encrypts it locally with Windows DPAPI. The
    generated tunnel profile stores only the reference `env:CONTROL_PLANE_API_KEY`,
    never the literal runtime key.
-2. Browse to and save the path to `tunnel-client.exe`.
+2. Leave the tunnel-client override field empty to use the official
+   `tunnel-client v0.0.12` bundled with the Windows x64 installer. Browse/save a
+   custom executable only when intentionally overriding it for troubleshooting.
 3. Paste the OpenAI tunnel ID and click **Configure Tunnel**. The wizard replaces
    or repairs the lnwjud-owned profile so `mcp.server_urls` points to the Desktop
    loopback MCP endpoint and `control_plane.api_key` is the environment reference.
@@ -428,7 +435,7 @@ The stable flow is:
 3. Enter a name/description, choose **Tunnel** under Connection, and select the
    associated `lnwjud` tunnel or enter its `tunnel_id`.
 4. Create the connection and review the discovered tools and metadata.
-5. Confirm that the default runtime exposes **212 tools** (or **218** when Codex delegation is explicitly enabled) and run a read-only
+5. Confirm that the default runtime exposes **217 tools** (or **223** when Codex delegation is explicitly enabled) and run a read-only
    smoke test before trying writes.
 
 Example smoke test:
@@ -444,12 +451,14 @@ OpenAI Secure MCP Tunnel แบบง่ายที่สุด โดย **ไ
 Secure Tunnel จะส่งงานเข้าที่ Desktop loopback HTTP MCP ของ lnwjud โดยตรง
 ส่วน private Node runtime ที่มากับตัวติดตั้งยังคงใช้สำหรับ local stdio เช่น Codex CLI
 
-### 1. ติดตั้ง lnwjud
+### 1. ติดตั้ง lnwjud หรือใช้ Portable
 
-1. ดาวน์โหลด `lnwjud-Setup-4.10.0.exe` จากหน้า GitHub Releases ของ lnwjud
-2. เปิดตัวติดตั้งและติดตั้งตามปกติ
+1. แบบแนะนำ: ดาวน์โหลด `lnwjud-Setup-4.11.0.exe` แล้วติดตั้งตามปกติ
+2. ถ้าไม่ต้องการติดตั้ง: ดาวน์โหลด `lnwjud-Portable-4.11.0.exe` แล้วเปิดได้ทันที
 3. เปิด **lnwjud Agent Control Center**
 4. เพิ่มหรือเลือก Project/Workspace ที่ต้องการให้ ChatGPT ทำงานด้วย
+
+Portable ใช้ Settings/ข้อมูลต่อผู้ใช้ Windows ชุดเดียวกับตัวติดตั้ง ไม่ได้เก็บ database/settings ทุกอย่างไว้ข้าง EXE
 
 ### 2. สร้าง OpenAI Tunnel และ Runtime API key
 
@@ -458,51 +467,28 @@ Secure Tunnel จะส่งงานเข้าที่ Desktop loopback HTT
 3. สร้าง Runtime API key ที่มีสิทธิ์ **Tunnels Read + Use**
 4. เก็บ key ไว้เป็นความลับ ห้ามใส่ใน Git, README, issue หรือไฟล์ที่จะแชร์
 
-### 3. ดาวน์โหลด tunnel-client สำหรับ Windows ให้ถูกไฟล์
+### 3. tunnel-client มากับตัวติดตั้งแล้ว
 
-เข้า [openai/tunnel-client Releases](https://github.com/openai/tunnel-client/releases)
-และเลือก **stable release ล่าสุด** ไม่เลือกตัวที่ลงท้าย `-dev`
+ถ้าใช้ `lnwjud-Setup-4.11.0.exe` หรือ `lnwjud-Portable-4.11.0.exe` บน Windows x64 **ไม่ต้องดาวน์โหลด
+`tunnel-client.exe` เอง** ตัว release รวม official OpenAI
+`tunnel-client v0.0.12` มาให้และ lnwjud จะเลือกใช้ให้อัตโนมัติ
 
-สำหรับเครื่อง Windows ทั่วไปที่ใช้ Intel/AMD 64-bit ให้โหลดไฟล์รูปแบบ:
-
-```text
-tunnel-client-v<version>-windows-amd64.zip
-```
-
-ณ ตอนที่อัปเดต README นี้ stable ล่าสุดคือ `v0.0.12` ดังนั้นเครื่อง Windows
-ทั่วไปให้โหลด:
-
-```text
-tunnel-client-v0.0.12-windows-amd64.zip
-```
-
-ถ้าเป็น Windows on ARM / Snapdragon ARM64 ให้ใช้:
-
-```text
-tunnel-client-v0.0.12-windows-arm64.zip
-```
-
-**ไม่ต้องโหลด** `tunnel-client-runtime-*`,
-`tunnel-client-runtime-cloudflared-*`, `Source code (zip)`, ไฟล์ license,
-หรือ SPDX สำหรับการตั้งค่า lnwjud แบบปกติ เพราะ Setup Wizard ต้องใช้ full
-`tunnel-client` ที่มีคำสั่ง `init`, `doctor` และ `run` ครบ
-
-แตก ZIP แล้วเก็บ `tunnel-client.exe` ไว้ในตำแหน่งถาวร เช่น:
-
-```text
-C:\Tools\tunnel-client\tunnel-client.exe
-```
+ช่อง path ของ tunnel-client ใน Settings เป็น **override สำหรับ troubleshoot**
+เท่านั้น ปล่อยว่างไว้สำหรับการใช้งานปกติ หากเคย override แล้วต้องการกลับมาใช้
+ตัวที่มากับโปรแกรม ให้ล้างช่องแล้วกด **ใช้ตัวที่มากับโปรแกรม / Use bundled**
 
 ### 4. ตั้งค่า Tunnel ใน lnwjud
 
 เปิด **Settings → OpenAI Secure MCP Tunnel** แล้วทำตามลำดับนี้:
 
 1. ใส่ Runtime API key แล้วกด **Save key**
-2. กด **Browse...** แล้วเลือก `tunnel-client.exe` ที่เพิ่งแตก ZIP
+2. ปล่อยช่อง tunnel-client override ว่างไว้
+   โปรแกรมจะใช้ `tunnel-client v0.0.12` ที่มากับ installer อัตโนมัติ
 3. ใส่ OpenAI Tunnel ID
 4. กด **Configure Tunnel**
 5. รอให้ Configure/Doctor ผ่าน
-6. กด **Start Tunnel**
+6. กด **Start Tunnel** หรือ **Reconnect Tunnel เดิม** ตามสถานะที่แสดง
+   ใช้ **Browse...** เฉพาะกรณีต้องการ override executable เพื่อ troubleshooting
 
 ตรงนี้ **ไม่ต้องพิมพ์ path ของ `lnwjud-mcp-stdio.cmd` เอง** โปรแกรมจะ
 เปิด/ใช้ Local MCP ของ Desktop แล้วสร้างหรือซ่อม
@@ -686,20 +672,21 @@ Use the same `LNWJUD_DATA_PATH` for desktop UI and the packaged stdio launcher
 so ChatGPT tool activity appears in the Work Log. The launcher is the same
 direct MCP entrypoint used by the Codex/tunnel integration.
 
-### Build a Windows installer
+### Build Windows installer + portable executable
 
 ```powershell
 Set-Location .\lnwjud
 corepack pnpm@10.15.0 package:windows
 ```
 
-The x64 NSIS installer is written to:
+The Windows 10/11 x64 artifacts are written to:
 
 ```text
-apps/desktop/dist/installers/lnwjud-Setup-4.10.0.exe
+apps/desktop/dist/installers/lnwjud-Setup-4.11.0.exe
+apps/desktop/dist/installers/lnwjud-Portable-4.11.0.exe
 ```
 
-The installer is per-user by default. A common installed executable path is:
+The installer is per-user by default. The portable executable needs no installation but uses the same per-user lnwjud data/settings location. A common installed executable path is:
 
 ```text
 C:/Users/<WindowsUser>/AppData/Local/Programs/lnwjud/lnwjud.exe
@@ -837,22 +824,19 @@ key in a local secret store or environment variable. Never put it in this
 repository, a YAML profile, a committed .env file, or a public issue/log. If a
 key is exposed, revoke it and create a replacement.
 
-### 3. Download tunnel-client
+### 3. tunnel-client for installed releases
 
-Use the Platform download link or the [official tunnel-client
-releases](https://github.com/openai/tunnel-client). Keep the executable at a
-stable path, for example:
+The Windows x64 installer already bundles official OpenAI
+`tunnel-client v0.0.12`, so normal installed-release setup requires no separate
+download or stable external executable path. The Settings path field is only a
+manual override/troubleshooting control.
 
-```text
-C:/Users/<WindowsUser>/Downloads/tunnel/tunnel-client.exe
-```
-
-Verify it:
+For manual CLI troubleshooting or source-development scenarios, define `$tc`
+explicitly for the client you intentionally want to test:
 
 ```powershell
-$tc = 'C:/Users/<WindowsUser>/Downloads/tunnel/tunnel-client.exe'
+$tc = 'C:/path/to/tunnel-client.exe'
 & $tc --version
-& $tc help quickstart
 ```
 
 ### 4. Create a Desktop HTTP profile
@@ -905,11 +889,13 @@ The `main` MCP channel must point to a loopback URL ending in `/mcp` (for
 example `http://127.0.0.1:<port>/mcp`). It must not point to a source checkout,
 a public/LAN MCP address, or `lnwjud-mcp-stdio.cmd` for the Secure Tunnel flow.
 
-## Start the tunnel automatically at Windows logon
+## Advanced: manual tunnel runner at Windows logon
 
-A scheduled task is more reliable than leaving a terminal open. This example
-stores the runtime key encrypted with the current Windows user's DPAPI; the key
-is not written in plain text to the profile or task command line.
+Normal installed-release users should use the Desktop persistent tunnel runtime
+and its reconnect controls; the bundled tunnel-client requires no separate
+scheduled task. The example below is only for an intentionally manual runner.
+It stores the runtime key encrypted with the current Windows user's DPAPI; the
+key is not written in plain text to the profile or task command line.
 
 ### Save the key once
 
@@ -928,7 +914,7 @@ Save as start-lnwjud-tunnel.ps1:
 
 ```powershell
 $ErrorActionPreference = 'Stop'
-$tc = 'C:/Users/<WindowsUser>/Downloads/tunnel/tunnel-client.exe'
+$tc = 'C:/path/to/tunnel-client.exe' # advanced manual override only
 $profile = 'lnwjud'
 $secretPath = Join-Path $env:APPDATA 'tunnel-client/lnwjud.runtime.secret'
 
@@ -1021,7 +1007,7 @@ For workspace <workspace-id>, show the project snapshot, Git status, and the top
 After changing tool metadata or restarting the tunnel, refresh the connector and continue in the same chat. Start a new chat only if Refresh connector does not clear a stale schema.
 
 <!-- BEGIN GENERATED README TOOL REGISTRY -->
-## Complete MCP tool catalog (218 configurable tools; 212 advertised by default)
+## Complete MCP tool catalog (223 configurable tools; 217 advertised by default)
 
 This index is generated from the current `ToolRegistry`, not copied from an older release document. Optional/planned tools still appear in the advertised contract and report their availability/requirements at runtime where applicable.
 
@@ -1040,9 +1026,9 @@ This index is generated from the current `ToolRegistry`, not copied from an olde
 | 11 | `git_diff` | READ | Return a bounded read-only Git diff. For writes use the git tool. |
 | 12 | `git_log` | READ | Return bounded structured Git history. For writes use the git tool. |
 | 13 | `git` | EXECUTE | Run a Git subcommand with a separate args array. Full Access runs ordinary read and non-destructive Git mutations without confirmation. Destructive/data-loss Git forms ask unless their exact scoped family is enabled for auto-approval; scope overrides, aliases, unsafe pathspecs, unknown commands, and destructive remote/history rewrites remain guarded or denied. Mutating calls require workspaceId to match the host-selected Active Project. Do not wrap Git in PowerShell/cmd. |
-| 14 | `write_file` | WRITE | Create or replace a UTF-8 text file and missing parents. Balanced/Safe refuse existing targets unless overwriteExisting is explicit; Full may replace an existing target without a confirmation prompt and still creates a checkpoint. Prefer edit_file for narrow repairs. |
-| 15 | `apply_patch` | WRITE | Apply reviewed whole-file replacement content to at most twenty files. Existing targets are checkpointed first; Full profile does not prompt for non-destructive replacement. Prefer edit_file for narrow repairs. |
-| 16 | `edit_file` | WRITE | Prefer this for narrow repairs. Replaces exact text only when the expected occurrence count matches, checkpoints the original, and refuses conflicts instead of rewriting an unverified whole file. Full Access performs ordinary edits without a confirmation prompt; destructive deletion remains separately guarded. |
+| 14 | `write_file` | WRITE | Create or replace a UTF-8 text file and missing parents. Balanced/Safe refuse existing targets unless overwriteExisting is explicit; Full may replace an existing target without a confirmation prompt and still creates a checkpoint. Prefer edit_file for narrow repairs. Use this instead of shell scripts that call fs.writeFile, writeFileSync, Set-Content, or equivalent when the task is simply to create or replace guarded text. |
+| 15 | `apply_patch` | WRITE | Apply reviewed whole-file replacement content to at most twenty files. Existing targets are checkpointed first; Full profile does not prompt for non-destructive replacement. Prefer edit_file for narrow repairs. Use this instead of shell-generated whole-file rewrites when several reviewed text files must change. |
+| 16 | `edit_file` | WRITE | First choice for narrow source, config, and text repairs. Replaces exact text only when the expected occurrence count matches, checkpoints the original, and refuses conflicts instead of rewriting an unverified whole file. Use edit_file instead of shell, node -e, python -c, PowerShell Set-Content, or inline filesystem scripts when a guarded text edit can express the change. Full Access performs ordinary edits without a confirmation prompt; destructive deletion remains separately guarded. |
 | 17 | `move_file` | WRITE | Move a file or directory within the Active Project, creating missing destination parents. Full Access performs ordinary moves without a confirmation prompt; conflicting or destructive forms remain policy-gated. |
 | 18 | `copy_file` | WRITE | Copy a file or directory within one workspace, creating missing destination parents. |
 | 19 | `delete_file` | DANGEROUS | Move one file or empty directory from the host-selected Active Project into Recovery Trash. This structured delete can be auto-approved when its saved setting is enabled and the exact target is proven safe. Other destructive Git/shell/WSL families have separate exact-scope settings; critical paths, workspace roots, non-empty directories, ambiguous paths, and mismatched workspaces remain guarded. Returns a recoveryId and local recovery path. |
@@ -1066,7 +1052,7 @@ This index is generated from the current `ToolRegistry`, not copied from an olde
 | 37 | `codex_task_status` | READ | Read status for an owned Codex task. |
 | 38 | `codex_task_logs` | READ | Read bounded logs for an owned Codex task. |
 | 39 | `codex_stop` | EXECUTE | Stop an owned Codex task process after explicit chat confirmation. |
-| 40 | `shell` | EXECUTE | Non-blocking command runner for system operations and CLI tasks. MCP run calls are ALWAYS forced to execution=background, even if a client requests foreground or auto, so the call returns a task_id immediately instead of waiting for command completion. Follow with status/logs/result; wait uses the user-configurable MCP poll window (5-60 seconds, default 5). After one or two checks still show running, do not keep polling in the same chat turn: preserve task_id and return control so the durable task can continue without risking a ChatGPT turn timeout. Full Access runs ordinary policy-allowed commands without confirmation. Destructive/data-loss command forms ask unless an exact scoped destructive family is enabled for auto-approval; broad, recursive, critical, outside-project, or unparseable destructive forms remain interactive. dry_run and task observation are non-mutating. Active Project is the default cwd/ownership context, but an explicitly absolute cwd outside it may be used when the active capability policy allows that location; executable paths are never required to live inside the Active Project. |
+| 40 | `shell` | EXECUTE | Non-blocking command runner for system operations and CLI tasks. Use shell for command execution, builds/tests, package managers, and system operations; do not use it as a text editor. For source/config/text changes, prefer edit_file for exact replacements, apply_patch for reviewed multi-file or whole-file replacements, and write_file for creation/replacement. Do not wrap Node, Python, or PowerShell inline scripts around fs.writeFile, writeFileSync, Set-Content, or equivalent when a guarded file tool can perform the edit. MCP run calls are ALWAYS forced to execution=background, even if a client requests foreground or auto, so the call returns a task_id immediately instead of waiting for command completion. Follow with status/logs/result; wait uses the user-configurable MCP poll window (5-60 seconds, default 5). After one or two checks still show running, do not keep polling in the same chat turn: preserve task_id and return control so the durable task can continue without risking a ChatGPT turn timeout. Full Access runs ordinary policy-allowed commands without confirmation. Destructive/data-loss command forms ask unless an exact scoped destructive family is enabled for auto-approval; broad, recursive, critical, outside-project, or unparseable destructive forms remain interactive. dry_run and task observation are non-mutating. Active Project is the default cwd/ownership context, but an explicitly absolute cwd outside it may be used when the active capability policy allows that location; executable paths are never required to live inside the Active Project. |
 | 41 | `dom_cdp` | DANGEROUS | Default for web-page DOM work inside managed Chrome: inspect content, query selectors, click, type, navigate, evaluate JavaScript, wait, manage tabs, and capture screenshots. Any action that can change local or remote state requires explicit chat confirmation and userConfirmed: true. Use steps to batch related DOM actions in one call. |
 | 42 | `accessibility` | DANGEROUS | Semantic native Windows UI tool. Inspect UI trees and named controls, then click, focus, read or set values, select controls and menus, or manage a native element. Prefer shell for direct system work and dom_cdp for web pages. |
 | 43 | `input_event` | DANGEROUS | Low-level keyboard and pointer fallback. Use only when DOM/CDP and Accessibility cannot operate the target. Supports text, keys, mouse movement, clicks, drag, scroll, held buttons, release_all, and batched sequences. |
@@ -1104,147 +1090,152 @@ This index is generated from the current `ToolRegistry`, not copied from an olde
 | 75 | `workspace_index_status` | READ | Return persistent index metadata and lossless watcher queue telemetry. |
 | 76 | `workspace_index_watch` | READ | Watch all workspace paths and incrementally re-index only changed paths with configurable debounce/concurrency. |
 | 77 | `workspace_index_stop` | READ | Stop a workspace watcher after draining all queued path updates. |
-| 78 | `session_handoff` | READ | Create a concise same-chat continuation message from the real phase tracker, current git status/diff, and durable background task IDs. Use near the end of a run so the next run can resume without re-reading the whole project. If a tool schema looks stale, Refresh connector first; open a new chat only if refresh does not fix it. |
+| 78 | `session_handoff` | READ | Create a concise same-chat recovery message from the real phase tracker, current git status/diff, and durable background task IDs. Use only when the user requests a handoff or an unavoidable client/platform interruption requires recovery; never trigger it merely because elapsed time passed. If a tool schema looks stale, Refresh connector first; open a new chat only if refresh does not fix it. |
 | 79 | `verify_incremental` | EXECUTE | Run the detected project typecheck only when the current git status/diff fingerprint changed. Starting a new verification process requires explicit user confirmation. Returns cache=hit when unchanged and cache=miss after a new verification. Prefer this during iterative edits; use project_test/project_lint/project_build only when that specific verification is needed. For full suites or packaging expected to exceed ~5 minutes, launch a durable shell background task and record its task_id in the tracker. |
-| 80 | `symbol_search` | READ | Search indexed symbols across the workspace. |
-| 81 | `find_definition` | READ | Find deterministic symbol definitions. |
-| 82 | `find_references` | READ | Find textual and indexed references to a symbol. |
-| 83 | `find_implementations` | READ | Find interface and class implementations. |
-| 84 | `call_hierarchy` | READ | Return a deterministic call hierarchy approximation. |
-| 85 | `import_graph` | READ | Return indexed imports and exports for a module. |
-| 86 | `dependency_graph` | READ | Return package and module dependency metadata. |
-| 87 | `module_graph` | READ | Return the workspace module graph. |
-| 88 | `type_search` | READ | Search indexed TypeScript, JavaScript, and Python types. |
-| 89 | `trace_symbol` | READ | Combine definition, references, imports, tests, and recent context. |
-| 90 | `context_ranking` | READ | Explain ranking signals without removing lower-ranked context. |
-| 91 | `debug_context` | READ | Gather deterministic debugging context and continuation metadata. |
-| 92 | `review_context` | READ | Gather code-review context. |
-| 93 | `change_context` | READ | Gather changed files, symbols, dependencies, and tests. |
-| 94 | `symbol_context` | READ | Gather context around a symbol. |
-| 95 | `test_context` | READ | Gather relevant test context. |
-| 96 | `dependency_context` | READ | Gather dependency-related context. |
-| 97 | `git_context` | READ | Gather Git status, diff, and history context. |
-| 98 | `frontend_context` | READ | Gather frontend project context. |
-| 99 | `backend_context` | READ | Gather backend project context. |
-| 100 | `route_intent` | READ | Classify a prompt with a deterministic, overridable route. |
-| 101 | `recipe_list` | READ | List built-in and user recipe names. |
-| 102 | `recipe_describe` | READ | Describe a recipe plan and permissions. |
-| 103 | `recipe_run` | EXECUTE | Preview or run a deterministic recipe plan. |
-| 104 | `dry_run` | READ | Return a no-side-effect execution preview. |
-| 105 | `review_changes` | READ | Review current Git changes and affected context. |
-| 106 | `changed_symbols` | READ | Find symbols in changed files. |
-| 107 | `affected_modules` | READ | Find modules affected by current changes. |
-| 108 | `git_history_context` | READ | Return relevant recent Git history. |
-| 109 | `git_blame_context` | READ | Return line ownership context for a file. |
-| 110 | `discover_tests` | READ | Discover project tests without imposing an execution limit. |
-| 111 | `run_affected_tests` | EXECUTE | Plan or run tests affected by changed files. |
-| 112 | `test_failures` | READ | Summarize recorded test failures. |
-| 113 | `coverage_context` | READ | Return coverage context when project tooling provides it. |
-| 114 | `test_history` | READ | Return recent test execution history. |
-| 115 | `cache_stats` | READ | Return shared cache hit/miss telemetry. |
-| 116 | `cache_clear` | WRITE | Clear safe local runtime caches. |
-| 117 | `cache_invalidate` | WRITE | Invalidate cache entries for a path or workspace. |
-| 118 | `hook_list` | READ | List registered lifecycle hooks. |
-| 119 | `hook_register` | WRITE | Register a deterministic lifecycle hook descriptor. |
-| 120 | `hook_remove` | WRITE | Remove a lifecycle hook descriptor. |
-| 121 | `skill_match` | READ | Match relevant local skills without loading all skill text. |
-| 122 | `skill_load` | READ | Load a selected local skill by identifier. |
-| 123 | `plugin_install` | DANGEROUS | Install a declared plugin after permission evaluation. |
-| 124 | `plugin_list` | READ | List installed and enabled plugins. |
-| 125 | `plugin_enable` | WRITE | Enable an installed plugin. |
-| 126 | `plugin_disable` | WRITE | Disable an installed plugin. |
-| 127 | `plugin_remove` | DANGEROUS | Remove an installed plugin. |
-| 128 | `session_context` | READ | Return persisted development-session context. |
-| 129 | `session_checkpoint` | WRITE | Persist a development-session checkpoint. |
-| 130 | `session_resume` | READ | Resume a persisted session context. |
-| 131 | `session_history` | READ | Return session checkpoints and decisions. |
-| 132 | `response_mode` | READ | Select compact, normal, verbose, or stream formatting. |
-| 133 | `inspect_web_app` | READ | Combine DOM, console, network, URL, and screenshot metadata. |
-| 134 | `debug_ui` | READ | Gather deterministic UI debugging context. |
-| 135 | `capture_ui_state` | READ | Capture a structured UI state. |
-| 136 | `form_context` | READ | Inspect form controls and values metadata. |
-| 137 | `network_context` | READ | Summarize browser network context. |
-| 138 | `console_context` | READ | Summarize browser console context. |
-| 139 | `browser_debug_context` | READ | Combine browser diagnostics for one request. |
-| 140 | `windows_environment` | READ | Inspect Windows environment metadata. |
-| 141 | `service_context` | READ | Inspect Windows service metadata. |
-| 142 | `process_context` | READ | Inspect process-tree context. |
-| 143 | `port_context` | READ | Inspect local listening-port context. |
-| 144 | `registry_context` | READ | Inspect registry context through the Windows capability boundary. |
-| 145 | `event_log_context` | READ | Inspect Windows event-log context. |
-| 146 | `installed_runtime_context` | READ | Inspect installed runtimes and package managers. |
-| 147 | `path_context` | READ | Resolve executable and PATH context. |
-| 148 | `startup_context` | READ | Inspect startup configuration context. |
-| 149 | `mcp_discover` | READ | Discover external MCP servers without flattening native tools. |
-| 150 | `mcp_health` | READ | Return external MCP connection health. |
-| 151 | `mcp_resources` | READ | List resources exposed by connected MCP servers. |
-| 152 | `task_create` | EXECUTE | Create a visible managed runtime task. |
-| 153 | `task_status` | READ | Read managed task state. |
-| 154 | `task_cancel` | EXECUTE | Cancel a managed runtime task. |
-| 155 | `task_result` | READ | Read a managed task result. |
-| 156 | `task_list` | READ | List managed runtime tasks. |
-| 157 | `delegate` | EXECUTE | Delegate a task through a policy/audit adapter. |
-| 158 | `delegate_status` | READ | Read delegated agent state. |
-| 159 | `delegate_cancel` | EXECUTE | Cancel a delegated agent task. |
-| 160 | `delegate_result` | READ | Read a delegated agent result. |
-| 161 | `parallel_delegate` | EXECUTE | Run isolated read-only agent tasks with collision metadata. |
-| 162 | `permission_check` | READ | Evaluate an action class without limiting allowed context reads. |
-| 163 | `permission_profile` | READ | Return the active Permission v2 profile. |
-| 164 | `live_logs_query` | READ | Query structured activity/log metadata with correlation IDs. |
-| 165 | `live_logs_status` | READ | Return Live Logs pipeline health and source status. |
-| 166 | `telemetry_dashboard` | READ | Return runtime performance telemetry. |
-| 167 | `context_economy_stats` | READ | Return context discovery, deduplication, ledger, and token-efficiency telemetry. |
-| 168 | `execution_plan` | READ | Return the cheapest deterministic execution plan and reason. |
-| 169 | `repo_map` | READ | Return a traversable repository structural map. |
-| 170 | `context_expand` | READ | Return optional import, caller, type, test, and change references. |
-| 171 | `recovery_status` | READ | Return reconnect, retry, continuation, cache, and worker recovery state. |
-| 172 | `tool_schema_list` | READ | List versioned tool schema metadata. |
-| 173 | `tool_schema_register` | WRITE | Register a backward-compatible tool schema descriptor. |
-| 174 | `capabilities` | READ | Discover capability categories without requiring every full schema. |
-| 175 | `tool_search` | READ | Search tools, tags, phases, and descriptions deterministically. |
-| 176 | `tool_dynamic_filter` | READ | Return a bounded ranked tool set using deterministic scoring with optional local rerank fallback. |
-| 177 | `tool_describe` | READ | Describe one tool contract on demand. |
-| 178 | `tool_categories` | READ | List tool categories and counts. |
-| 179 | `tool_function_find` | READ | Find the best local tool/function candidates for a prompt. |
-| 180 | `tool_aliases` | READ | List stable shorthand aliases and their primitive tool targets. |
-| 181 | `mcp_hub` | READ | Describe the additive MCP hub boundary without flattening child tools or retaining credentials. |
-| 182 | `dev_context` | READ | Run the unified deterministic development-context facade. |
-| 183 | `recipe_catalog` | READ | Return inspectable developer automation recipes. |
-| 184 | `capture_screenshot` | READ | Capture screenshot metadata for visual validation. |
-| 185 | `compare_screenshot` | READ | Compare screenshot metadata or supplied artifacts. |
-| 186 | `dom_snapshot` | READ | Return a structured DOM snapshot. |
-| 187 | `layout_metadata` | READ | Return layout metadata for visual validation. |
-| 188 | `visual_context` | READ | Combine screenshot, DOM, layout, console, and network references. |
-| 189 | `inspect_workbook` | READ | Inspect workbook sheets, used ranges, and a bounded sample through Excel COM. |
-| 190 | `compare_workbook_layout` | READ | Compare workbook layout metadata through an optional spreadsheet plugin. |
-| 191 | `render_excel_preview` | READ | Render an Excel preview through an optional spreadsheet plugin. |
-| 192 | `inspect_pdf` | READ | Inspect PDF page structure and text through the local PDF provider. |
-| 193 | `compare_pdf_pages` | READ | Compare PDF page metadata through an optional PDF plugin. |
-| 194 | `project_profile_get` | READ | Read project intelligence conventions. |
-| 195 | `project_profile_set` | WRITE | Update project intelligence conventions. |
-| 196 | `handoff_context` | READ | Build a structured cross-agent handoff bundle. |
-| 197 | `benchmark_run` | EXECUTE | Run or preview a benchmark scenario. |
-| 198 | `regression_report` | READ | Return benchmark and regression results. |
-| 199 | `sandbox_exec` | EXECUTE | Run an artifact-based Windows Sandbox job with networking disabled and read-only mapped input. |
-| 200 | `event_watch` | EXECUTE | Watch an allowlisted user-mode ETW or Windows Event Log diagnostic stream. |
-| 201 | `crash_trace` | READ | Return bounded crash and service-diagnostic context from allowlisted user-mode sources. |
-| 202 | `lsp_diagnostics` | READ | Read diagnostics from an owned language-server child process. |
-| 203 | `lsp_rename` | WRITE | Create a cross-file LSP rename edit plan before any workspace write. |
-| 204 | `debug_attach` | EXECUTE | Attach a DAP client only to an owned workspace debug adapter. |
-| 205 | `debug_step` | EXECUTE | Perform a bounded DAP stepping/read operation in an owned debug session. |
-| 206 | `git_worktree_spawn` | DANGEROUS | Create an owned Git worktree for isolated agent work with collision metadata. |
-| 207 | `git_worktree_remove` | DANGEROUS | Remove a ledger-owned Git worktree after dry-run and explicit confirmation. |
-| 208 | `db_inspect` | READ | Inspect a local database schema through a configured, read-only connection. |
-| 209 | `db_query` | DANGEROUS | Run a bounded local database query under explicit connection and mutation policy. |
-| 210 | `office_ppt` | DANGEROUS | Automate PowerPoint through the existing Office policy boundary. |
-| 211 | `office_outlook` | READ | Read Outlook folder and message headers through the existing Office policy boundary. |
-| 212 | `pdf_extract_tables` | READ | Extract bounded PDF text and tables through a local document provider. |
-| 213 | `docx_merge` | WRITE | Create a deterministic DOCX merge plan and write only after approval. |
-| 214 | `self_heal_plan` | READ | Propose safe, deterministic, reversible recovery steps without applying mutations. |
-| 215 | `self_heal_apply` | DANGEROUS | Apply an approved reversible recovery plan without automatic destructive retries. |
-| 216 | `skills_import` | WRITE | Import a compatible skill descriptor after validation and permission review. |
-| 217 | `agent_swarm_run` | EXECUTE | Plan bounded parallel subagents with ownership, collision, approval, and cancellation metadata. |
-| 218 | `tool_batch` | DANGEROUS | Execute multiple MCP tools with parallel, dependency-aware, timeout, cancellation, and partial-result handling. |
+| 80 | `run_goal` | WRITE | Immediate-return durable goal create/resume and lease acquisition. It never runs a model or waits for foreground work. |
+| 81 | `get_goal` | READ | Read the latest durable goal snapshot without changing state or returning a lease token. |
+| 82 | `checkpoint_goal` | WRITE | Atomically checkpoint durable goal progress using the current lease and expected revision. |
+| 83 | `finish_goal` | WRITE | Finish a durable goal as completed, failed, or blocked using lease/revision compare-and-swap. |
+| 84 | `list_goals` | READ | List a bounded set of durable goals owned by the current stable MCP client, optionally filtered by workspace/status. |
+| 85 | `symbol_search` | READ | Search indexed symbols across the workspace. |
+| 86 | `find_definition` | READ | Find deterministic symbol definitions. |
+| 87 | `find_references` | READ | Find textual and indexed references to a symbol. |
+| 88 | `find_implementations` | READ | Find interface and class implementations. |
+| 89 | `call_hierarchy` | READ | Return a deterministic call hierarchy approximation. |
+| 90 | `import_graph` | READ | Return indexed imports and exports for a module. |
+| 91 | `dependency_graph` | READ | Return package and module dependency metadata. |
+| 92 | `module_graph` | READ | Return the workspace module graph. |
+| 93 | `type_search` | READ | Search indexed TypeScript, JavaScript, and Python types. |
+| 94 | `trace_symbol` | READ | Combine definition, references, imports, tests, and recent context. |
+| 95 | `context_ranking` | READ | Explain ranking signals without removing lower-ranked context. |
+| 96 | `debug_context` | READ | Gather deterministic debugging context and continuation metadata. |
+| 97 | `review_context` | READ | Gather code-review context. |
+| 98 | `change_context` | READ | Gather changed files, symbols, dependencies, and tests. |
+| 99 | `symbol_context` | READ | Gather context around a symbol. |
+| 100 | `test_context` | READ | Gather relevant test context. |
+| 101 | `dependency_context` | READ | Gather dependency-related context. |
+| 102 | `git_context` | READ | Gather Git status, diff, and history context. |
+| 103 | `frontend_context` | READ | Gather frontend project context. |
+| 104 | `backend_context` | READ | Gather backend project context. |
+| 105 | `route_intent` | READ | Classify a prompt with a deterministic, overridable route. |
+| 106 | `recipe_list` | READ | List built-in and user recipe names. |
+| 107 | `recipe_describe` | READ | Describe a recipe plan and permissions. |
+| 108 | `recipe_run` | EXECUTE | Preview or run a deterministic recipe plan. |
+| 109 | `dry_run` | READ | Return a no-side-effect execution preview. |
+| 110 | `review_changes` | READ | Review current Git changes and affected context. |
+| 111 | `changed_symbols` | READ | Find symbols in changed files. |
+| 112 | `affected_modules` | READ | Find modules affected by current changes. |
+| 113 | `git_history_context` | READ | Return relevant recent Git history. |
+| 114 | `git_blame_context` | READ | Return line ownership context for a file. |
+| 115 | `discover_tests` | READ | Discover project tests without imposing an execution limit. |
+| 116 | `run_affected_tests` | EXECUTE | Plan or run tests affected by changed files. |
+| 117 | `test_failures` | READ | Summarize recorded test failures. |
+| 118 | `coverage_context` | READ | Return coverage context when project tooling provides it. |
+| 119 | `test_history` | READ | Return recent test execution history. |
+| 120 | `cache_stats` | READ | Return shared cache hit/miss telemetry. |
+| 121 | `cache_clear` | WRITE | Clear safe local runtime caches. |
+| 122 | `cache_invalidate` | WRITE | Invalidate cache entries for a path or workspace. |
+| 123 | `hook_list` | READ | List registered lifecycle hooks. |
+| 124 | `hook_register` | WRITE | Register a deterministic lifecycle hook descriptor. |
+| 125 | `hook_remove` | WRITE | Remove a lifecycle hook descriptor. |
+| 126 | `skill_match` | READ | Match relevant local skills without loading all skill text. |
+| 127 | `skill_load` | READ | Load a selected local skill by identifier. |
+| 128 | `plugin_install` | DANGEROUS | Install a declared plugin after permission evaluation. |
+| 129 | `plugin_list` | READ | List installed and enabled plugins. |
+| 130 | `plugin_enable` | WRITE | Enable an installed plugin. |
+| 131 | `plugin_disable` | WRITE | Disable an installed plugin. |
+| 132 | `plugin_remove` | DANGEROUS | Remove an installed plugin. |
+| 133 | `session_context` | READ | Return persisted development-session context. |
+| 134 | `session_checkpoint` | WRITE | Persist a development-session checkpoint. |
+| 135 | `session_resume` | READ | Resume a persisted session context. |
+| 136 | `session_history` | READ | Return session checkpoints and decisions. |
+| 137 | `response_mode` | READ | Select compact, normal, verbose, or stream formatting. |
+| 138 | `inspect_web_app` | READ | Combine DOM, console, network, URL, and screenshot metadata. |
+| 139 | `debug_ui` | READ | Gather deterministic UI debugging context. |
+| 140 | `capture_ui_state` | READ | Capture a structured UI state. |
+| 141 | `form_context` | READ | Inspect form controls and values metadata. |
+| 142 | `network_context` | READ | Summarize browser network context. |
+| 143 | `console_context` | READ | Summarize browser console context. |
+| 144 | `browser_debug_context` | READ | Combine browser diagnostics for one request. |
+| 145 | `windows_environment` | READ | Inspect Windows environment metadata. |
+| 146 | `service_context` | READ | Inspect Windows service metadata. |
+| 147 | `process_context` | READ | Inspect process-tree context. |
+| 148 | `port_context` | READ | Inspect local listening-port context. |
+| 149 | `registry_context` | READ | Inspect registry context through the Windows capability boundary. |
+| 150 | `event_log_context` | READ | Inspect Windows event-log context. |
+| 151 | `installed_runtime_context` | READ | Inspect installed runtimes and package managers. |
+| 152 | `path_context` | READ | Resolve executable and PATH context. |
+| 153 | `startup_context` | READ | Inspect startup configuration context. |
+| 154 | `mcp_discover` | READ | Discover external MCP servers without flattening native tools. |
+| 155 | `mcp_health` | READ | Return external MCP connection health. |
+| 156 | `mcp_resources` | READ | List resources exposed by connected MCP servers. |
+| 157 | `task_create` | EXECUTE | Create a visible managed runtime task. |
+| 158 | `task_status` | READ | Read managed task state. |
+| 159 | `task_cancel` | EXECUTE | Cancel a managed runtime task. |
+| 160 | `task_result` | READ | Read a managed task result. |
+| 161 | `task_list` | READ | List managed runtime tasks. |
+| 162 | `delegate` | EXECUTE | Delegate a task through a policy/audit adapter. |
+| 163 | `delegate_status` | READ | Read delegated agent state. |
+| 164 | `delegate_cancel` | EXECUTE | Cancel a delegated agent task. |
+| 165 | `delegate_result` | READ | Read a delegated agent result. |
+| 166 | `parallel_delegate` | EXECUTE | Run isolated read-only agent tasks with collision metadata. |
+| 167 | `permission_check` | READ | Evaluate an action class without limiting allowed context reads. |
+| 168 | `permission_profile` | READ | Return the active Permission v2 profile. |
+| 169 | `live_logs_query` | READ | Query structured activity/log metadata with correlation IDs. |
+| 170 | `live_logs_status` | READ | Return Live Logs pipeline health and source status. |
+| 171 | `telemetry_dashboard` | READ | Return runtime performance telemetry. |
+| 172 | `context_economy_stats` | READ | Return context discovery, deduplication, ledger, and token-efficiency telemetry. |
+| 173 | `execution_plan` | READ | Return the cheapest deterministic execution plan and reason. |
+| 174 | `repo_map` | READ | Return a traversable repository structural map. |
+| 175 | `context_expand` | READ | Return optional import, caller, type, test, and change references. |
+| 176 | `recovery_status` | READ | Return reconnect, retry, continuation, cache, and worker recovery state. |
+| 177 | `tool_schema_list` | READ | List versioned tool schema metadata. |
+| 178 | `tool_schema_register` | WRITE | Register a backward-compatible tool schema descriptor. |
+| 179 | `capabilities` | READ | Discover capability categories without requiring every full schema. |
+| 180 | `tool_search` | READ | Search tools, tags, phases, and descriptions deterministically. |
+| 181 | `tool_dynamic_filter` | READ | Return a bounded ranked tool set using deterministic scoring with optional local rerank fallback. |
+| 182 | `tool_describe` | READ | Describe one tool contract on demand. |
+| 183 | `tool_categories` | READ | List tool categories and counts. |
+| 184 | `tool_function_find` | READ | Find the best local tool/function candidates for a prompt. |
+| 185 | `tool_aliases` | READ | List stable shorthand aliases and their primitive tool targets. |
+| 186 | `mcp_hub` | READ | Describe the additive MCP hub boundary without flattening child tools or retaining credentials. |
+| 187 | `dev_context` | READ | Run the unified deterministic development-context facade. |
+| 188 | `recipe_catalog` | READ | Return inspectable developer automation recipes. |
+| 189 | `capture_screenshot` | READ | Capture screenshot metadata for visual validation. |
+| 190 | `compare_screenshot` | READ | Compare screenshot metadata or supplied artifacts. |
+| 191 | `dom_snapshot` | READ | Return a structured DOM snapshot. |
+| 192 | `layout_metadata` | READ | Return layout metadata for visual validation. |
+| 193 | `visual_context` | READ | Combine screenshot, DOM, layout, console, and network references. |
+| 194 | `inspect_workbook` | READ | Inspect workbook sheets, used ranges, and a bounded sample through Excel COM. |
+| 195 | `compare_workbook_layout` | READ | Compare workbook layout metadata through an optional spreadsheet plugin. |
+| 196 | `render_excel_preview` | READ | Render an Excel preview through an optional spreadsheet plugin. |
+| 197 | `inspect_pdf` | READ | Inspect PDF page structure and text through the local PDF provider. |
+| 198 | `compare_pdf_pages` | READ | Compare PDF page metadata through an optional PDF plugin. |
+| 199 | `project_profile_get` | READ | Read project intelligence conventions. |
+| 200 | `project_profile_set` | WRITE | Update project intelligence conventions. |
+| 201 | `handoff_context` | READ | Build a structured cross-agent handoff bundle. |
+| 202 | `benchmark_run` | EXECUTE | Run or preview a benchmark scenario. |
+| 203 | `regression_report` | READ | Return benchmark and regression results. |
+| 204 | `sandbox_exec` | EXECUTE | Run an artifact-based Windows Sandbox job with networking disabled and read-only mapped input. |
+| 205 | `event_watch` | EXECUTE | Watch an allowlisted user-mode ETW or Windows Event Log diagnostic stream. |
+| 206 | `crash_trace` | READ | Return bounded crash and service-diagnostic context from allowlisted user-mode sources. |
+| 207 | `lsp_diagnostics` | READ | Read diagnostics from an owned language-server child process. |
+| 208 | `lsp_rename` | WRITE | Create a cross-file LSP rename edit plan before any workspace write. |
+| 209 | `debug_attach` | EXECUTE | Attach a DAP client only to an owned workspace debug adapter. |
+| 210 | `debug_step` | EXECUTE | Perform a bounded DAP stepping/read operation in an owned debug session. |
+| 211 | `git_worktree_spawn` | DANGEROUS | Create an owned Git worktree for isolated agent work with collision metadata. |
+| 212 | `git_worktree_remove` | DANGEROUS | Remove a ledger-owned Git worktree after dry-run and explicit confirmation. |
+| 213 | `db_inspect` | READ | Inspect a local database schema through a configured, read-only connection. |
+| 214 | `db_query` | DANGEROUS | Run a bounded local database query under explicit connection and mutation policy. |
+| 215 | `office_ppt` | DANGEROUS | Automate PowerPoint through the existing Office policy boundary. |
+| 216 | `office_outlook` | READ | Read Outlook folder and message headers through the existing Office policy boundary. |
+| 217 | `pdf_extract_tables` | READ | Extract bounded PDF text and tables through a local document provider. |
+| 218 | `docx_merge` | WRITE | Create a deterministic DOCX merge plan and write only after approval. |
+| 219 | `self_heal_plan` | READ | Propose safe, deterministic, reversible recovery steps without applying mutations. |
+| 220 | `self_heal_apply` | DANGEROUS | Apply an approved reversible recovery plan without automatic destructive retries. |
+| 221 | `skills_import` | WRITE | Import a compatible skill descriptor after validation and permission review. |
+| 222 | `agent_swarm_run` | EXECUTE | Plan bounded parallel subagents with ownership, collision, approval, and cancellation metadata. |
+| 223 | `tool_batch` | DANGEROUS | Execute multiple MCP tools with parallel, dependency-aware, timeout, cancellation, and partial-result handling. |
 <!-- END GENERATED README TOOL REGISTRY -->
 
 ## Detailed capability guide

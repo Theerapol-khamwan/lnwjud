@@ -1,5 +1,6 @@
 import { app, BrowserWindow, dialog, ipcMain, Menu, nativeImage, Tray, type IpcMainInvokeEvent } from 'electron';
 import path from 'node:path';
+import os from 'node:os';
 import { access } from 'node:fs/promises';
 import { autoUpdater } from 'electron-updater';
 import {
@@ -28,6 +29,7 @@ import {
   type SaveTunnelApiKeyRequest,
   type ScheduleRestoreBackupRequest,
   type SelectWorkspaceRequest,
+  type SetWorkspaceActiveRequest,
   type SetWorkspaceArchivedRequest,
   type SetAiDeletePolicyRequest,
   type SetLocaleRequest,
@@ -55,6 +57,14 @@ import { createLogViewerWindow, createMainWindow, getRendererEntryPath, getWindo
 import { createTrayMenuTemplate, createTrayToolTip, createTrayUpdateLabel, shouldHideMainWindowOnClose } from './tray.js';
 import { UpdateInstallCoordinator, type UpdateSharedActivitySnapshot } from './update-install.js';
 import { UpdateCheckScheduler } from './update-check-scheduler.js';
+import {
+  configureUpdaterForDistribution,
+  currentPortableExecutablePath,
+  detectWindowsDistribution,
+  launchPortableReplacement,
+  preparePortableReplacement,
+} from './portable-update.js';
+import { windowsCompatibilityProfile } from './windows-compatibility.js';
 import { atomicWrite, type IncidentReport } from './incident-report.js';
 import { IncidentSaveCoordinator } from './incident-save.js';
 import { localizedUpdateStatusMessage, nativeMessages } from './native-i18n.js';
@@ -65,6 +75,7 @@ export interface DesktopIpcServices {
   listWorkspaces(): Promise<IpcResponseMap[typeof ipcChannels.listWorkspaces]>;
   addWorkspace(request: AddWorkspaceRequest): Promise<WorkspaceSummary>;
   selectWorkspace(request: SelectWorkspaceRequest): Promise<WorkspaceSummary>;
+  setWorkspaceActive(request: SetWorkspaceActiveRequest): Promise<{ readonly workspace: WorkspaceSummary; readonly active: boolean }>;
   setWorkspaceArchived(request: SetWorkspaceArchivedRequest): Promise<WorkspaceSummary>;
   deleteWorkspace(request: DeleteWorkspaceRequest): Promise<{ readonly deleted: boolean; readonly workspaceId: string; readonly rootPath: string }>;
   getDashboard(): Promise<DashboardSnapshot>;
@@ -119,6 +130,7 @@ const emptyTunnel: TunnelStatus = {
   profileExists: false,
   message: null,
   logPath: null,
+  persistent: null,
 };
 const defaultUserSettings: UserSettings = {
   customPermission: { read: 'ALLOW', write: 'ASK', execute: 'ASK', dangerous: 'DENY', allowedExecutables: [] },
@@ -141,6 +153,7 @@ const defaultUserSettings: UserSettings = {
   startMinimized: false,
   tunnelAutoReconnect: true,
   tunnelMaxAutoRestarts: 5,
+  recoveryRetentionDays: 0,
   extensions: { mode: 'enable_all', disabledServers: [], enabledServers: [], disabledSkillRoots: [], extraSkillRoots: [], extraMcpServers: [] },
 };
 
@@ -152,6 +165,9 @@ const defaultDesktopServices: DesktopIpcServices = {
   selectWorkspace: async (): Promise<WorkspaceSummary> => {
     throw new Error('Workspace service is not configured');
   },
+  setWorkspaceActive: async (): Promise<{ readonly workspace: WorkspaceSummary; readonly active: boolean }> => {
+    throw new Error('Workspace service is not configured');
+  },
   setWorkspaceArchived: async (): Promise<WorkspaceSummary> => {
     throw new Error('Workspace service is not configured');
   },
@@ -160,6 +176,7 @@ const defaultDesktopServices: DesktopIpcServices = {
   },
   getDashboard: async (): Promise<DashboardSnapshot> => ({
     selectedWorkspace: null,
+    activeWorkspaces: [],
     gitSummary: { branch: null, changedFiles: 0, stagedFiles: 0, message: 'No workspace selected' },
     mcp: { running: false, url: null, workspaceId: null },
     codex: { installed: false, version: null },
@@ -279,6 +296,10 @@ export function registerIpcHandlers(
   ipcMain.handle(ipcChannels.selectWorkspace, async (event, payload: unknown) => {
     assertTrustedSender(event, getMainWindow());
     return services.selectWorkspace(parseSelectWorkspaceRequest(payload));
+  });
+  ipcMain.handle(ipcChannels.setWorkspaceActive, async (event, payload: unknown) => {
+    assertTrustedSender(event, getMainWindow());
+    return services.setWorkspaceActive(parseSetWorkspaceActiveRequest(payload));
   });
   ipcMain.handle(ipcChannels.setWorkspaceArchived, async (event, payload: unknown) => {
     assertTrustedSender(event, getMainWindow());
@@ -474,6 +495,11 @@ function parseAddWorkspaceRequest(payload: unknown): AddWorkspaceRequest {
 function parseSelectWorkspaceRequest(payload: unknown): SelectWorkspaceRequest {
   if (!isRecord(payload)) throw new Error('Invalid IPC payload');
   return { workspaceId: nonEmptyString(payload.workspaceId, 'workspaceId') };
+}
+
+function parseSetWorkspaceActiveRequest(payload: unknown): SetWorkspaceActiveRequest {
+  if (!isRecord(payload) || typeof payload.active !== 'boolean') throw new Error('Invalid IPC payload: active');
+  return { workspaceId: nonEmptyString(payload.workspaceId, 'workspaceId'), active: payload.active };
 }
 
 function parseSetWorkspaceArchivedRequest(payload: unknown): SetWorkspaceArchivedRequest {
@@ -694,6 +720,7 @@ function parseUserSettings(record: Record<string, unknown>): UserSettings {
     startMinimized: booleanField(record.startMinimized, 'startMinimized'),
     tunnelAutoReconnect: booleanField(record.tunnelAutoReconnect, 'tunnelAutoReconnect'),
     tunnelMaxAutoRestarts: boundedInteger(record.tunnelMaxAutoRestarts, 'tunnelMaxAutoRestarts', 0, 50),
+    recoveryRetentionDays: boundedInteger(record.recoveryRetentionDays, 'recoveryRetentionDays', 0, 3650),
     extensions: {
       mode: extensions.mode === 'allowlist' || extensions.mode === 'enable_all' ? extensions.mode : invalidField('extensions.mode'),
       disabledServers: stringArray(extensions.disabledServers, 'extensions.disabledServers', 256),
@@ -785,6 +812,9 @@ let desktopShutdownCoordinator: DesktopShutdownCoordinator | null = null;
 let updateInstallCoordinator: UpdateInstallCoordinator | null = null;
 let updateCheckScheduler: UpdateCheckScheduler | null = null;
 let pendingUpdateCheckSource: 'automatic' | 'tray' | 'renderer' | null = null;
+const windowsDistribution = detectWindowsDistribution(app.isPackaged);
+const windowsCompatibility = windowsCompatibilityProfile(process.platform, os.release(), process.arch);
+let pendingPortableUpdate: { readonly version: string; readonly downloadedFile: string } | null = null;
 let crashDiagnostics: CrashDiagnosticsRecorder | null = null;
 const rendererRecoveryPolicy = new RendererRecoveryPolicy();
 let crashRecoveryConfigured = false;
@@ -1017,6 +1047,7 @@ function bootstrapMcpStdio(): void {
       activityTracker: runtime.activityTracker,
       destructivePolicyProvider: () => runtime.getDestructivePolicy(),
       activeWorkspaceScopeProvider: () => runtime.getActiveWorkspaceScope(),
+      activeWorkspaceScopesProvider: () => runtime.getActiveWorkspaceScopes(),
       hostMutationApprovalProvider: requestNativeMutationApproval,
       codexToolsEnabled: runtime.getUserSettings().codexToolsEnabled,
       onError: (error): void => {
@@ -1081,6 +1112,7 @@ function initAutoUpdater(runtime: DesktopRuntime): void {
     return;
   }
   try {
+    configureUpdaterForDistribution(autoUpdater, windowsDistribution);
     autoUpdater.autoDownload = desktopUserSettings.updateAutoDownload;
     autoUpdater.autoInstallOnAppQuit = false;
     updateInstallCoordinator = new UpdateInstallCoordinator({
@@ -1109,7 +1141,28 @@ function initAutoUpdater(runtime: DesktopRuntime): void {
         void runtime.createBackup('pre-update').catch((error: unknown) => {
           console.error(`Pre-update backup failed: ${error instanceof Error ? error.message : 'unknown error'}`);
         }).finally(() => {
-          void desktopShutdownCoordinator?.requestQuit(() => autoUpdater.quitAndInstall(), 'install');
+          if (windowsDistribution === 'installer') {
+            void desktopShutdownCoordinator?.requestQuit(() => autoUpdater.quitAndInstall(), 'install');
+            return;
+          }
+          const portableUpdate = pendingPortableUpdate;
+          if (portableUpdate === null) {
+            patchUpdateStatus({ phase: 'error', message: 'Portable update file is unavailable. Check for updates again.', canInstall: false });
+            return;
+          }
+          void preparePortableReplacement({
+            downloadedFile: portableUpdate.downloadedFile,
+            currentExecutablePath: currentPortableExecutablePath(),
+          }).then((prepared) => {
+            void desktopShutdownCoordinator?.requestQuit(() => {
+              launchPortableReplacement(prepared);
+              app.quit();
+            }, 'install');
+          }).catch((error: unknown) => {
+            const message = error instanceof Error ? error.message : 'Portable update could not be prepared.';
+            console.error(`[AutoUpdater] portable install preparation failed: ${message}`);
+            patchUpdateStatus({ phase: 'error', message, canInstall: false });
+          });
         });
       },
     });
@@ -1124,6 +1177,7 @@ function initAutoUpdater(runtime: DesktopRuntime): void {
       recordUpdaterEvent(`update-available:${info.version}`);
       const requestedFromTray = pendingUpdateCheckSource === 'tray';
       pendingUpdateCheckSource = null;
+      pendingPortableUpdate = null;
       console.log(`[AutoUpdater] Update available: v${info.version}`);
       const messages = nativeMessages(desktopLocale);
       patchUpdateStatus({
@@ -1185,6 +1239,9 @@ function initAutoUpdater(runtime: DesktopRuntime): void {
 
     autoUpdater.on('update-downloaded', (info) => {
       recordUpdaterDownload(info.version);
+      if (windowsDistribution === 'portable') {
+        pendingPortableUpdate = { version: info.version, downloadedFile: info.downloadedFile };
+      }
       patchUpdateStatus({
         phase: 'ready',
         availableVersion: info.version,
@@ -1234,9 +1291,14 @@ function initAutoUpdater(runtime: DesktopRuntime): void {
 }
 
 function bootstrapDesktop(): void {
+  if (windowsCompatibility.disableHardwareAcceleration) app.disableHardwareAcceleration();
   const dataPath = configureDataPath();
   void app.whenReady().then(async () => {
     app.setAppUserModelId('com.lnwjud.desktop');
+    console.log(
+      `[WindowsCompatibility] ${windowsCompatibility.generation} build=${windowsCompatibility.build ?? 'unknown'} arch=${process.arch} gpu=${windowsCompatibility.disableHardwareAcceleration ? 'software' : 'hardware'}; ${windowsCompatibility.reason}`,
+    );
+
     const runtime = createDesktopRuntime(dataPath, { hostMutationApprovalProvider: requestNativeMutationApproval });
     desktopRuntime = runtime;
     setDesktopLocale(runtime.getLocale());
@@ -1252,6 +1314,9 @@ function bootstrapDesktop(): void {
     }
     createDesktopWindow();
     createDesktopTray();
+    void runtime.autoStartTunnel().catch((error: unknown) => {
+      console.error(`Tunnel persistent runtime auto-start failed: ${error instanceof Error ? error.message : 'unknown error'}`);
+    });
     initAutoUpdater(runtime);
     app.on('activate', () => {
       if (BrowserWindow.getAllWindows().length === 0) createDesktopWindow(true);
@@ -1265,6 +1330,7 @@ function bootstrapDesktop(): void {
 
 function bootstrapLogViewerOnly(): void {
   const dataPath = configureDataPath();
+  if (windowsCompatibility.disableHardwareAcceleration) app.disableHardwareAcceleration();
   void app.whenReady().then(async () => {
     app.setAppUserModelId('com.lnwjud.desktop');
     const runtime = createDesktopRuntime(dataPath, { hostMutationApprovalProvider: requestNativeMutationApproval });

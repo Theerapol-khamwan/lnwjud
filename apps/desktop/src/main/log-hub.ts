@@ -497,6 +497,7 @@ function normalizeMcpResultCode(value: string): 'SUCCESS' | 'FAILED' | 'FATAL' |
 
 const MCP_FAILURE_RESULT_CODES = {
   INVALID_INPUT: true,
+  CONFLICT: true,
   WORKSPACE_NOT_FOUND: true,
   PATH_OUTSIDE_WORKSPACE: true,
   SECRET_ACCESS_DENIED: true,

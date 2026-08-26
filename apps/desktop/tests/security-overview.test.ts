@@ -6,6 +6,7 @@ import { ControlCenterPage } from '../src/renderer/features/home/ControlCenterPa
 
 const baseDashboard: DashboardSnapshot = {
   selectedWorkspace: null,
+  activeWorkspaces: [],
   gitSummary: { branch: null, changedFiles: 0, stagedFiles: 0, message: '' },
   mcp: { running: false, url: null, workspaceId: null },
   codex: { installed: false, version: null },
@@ -41,6 +42,7 @@ function render(dashboard: DashboardSnapshot, locale: 'th' | 'en' = 'en'): strin
     onStopMcp: async () => undefined,
     onRestartMcp: async () => undefined,
     onSelectWorkspace: async () => undefined,
+    onSetWorkspaceActive: async () => undefined,
     onAddWorkspace: async () => undefined,
     onStartTunnel: async () => undefined,
     onStopTunnel: async () => undefined,

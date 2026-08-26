@@ -60,7 +60,9 @@ jobs:
           $requiredFiles = @(
             "lnwjud-Setup-$($package.version).exe",
             "lnwjud-Setup-$($package.version).exe.blockmap",
-            'latest.yml'
+            "lnwjud-Portable-$($package.version).exe",
+            'latest.yml',
+            'portable.yml'
           )
           foreach ($fileName in $requiredFiles) {
             $filePath = Join-Path $installerDirectory $fileName
@@ -70,13 +72,14 @@ jobs:
           }
           Write-Host "Using verified CI artifact from run $($run.databaseId) for commit $sha"
 
-      - name: Create GitHub Release & Upload Installer
+      - name: Create GitHub Release & Upload Windows Artifacts
         uses: softprops/action-gh-release@v2
         with:
           files: |
             apps/desktop/dist/installers/*.exe
             apps/desktop/dist/installers/*.blockmap
             apps/desktop/dist/installers/latest.yml
+            apps/desktop/dist/installers/portable.yml
           draft: false
           prerelease: false
           generate_release_notes: true

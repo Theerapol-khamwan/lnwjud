@@ -28,6 +28,7 @@ import {
   type SaveTunnelApiKeyRequest,
   type ScheduleRestoreBackupRequest,
   type SelectWorkspaceRequest,
+  type SetWorkspaceActiveRequest,
   type SetWorkspaceArchivedRequest,
   type SetAiDeletePolicyRequest,
   type SetLocaleRequest,
@@ -157,6 +158,41 @@ function inFlightItems(value: unknown): readonly InFlightWorkItem[] {
   });
 }
 
+function tunnelPersistentStatus(value: unknown): TunnelStatus['persistent'] {
+  if (value === null || value === undefined) return null;
+  if (!isRecord(value)) throw new Error('Invalid IPC response');
+  const state = value.state;
+  const mode = value.mode;
+  if (state !== 'stopped' && state !== 'starting' && state !== 'running' && state !== 'reconnecting' && state !== 'error' && state !== 'auth-required') throw new Error('Invalid IPC response');
+  if (mode !== 'native-managed' && mode !== 'profile-child' && mode !== 'external') throw new Error('Invalid IPC response');
+  const nullableBoolean = (entry: unknown): boolean | null => {
+    if (entry === null) return null;
+    if (typeof entry === 'boolean') return entry;
+    throw new Error('Invalid IPC response');
+  };
+  return {
+    enabled: booleanField(value, 'enabled'),
+    tunnelIdMasked: nullableString(value.tunnelIdMasked),
+    runtimeAlias: stringField(value, 'runtimeAlias'),
+    mode,
+    state,
+    healthy: nullableBoolean(value.healthy),
+    ready: nullableBoolean(value.ready),
+    pollHealthy: nullableBoolean(value.pollHealthy),
+    reconnectCount: integerField(value, 'reconnectCount'),
+    lastConnectedAt: nullableString(value.lastConnectedAt),
+    lastReconnectAt: nullableString(value.lastReconnectAt),
+    nextReconnectAt: nullableString(value.nextReconnectAt),
+    lastErrorCode: nullableString(value.lastErrorCode),
+    clientVersion: nullableString(value.clientVersion),
+    localMcpUrl: nullableString(value.localMcpUrl),
+    uiUrl: nullableString(value.uiUrl),
+    readyBeforeRetire: booleanField(value, 'readyBeforeRetire'),
+    strictZeroDowntime: booleanField(value, 'strictZeroDowntime'),
+    capabilityEvidence: nullableString(value.capabilityEvidence),
+  };
+}
+
 function tunnelStatus(value: unknown): TunnelStatus {
   if (!isRecord(value)) throw new Error('Invalid IPC response');
   const state = value.state;
@@ -173,6 +209,7 @@ function tunnelStatus(value: unknown): TunnelStatus {
     profileExists: booleanField(value, 'profileExists'),
     message: nullableString(value.message),
     logPath: nullableString(value.logPath),
+    persistent: tunnelPersistentStatus(value.persistent),
   };
 }
 
@@ -210,6 +247,7 @@ function userSettings(value: unknown): UserSettings {
     startMinimized: booleanField(value, 'startMinimized'),
     tunnelAutoReconnect: booleanField(value, 'tunnelAutoReconnect'),
     tunnelMaxAutoRestarts: integerField(value, 'tunnelMaxAutoRestarts'),
+    recoveryRetentionDays: integerField(value, 'recoveryRetentionDays'),
     extensions: {
       mode,
       disabledServers: stringList(extensions.disabledServers),
@@ -262,6 +300,7 @@ function dashboard(value: unknown): DashboardSnapshot {
   }
   return {
     selectedWorkspace,
+    activeWorkspaces: workspaceList(value.activeWorkspaces),
     gitSummary: {
       branch: value.gitSummary.branch === null ? null : stringField(value.gitSummary, 'branch'),
       changedFiles: numberField(value.gitSummary, 'changedFiles'),
@@ -469,6 +508,16 @@ function selectWorkspace(request: SelectWorkspaceRequest): Promise<WorkspaceSumm
     return Promise.reject(new Error('Invalid IPC request'));
   }
   return invoke(ipcChannels.selectWorkspace, { workspaceId: request.workspaceId }).then(workspaceSummary);
+}
+
+function setWorkspaceActive(request: SetWorkspaceActiveRequest): Promise<{ readonly workspace: WorkspaceSummary; readonly active: boolean }> {
+  if (!isRecord(request) || typeof request.workspaceId !== 'string' || request.workspaceId.trim().length === 0 || typeof request.active !== 'boolean') {
+    return Promise.reject(new Error('Invalid IPC request'));
+  }
+  return invoke(ipcChannels.setWorkspaceActive, { workspaceId: request.workspaceId, active: request.active }).then((value: unknown) => {
+    if (!isRecord(value)) throw new Error('Invalid IPC response');
+    return { workspace: workspaceSummary(value.workspace), active: booleanField(value, 'active') };
+  });
 }
 
 function setWorkspaceArchived(request: SetWorkspaceArchivedRequest): Promise<WorkspaceSummary> {
@@ -780,6 +829,7 @@ const api: LnwjudApi = {
   listWorkspaces: () => invoke(ipcChannels.listWorkspaces).then(workspaceList),
   addWorkspace,
   selectWorkspace,
+  setWorkspaceActive,
   setWorkspaceArchived,
   deleteWorkspace,
   getDashboard: () => invoke(ipcChannels.getDashboard).then(dashboard),

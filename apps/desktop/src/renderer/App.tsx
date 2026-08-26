@@ -47,7 +47,7 @@ export function App(): ReactElement {
   const logIds = useRef<Set<number>>(new Set());
 
   const t = createTranslator(locale);
-  const activeWorkspaces = workspaces.filter((workspace) => workspace.archivedAt === undefined || workspace.archivedAt === null);
+  const projectWorkspaces = workspaces.filter((workspace) => workspace.kind !== 'machine_root' && (workspace.archivedAt === undefined || workspace.archivedAt === null));
 
   const appendLogLine = useCallback((line: LogLine): void => {
     if (logIds.current.has(line.id)) return;
@@ -210,6 +210,17 @@ export function App(): ReactElement {
       setError(errorMessage(cause, t('error.workspaceSelect')));
     } finally {
       setMcpBusy(false);
+    }
+  }
+
+  async function setWorkspaceActive(workspaceId: string, active: boolean): Promise<void> {
+    setError(null);
+    try {
+      await window.lnwjud.setWorkspaceActive({ workspaceId, active });
+      await refresh();
+    } catch (cause: unknown) {
+      setError(errorMessage(cause, propsText(locale, 'ไม่สามารถเปลี่ยน Active Project ได้', 'Could not change Active Project')));
+      throw cause;
     }
   }
 
@@ -424,7 +435,7 @@ export function App(): ReactElement {
       {screen === 'home' ? (
         <ControlCenterPage
           dashboard={dashboard}
-          workspaces={activeWorkspaces}
+          workspaces={projectWorkspaces}
           locale={locale}
           mcpBusy={mcpBusy}
           tunnelBusy={tunnelBusy}
@@ -432,6 +443,7 @@ export function App(): ReactElement {
           onStopMcp={stopMcp}
           onRestartMcp={restartMcp}
           onSelectWorkspace={selectWorkspace}
+          onSetWorkspaceActive={setWorkspaceActive}
           onAddWorkspace={addWorkspace}
           onStartTunnel={startTunnel}
           onStopTunnel={stopTunnel}
@@ -447,7 +459,9 @@ export function App(): ReactElement {
           locale={locale}
           workspaces={workspaces}
           selectedWorkspaceId={dashboard.selectedWorkspace?.id ?? null}
+          activeWorkspaceIds={dashboard.activeWorkspaces.map((workspace) => workspace.id)}
           onSelectWorkspace={selectWorkspace}
+          onSetWorkspaceActive={setWorkspaceActive}
           onAddWorkspace={addWorkspace}
           onSetWorkspaceArchived={setWorkspaceArchived}
           onDeleteWorkspace={deleteWorkspace}
@@ -458,7 +472,7 @@ export function App(): ReactElement {
           locale={locale}
           gitSummary={dashboard.gitSummary}
           selectedWorkspace={dashboard.selectedWorkspace}
-          workspaces={activeWorkspaces}
+          workspaces={projectWorkspaces}
           onSelectWorkspace={selectWorkspace}
           onRefresh={refresh}
         />
@@ -502,6 +516,8 @@ export function App(): ReactElement {
           onUserSettingsChange={setUserSettings}
           onChooseTunnelClientPath={chooseTunnelClientPath}
           onConfigureTunnelProfile={configureTunnelProfile}
+          onStartTunnel={startTunnel}
+          onStopTunnel={stopTunnel}
         />
       ) : null}
       {screen === 'doctor' ? (

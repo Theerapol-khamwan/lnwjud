@@ -10,6 +10,13 @@ import { registerTasksProtocol } from './tasks-protocol.js';
 import { ToolRegistry, type ActiveProjectScope, type HostMutationApprovalRequest, type McpApplicationServices, type WorkspaceScope } from './tool-registry.js';
 import { actorForRequestScope, type McpRequestScope } from './request-scope.js';
 
+export const MCP_OUTCOME_DRIVEN_INSTRUCTIONS = [
+  'Continue using lnwjud tools until the requested outcome is complete.',
+  'Do not stop, hand off, or ask the user to say "continue" merely because elapsed time has passed.',
+  'Stop only when the outcome is complete, a user decision or new authority is required, or an external blocker prevents safe progress.',
+  'Use durable background tasks for naturally long-running commands, then keep checking them and continue the work while the current run remains active.',
+].join(' ');
+
 export interface McpServerOptions {
   readonly services: McpApplicationServices;
   readonly actor: FileActor;
@@ -21,6 +28,8 @@ export interface McpServerOptions {
   readonly allowAiDeleteProvider?: () => boolean;
   readonly destructivePolicyProvider?: () => DestructiveAutoApprovalPolicy;
   readonly activeWorkspaceScopeProvider?: () => WorkspaceScope | null | Promise<WorkspaceScope | null>;
+  /** Host-owned active project set. The first scope is the primary/default workspace. */
+  readonly activeWorkspaceScopesProvider?: () => readonly WorkspaceScope[] | Promise<readonly WorkspaceScope[]>;
   readonly hostMutationApprovalProvider?: (request: HostMutationApprovalRequest) => boolean | Promise<boolean>;
   /** @deprecated Request-selected workspace lookup is not an authorization boundary. */
   readonly workspaceScopeResolver?: (workspaceId: string) => WorkspaceScope | null | Promise<WorkspaceScope | null>;
@@ -30,7 +39,7 @@ export interface McpServerOptions {
   readonly codexToolsEnabled?: boolean;
   /** Shared across per-request server factories so repeated diff fingerprints can hit cache. */
   readonly incrementalVerifier?: IncrementalVerifier;
-  /** Shared across per-request server factories so the run clock starts at the first tool call. */
+  /** Compatibility result guard; it must not apply elapsed-time behavior. */
   readonly runBudgetGuard?: RunBudgetGuard;
 }
 
@@ -45,6 +54,7 @@ export function createMcpServer(options: McpServerOptions): McpServer {
     ...(options.allowAiDeleteProvider === undefined ? {} : { allowAiDeleteProvider: options.allowAiDeleteProvider }),
     ...(options.destructivePolicyProvider === undefined ? {} : { destructivePolicyProvider: options.destructivePolicyProvider }),
     ...(options.activeWorkspaceScopeProvider === undefined ? {} : { activeWorkspaceScopeProvider: options.activeWorkspaceScopeProvider }),
+    ...(options.activeWorkspaceScopesProvider === undefined ? {} : { activeWorkspaceScopesProvider: options.activeWorkspaceScopesProvider }),
     ...(options.hostMutationApprovalProvider === undefined ? {} : { hostMutationApprovalProvider: options.hostMutationApprovalProvider }),
     ...(options.workspaceScopeResolver === undefined ? {} : { workspaceScopeResolver: options.workspaceScopeResolver }),
     ...(options.activeProjectProvider === undefined ? {} : { activeProjectProvider: options.activeProjectProvider }),
@@ -61,6 +71,7 @@ export function createMcpServer(options: McpServerOptions): McpServer {
       tools: {},
       tasks: { list: {}, cancel: {} },
     },
+    instructions: MCP_OUTCOME_DRIVEN_INSTRUCTIONS,
   });
   registerTasksProtocol(server, options.services, { actor });
   for (const tool of registry.list()) {

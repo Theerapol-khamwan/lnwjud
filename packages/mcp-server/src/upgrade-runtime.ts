@@ -83,9 +83,10 @@ const PRIMITIVE_SEARCH_ENTRIES: readonly SearchCatalogEntry[] = [
   primitiveEntry('search_files', 'Search guarded workspace file paths.', 'READ', ['workspace', 'search', 'read']),
   primitiveEntry('search_text', 'Search guarded workspace text.', 'READ', ['workspace', 'search', 'read']),
   primitiveEntry('git', 'Run a guarded Git operation.', 'DANGEROUS', ['git', 'execute']),
-  primitiveEntry('write_file', 'Write a guarded workspace file.', 'WRITE', ['workspace', 'file', 'write']),
+  primitiveEntry('write_file', 'Guarded text file creation or replacement with checkpoint protection; prefer over shell filesystem scripts.', 'WRITE', ['workspace', 'file', 'write', 'create', 'replace', 'text']),
   primitiveEntry('apply_patch', 'Apply a guarded workspace patch.', 'WRITE', ['workspace', 'file', 'write']),
-  primitiveEntry('shell', 'Run a local task through the bounded shell runner.', 'EXECUTE', ['shell', 'process', 'execute']),
+  primitiveEntry('edit_file', 'First-choice exact guarded text replacement for narrow source and config repairs; use instead of shell editing scripts.', 'WRITE', ['workspace', 'file', 'write', 'edit', 'replace', 'source', 'config', 'text']),
+  primitiveEntry('shell', 'Run builds, tests, package managers, and system operations; not a text editor when edit_file, apply_patch, or write_file can perform the change.', 'EXECUTE', ['shell', 'process', 'execute', 'build', 'test']),
   primitiveEntry('vision', 'Capture local screen content or use the OCR boundary.', 'READ', ['vision', 'display', 'read']),
   primitiveEntry('vision_annotated_capture', 'Capture an expiring Set-of-Marks observation.', 'READ', ['vision', 'ui', 'read']),
   primitiveEntry('ui_target_action', 'Act on a revalidated visual mark.', 'DANGEROUS', ['vision', 'ui', 'execute']),
@@ -148,7 +149,7 @@ export class UpgradeRuntimeService {
       case 'tool_categories':
         return ok(this.categories());
       case 'tool_aliases':
-        return ok({ aliases: { read: 'read_file', search: 'search_text', tree: 'workspace_tree', logs: 'live_logs_query', tests: 'test_context', context: 'workspace_context', map: 'repo_map' }, primitiveToolsRemainAvailable: true });
+        return ok({ aliases: { read: 'read_file', edit: 'edit_file', search: 'search_text', tree: 'workspace_tree', logs: 'live_logs_query', tests: 'test_context', context: 'workspace_context', map: 'repo_map' }, primitiveToolsRemainAvailable: true });
       case 'capabilities':
         return ok({ categories: this.categories().categories, totalUpgradeTools: UPGRADE_TOOL_CATALOG.length, primitiveToolsRemainAvailable: true });
       case 'route_intent':

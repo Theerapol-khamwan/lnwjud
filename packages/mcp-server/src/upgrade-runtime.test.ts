@@ -54,6 +54,31 @@ describe('upgrade runtime', () => {
     if (search.ok) expect(search.value.rankedCandidates[0]?.name).toBe('wsl_exec');
   });
 
+  it('ranks guarded exact file editing ahead of shell for source repairs', async () => {
+    const runtime = new UpgradeRuntimeService({}, actor);
+    const search = await runtime.execute('tool_function_find', {
+      prompt: 'replace exact text in a TypeScript source file without a shell script',
+      limit: 10,
+    });
+
+    expect(search).toMatchObject({ ok: true, value: { rankedCandidates: expect.any(Array) } });
+    if (search.ok) {
+      const names = search.value.rankedCandidates.map((candidate) => candidate.name);
+      expect(names[0]).toBe('edit_file');
+      const shellIndex = names.indexOf('shell');
+      if (shellIndex >= 0) expect(names.indexOf('edit_file')).toBeLessThan(shellIndex);
+    }
+  });
+
+  it('advertises guarded file editing as the preferred alternative to shell rewriting', () => {
+    const registry = new ToolRegistry({}, actor);
+    const byName = new Map(registry.list().map((tool) => [tool.name, tool.description]));
+    expect(byName.get('edit_file')).toContain('First choice');
+    expect(byName.get('edit_file')).toContain('instead of shell');
+    expect(byName.get('shell')).toContain('do not use it as a text editor');
+    expect(byName.get('shell')).toContain('prefer edit_file');
+  });
+
   it('returns route reason codes and a measurable deterministic model selection', async () => {
     const runtime = new UpgradeRuntimeService({}, actor);
     const route = await runtime.execute('route_intent', { prompt: 'debug the WSL task timeout and inspect live logs' });

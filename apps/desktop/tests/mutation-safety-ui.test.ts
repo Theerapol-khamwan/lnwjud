@@ -9,6 +9,7 @@ const noop = async (): Promise<void> => undefined;
 const recoveryTrashPath = 'C:\\Users\\Tester\\AppData\\Roaming\\lnwjud\\recovery-trash';
 const dashboard: DashboardSnapshot = {
   selectedWorkspace: { id: 'workspace-a', displayName: 'Project A', rootPath: 'E:\\project-a', realRootPath: 'E:\\project-a', createdAt: new Date(0).toISOString() },
+  activeWorkspaces: [{ id: 'workspace-a', displayName: 'Project A', rootPath: 'E:\\project-a', realRootPath: 'E:\\project-a', createdAt: new Date(0).toISOString() }],
   gitSummary: { branch: 'main', changedFiles: 0, stagedFiles: 0, message: '' },
   mcp: { running: false, url: null, workspaceId: 'workspace-a' },
   codex: { installed: false, version: null },
@@ -35,13 +36,13 @@ const dashboard: DashboardSnapshot = {
   connectionModes: { httpUrl: null, stdioCommand: 'lnwjud --mcp-stdio' },
   workLog: [],
   inFlight: [],
-  tunnel: { state: 'stopped', source: 'desktop', hasApiKey: false, clientPath: null, profileExists: false, message: null, logPath: null },
+  tunnel: { state: 'stopped', source: 'desktop', hasApiKey: false, clientPath: null, profileExists: false, message: null, logPath: null, persistent: null },
   settings: {
     customPermission: { read: 'ALLOW', write: 'ASK', execute: 'ASK', dangerous: 'DENY', allowedExecutables: [] },
     mcpCallTimeoutMs: 60_000, mcpIdleTimeoutMs: 300_000, processTimeoutMs: 3_600_000, mcpPollWaitSeconds: 5, shellSynchronousWaitSeconds: 60,
     capabilityRoots: [], pdfProviderPath: '', lspCommands: {}, mcpHttpPort: 18_765, codexToolsEnabled: false,
     updateAutoCheck: true, updateCheckOnStartup: true, updateIntervalMinutes: 30, updateAutoDownload: true,
-    closeBehavior: 'tray', launchAtStartup: false, startMinimized: false, tunnelAutoReconnect: true, tunnelMaxAutoRestarts: 5,
+    closeBehavior: 'tray', launchAtStartup: false, startMinimized: false, tunnelAutoReconnect: true, tunnelMaxAutoRestarts: 5, recoveryRetentionDays: 0,
     extensions: { mode: 'enable_all', disabledServers: [], enabledServers: [], disabledSkillRoots: [], extraSkillRoots: [], extraMcpServers: [] },
   },
   appVersion: APP_VERSION,
@@ -66,6 +67,8 @@ function settingsMarkup(locale: 'th' | 'en'): string {
     onUserSettingsChange: async (): Promise<boolean> => false,
     onChooseTunnelClientPath: async (): Promise<string | null> => null,
     onConfigureTunnelProfile: async (): Promise<string> => '',
+    onStartTunnel: noop,
+    onStopTunnel: noop,
   }));
 }
 
@@ -88,17 +91,19 @@ function recoveryMarkup(locale: 'th' | 'en'): string {
     onUserSettingsChange: async (): Promise<boolean> => false,
     onChooseTunnelClientPath: async (): Promise<string | null> => null,
     onConfigureTunnelProfile: async (): Promise<string> => '',
+    onStartTunnel: noop,
+    onStopTunnel: noop,
   }));
 }
 
 describe('mutation safety UI contract', () => {
-  it('renders the actual 4.10.0 application version', () => {
-    expect(APP_VERSION).toBe('4.10.0');
+  it('renders the actual 4.11.0 application version', () => {
+    expect(APP_VERSION).toBe('4.11.0');
     const markup = renderToStaticMarkup(createElement(AppShell, {
       locale: 'en', appVersion: APP_VERSION, mcpRunning: false, updateStatus: null, screen: 'settings',
       onNavigate: () => undefined, onLocaleChange: () => undefined, onUpdateAction: () => undefined, children: createElement('div'),
     }));
-    expect(markup).toContain('v4.10.0');
+    expect(markup).toContain('v4.11.0');
   });
 
   it('renders all destructive auto-approval settings and keeps critical/recovery safeguards locked', () => {

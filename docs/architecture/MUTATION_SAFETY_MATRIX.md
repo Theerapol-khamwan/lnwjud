@@ -29,6 +29,10 @@ This document is the release-time inventory for every MCP tool advertised by `To
 
 **Covered tools:** `workspace_register`, `workspace_index`, `workspace_index_watch`, `workspace_index_stop`, `session_handoff`, `verify_incremental`, `recipe_run`, `run_affected_tests`, `cache_clear`, `cache_invalidate`, `hook_register`, `hook_remove`, `plugin_install`, `plugin_enable`, `plugin_disable`, `plugin_remove`, `session_checkpoint`, `project_profile_set`, `tool_schema_register`, `task_create`, `task_cancel`, `delegate`, `delegate_cancel`, `parallel_delegate`, `debug_attach`, `debug_step`, `skills_import`, `agent_swarm_run`.
 
+**Durable Goal Continuation:** `get_goal` and `list_goals` are bounded `read` operations. `run_goal` performs app-owned create/resume plus lease acquisition, while `checkpoint_goal` and `finish_goal` replace only the matching app-owned goal state under lease-token and revision CAS. Their authoritative SQLite rows/checkpoint history are internal state, not authority to mutate source files; lease tokens are hashed at rest and never logged.
+
+**Covered goal tools:** `run_goal`, `get_goal`, `checkpoint_goal`, `finish_goal`, `list_goals`.
+
 | Mutation kind | Chat confirmation | Host approval | Recoverable | Auto-approvable | Active Project | Command policy | Packaged transports |
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | `create`/`replace`/`opaque` depending on the registered operation; unknown operations remain fail-closed | profile/action dependent; Full ordinary mutations do not prompt | only when the action requires approval | app-owned runtime state uses atomic writes/recovery snapshots where persisted; optional/contract-only providers are `external/unknown` | only explicitly modelled destructive families; generic internal mutation is no | Workspace-bearing mutations must match the host Active Project; internal state is app-owned | any command-bearing child action is still checked at its actual execution boundary | Full ordinary actions can run without duplicate approval; approval-required actions use the trusted provider or fail closed |

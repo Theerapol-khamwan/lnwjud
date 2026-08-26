@@ -353,6 +353,44 @@ describe('TunnelController lifecycle', () => {
     expect(probeCalls).toBe(1);
   });
 
+  it.each([
+    ['returns no matching PID', async (): Promise<boolean> => false],
+    ['times out', async (): Promise<boolean> => { throw new Error('CIM probe timed out'); }],
+  ])('keeps a healthy external tunnel authoritative when the process probe %s', async (_case, processProbe) => {
+    const server = await healthServer((_request, response) => { response.writeHead(200); response.end('live'); });
+    const dataPath = await mkdtemp(path.join(os.tmpdir(), 'lnwjud-tunnel-external-health-'));
+    temporaryRoots.push(dataPath);
+    vi.stubEnv('APPDATA', path.join(dataPath, 'appdata'));
+    const profileDir = path.join(dataPath, 'appdata', 'tunnel-client');
+    const healthUrlFile = path.join(profileDir, 'health', 'lnwjud.url');
+    await (await import('node:fs/promises')).mkdir(path.dirname(healthUrlFile), { recursive: true });
+    await writeFile(path.join(profileDir, 'lnwjud.yaml'), JSON.stringify({
+      control_plane: { tunnel_id: 'tunnel_external_health_fixture' },
+      health: { listen_addr: '127.0.0.1:0', url_file: healthUrlFile },
+      mcp: { server_urls: [{ channel: 'main', url: 'http://127.0.0.1:18765/mcp' }] },
+    }), 'utf8');
+    await writeFile(healthUrlFile, `http://127.0.0.1:${server.port}\n`, 'utf8');
+    await writeFile(path.join(profileDir, 'lnwjud-tunnel.log'), 'health server listening at 127.0.0.1:1\n', 'utf8');
+    const controller = new TunnelController({
+      getClientPath: (): string | null => null,
+      setClientPath: (): void => undefined,
+      getDataPath: (): string => dataPath,
+      isExternalTunnelRunning: processProbe,
+    });
+
+    try {
+      await expect(controller.status()).resolves.toMatchObject({
+        state: 'running',
+        source: 'external',
+        message: null,
+        persistent: { mode: 'external', state: 'running', lastErrorCode: null },
+      });
+      expect(server.requests).toBe(1);
+    } finally {
+      await server.close();
+    }
+  });
+
   it('probes only the health endpoint configured in the tunnel profile', async () => {
     const server = await healthServer((_request, response) => { response.writeHead(200); response.end('live'); });
     try {
@@ -442,6 +480,23 @@ describe('TunnelController lifecycle', () => {
       await expect(fixture.controller.incidentHealth()).resolves.toMatchObject({ state: 'unavailable' });
       expect(server.requests).toBe(0);
     } finally { await server.close(); }
+  });
+
+  it('clears a custom client override so the bundled client can be selected again', async () => {
+    const dataPath = await mkdtemp(path.join(os.tmpdir(), 'lnwjud-tunnel-controller-'));
+    temporaryRoots.push(dataPath);
+    const bundled = path.join(dataPath, 'bundled-tunnel-client.exe');
+    await writeFile(bundled, 'bundled', 'utf8');
+    let configured = path.join(dataPath, 'missing-custom.exe');
+    const controller = new TunnelController({
+      getClientPath: (): string => configured,
+      getBundledClientPath: (): string => bundled,
+      setClientPath: (value): void => { configured = value; },
+      getDataPath: (): string => dataPath,
+    });
+    expect(controller.setClientPath('   ')).toBe('');
+    expect(configured).toBe('');
+    expect(controller.resolveClientPath()).toBe(bundled);
   });
 
   it('reads tunnel-client version from injected file metadata without executing it', async () => {

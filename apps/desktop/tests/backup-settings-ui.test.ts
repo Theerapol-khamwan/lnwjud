@@ -7,6 +7,7 @@ import { SettingsPage } from '../src/renderer/features/settings/SettingsPage.js'
 const noop = async (): Promise<void> => undefined;
 const dashboard: DashboardSnapshot = {
   selectedWorkspace: null,
+  activeWorkspaces: [],
   gitSummary: { branch: null, changedFiles: 0, stagedFiles: 0, message: '' },
   mcp: { running: false, url: null, workspaceId: null },
   codex: { installed: false, version: null },
@@ -34,6 +35,14 @@ const dashboard: DashboardSnapshot = {
   workLog: [],
   inFlight: [],
   tunnel: { state: 'stopped', source: 'desktop', hasApiKey: false, clientPath: null, profileExists: false, message: null, logPath: null },
+  settings: {
+    customPermission: { read: 'ALLOW', write: 'ASK', execute: 'ASK', dangerous: 'DENY', allowedExecutables: [] },
+    mcpCallTimeoutMs: 60_000, mcpIdleTimeoutMs: 300_000, processTimeoutMs: 3_600_000, mcpPollWaitSeconds: 5, shellSynchronousWaitSeconds: 60,
+    capabilityRoots: [], pdfProviderPath: '', lspCommands: {}, mcpHttpPort: 18_765, codexToolsEnabled: false,
+    updateAutoCheck: true, updateCheckOnStartup: true, updateIntervalMinutes: 30, updateAutoDownload: true,
+    closeBehavior: 'tray', launchAtStartup: false, startMinimized: false, tunnelAutoReconnect: true, tunnelMaxAutoRestarts: 5, recoveryRetentionDays: 0,
+    extensions: { mode: 'enable_all', disabledServers: [], enabledServers: [], disabledSkillRoots: [], extraSkillRoots: [], extraMcpServers: [] },
+  },
   appVersion: '4.6.0',
 };
 
@@ -54,6 +63,11 @@ describe('Backup settings UI', () => {
       onRestoreCheckpoint: noop,
       onSaveTunnelApiKey: noop,
       onSetTunnelClientPath: noop,
+      onUserSettingsChange: async (): Promise<boolean> => false,
+      onChooseTunnelClientPath: async (): Promise<string | null> => null,
+      onConfigureTunnelProfile: async (): Promise<string> => '',
+      onStartTunnel: noop,
+      onStopTunnel: noop,
     }));
 
     expect(markup).toContain('Recovery Center');
@@ -79,6 +93,11 @@ describe('Backup settings UI', () => {
       onRestoreCheckpoint: noop,
       onSaveTunnelApiKey: noop,
       onSetTunnelClientPath: noop,
+      onUserSettingsChange: async (): Promise<boolean> => false,
+      onChooseTunnelClientPath: async (): Promise<string | null> => null,
+      onConfigureTunnelProfile: async (): Promise<string> => '',
+      onStartTunnel: noop,
+      onStopTunnel: noop,
     }));
 
     expect(markup).toContain('Stop Tunnel and local MCP before scheduling a database restore.');
