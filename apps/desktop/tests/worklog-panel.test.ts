@@ -137,4 +137,28 @@ describe('WorkLogPanel', () => {
     expect(oneSession[0]?.item.sessionId).toBe('session-b');
   });
 
+  it('treats slash and case variants of a legacy workspace path as the same project', () => {
+    const workspaces = [
+      { id: 'lnwjud-project', displayName: 'lnwjud', rootPath: 'E:\\lnwjud', realRootPath: 'E:\\lnwjud', createdAt: '2026-08-01T00:00:00.000Z' },
+    ];
+    const entries: WorkLogEntry[] = [
+      { ...mockEntries[0]!, id: 'slash', workspaceId: 'e:/LNWJUD/' },
+      { ...mockEntries[1]!, id: 'backslash', workspaceId: 'E:\\lnwjud' },
+      { ...mockEntries[0]!, id: 'other', workspaceId: 'E:\\other' },
+    ];
+
+    const rows = newestFirstWorkLogRows(entries, [], 'all', '', { workspaceId: 'lnwjud-project', sessionId: null }, workspaces);
+    expect(rows.map((row) => row.id)).toEqual(['slash', 'backslash']);
+  });
+
+  it('renders export when supplied so the Work Log page can export its visible rows', () => {
+    const markup = renderToStaticMarkup(createElement(WorkLogPanel, {
+      title: 'Work log', emptyLabel: 'Empty', filterAllLabel: 'All', filterErrorLabel: 'Errors',
+      clearSessionLabel: 'Clear session', clearWorkspaceLabel: 'Clear workspace', clearAllLabel: 'Clear all',
+      exportLabel: 'Export visible', onExport: async () => {},
+      filter: 'all', onFilterChange: () => {}, onClear: async () => {}, entries: mockEntries, inFlight: mockInFlight,
+    }));
+    expect(markup).toContain('Export visible');
+  });
+
 });

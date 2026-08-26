@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState, type ReactElement } from 'react';
+import { workspaceScopeMatches } from '@lnwjud/ipc-contracts';
 import type {
   DashboardSnapshot,
   DestructiveDeletePolicy,
@@ -32,7 +33,7 @@ import {
 } from './features/onboarding/guided-tunnel-setup-state.js';
 import { createTranslator } from './i18n/index.js';
 
-const MAX_CLIENT_LOG_LINES = 4_000;
+const MAX_CLIENT_LOG_LINES = 30_000;
 
 export function App(): ReactElement {
   const [screen, setScreen] = useState<Screen>('home');
@@ -111,7 +112,7 @@ export function App(): ReactElement {
         ...(scope.workspaceId === null ? {} : { workspaceId: scope.workspaceId }),
         ...(scope.sessionId === null ? {} : { sessionId: scope.sessionId }),
       });
-      setLogLines((previous) => previous.filter((line) => line.source !== source || !lineMatchesScope(line, scope)));
+      setLogLines((previous) => previous.filter((line) => line.source !== source || !lineMatchesScope(line, scope, workspaces)));
     } catch (cause: unknown) {
       setError(errorMessage(cause, t('error.logBufferClear')));
     }
@@ -127,7 +128,7 @@ export function App(): ReactElement {
     }
   }
 
-  async function exportLogSource(source: LogSource, scope: LogScopeSelection, query: string): Promise<void> {
+  async function exportLogSource(source: LogSource, scope: LogScopeSelection, query: string, lineIds: readonly number[]): Promise<void> {
     try {
       await window.lnwjud.exportLogs({
         source,
@@ -135,6 +136,7 @@ export function App(): ReactElement {
         ...(scope.workspaceId === null ? {} : { workspaceId: scope.workspaceId }),
         ...(scope.sessionId === null ? {} : { sessionId: scope.sessionId }),
         ...(query.trim().length === 0 ? {} : { query: query.trim() }),
+        lineIds,
       });
     } catch (cause: unknown) {
       setError(errorMessage(cause, t('error.logExport')));
@@ -379,6 +381,14 @@ export function App(): ReactElement {
     }
   }
 
+  async function exportWorkLog(rows: readonly string[]): Promise<void> {
+    try {
+      await window.lnwjud.exportWorkLog({ rows });
+    } catch (cause: unknown) {
+      setError(errorMessage(cause, t('error.logExport')));
+    }
+  }
+
   async function startTunnelWithStatus(): Promise<TunnelStatus> {
     setTunnelBusy(true);
     try {
@@ -543,7 +553,7 @@ export function App(): ReactElement {
         />
       ) : null}
       {screen === 'worklog' ? (
-        <WorkLogPage locale={locale} dashboard={dashboard} workspaces={workspaces} onClearWorkLog={clearWorkLog} />
+        <WorkLogPage locale={locale} dashboard={dashboard} workspaces={workspaces} onClearWorkLog={clearWorkLog} onExportWorkLog={exportWorkLog} />
       ) : null}
       {screen === 'live' ? (
         <LiveLogsPage
@@ -619,8 +629,8 @@ function errorMessage(cause: unknown, fallback: string): string {
   return cause instanceof Error && cause.message.trim().length > 0 ? cause.message : fallback;
 }
 
-function lineMatchesScope(line: Pick<LogLine, 'workspaceId' | 'sessionId'>, scope: LogScopeSelection): boolean {
-  if (scope.workspaceId !== null && line.workspaceId !== scope.workspaceId) return false;
+function lineMatchesScope(line: Pick<LogLine, 'workspaceId' | 'sessionId'>, scope: LogScopeSelection, workspaces: readonly WorkspaceSummary[]): boolean {
+  if (scope.workspaceId !== null && !workspaceScopeMatches(workspaces, line.workspaceId, scope.workspaceId)) return false;
   if (scope.sessionId !== null && line.sessionId !== scope.sessionId) return false;
   return true;
 }

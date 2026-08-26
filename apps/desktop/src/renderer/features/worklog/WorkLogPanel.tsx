@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState, type ReactElement } from 'react';
-import type { InFlightWorkItem, WorkLogEntry, WorkspaceSummary } from '@lnwjud/ipc-contracts';
+import { canonicalWorkspaceScopeId, workspaceScopeMatches, type InFlightWorkItem, type WorkLogEntry, type WorkspaceSummary } from '@lnwjud/ipc-contracts';
 import { copyTextToClipboard } from '../../clipboard.js';
 import type { MessageKey } from '../../i18n/messages.js';
 
@@ -25,6 +25,8 @@ interface WorkLogPanelProps {
   readonly filter: WorkLogFilter;
   readonly onFilterChange: (filter: WorkLogFilter) => void;
   readonly onClear: (scope: LogScopeSelection) => Promise<void>;
+  readonly exportLabel?: string;
+  readonly onExport?: (rows: readonly string[]) => Promise<void>;
   readonly entries: readonly WorkLogEntry[];
   readonly inFlight: readonly InFlightWorkItem[];
   readonly searchPlaceholder?: string;
@@ -45,7 +47,7 @@ export function WorkLogPanel(props: WorkLogPanelProps): ReactElement {
   const [workspaceId, setWorkspaceId] = useState<string | null>(props.defaultWorkspaceId ?? null);
   const [sessionId, setSessionId] = useState<string | null>(null);
   const workspaceOptions = useMemo(() => collectWorkspaceOptions(props.entries, props.inFlight, props.workspaces), [props.entries, props.inFlight, props.workspaces]);
-  const sessionOptions = useMemo(() => collectSessionOptions(props.entries, props.inFlight, workspaceId), [props.entries, props.inFlight, workspaceId]);
+  const sessionOptions = useMemo(() => collectSessionOptions(props.entries, props.inFlight, workspaceId, props.workspaces), [props.entries, props.inFlight, workspaceId, props.workspaces]);
   useEffect(() => {
     if (workspaceId !== null && !workspaceOptions.some((option) => option.id === workspaceId)) setWorkspaceId(null);
   }, [workspaceId, workspaceOptions]);
@@ -54,8 +56,8 @@ export function WorkLogPanel(props: WorkLogPanelProps): ReactElement {
   }, [sessionId, sessionOptions]);
   const scope = useMemo<LogScopeSelection>(() => ({ workspaceId, sessionId }), [workspaceId, sessionId]);
   const rows = useMemo(
-    () => newestFirstWorkLogRows(props.entries, props.inFlight, props.filter, search, scope),
-    [props.entries, props.inFlight, props.filter, search, scope],
+    () => newestFirstWorkLogRows(props.entries, props.inFlight, props.filter, search, scope, props.workspaces),
+    [props.entries, props.inFlight, props.filter, search, scope, props.workspaces],
   );
   const visible = props.compact ? rows.slice(0, 40) : rows;
   const resolvedTargets = useMemo(() => completedTargetByCallId(props.entries), [props.entries]);
@@ -85,6 +87,7 @@ export function WorkLogPanel(props: WorkLogPanelProps): ReactElement {
           >
             {props.filterErrorLabel}
           </button>
+          {props.onExport === undefined ? null : <button type="button" onClick={() => { void props.onExport?.(visible.map((row) => formatWorkLogCopyText(row, resolvedTargets))); }}>{props.exportLabel ?? 'Export'}</button>}
           <button type="button" disabled={sessionId === null} onClick={() => { if (sessionId !== null) void props.onClear({ workspaceId: null, sessionId }); }}>{props.clearSessionLabel}</button>
           <button type="button" disabled={workspaceId === null} onClick={() => { if (workspaceId !== null) void props.onClear({ workspaceId, sessionId: null }); }}>{props.clearWorkspaceLabel}</button>
           <button type="button" onClick={() => { void props.onClear({ workspaceId: null, sessionId: null }); }}>{props.clearAllLabel}</button>
@@ -162,10 +165,11 @@ export function newestFirstWorkLogRows(
   filter: WorkLogFilter = 'all',
   search = '',
   scope: LogScopeSelection = { workspaceId: null, sessionId: null },
+  workspaces: readonly WorkspaceSummary[] = [],
 ): readonly WorkLogRow[] {
   const needle = search.trim().toLowerCase();
-  const scopedEntries = entries.filter((entry) => matchesScope(entry, scope));
-  const scopedInFlight = inFlight.filter((entry) => matchesScope(entry, scope));
+  const scopedEntries = entries.filter((entry) => matchesScope(entry, scope, workspaces));
+  const scopedInFlight = inFlight.filter((entry) => matchesScope(entry, scope, workspaces));
   const entryRows = (filter === 'error' ? scopedEntries.filter((entry) => entry.kind === 'error') : scopedEntries)
     .map((item): WorkLogRow => ({ kind: 'entry', timestamp: item.timestamp, id: item.id, item }));
   const inFlightRows = filter === 'error'
@@ -190,8 +194,8 @@ function workLogSearchText(row: WorkLogRow): string {
 }
 
 
-function matchesScope(item: Pick<WorkLogEntry, 'workspaceId' | 'sessionId'> | Pick<InFlightWorkItem, 'workspaceId' | 'sessionId'>, scope: LogScopeSelection): boolean {
-  if (scope.workspaceId !== null && item.workspaceId !== scope.workspaceId) return false;
+function matchesScope(item: Pick<WorkLogEntry, 'workspaceId' | 'sessionId'> | Pick<InFlightWorkItem, 'workspaceId' | 'sessionId'>, scope: LogScopeSelection, workspaces: readonly WorkspaceSummary[]): boolean {
+  if (scope.workspaceId !== null && !workspaceScopeMatches(workspaces, item.workspaceId, scope.workspaceId)) return false;
   if (scope.sessionId !== null && item.sessionId !== scope.sessionId) return false;
   return true;
 }
@@ -203,23 +207,16 @@ function scopedActivityId(item: InFlightWorkItem): string {
 
 function collectWorkspaceOptions(entries: readonly WorkLogEntry[], inFlight: readonly InFlightWorkItem[], workspaces: readonly WorkspaceSummary[] | undefined): readonly { readonly id: string; readonly label: string }[] {
   const workspaceList = workspaces ?? [];
-  const knownWorkspaceIds = new Set(workspaceList.map((workspace) => workspace.id));
-  const canonicalWorkspaces: WorkspaceSummary[] = [];
-  const seenRoots = new Set<string>();
-  for (const workspace of workspaceList) {
-    if (workspace.kind === 'machine_root') continue;
-    const rootKey = normalizeWorkspaceRoot(workspace.realRootPath);
-    if (seenRoots.has(rootKey)) continue;
-    seenRoots.add(rootKey);
-    canonicalWorkspaces.push(workspace);
-  }
-
+  const canonicalWorkspaces = workspaceList.filter((workspace, index) =>
+    workspace.kind !== 'machine_root'
+    && canonicalWorkspaceScopeId(workspaceList, workspace.id) === workspace.id
+    && workspaceList.findIndex((candidate) => canonicalWorkspaceScopeId(workspaceList, candidate.id) === workspace.id) === index,
+  );
   const nameCounts = new Map<string, number>();
   for (const workspace of canonicalWorkspaces) {
     const key = workspace.displayName.trim().toLocaleLowerCase();
     nameCounts.set(key, (nameCounts.get(key) ?? 0) + 1);
   }
-
   const labels = new Map<string, string>();
   for (const workspace of canonicalWorkspaces) {
     const key = workspace.displayName.trim().toLocaleLowerCase();
@@ -227,20 +224,18 @@ function collectWorkspaceOptions(entries: readonly WorkLogEntry[], inFlight: rea
     labels.set(workspace.id, duplicateName ? workspace.displayName + ' — ' + workspace.realRootPath : workspace.displayName);
   }
   for (const item of [...entries, ...inFlight]) {
-    if (item.workspaceId === null || labels.has(item.workspaceId) || knownWorkspaceIds.has(item.workspaceId)) continue;
-    labels.set(item.workspaceId, shortScopeId(item.workspaceId));
+    if (item.workspaceId === null) continue;
+    const canonicalId = canonicalWorkspaceScopeId(workspaceList, item.workspaceId);
+    if (labels.has(canonicalId)) continue;
+    labels.set(canonicalId, shortScopeId(canonicalId));
   }
   return [...labels.entries()].map(([id, label]) => ({ id, label })).sort((a, b) => a.label.localeCompare(b.label));
 }
 
-function normalizeWorkspaceRoot(value: string): string {
-  return value.trim().replace(/\\/g, '/').replace(/\/+$/, '').toLocaleLowerCase();
-}
-
-function collectSessionOptions(entries: readonly WorkLogEntry[], inFlight: readonly InFlightWorkItem[], workspaceId: string | null): readonly string[] {
+function collectSessionOptions(entries: readonly WorkLogEntry[], inFlight: readonly InFlightWorkItem[], workspaceId: string | null, workspaces: readonly WorkspaceSummary[] | undefined): readonly string[] {
   const values = new Set<string>();
   for (const item of [...entries, ...inFlight]) {
-    if (workspaceId !== null && item.workspaceId !== workspaceId) continue;
+    if (workspaceId !== null && !workspaceScopeMatches(workspaces ?? [], item.workspaceId, workspaceId)) continue;
     if (item.sessionId !== null) values.add(item.sessionId);
   }
   return [...values].sort();
@@ -257,8 +252,10 @@ function ScopeBadges(props: { readonly item: Pick<WorkLogEntry, 'workspaceId' | 
 }
 
 function displayWorkspaceLabel(workspaces: readonly WorkspaceSummary[] | undefined, workspaceId: string): string {
-  const workspace = workspaces?.find((candidate) => candidate.id === workspaceId);
-  if (workspace === undefined) return shortScopeId(workspaceId);
+  const workspaceList = workspaces ?? [];
+  const canonicalId = canonicalWorkspaceScopeId(workspaceList, workspaceId);
+  const workspace = workspaceList.find((candidate) => candidate.id === canonicalId);
+  if (workspace === undefined) return shortScopeId(canonicalId);
   const duplicateName = (workspaces ?? []).some((candidate) => candidate.id !== workspace.id && candidate.displayName.trim().toLocaleLowerCase() === workspace.displayName.trim().toLocaleLowerCase());
   return duplicateName ? workspace.displayName + ' — ' + workspace.realRootPath : workspace.displayName;
 }

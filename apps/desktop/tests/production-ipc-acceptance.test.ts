@@ -184,8 +184,12 @@ describe('production desktop IPC acceptance', () => {
     expect(services.clearLogBuffer).toHaveBeenCalledWith({ source: 'mcp', workspaceId: 'ws-a', sessionId: 'session-a' });
 
     await expect(requiredHandler(ipcChannels.clearLogBuffer)(trusted, { source: 'mcp', sessionId: '' })).rejects.toThrow(/sessionId/);
-    await expect(requiredHandler(ipcChannels.exportLogs)(trusted, { source: 'mcp', filePath: '', workspaceId: 'ws-a', sessionId: 'session-a', query: 'needle' })).resolves.toEqual({ exported: false });
+    await expect(requiredHandler(ipcChannels.exportLogs)(trusted, { source: 'mcp', filePath: '', workspaceId: 'ws-a', sessionId: 'session-a', query: 'needle', lineIds: [9, 4, 1] })).resolves.toEqual({ exported: false });
     await expect(requiredHandler(ipcChannels.exportLogs)(trusted, { source: 'mcp', filePath: '', workspaceId: '' })).rejects.toThrow(/workspaceId/);
+    await expect(requiredHandler(ipcChannels.exportLogs)(trusted, { source: 'mcp', filePath: '', lineIds: [0] })).rejects.toThrow(/lineIds/);
+
+    await expect(requiredHandler(ipcChannels.exportWorkLog)(trusted, { rows: ['first visible row', 'second visible row'] })).resolves.toEqual({ exported: false });
+    await expect(requiredHandler(ipcChannels.exportWorkLog)(trusted, { rows: ['ok', 7] })).rejects.toThrow(/rows/);
   });
 
   it('enforces the production IPC sender and payload guards before invoking services', async () => {

@@ -18,6 +18,7 @@ import {
   type DestructiveDeletePolicy,
   type DoctorReport,
   type ExportLogsRequest,
+  type ExportWorkLogRequest,
   type IpcResponseMap,
   type LogSnapshot,
   type ManagedBrowserStatus,
@@ -459,6 +460,10 @@ export function registerIpcHandlers(
     assertTrustedSender(event, getMainWindow());
     return exportLogsToFile(getMainWindow(), services, parseExportLogsRequest(payload));
   });
+  ipcMain.handle(ipcChannels.exportWorkLog, async (event, payload: unknown) => {
+    assertTrustedSender(event, getMainWindow());
+    return exportWorkLogToFile(getMainWindow(), parseExportWorkLogRequest(payload));
+  });
   ipcMain.handle(ipcChannels.captureIncident, async (event, payload: unknown) => {
     assertTrustedSender(event, getMainWindow());
     assertNoPayload(payload);
@@ -603,13 +608,29 @@ function parseExportLogsRequest(payload: unknown): ExportLogsRequest {
   }
   const workspaceId = optionalScopeId(payload.workspaceId, 'workspaceId');
   const sessionId = optionalScopeId(payload.sessionId, 'sessionId');
+  const lineIds = payload.lineIds;
+  if (lineIds !== undefined && (!Array.isArray(lineIds) || lineIds.length > 5_000 || lineIds.some((id) => !Number.isSafeInteger(id) || Number(id) <= 0))) {
+    throw new Error('Invalid IPC payload: lineIds');
+  }
   return {
     source: payload.source,
     filePath: typeof payload.filePath === 'string' ? payload.filePath : '',
     ...(workspaceId === undefined ? {} : { workspaceId }),
     ...(sessionId === undefined ? {} : { sessionId }),
     ...(typeof payload.query === 'string' && payload.query.trim().length > 0 ? { query: payload.query.trim().slice(0, 512) } : {}),
+    ...(lineIds === undefined ? {} : { lineIds: lineIds as number[] }),
   };
+}
+
+function parseExportWorkLogRequest(payload: unknown): ExportWorkLogRequest {
+  if (!isRecord(payload) || !Array.isArray(payload.rows) || payload.rows.length > 5_000) {
+    throw new Error('Invalid IPC payload: rows');
+  }
+  const rows = payload.rows.map((row) => {
+    if (typeof row !== 'string' || row.length > 16_384) throw new Error('Invalid IPC payload: rows');
+    return row;
+  });
+  return { rows };
 }
 
 function optionalScopeId(value: unknown, key: string): string | undefined {
@@ -637,14 +658,34 @@ async function exportLogsToFile(
   }
   const snapshot = await services.getLogSnapshot();
   const query = request.query?.toLowerCase() ?? '';
+  const requestedLineIds = request.lineIds === undefined ? null : new Set(request.lineIds);
   const content = snapshot.lines
     .filter((line) => line.source === request.source)
-    .filter((line) => request.workspaceId === undefined || line.workspaceId === request.workspaceId)
-    .filter((line) => request.sessionId === undefined || line.sessionId === request.sessionId)
-    .filter((line) => query.length === 0 || line.text.toLowerCase().includes(query))
-    .sort((left, right) => right.id - left.id)
+    .filter((line) => requestedLineIds === null || requestedLineIds.has(line.id))
+    .filter((line) => requestedLineIds !== null || request.workspaceId === undefined || line.workspaceId === request.workspaceId)
+    .filter((line) => requestedLineIds !== null || request.sessionId === undefined || line.sessionId === request.sessionId)
+    .filter((line) => requestedLineIds !== null || query.length === 0 || line.text.toLowerCase().includes(query))
+    .sort((left, right) => {
+      const leftTime = Date.parse(left.timestamp);
+      const rightTime = Date.parse(right.timestamp);
+      if (Number.isFinite(leftTime) && Number.isFinite(rightTime) && leftTime !== rightTime) return rightTime - leftTime;
+      return right.id - left.id;
+    })
     .map((line) => `[${line.timestamp}] [${line.level.toUpperCase()}] ${line.text}`)
     .join('\r\n');
+  await atomicWrite(result.filePath, content.length === 0 ? '' : `${content}\r\n`);
+  return { exported: true };
+}
+
+async function exportWorkLogToFile(window: BrowserWindow | null, request: ExportWorkLogRequest): Promise<{ readonly exported: boolean }> {
+  if (window === null) return { exported: false };
+  const result = await dialog.showSaveDialog(window, {
+    title: 'Export lnwjud work log',
+    defaultPath: 'lnwjud-work-log.txt',
+    filters: [{ name: 'Text', extensions: ['txt', 'log'] }],
+  });
+  if (result.canceled || result.filePath === undefined || result.filePath.length === 0) return { exported: false };
+  const content = request.rows.join('\r\n');
   await atomicWrite(result.filePath, content.length === 0 ? '' : `${content}\r\n`);
   return { exported: true };
 }

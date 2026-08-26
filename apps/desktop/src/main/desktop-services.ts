@@ -831,7 +831,8 @@ export function createDesktopRuntime(dataPath: string, options: DesktopRuntimeOp
       return logHub.snapshot();
     },
     clearLogBuffer: async (request: ClearLogBufferRequest): Promise<{ readonly cleared: boolean }> => {
-      logHub.clear(request.source, request);
+      const workspaceSummaries = (await workspaceRepository.listAll()).map(toWorkspaceSummary);
+      logHub.clear(request.source, request, workspaceSummaries);
       return { cleared: true };
     },
     captureIncident: async (updaterEvents: readonly string[] = []): Promise<IncidentReport> => {
@@ -1080,7 +1081,7 @@ async function buildWorkLog(
   repository: AuditEventRepository,
   viewState: WorkLogViewState,
 ): Promise<readonly WorkLogEntry[]> {
-  const events = await listVisibleMcpEvents(repository, viewState, 100);
+  const events = await listVisibleMcpEvents(repository, viewState, 500);
   return events.map((event) => {
     const toolName = typeof event.metadata.toolName === 'string' ? event.metadata.toolName : event.action.replace(/^mcp_tool:/, '');
     const phase = event.metadata.phase === 'started' ? 'started' : 'completed';

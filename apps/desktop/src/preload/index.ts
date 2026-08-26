@@ -14,6 +14,7 @@ import {
   type DoctorCheck,
   type DoctorReport,
   type ExportLogsRequest,
+  type ExportWorkLogRequest,
   type IncidentExportResult,
   type InFlightWorkItem,
   type LnwjudApi,
@@ -796,7 +797,27 @@ function exportLogs(request: ExportLogsRequest): Promise<{ readonly exported: bo
   if (!isRecord(request) || !isLogSource(request.source)) {
     return Promise.reject(new Error('Invalid IPC request'));
   }
-  return invoke(ipcChannels.exportLogs, { source: request.source, filePath: request.filePath ?? '', ...scopePayload(request), ...(typeof request.query === 'string' && request.query.trim().length > 0 ? { query: request.query.trim().slice(0, 512) } : {}) }).then((value: unknown) => {
+  const lineIds = request.lineIds;
+  if (lineIds !== undefined && (!Array.isArray(lineIds) || lineIds.length > 5_000 || lineIds.some((id) => !Number.isSafeInteger(id) || id <= 0))) {
+    return Promise.reject(new Error('Invalid IPC request'));
+  }
+  return invoke(ipcChannels.exportLogs, {
+    source: request.source,
+    filePath: request.filePath ?? '',
+    ...scopePayload(request),
+    ...(typeof request.query === 'string' && request.query.trim().length > 0 ? { query: request.query.trim().slice(0, 512) } : {}),
+    ...(lineIds === undefined ? {} : { lineIds: [...lineIds] }),
+  }).then((value: unknown) => {
+    if (!isRecord(value)) throw new Error('Invalid IPC response');
+    return { exported: booleanField(value, 'exported') };
+  });
+}
+
+function exportWorkLog(request: ExportWorkLogRequest): Promise<{ readonly exported: boolean }> {
+  if (!isRecord(request) || !Array.isArray(request.rows) || request.rows.length > 5_000 || request.rows.some((row) => typeof row !== 'string' || row.length > 16_384)) {
+    return Promise.reject(new Error('Invalid IPC request'));
+  }
+  return invoke(ipcChannels.exportWorkLog, { rows: [...request.rows] }).then((value: unknown) => {
     if (!isRecord(value)) throw new Error('Invalid IPC response');
     return { exported: booleanField(value, 'exported') };
   });
@@ -877,6 +898,7 @@ const api: LnwjudApi = {
   getLogSnapshot: () => invoke(ipcChannels.getLogSnapshot).then(logSnapshot),
   clearLogBuffer,
   exportLogs,
+  exportWorkLog,
   captureIncident,
   openLogViewer: () => invoke(ipcChannels.openLogViewer).then((value: unknown) => {
     if (!isRecord(value)) throw new Error('Invalid IPC response');

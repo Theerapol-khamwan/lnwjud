@@ -2,10 +2,10 @@ import { closeSync, existsSync, openSync, readSync, statSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import { StringDecoder } from 'node:string_decoder';
 import type { AppErrorCode } from '@lnwjud/domain';
-import { type LogCorrelation, type LogLevel, type LogLine, type LogScopeRequest, type LogSnapshot, type LogSource, type TunnelLifecycleCategory } from '@lnwjud/ipc-contracts';
+import { workspaceScopeMatches, type LogCorrelation, type LogLevel, type LogLine, type LogScopeRequest, type LogSnapshot, type LogSource, type TunnelLifecycleCategory, type WorkspaceSummary } from '@lnwjud/ipc-contracts';
 
-const MAX_LINES_PER_SOURCE = 2_000;
-const MAX_SEEN_KEYS_PER_SOURCE = 4_000;
+const MAX_LINES_PER_SOURCE = 10_000;
+const MAX_SEEN_KEYS_PER_SOURCE = 20_000;
 const MAX_LINE_BYTES = 8_192;
 
 export interface LogHubOptions {
@@ -152,7 +152,7 @@ export class LogHub {
     };
   }
 
-  public clear(source: LogSource, scope: LogScopeRequest = {}): void {
+  public clear(source: LogSource, scope: LogScopeRequest = {}, workspaces: readonly WorkspaceSummary[] = []): void {
     // Clear only the visible buffer. Keep delivery/dedup cursors so historical
     // MCP and process entries do not get rehydrated on the next dashboard sync.
     const buffer = this.lines.get(source) ?? [];
@@ -160,7 +160,7 @@ export class LogHub {
       this.lines.set(source, []);
       return;
     }
-    this.lines.set(source, buffer.filter((line) => !matchesLogScope(line, scope)));
+    this.lines.set(source, buffer.filter((line) => !matchesLogScope(line, scope, workspaces)));
   }
 
   private feedMcpLifecycle(
@@ -236,7 +236,7 @@ export class LogHub {
       const size = stat.size;
       if (state.fd === null) {
         state.fd = openSync(filePath, 'r');
-        state.offset = Math.max(0, size - 256 * 1024);
+        state.offset = Math.max(0, size - 4 * 1024 * 1024);
         state.pending = '';
         state.decoder = new StringDecoder('utf8');
       }
@@ -473,8 +473,8 @@ function rememberBounded(values: Set<string>, value: string): void {
   }
 }
 
-function matchesLogScope(line: Pick<LogLine, 'workspaceId' | 'sessionId'>, scope: LogScopeRequest): boolean {
-  if (scope.workspaceId !== undefined && line.workspaceId !== scope.workspaceId) return false;
+function matchesLogScope(line: Pick<LogLine, 'workspaceId' | 'sessionId'>, scope: LogScopeRequest, workspaces: readonly WorkspaceSummary[]): boolean {
+  if (scope.workspaceId !== undefined && !workspaceScopeMatches(workspaces, line.workspaceId, scope.workspaceId)) return false;
   if (scope.sessionId !== undefined && line.sessionId !== scope.sessionId) return false;
   return true;
 }

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type ReactElement } from 'react';
-import type { LogLevel, LogLine, LogSource, WorkspaceSummary } from '@lnwjud/ipc-contracts';
+import { canonicalWorkspaceScopeId, workspaceScopeMatches, type LogLevel, type LogLine, type LogSource, type WorkspaceSummary } from '@lnwjud/ipc-contracts';
 import { copyTextToClipboard } from '../../clipboard.js';
 import type { MessageKey } from '../../i18n/messages.js';
 
@@ -28,7 +28,7 @@ interface LogStreamPanelProps {
   readonly copyLabel?: string;
   readonly copiedLabel?: string;
   readonly onClear: (scope: LogScopeSelection) => Promise<void>;
-  readonly onExport: (scope: LogScopeSelection, query: string) => Promise<void>;
+  readonly onExport: (scope: LogScopeSelection, query: string, lineIds: readonly number[]) => Promise<void>;
   readonly workspaces?: readonly WorkspaceSummary[];
   readonly workspaceLabel?: string;
   readonly sessionLabel?: string;
@@ -36,7 +36,7 @@ interface LogStreamPanelProps {
 }
 
 
-const MAX_VISIBLE_LINES = 1_000;
+const MAX_VISIBLE_LINES = 5_000;
 
 export function LogStreamPanel(props: LogStreamPanelProps): ReactElement {
   const [paused, setPaused] = useState(false);
@@ -46,13 +46,12 @@ export function LogStreamPanel(props: LogStreamPanelProps): ReactElement {
   const [sessionId, setSessionId] = useState<string | null>(null);
   const streamRef = useRef<HTMLDivElement | null>(null);
   const workspaceOptions = useMemo(() => collectWorkspaceOptions(props.lines, props.workspaces), [props.lines, props.workspaces]);
-  const sessionOptions = useMemo(() => collectSessionOptions(props.lines, workspaceId), [props.lines, workspaceId]);
+  const sessionOptions = useMemo(() => collectSessionOptions(props.lines, workspaceId, props.workspaces), [props.lines, workspaceId, props.workspaces]);
   useEffect(() => {
     if (sessionId !== null && !sessionOptions.includes(sessionId)) setSessionId(null);
   }, [sessionId, sessionOptions]);
   const scope = useMemo<LogScopeSelection>(() => ({ workspaceId, sessionId }), [workspaceId, sessionId]);
-  const filtered = useMemo(() => filterLogLinesByScope(props.lines, scope, filter), [props.lines, scope, filter]);
-  const visible = [...filtered].sort(compareLogLinesNewestFirst).slice(0, MAX_VISIBLE_LINES);
+  const visible = useMemo(() => visibleLogLines(props.lines, scope, filter, props.workspaces), [props.lines, scope, filter, props.workspaces]);
 
   useEffect(() => {
     if (paused) return;
@@ -78,7 +77,7 @@ export function LogStreamPanel(props: LogStreamPanelProps): ReactElement {
           <button type="button" disabled={sessionId === null} onClick={() => { if (sessionId !== null) void props.onClear({ workspaceId: null, sessionId }); }}>{props.clearSessionLabel}</button>
           <button type="button" disabled={workspaceId === null} onClick={() => { if (workspaceId !== null) void props.onClear({ workspaceId, sessionId: null }); }}>{props.clearWorkspaceLabel}</button>
           <button type="button" onClick={() => { void props.onClear({ workspaceId: null, sessionId: null }); }}>{props.clearLabel}</button>
-          <button type="button" onClick={() => { void props.onExport(scope, filter); }}>{props.exportLabel}</button>
+          <button type="button" onClick={() => { void props.onExport(scope, filter, visible.map((line) => line.id)); }}>{props.exportLabel}</button>
         </div>
       </div>
       <div className="scope-filter-bar">
@@ -144,34 +143,31 @@ export function filterLines(lines: readonly LogLine[], source: LogSource): reado
   return lines.filter((line) => line.source === source);
 }
 
-export function filterLogLinesByScope(lines: readonly LogLine[], scope: LogScopeSelection, search = ''): readonly LogLine[] {
+export function filterLogLinesByScope(lines: readonly LogLine[], scope: LogScopeSelection, search = '', workspaces: readonly WorkspaceSummary[] = []): readonly LogLine[] {
   const needle = search.trim().toLowerCase();
   return lines.filter((line) => {
-    if (scope.workspaceId !== null && line.workspaceId !== scope.workspaceId) return false;
+    if (scope.workspaceId !== null && !workspaceScopeMatches(workspaces, line.workspaceId, scope.workspaceId)) return false;
     if (scope.sessionId !== null && line.sessionId !== scope.sessionId) return false;
     return needle.length === 0 || line.text.toLowerCase().includes(needle);
   });
 }
 
+export function visibleLogLines(lines: readonly LogLine[], scope: LogScopeSelection, search = '', workspaces: readonly WorkspaceSummary[] = []): readonly LogLine[] {
+  return [...filterLogLinesByScope(lines, scope, search, workspaces)].sort(compareLogLinesNewestFirst).slice(0, MAX_VISIBLE_LINES);
+}
+
 function collectWorkspaceOptions(lines: readonly LogLine[], workspaces: readonly WorkspaceSummary[] | undefined): readonly { readonly id: string; readonly label: string }[] {
   const workspaceList = workspaces ?? [];
-  const knownWorkspaceIds = new Set(workspaceList.map((workspace) => workspace.id));
-  const canonicalWorkspaces: WorkspaceSummary[] = [];
-  const seenRoots = new Set<string>();
-  for (const workspace of workspaceList) {
-    if (workspace.kind === 'machine_root') continue;
-    const rootKey = workspace.realRootPath.trim().replace(/\\/g, '/').replace(/\/+$/, '').toLocaleLowerCase();
-    if (seenRoots.has(rootKey)) continue;
-    seenRoots.add(rootKey);
-    canonicalWorkspaces.push(workspace);
-  }
-
+  const canonicalWorkspaces = workspaceList.filter((workspace, index) =>
+    workspace.kind !== 'machine_root'
+    && canonicalWorkspaceScopeId(workspaceList, workspace.id) === workspace.id
+    && workspaceList.findIndex((candidate) => canonicalWorkspaceScopeId(workspaceList, candidate.id) === workspace.id) === index,
+  );
   const nameCounts = new Map<string, number>();
   for (const workspace of canonicalWorkspaces) {
     const key = workspace.displayName.trim().toLocaleLowerCase();
     nameCounts.set(key, (nameCounts.get(key) ?? 0) + 1);
   }
-
   const labels = new Map<string, string>();
   for (const workspace of canonicalWorkspaces) {
     const key = workspace.displayName.trim().toLocaleLowerCase();
@@ -179,23 +175,26 @@ function collectWorkspaceOptions(lines: readonly LogLine[], workspaces: readonly
     labels.set(workspace.id, duplicateName ? workspace.displayName + ' — ' + workspace.realRootPath : workspace.displayName);
   }
   for (const line of lines) {
-    if (line.workspaceId === null || labels.has(line.workspaceId) || knownWorkspaceIds.has(line.workspaceId)) continue;
-    labels.set(line.workspaceId, shortScopeId(line.workspaceId));
+    if (line.workspaceId === null) continue;
+    const canonicalId = canonicalWorkspaceScopeId(workspaceList, line.workspaceId);
+    if (labels.has(canonicalId)) continue;
+    labels.set(canonicalId, shortScopeId(canonicalId));
   }
   return [...labels.entries()].map(([id, label]) => ({ id, label })).sort((a, b) => a.label.localeCompare(b.label));
 }
 
-function collectSessionOptions(lines: readonly LogLine[], workspaceId: string | null): readonly string[] {
+function collectSessionOptions(lines: readonly LogLine[], workspaceId: string | null, workspaces: readonly WorkspaceSummary[] | undefined): readonly string[] {
   const values = new Set<string>();
   for (const line of lines) {
-    if (workspaceId !== null && line.workspaceId !== workspaceId) continue;
+    if (workspaceId !== null && !workspaceScopeMatches(workspaces ?? [], line.workspaceId, workspaceId)) continue;
     if (line.sessionId !== null) values.add(line.sessionId);
   }
   return [...values].sort();
 }
 
 function ScopeBadges(props: { readonly line: LogLine; readonly showWorkspace: boolean; readonly showSession: boolean; readonly workspaces: readonly WorkspaceSummary[] | undefined }): ReactElement | null {
-  const workspaceLabel = props.line.workspaceId === null ? null : props.workspaces?.find((workspace) => workspace.id === props.line.workspaceId)?.displayName ?? shortScopeId(props.line.workspaceId);
+  const canonicalId = props.line.workspaceId === null ? null : canonicalWorkspaceScopeId(props.workspaces ?? [], props.line.workspaceId);
+  const workspaceLabel = canonicalId === null ? null : props.workspaces?.find((workspace) => workspace.id === canonicalId)?.displayName ?? shortScopeId(canonicalId);
   const sessionLabel = props.line.sessionId === null ? null : shortScopeId(props.line.sessionId);
   if ((!props.showWorkspace || workspaceLabel === null) && (!props.showSession || sessionLabel === null)) return null;
   return <span className="scope-badges">
