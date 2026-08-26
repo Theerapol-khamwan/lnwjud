@@ -14,14 +14,15 @@ function section(config: string, start: string, end: string): string {
 }
 
 describe('Secure Tunnel packaged stdio layout', () => {
-  it('ships the complete stdio runtime both beside lnwjud.exe and under resources', async () => {
+  it('ships one canonical stdio runtime beside lnwjud.exe instead of duplicating it under resources', async () => {
     const config = await readFile(path.join(desktopRoot, 'electron-builder.yml'), 'utf8');
     const resources = section(config, 'extraResources', 'extraFiles');
     const files = section(config, 'extraFiles', 'win');
 
     for (const artifact of ['lnwjud-mcp-stdio.cmd', 'lnwjud-mcp-stdio.cjs', 'lnwjud-node.exe']) {
-      expect(resources).toContain(`to: ${artifact}`);
+      expect(resources).not.toContain(`to: ${artifact}`);
       expect(files).toContain(`to: ${artifact}`);
+      expect(config.match(new RegExp(`from: build/${artifact.replaceAll('.', '\\.')}`, 'g')) ?? []).toHaveLength(1);
     }
   });
 
@@ -30,8 +31,8 @@ describe('Secure Tunnel packaged stdio layout', () => {
     expect(launcher).toContain('set "BASE=%~dp0"');
     expect(launcher).toContain('set "NODE_EXE=%BASE%lnwjud-node.exe"');
     expect(launcher).toContain('set "SCRIPT=%BASE%lnwjud-mcp-stdio.cjs"');
-    expect(launcher).toContain('resources\\lnwjud-node.exe');
-    expect(launcher).toContain('resources\\lnwjud-mcp-stdio.cjs');
+    expect(launcher).not.toContain('resources\\lnwjud-node.exe');
+    expect(launcher).not.toContain('resources\\lnwjud-mcp-stdio.cjs');
     expect(launcher).not.toMatch(/[A-Z]:\\(?:Users|lnwjud|src|projects)\\/i);
     expect(launcher).not.toContain('set "NODE_EXE=node"');
   });

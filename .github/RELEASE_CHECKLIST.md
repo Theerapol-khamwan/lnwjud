@@ -4,7 +4,7 @@
 
 Run the release verification from PowerShell at the repository root. The automated gate must fail fast on any non-zero stage and `git diff --check` must pass before packaging or publishing.
 
-For GitHub releases, the `main` CI workflow is the single authoritative build: after the full verification gate succeeds it uploads the Windows installer, portable executable, blockmap, `latest.yml`, and `portable.yml` as a SHA-scoped Actions artifact. A `v*` tag may publish only by reusing the successful CI artifact for that exact commit SHA; the Release workflow must not rerun the full verification/build/package pipeline.
+For GitHub releases, the `main` CI workflow is the single authoritative build: after the full verification gate succeeds it uploads the Windows installer, portable executable, blockmap, `latest.yml`, `portable.yml`, `SHA256SUMS.txt`, and `PROVENANCE.json` as a SHA-scoped Actions artifact. A `v*` tag may publish only by reusing the successful CI artifact for that exact commit SHA; the Release workflow verifies the provenance commit/hashes and requires valid Authenticode signatures on Setup and Portable before publishing, and it must not rerun the full verification/build/package pipeline.
 
 ## Automated evidence
 
@@ -30,7 +30,7 @@ For GitHub releases, the `main` CI workflow is the single authoritative build: a
 - Internal Windows child-process launch sites used by Desktop/process/capability flows keep console windows hidden; release review checks that no `windowsHide: false` regression is introduced.
 - Windows compatibility tests cover Windows 10 build 19045 and Windows 11 build 22631/26200 classification, Windows 10 software-rendering fallback before Electron readiness, built-in Windows PowerShell plumbing, hidden internal child consoles, a 16-task durable-worker ceiling, and a 24-process managed-process ceiling so parallel chats cannot create an unbounded `conhost.exe` fan-out.
 - The fake Codex integration flow runs only against a disposable fixture and leaves a reviewable Git diff.
-- Packaging tests verify the Windows installer and portable executable configuration, portable shortcut behavior, and required runtime assets.
+- Packaging tests verify the Windows installer and portable executable configuration, portable shortcut behavior, required runtime assets, one canonical stdio runtime beside `lnwjud.exe`, stable installed `uninstall.exe` registry commands, and generated SHA-256/source-provenance evidence.
 - The packaged-app smoke verifies both versioned Windows executables plus `latest.yml` and `portable.yml` are produced before release.
 
 ## Manual clean-machine evidence

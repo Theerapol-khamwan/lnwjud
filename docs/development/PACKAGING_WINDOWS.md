@@ -23,11 +23,11 @@ corepack pnpm@10.15.0 install --frozen-lockfile
 corepack pnpm@10.15.0 package:windows
 ```
 
-The package script rebuilds the workspace, generates the current MCP stdio bundle/launcher, writes both Windows executables to `apps/desktop/dist/installers/`, and writes update metadata for both distribution channels.
+The package script rebuilds the workspace, generates the current MCP stdio bundle/launcher, writes both Windows executables to `apps/desktop/dist/installers/`, writes update metadata for both distribution channels, and finishes by generating and verifying `SHA256SUMS.txt` plus `PROVENANCE.json`. Provenance records the exact Git commit, tracked-tree dirty state, release artifact hashes, and critical packaged runtime hashes without storing signing secrets.
 
 ## Current electron-builder contract
 
-`apps/desktop/electron-builder.yml` is the source of truth. The current v4.11 packaging contract is:
+`apps/desktop/electron-builder.yml` is the source of truth. The current v4.12.0 packaging contract is:
 
 - `asar: true`.
 - Windows x64 targets: NSIS installer + portable executable.
@@ -36,6 +36,7 @@ The package script rebuilds the workspace, generates the current MCP stdio bundl
 - Branded `build/icon.ico` for the application, installer, and uninstaller.
 - `signAndEditExecutable: true` for executable metadata/icon editing.
 - `deleteAppDataOnUninstall: false`; uninstalling the application does **not** automatically remove lnwjud user data.
+- NSIS renames electron-builder's generated uninstaller to the stable user-facing `uninstall.exe` and rewrites `UninstallString` / `QuietUninstallString` for the active per-user or per-machine install mode so Windows Settings and upgrades keep using the correct path.
 - Portable mode launches without installation but intentionally uses the same per-user lnwjud data/settings location as the installed build. It is portable as an executable, not a "keep every setting beside the EXE" mode.
 - Installer auto-update remains on electron-builder's normal `latest.yml` channel and installs `lnwjud-Setup-<version>.exe`.
 - Portable auto-update uses a separate generated `portable.yml` channel and downloads only `lnwjud-Portable-<version>.exe`.
@@ -43,7 +44,7 @@ The package script rebuilds the workspace, generates the current MCP stdio bundl
 - The updater never crosses distribution types: an installed user remains on Setup/NSIS updates and a Portable user remains on Portable EXE updates.
 - Installer and Portable intentionally continue to share the same per-user lnwjud settings/data location.
 - The Windows capability bridge is copied as an extra resource.
-- The generated `lnwjud-mcp-stdio.cjs`, `lnwjud-mcp-stdio.cmd`, and private `lnwjud-node.exe` are copied both into resources and beside the packaged application for tunnel/local stdio use.
+- The generated `lnwjud-mcp-stdio.cjs`, `lnwjud-mcp-stdio.cmd`, and private `lnwjud-node.exe` have one canonical packaged copy beside `lnwjud.exe` for tunnel/local stdio use. They are not duplicated under `resources`, reducing AV scan surface and keeping one runtime hash authoritative.
 - Pinned ripgrep is shipped under `resources/runtime-tools/ripgrep`; both Desktop and the stdio launcher resolve this private `rg.exe` before any system PATH copy.
 - The launcher never falls back to Program Files, LocalAppData, or Node from PATH; a missing bundled Node runtime fails closed.
 - Generated stdio runtime files are ignored by Git and must be regenerated from source for each build/release.
@@ -72,9 +73,12 @@ For v4.12.0:
 
 ```text
 apps/desktop/dist/installers/lnwjud-Setup-4.12.0.exe
+apps/desktop/dist/installers/lnwjud-Setup-4.12.0.exe.blockmap
+apps/desktop/dist/installers/lnwjud-Portable-4.12.0.exe
 apps/desktop/dist/installers/latest.yml
 apps/desktop/dist/installers/portable.yml
-apps/desktop/dist/installers/lnwjud-Portable-4.12.0.exe
+apps/desktop/dist/installers/SHA256SUMS.txt
+apps/desktop/dist/installers/PROVENANCE.json
 ```
 
 Generic patterns:
