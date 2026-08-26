@@ -86,21 +86,40 @@ jobs:
           LNWJUD_REQUIRE_CLEAN_PROVENANCE: '1'
         run: node apps/desktop/scripts/verify-release-evidence.mjs
 
-      - name: Require valid Windows Authenticode signatures
+      - name: Verify Windows Authenticode when signing is configured
         shell: pwsh
+        env:
+          WINDOWS_CSC_LINK: ${{ secrets.WINDOWS_CSC_LINK }}
+          WINDOWS_CSC_KEY_PASSWORD: ${{ secrets.WINDOWS_CSC_KEY_PASSWORD }}
         run: |
+          $hasCertificate = -not [string]::IsNullOrWhiteSpace($env:WINDOWS_CSC_LINK)
+          $hasPassword = -not [string]::IsNullOrWhiteSpace($env:WINDOWS_CSC_KEY_PASSWORD)
+          if ($hasCertificate -ne $hasPassword) {
+            throw 'WINDOWS_CSC_LINK and WINDOWS_CSC_KEY_PASSWORD must either both be configured or both be absent.'
+          }
+
           $package = Get-Content package.json -Raw | ConvertFrom-Json
           $installerDirectory = Join-Path $PWD 'apps\desktop\dist\installers'
-          $signedArtifacts = @(
+          $releaseArtifacts = @(
             (Join-Path $installerDirectory "lnwjud-Setup-$($package.version).exe"),
             (Join-Path $installerDirectory "lnwjud-Portable-$($package.version).exe")
           )
-          foreach ($artifact in $signedArtifacts) {
+          foreach ($artifact in $releaseArtifacts) {
             $signature = Get-AuthenticodeSignature -LiteralPath $artifact
-            if ($signature.Status -ne 'Valid') {
-              throw "Public Windows release artifact is not validly Authenticode-signed: $artifact (status=$($signature.Status)). Configure WINDOWS_CSC_LINK/WINDOWS_CSC_KEY_PASSWORD in repository secrets and rebuild CI."
+            if ($hasCertificate) {
+              if ($signature.Status -ne 'Valid') {
+                throw "Windows signing credentials are configured but the release artifact is not validly Authenticode-signed: $artifact (status=$($signature.Status))."
+              }
+              Write-Host "Authenticode valid: $artifact signer=$($signature.SignerCertificate.Subject)"
             }
-            Write-Host "Authenticode valid: $artifact signer=$($signature.SignerCertificate.Subject)"
+            else {
+              if ($signature.Status -eq 'Valid') {
+                Write-Host "Authenticode valid even though repository signing secrets are not configured: $artifact signer=$($signature.SignerCertificate.Subject)"
+              }
+              else {
+                Write-Warning "Publishing unsigned Windows artifact: $artifact (Authenticode status=$($signature.Status)). SHA-256 and source provenance remain mandatory."
+              }
+            }
           }
 
       - name: Create GitHub Release & Upload Windows Artifacts

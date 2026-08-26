@@ -3,6 +3,7 @@ param()
 
 $ErrorActionPreference = 'Stop'
 $repositoryRoot = Split-Path -Parent $PSScriptRoot
+$previousSourceDirtyAtStart = $env:LNWJUD_SOURCE_DIRTY_AT_START
 
 function Invoke-ReleaseStage {
     param(
@@ -47,6 +48,16 @@ function Assert-RepositoryChecks {
 
 Push-Location $repositoryRoot
 try {
+    $sourceStatusAtStart = @(git status --porcelain=v1 --untracked-files=normal)
+    if ($LASTEXITCODE -ne 0) {
+        throw "Unable to inspect repository status before release verification"
+    }
+    $sourceDirtyAtStart = (($sourceStatusAtStart -join "`n").Trim().Length -gt 0)
+    $env:LNWJUD_SOURCE_DIRTY_AT_START = if ($sourceDirtyAtStart) { '1' } else { '0' }
+    if ($env:GITHUB_ACTIONS -eq 'true' -and $sourceDirtyAtStart) {
+        throw "GitHub release verification requires a clean source tree before verification begins"
+    }
+
     Assert-RepositoryChecks
     Invoke-ReleaseStage 'install --frozen-lockfile' @('install', '--frozen-lockfile')
     Invoke-ReleaseStage 'lint' @('lint')
@@ -86,5 +97,11 @@ try {
     Write-Host 'Release verification gate completed.'
 }
 finally {
+    if ($null -eq $previousSourceDirtyAtStart) {
+        Remove-Item Env:LNWJUD_SOURCE_DIRTY_AT_START -ErrorAction SilentlyContinue
+    }
+    else {
+        $env:LNWJUD_SOURCE_DIRTY_AT_START = $previousSourceDirtyAtStart
+    }
     Pop-Location
 }
