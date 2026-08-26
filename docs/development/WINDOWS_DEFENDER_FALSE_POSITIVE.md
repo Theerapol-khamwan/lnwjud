@@ -14,7 +14,7 @@ Microsoft's current guidance for software developers is to dispute incorrect det
 
 ## If SmartScreen says Unknown/Unrecognized publisher
 
-SmartScreen reputation is not the same as a Defender malware verdict. For non-Store distribution, lnwjud public Windows releases must be Authenticode-signed with the same trusted publisher identity. The Release workflow rejects Setup or Portable artifacts whose `Get-AuthenticodeSignature` status is not `Valid`.
+SmartScreen reputation is not the same as a Defender malware verdict. Authenticode signing with a stable trusted publisher identity is recommended for non-Store distribution because it improves publisher identity and reputation behavior, but lnwjud does not require a paid signing credential to publish. When production signing secrets are configured, the Release workflow requires Setup and Portable to have `Get-AuthenticodeSignature` status `Valid`; when they are absent, the workflow permits an unsigned release only after the same SHA-256 and source-provenance verification and reports the unsigned status explicitly.
 
 The build pipeline supports electron-builder Authenticode signing through repository secrets:
 
@@ -48,7 +48,7 @@ Every Windows package build produces:
 - bundled `rg.exe`
 - bundled `tunnel-client.exe`
 
-The release workflow verifies the provenance commit against the tagged commit, requires clean-source provenance, re-hashes release artifacts, and then checks Authenticode before creating a public GitHub Release.
+The release workflow verifies the provenance commit against the tagged commit, requires clean-source provenance, and re-hashes release artifacts before creating a public GitHub Release. It then enforces valid Authenticode only when production signing secrets are configured; otherwise it records and reports the unsigned status rather than blocking the release.
 
 ## User support rule
 

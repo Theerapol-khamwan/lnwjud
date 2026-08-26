@@ -31,13 +31,15 @@ describe('Windows release trust evidence', () => {
     expect(evidenceWriter).toContain('SHA256SUMS.txt');
     expect(evidenceWriter).toContain('PROVENANCE.json');
     expect(evidenceWriter).toContain('GITHUB_SHA');
+    expect(evidenceWriter).toContain('LNWJUD_SOURCE_DIRTY_AT_START');
+    expect(evidenceWriter).toContain('workingTreeDirtyAtEvidence');
     expect(evidenceWriter).toContain("git(['rev-parse', 'HEAD'])");
     for (const name of ['lnwjud-mcp-stdio.cjs', 'lnwjud-node.exe', 'rg.exe', 'tunnel-client.exe']) {
       expect(captureHook).toContain(name);
     }
   });
 
-  it('uploads trust evidence from CI and requires valid Authenticode before a public GitHub Release', async () => {
+  it('uploads trust evidence from CI and verifies Authenticode when production signing is configured', async () => {
     const ci = await readFile(path.join(repositoryRoot, '.github', 'workflows', 'ci.yml'), 'utf8');
     const release = await readFile(path.join(repositoryRoot, '.github', 'workflows', 'release.yml'), 'utf8');
 
@@ -48,7 +50,9 @@ describe('Windows release trust evidence', () => {
     expect(release).toContain("'SHA256SUMS.txt'");
     expect(release).toContain("'PROVENANCE.json'");
     expect(release).toContain('Get-AuthenticodeSignature');
-    expect(release).toContain("Status -ne 'Valid'");
+    expect(release).toContain('$hasCertificate -ne $hasPassword');
+    expect(release).toContain("$signature.Status -ne 'Valid'");
+    expect(release).toContain('Publishing unsigned Windows artifact');
     expect(release).toContain('LNWJUD_EXPECTED_COMMIT_SHA');
     expect(release).toContain('verify-release-evidence.mjs');
   });

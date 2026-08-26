@@ -4,7 +4,7 @@
 
 Run the release verification from PowerShell at the repository root. The automated gate must fail fast on any non-zero stage and `git diff --check` must pass before packaging or publishing.
 
-For GitHub releases, the `main` CI workflow is the single authoritative build: after the full verification gate succeeds it uploads the Windows installer, portable executable, blockmap, `latest.yml`, `portable.yml`, `SHA256SUMS.txt`, and `PROVENANCE.json` as a SHA-scoped Actions artifact. A `v*` tag may publish only by reusing the successful CI artifact for that exact commit SHA; the Release workflow verifies the provenance commit/hashes and requires valid Authenticode signatures on Setup and Portable before publishing, and it must not rerun the full verification/build/package pipeline.
+For GitHub releases, the `main` CI workflow is the single authoritative build: after the full verification gate succeeds it uploads the Windows installer, portable executable, blockmap, `latest.yml`, `portable.yml`, `SHA256SUMS.txt`, and `PROVENANCE.json` as a SHA-scoped Actions artifact. A `v*` tag may publish only by reusing the successful CI artifact for that exact commit SHA; the Release workflow verifies the provenance commit/hashes and must not rerun the full verification/build/package pipeline. If production Windows signing secrets are configured, Setup and Portable must have valid Authenticode signatures. When signing secrets are absent, the release may publish unsigned artifacts only after the same provenance and SHA-256 verification, with the unsigned Authenticode status reported explicitly in the workflow log and provenance recording that signing credentials were not configured.
 
 ## Automated evidence
 

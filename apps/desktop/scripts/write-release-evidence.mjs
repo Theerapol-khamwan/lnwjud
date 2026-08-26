@@ -19,7 +19,10 @@ const githubSha = process.env.GITHUB_SHA?.trim();
 if (githubSha && githubSha.toLowerCase() !== commit.toLowerCase()) {
   throw new Error(`GITHUB_SHA does not match checked-out commit: github=${githubSha} git=${commit}`);
 }
-const dirty = git(['status', '--porcelain=v1', '--untracked-files=normal']).trim().length > 0;
+const workingTreeStatusAtEvidence = git(['status', '--porcelain=v1', '--untracked-files=normal']).trim();
+const workingTreeDirtyAtEvidence = workingTreeStatusAtEvidence.length > 0;
+const sourceDirtyAtStart = parseSourceDirtyAtStart(process.env.LNWJUD_SOURCE_DIRTY_AT_START);
+const dirty = sourceDirtyAtStart ?? workingTreeDirtyAtEvidence;
 
 const runtimeEvidence = JSON.parse(await readFile(runtimeEvidencePath, 'utf8'));
 if (runtimeEvidence?.schemaVersion !== 1 || !Array.isArray(runtimeEvidence.files)) {
@@ -57,6 +60,7 @@ const provenance = {
     runAttempt: optionalEnv('GITHUB_RUN_ATTEMPT'),
     ref: optionalEnv('GITHUB_REF'),
     signingCredentialConfigured: Boolean(process.env.CSC_LINK?.trim() || process.env.WIN_CSC_LINK?.trim()),
+    workingTreeDirtyAtEvidence,
   },
   artifacts,
   runtime: runtimeEvidence.files,
@@ -77,6 +81,14 @@ process.stdout.write(`Release evidence written for lnwjud ${version} commit ${co
 
 function git(args) {
   return execFileSync('git', args, { cwd: repositoryRoot, encoding: 'utf8', windowsHide: true });
+}
+
+function parseSourceDirtyAtStart(value) {
+  const normalized = value?.trim();
+  if (!normalized) return null;
+  if (normalized === '0') return false;
+  if (normalized === '1') return true;
+  throw new Error(`LNWJUD_SOURCE_DIRTY_AT_START must be 0 or 1, received: ${normalized}`);
 }
 
 function optionalEnv(name) {
