@@ -28,6 +28,8 @@ describe('MVP release verification gate', () => {
     }
     expect(script).toContain('if ($LASTEXITCODE -ne 0)');
     expect(script).toContain('git diff --check');
+    expect(script).toContain('lnwjud-Setup-$($rootPackage.version).exe');
+    expect(script).toContain('lnwjud-Portable-$($rootPackage.version).exe');
   });
 
   it('documents the acceptance evidence and clean-machine limitations', async () => {
@@ -82,7 +84,7 @@ describe('MVP release verification gate', () => {
     expect(workflow.indexOf('Install ripgrep for E2E search')).toBeLessThan(workflow.indexOf('Run authoritative verification gate'));
   });
 
-  it('uploads the verified Windows installer once in CI and reuses that exact SHA artifact for releases', async () => {
+  it('uploads the verified Windows installer and portable executable once in CI and reuses that exact SHA artifact for releases', async () => {
     const ci = await readFile(path.join(repositoryRoot, '.github', 'workflows', 'ci.yml'), 'utf8');
     const release = await readFile(path.join(repositoryRoot, '.github', 'workflows', 'release.yml'), 'utf8');
 
@@ -98,6 +100,7 @@ describe('MVP release verification gate', () => {
     expect(release).toContain('gh run download');
     expect(release).toContain('windows-release-$sha');
     expect(release).toContain('successful CI run for exact commit');
+    expect(release).toContain('lnwjud-Portable-$($package.version).exe');
     expect(release).not.toContain('verify-release.ps1');
     expect(release).not.toContain('Run authoritative verification gate');
     expect(release).not.toContain('package:windows');

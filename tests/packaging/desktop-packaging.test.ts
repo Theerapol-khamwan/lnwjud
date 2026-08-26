@@ -29,14 +29,20 @@ describe('Windows desktop packaging', () => {
     expect(desktopPackage.repository).toEqual({ type: 'git', url: 'https://github.com/engasnm111/lnwjud.git' });
   });
 
-  it('declares lnwjud x64 NSIS packaging and built runtime bundles', async () => {
+  it('declares lnwjud x64 NSIS and portable packaging with built runtime bundles', async () => {
     const configPath = path.join(desktopRoot, 'electron-builder.yml');
     const config = await readFile(configPath, 'utf8');
+    const desktopPackage = JSON.parse(await readFile(path.join(desktopRoot, 'package.json'), 'utf8')) as { scripts?: Record<string, string> };
 
     expect(config).toContain('productName: lnwjud');
     expect(config).toContain('output: dist/installers');
     expect(config).toContain('target: nsis');
+    expect(config).toContain('target: portable');
     expect(config).toContain('- x64');
+    expect(config).toContain('artifactName: lnwjud-Setup-${version}.${ext}');
+    expect(config).toContain('portable:');
+    expect(config).toContain('artifactName: lnwjud-Portable-${version}.${ext}');
+    expect(desktopPackage.scripts?.['package:windows']).toContain('--win nsis portable --x64');
     expect(config).toContain('icon: build/icon.ico');
     expect(config).toContain('signAndEditExecutable: true');
     expect(config).not.toContain('signAndEditExecutable: false');

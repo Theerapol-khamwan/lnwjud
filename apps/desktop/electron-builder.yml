@@ -46,6 +46,9 @@ win:
     - target: nsis
       arch:
         - x64
+    - target: portable
+      arch:
+        - x64
   artifactName: lnwjud-Setup-${version}.${ext}
   # Keep the branded icon embedded in lnwjud.exe for Windows shortcuts and taskbar.
   signAndEditExecutable: true
@@ -60,3 +63,5 @@ nsis:
   uninstallerIcon: build/icon.ico
   uninstallDisplayName: ${productName}
   include: build/installer.nsh
+portable:
+  artifactName: lnwjud-Portable-${version}.${ext}

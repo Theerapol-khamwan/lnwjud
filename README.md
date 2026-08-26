@@ -51,6 +51,11 @@ capabilities are additive.
 
 ### What's new in v4.11.0
 
+- Adds **multiple simultaneous Active Projects** for parallel ChatGPT chats/projects. One project remains **Primary** only as the fallback when a tool call omits `workspaceId`; explicit workspace-scoped calls stay isolated per project/session.
+- Updates **Recovery Center** to render the full recovery/checkpoint history inside a fixed-height scroll area (roughly ten visible rows) and adds user-selectable automatic retention: Never, 7, 14, 30, 60, 90, 180, or 365 days. The safe upgrade default is **Never**.
+- Bundles the official **OpenAI tunnel-client v0.0.12 Windows x64** inside the lnwjud Windows packages. Packaging verifies the pinned release archive SHA-256 before inclusion; users only need to provide the Runtime API key and Tunnel ID. A manual executable path remains an advanced override/troubleshooting option.
+- Adds a single-file **`lnwjud-Portable-4.11.0.exe`** alongside the NSIS installer for Windows 10/11 x64. Portable mode needs no installation and intentionally reuses the same per-user lnwjud settings/data location as the installed build.
+- Improves Tunnel Settings spacing so status, warning, action, and evidence blocks are visually separated.
 - Removes the former 22-minute Budget Guard that appended a handoff/background instruction to tool results. MCP initialization now advertises an outcome-driven contract: ChatGPT keeps using lnwjud until the requested result is complete and never stops merely because elapsed time passed.
 - Adds a **Persistent OpenAI Tunnel Runtime** around the official `tunnel-client runtimes` lifecycle. lnwjud saves one tunnel identity, uses runtime alias `lnwjud`, and reconciles that same `tunnel_id` back to the current Desktop loopback MCP URL instead of creating replacement tunnels.
 - Lets a supported native tunnel runtime survive a short Desktop restart gap. On the next launch, Desktop MCP starts first and the reconciler rebinds the same remote tunnel identity even when the local ephemeral MCP port changes.
@@ -313,69 +318,49 @@ stops the current local HTTP listener.
 
 1. Download the latest published installer from
    [GitHub Releases](https://github.com/engasnm111/lnwjud/releases/latest).
-   The Windows installer for the current version is `lnwjud-Setup-4.11.0.exe`; download the published artifact from GitHub Releases.
+   Current Windows 10/11 x64 artifacts are `lnwjud-Setup-4.11.0.exe` (recommended installer) and `lnwjud-Portable-4.11.0.exe` (no installation required).
 2. Run the NSIS installer and launch **lnwjud Agent Control Center**.
 3. Add or select the project/workspace you want lnwjud to operate on.
 4. Review **Settings** before attaching an AI client, especially Permission
    Profile and Unrestricted Mode.
 
+If you prefer not to install the app, run `lnwjud-Portable-4.11.0.exe` directly.
+Portable mode uses the same per-user lnwjud data/settings location as the installer;
+it is a portable executable, not a keep-all-data-next-to-the-EXE mode.
+
 The graphical desktop app and the packaged **local STDIO** launcher are
-self-contained. The installer ships Electron for the dashboard and a private
+self-contained. Both Windows packages ship Electron for the dashboard and a private
 Node.js 24 runtime for `lnwjud-mcp-stdio.cmd`, so end users do **not** need a
 separate system Node.js installation. Secure Tunnel uses the running Desktop HTTP
-MCP plus the separately downloaded official `tunnel-client.exe`; it does not
+MCP plus the bundled official `tunnel-client.exe`; it does not
 spawn the packaged STDIO launcher.
 
 ### 2. Prepare OpenAI Secure MCP Tunnel for ChatGPT web
 
-OpenAI's Secure MCP Tunnel flow requires a Platform tunnel ID, a runtime API
-key, and the official `tunnel-client` binary. Creating or editing a tunnel
-requires **Tunnels Read + Manage**; running `tunnel-client` or selecting a
-tunnel while creating the ChatGPT app requires **Tunnels Read + Use**.
+OpenAI's Secure MCP Tunnel flow requires a Platform tunnel ID and a runtime
+API key. The published Windows x64 installer and portable executable already contain the official
+OpenAI `tunnel-client v0.0.12`, so release users do **not** download or
+extract a separate tunnel-client package. Creating or editing a tunnel requires
+**Tunnels Read + Manage**; the runtime key needs **Tunnels Read + Use**.
 
 1. Open [OpenAI Platform tunnel settings](https://platform.openai.com/settings/organization/tunnels).
 2. Create a tunnel named `lnwjud` and associate it with the Platform organization
    that owns it and the ChatGPT workspace that should use it.
 3. Create a restricted runtime API key with **Tunnels Read + Use**.
-4. Open the official [openai/tunnel-client releases](https://github.com/openai/tunnel-client/releases)
-   page and choose the latest **stable** release, not a `-dev` pre-release.
+4. Open **lnwjud → Settings → OpenAI Secure MCP Tunnel**. Save the runtime API
+   key, leave the **tunnel-client (bundled)** override field empty, paste the
+   tunnel ID, and click **Configure Tunnel**.
+5. The Setup Wizard selects the bundled client automatically, starts or reuses
+   lnwjud's **Desktop loopback HTTP MCP**, creates or repairs
+   `%APPDATA%/tunnel-client/lnwjud.yaml`, and runs the required tunnel diagnostics.
+   Secure Tunnel does not spawn a separate headless lnwjud MCP runtime, so the
+   Desktop-selected Active Projects and native exact-action approval remain
+   authoritative for remote ChatGPT calls.
 
-#### Which tunnel-client ZIP should Windows users download?
-
-For lnwjud, use the **full tunnel-client** archive. Do not choose a
-`tunnel-client-runtime-*` or `tunnel-client-runtime-cloudflared-*` archive:
-the runtime variants are intended for run-only deployments, while lnwjud's Setup
-Wizard uses onboarding/profile-management commands such as `init` and
-`doctor` in addition to `run`.
-
-| Windows machine | Download |
-| --- | --- |
-| Normal Windows 10/11 PC with Intel or AMD 64-bit CPU | `tunnel-client-v<version>-windows-amd64.zip` |
-| Windows on ARM / Snapdragon ARM64 PC | `tunnel-client-v<version>-windows-arm64.zip` |
-
-At the time this v4.11.0 README was updated, the latest stable tunnel-client is
-`v0.0.12`, so most Windows users should download:
-
-```text
-tunnel-client-v0.0.12-windows-amd64.zip
-```
-
-Use `tunnel-client-v0.0.12-windows-arm64.zip` only on Windows ARM64 devices.
-Do not download `Source code (zip)`, SPDX/license files, or the runtime-only
-archives for this lnwjud Setup Wizard flow. After extracting the ZIP, keep
-`tunnel-client.exe` in a stable folder, for example
-`C:\Tools\tunnel-client\tunnel-client.exe`.
-
-5. Open **lnwjud → Settings → OpenAI Secure MCP Tunnel**. Save the runtime API
-   key, browse to the extracted `tunnel-client.exe`, paste the tunnel ID, and
-   click **Configure Tunnel**. This is the recommended end-user path; no manual
-   PowerShell `init` is required.
-6. The Setup Wizard starts or reuses lnwjud's **Desktop loopback HTTP MCP**,
-   creates or repairs `%APPDATA%/tunnel-client/lnwjud.yaml` with
-   `sample_mcp_remote_no_auth`, and runs `tunnel-client doctor`. Secure
-   Tunnel no longer spawns a separate headless lnwjud MCP runtime, so the
-   Desktop-selected **Active Project** and native exact-action approval dialog
-   remain authoritative for remote ChatGPT calls.
+The tunnel-client path field is an **override/troubleshooting** control only.
+Clear it and choose **Use bundled** to return to the package-supplied client.
+Source builds may prepare the pinned client during `package:windows`; that build
+step is not an end-user installation step.
 
 If you intentionally need to initialize the profile by hand, keep lnwjud running
 and copy the **Local MCP endpoint** shown by lnwjud (it is loopback-only and ends
@@ -408,7 +393,9 @@ In **Settings → OpenAI Secure MCP Tunnel**:
 1. Save the runtime API key. lnwjud encrypts it locally with Windows DPAPI. The
    generated tunnel profile stores only the reference `env:CONTROL_PLANE_API_KEY`,
    never the literal runtime key.
-2. Browse to and save the path to `tunnel-client.exe`.
+2. Leave the tunnel-client override field empty to use the official
+   `tunnel-client v0.0.12` bundled with the Windows x64 installer. Browse/save a
+   custom executable only when intentionally overriding it for troubleshooting.
 3. Paste the OpenAI tunnel ID and click **Configure Tunnel**. The wizard replaces
    or repairs the lnwjud-owned profile so `mcp.server_urls` points to the Desktop
    loopback MCP endpoint and `control_plane.api_key` is the environment reference.
@@ -454,12 +441,14 @@ OpenAI Secure MCP Tunnel แบบง่ายที่สุด โดย **ไ
 Secure Tunnel จะส่งงานเข้าที่ Desktop loopback HTTP MCP ของ lnwjud โดยตรง
 ส่วน private Node runtime ที่มากับตัวติดตั้งยังคงใช้สำหรับ local stdio เช่น Codex CLI
 
-### 1. ติดตั้ง lnwjud
+### 1. ติดตั้ง lnwjud หรือใช้ Portable
 
-1. ดาวน์โหลด `lnwjud-Setup-4.11.0.exe` จากหน้า GitHub Releases ของ lnwjud
-2. เปิดตัวติดตั้งและติดตั้งตามปกติ
+1. แบบแนะนำ: ดาวน์โหลด `lnwjud-Setup-4.11.0.exe` แล้วติดตั้งตามปกติ
+2. ถ้าไม่ต้องการติดตั้ง: ดาวน์โหลด `lnwjud-Portable-4.11.0.exe` แล้วเปิดได้ทันที
 3. เปิด **lnwjud Agent Control Center**
 4. เพิ่มหรือเลือก Project/Workspace ที่ต้องการให้ ChatGPT ทำงานด้วย
+
+Portable ใช้ Settings/ข้อมูลต่อผู้ใช้ Windows ชุดเดียวกับตัวติดตั้ง ไม่ได้เก็บ database/settings ทุกอย่างไว้ข้าง EXE
 
 ### 2. สร้าง OpenAI Tunnel และ Runtime API key
 
@@ -468,51 +457,28 @@ Secure Tunnel จะส่งงานเข้าที่ Desktop loopback HTT
 3. สร้าง Runtime API key ที่มีสิทธิ์ **Tunnels Read + Use**
 4. เก็บ key ไว้เป็นความลับ ห้ามใส่ใน Git, README, issue หรือไฟล์ที่จะแชร์
 
-### 3. ดาวน์โหลด tunnel-client สำหรับ Windows ให้ถูกไฟล์
+### 3. tunnel-client มากับตัวติดตั้งแล้ว
 
-เข้า [openai/tunnel-client Releases](https://github.com/openai/tunnel-client/releases)
-และเลือก **stable release ล่าสุด** ไม่เลือกตัวที่ลงท้าย `-dev`
+ถ้าใช้ `lnwjud-Setup-4.11.0.exe` หรือ `lnwjud-Portable-4.11.0.exe` บน Windows x64 **ไม่ต้องดาวน์โหลด
+`tunnel-client.exe` เอง** ตัว release รวม official OpenAI
+`tunnel-client v0.0.12` มาให้และ lnwjud จะเลือกใช้ให้อัตโนมัติ
 
-สำหรับเครื่อง Windows ทั่วไปที่ใช้ Intel/AMD 64-bit ให้โหลดไฟล์รูปแบบ:
-
-```text
-tunnel-client-v<version>-windows-amd64.zip
-```
-
-ณ ตอนที่อัปเดต README นี้ stable ล่าสุดคือ `v0.0.12` ดังนั้นเครื่อง Windows
-ทั่วไปให้โหลด:
-
-```text
-tunnel-client-v0.0.12-windows-amd64.zip
-```
-
-ถ้าเป็น Windows on ARM / Snapdragon ARM64 ให้ใช้:
-
-```text
-tunnel-client-v0.0.12-windows-arm64.zip
-```
-
-**ไม่ต้องโหลด** `tunnel-client-runtime-*`,
-`tunnel-client-runtime-cloudflared-*`, `Source code (zip)`, ไฟล์ license,
-หรือ SPDX สำหรับการตั้งค่า lnwjud แบบปกติ เพราะ Setup Wizard ต้องใช้ full
-`tunnel-client` ที่มีคำสั่ง `init`, `doctor` และ `run` ครบ
-
-แตก ZIP แล้วเก็บ `tunnel-client.exe` ไว้ในตำแหน่งถาวร เช่น:
-
-```text
-C:\Tools\tunnel-client\tunnel-client.exe
-```
+ช่อง path ของ tunnel-client ใน Settings เป็น **override สำหรับ troubleshoot**
+เท่านั้น ปล่อยว่างไว้สำหรับการใช้งานปกติ หากเคย override แล้วต้องการกลับมาใช้
+ตัวที่มากับโปรแกรม ให้ล้างช่องแล้วกด **ใช้ตัวที่มากับโปรแกรม / Use bundled**
 
 ### 4. ตั้งค่า Tunnel ใน lnwjud
 
 เปิด **Settings → OpenAI Secure MCP Tunnel** แล้วทำตามลำดับนี้:
 
 1. ใส่ Runtime API key แล้วกด **Save key**
-2. กด **Browse...** แล้วเลือก `tunnel-client.exe` ที่เพิ่งแตก ZIP
+2. ปล่อยช่อง tunnel-client override ว่างไว้
+   โปรแกรมจะใช้ `tunnel-client v0.0.12` ที่มากับ installer อัตโนมัติ
 3. ใส่ OpenAI Tunnel ID
 4. กด **Configure Tunnel**
 5. รอให้ Configure/Doctor ผ่าน
-6. กด **Start Tunnel**
+6. กด **Start Tunnel** หรือ **Reconnect Tunnel เดิม** ตามสถานะที่แสดง
+   ใช้ **Browse...** เฉพาะกรณีต้องการ override executable เพื่อ troubleshooting
 
 ตรงนี้ **ไม่ต้องพิมพ์ path ของ `lnwjud-mcp-stdio.cmd` เอง** โปรแกรมจะ
 เปิด/ใช้ Local MCP ของ Desktop แล้วสร้างหรือซ่อม
@@ -696,20 +662,21 @@ Use the same `LNWJUD_DATA_PATH` for desktop UI and the packaged stdio launcher
 so ChatGPT tool activity appears in the Work Log. The launcher is the same
 direct MCP entrypoint used by the Codex/tunnel integration.
 
-### Build a Windows installer
+### Build Windows installer + portable executable
 
 ```powershell
 Set-Location .\lnwjud
 corepack pnpm@10.15.0 package:windows
 ```
 
-The x64 NSIS installer is written to:
+The Windows 10/11 x64 artifacts are written to:
 
 ```text
 apps/desktop/dist/installers/lnwjud-Setup-4.11.0.exe
+apps/desktop/dist/installers/lnwjud-Portable-4.11.0.exe
 ```
 
-The installer is per-user by default. A common installed executable path is:
+The installer is per-user by default. The portable executable needs no installation but uses the same per-user lnwjud data/settings location. A common installed executable path is:
 
 ```text
 C:/Users/<WindowsUser>/AppData/Local/Programs/lnwjud/lnwjud.exe
@@ -847,22 +814,19 @@ key in a local secret store or environment variable. Never put it in this
 repository, a YAML profile, a committed .env file, or a public issue/log. If a
 key is exposed, revoke it and create a replacement.
 
-### 3. Download tunnel-client
+### 3. tunnel-client for installed releases
 
-Use the Platform download link or the [official tunnel-client
-releases](https://github.com/openai/tunnel-client). Keep the executable at a
-stable path, for example:
+The Windows x64 installer already bundles official OpenAI
+`tunnel-client v0.0.12`, so normal installed-release setup requires no separate
+download or stable external executable path. The Settings path field is only a
+manual override/troubleshooting control.
 
-```text
-C:/Users/<WindowsUser>/Downloads/tunnel/tunnel-client.exe
-```
-
-Verify it:
+For manual CLI troubleshooting or source-development scenarios, define `$tc`
+explicitly for the client you intentionally want to test:
 
 ```powershell
-$tc = 'C:/Users/<WindowsUser>/Downloads/tunnel/tunnel-client.exe'
+$tc = 'C:/path/to/tunnel-client.exe'
 & $tc --version
-& $tc help quickstart
 ```
 
 ### 4. Create a Desktop HTTP profile
@@ -915,11 +879,13 @@ The `main` MCP channel must point to a loopback URL ending in `/mcp` (for
 example `http://127.0.0.1:<port>/mcp`). It must not point to a source checkout,
 a public/LAN MCP address, or `lnwjud-mcp-stdio.cmd` for the Secure Tunnel flow.
 
-## Start the tunnel automatically at Windows logon
+## Advanced: manual tunnel runner at Windows logon
 
-A scheduled task is more reliable than leaving a terminal open. This example
-stores the runtime key encrypted with the current Windows user's DPAPI; the key
-is not written in plain text to the profile or task command line.
+Normal installed-release users should use the Desktop persistent tunnel runtime
+and its reconnect controls; the bundled tunnel-client requires no separate
+scheduled task. The example below is only for an intentionally manual runner.
+It stores the runtime key encrypted with the current Windows user's DPAPI; the
+key is not written in plain text to the profile or task command line.
 
 ### Save the key once
 
@@ -938,7 +904,7 @@ Save as start-lnwjud-tunnel.ps1:
 
 ```powershell
 $ErrorActionPreference = 'Stop'
-$tc = 'C:/Users/<WindowsUser>/Downloads/tunnel/tunnel-client.exe'
+$tc = 'C:/path/to/tunnel-client.exe' # advanced manual override only
 $profile = 'lnwjud'
 $secretPath = Join-Path $env:APPDATA 'tunnel-client/lnwjud.runtime.secret'
 

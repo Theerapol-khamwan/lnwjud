@@ -3,6 +3,11 @@ $ErrorActionPreference = 'Stop'
 $repositoryRoot = Split-Path -Parent $PSScriptRoot
 $desktopDirectory = Join-Path $repositoryRoot 'apps\desktop'
 $installerDirectory = Join-Path $desktopDirectory 'dist\installers'
+$rootPackage = Get-Content -LiteralPath (Join-Path $repositoryRoot 'package.json') -Raw | ConvertFrom-Json
+$expectedArtifacts = @(
+    "lnwjud-Setup-$($rootPackage.version).exe",
+    "lnwjud-Portable-$($rootPackage.version).exe"
+)
 
 Push-Location $repositoryRoot
 try {
@@ -15,12 +20,15 @@ try {
         throw "Installer directory was not created: $installerDirectory"
     }
 
-    $installers = @(Get-ChildItem -LiteralPath $installerDirectory -Filter '*.exe' -File)
-    if ($installers.Count -eq 0) {
-        throw "No Windows installer was produced in $installerDirectory"
+    $produced = foreach ($artifactName in $expectedArtifacts) {
+        $artifactPath = Join-Path $installerDirectory $artifactName
+        if (-not (Test-Path -LiteralPath $artifactPath -PathType Leaf)) {
+            throw "Required Windows artifact was not produced: $artifactPath"
+        }
+        Get-Item -LiteralPath $artifactPath
     }
 
-    $installers | Select-Object -ExpandProperty FullName
+    $produced | Select-Object -ExpandProperty FullName
 }
 finally {
     Pop-Location

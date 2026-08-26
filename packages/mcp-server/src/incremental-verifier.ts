@@ -77,6 +77,7 @@ export class IncrementalVerifier {
       passed,
       process_id: process.processId,
       state: process.state,
+      command: { executable: process.executable, args: [...process.args], cwd: process.cwd },
       ...(process.exitCode === undefined ? {} : { exit_code: process.exitCode }),
       ...(process.error === undefined ? {} : { error: process.error }),
       logs: logs.value.entries,

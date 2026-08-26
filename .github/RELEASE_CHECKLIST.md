@@ -1,10 +1,10 @@
 # lnwjud Release Checklist
 
-**Current version:** `v4.11.0` - Windows installer `lnwjud-Setup-4.11.0.exe`; MCP registry **218 configurable tools / 212 advertised by default**.
+**Current version:** `v4.11.0` - Windows installer `lnwjud-Setup-4.11.0.exe` and portable executable `lnwjud-Portable-4.11.0.exe`; MCP registry **218 configurable tools / 212 advertised by default**.
 
 Run the release verification from PowerShell at the repository root. The automated gate must fail fast on any non-zero stage and `git diff --check` must pass before packaging or publishing.
 
-For GitHub releases, the `main` CI workflow is the single authoritative build: after the full verification gate succeeds it uploads the Windows installer, blockmap, and `latest.yml` as a SHA-scoped Actions artifact. A `v*` tag may publish only by reusing the successful CI artifact for that exact commit SHA; the Release workflow must not rerun the full verification/build/package pipeline.
+For GitHub releases, the `main` CI workflow is the single authoritative build: after the full verification gate succeeds it uploads the Windows installer, portable executable, blockmap, and `latest.yml` as a SHA-scoped Actions artifact. A `v*` tag may publish only by reusing the successful CI artifact for that exact commit SHA; the Release workflow must not rerun the full verification/build/package pipeline.
 
 ## Automated evidence
 
@@ -25,15 +25,16 @@ For GitHub releases, the `main` CI workflow is the single authoritative build: a
 - Arbitrary approved commands and project-owned scripts are opaque execution, not an operating-system sandbox, and are not automatically recoverable through Recovery Trash.
 - Recovery Center verification covers deleted items, binary pre-replacement backups, checkpoints, rollback IDs, and the displayed local Recovery Trash path.
 - Process ownership, PID identity, descendant shutdown, and bounded output limit tests pass.
+- Internal Windows child-process launch sites used by Desktop/process/capability flows keep console windows hidden; release review checks that no `windowsHide: false` regression is introduced.
 - The fake Codex integration flow runs only against a disposable fixture and leaves a reviewable Git diff.
-- Packaging tests verify the Windows installer configuration, portable shortcut behavior, and required runtime assets.
-- The packaged-app smoke is run against the produced Windows artifact before release.
+- Packaging tests verify the Windows installer and portable executable configuration, portable shortcut behavior, and required runtime assets.
+- The packaged-app smoke verifies both versioned Windows executables are produced before release.
 
 ## Manual clean-machine evidence
 
-On a clean Windows account or VM, install and launch the packaged application, confirm first-run data creation, exercise a disposable workspace and Doctor, close the application, then uninstall it. Record only pass/fail status, OS architecture, installer path, and relevant error codes.
+On a clean Windows account or VM, install and launch the packaged application, confirm first-run data creation, exercise a disposable workspace and Doctor, close the application, then uninstall it. Separately launch `lnwjud-Portable-<version>.exe` without installing it and confirm the dashboard, bundled runtime assets, workspace scope, and tunnel controls initialize normally. Record only pass/fail status, OS architecture, artifact path, and relevant error codes.
 
-For the v4.11 tunnel candidate, perform the final ChatGPT Web continuity check with the same configured tunnel and conversation: do not refresh the connector, do not create a replacement tunnel/chat, cause one real supported reconnect/restart event, and confirm the next tool call succeeds. This manual installer check is the release boundary for end-to-end ChatGPT Web continuity.
+For the v4.11 tunnel candidate, perform the final ChatGPT Web continuity check with the same configured tunnel and conversation: do not refresh the connector, do not create a replacement tunnel/chat, cause one real supported reconnect/restart event, and confirm the next tool call succeeds. This manual Windows artifact check is the release boundary for end-to-end ChatGPT Web continuity.
 
 Run one low-impact real Codex discovery/delegation check only in a disposable Git fixture. Do not automate provider quota consumption and do not read Codex credential files.
 

@@ -4,7 +4,7 @@ import { sanitizeException, type DiagnosticLogger, type FileActor } from '@lnwju
 import { CAPABILITY_ACTIVE_WORKSPACE_ROOT_METADATA_KEY } from '@lnwjud/capabilities';
 import { DefaultPermissionEngine, permissionProfiles, type PermissionProfile } from '@lnwjud/permissions';
 import { DEFAULT_DESTRUCTIVE_AUTO_APPROVAL_POLICY, prohibitedAgentCommandReason, prohibitedAgentGitInvocationReason, type DestructiveAutoApprovalPolicy } from '@lnwjud/shared';
-import { ActivityTracker, summarizeToolTarget, type ActivitySink, type TraceContext } from './activity-tracker.js';
+import { ActivityTracker, summarizeStructuredResultTarget, summarizeToolTarget, type ActivitySink, type TraceContext } from './activity-tracker.js';
 import { ContextEngine } from './context-engine.js';
 import { ContextEconomyRuntime } from './context-economy.js';
 import { hasExplicitUserConfirmation } from './destructive-policy.js';
@@ -72,6 +72,7 @@ export interface HostMutationApprovalRequest {
 const DEFAULT_MCP_TOOL_RESPONSE_BUDGET_MS: number | null = null;
 const MAX_APPROVAL_SUMMARY_LENGTH = 8_192;
 const MAX_REMEMBERED_SHELL_TASKS = 512;
+const MAX_REMEMBERED_ACTIVITY_HANDLES = 512;
 
 interface BudgetedToolExecution {
   readonly response: McpToolResponse;
@@ -101,6 +102,8 @@ export class ToolRegistry {
   private readonly activityWorkspaceResolver: (cwd: string) => Promise<string | undefined>;
   private readonly shellTaskWorkspaces = new Map<string, string>();
   private readonly shellTaskTargets = new Map<string, string>();
+  private readonly processTargets = new Map<string, string>();
+  private readonly codexTaskTargets = new Map<string, string>();
   private readonly maxToolDurationMs: number | null;
 
   public constructor(services: McpApplicationServices, actor: FileActor, options: ToolRegistryOptions = {}) {
@@ -159,7 +162,7 @@ export class ToolRegistry {
   public async invoke(name: string, input: unknown, traceContext?: TraceContext, parentSignal?: AbortSignal): Promise<McpToolResponse> {
     const activityWorkspaceId = await this.resolveActivityWorkspaceId(name, input);
     const workspaceActivityInput = withActivityWorkspaceId(input, activityWorkspaceId);
-    const activityInput = this.withRememberedShellTaskTarget(name, workspaceActivityInput);
+    const activityInput = this.withRememberedActivityTarget(name, workspaceActivityInput);
     const callId = await this.activity.begin(name, activityInput, { ...(traceContext ?? {}), ...(this.sessionId === undefined ? {} : { sessionId: this.sessionId }) });
     const started = Date.now();
     try {
@@ -277,9 +280,18 @@ export class ToolRegistry {
           return response;
         }
       }
+      const resolvedActivityInput = this.withRememberedActivityTarget(
+        name,
+        withActivityWorkspaceId(approvalExecutionInput, activityWorkspaceId),
+      );
+      const resolvedTargetSummary = summarizeToolTarget(name, resolvedActivityInput);
+      this.activity.updateTarget(callId, resolvedTargetSummary);
       const execution = await this.executeWithinResponseBudget(tool, approvalExecutionInput, parentSignal);
       const response = execution.response;
-      this.rememberShellTaskContext(name, response, activityWorkspaceId, summarizeToolTarget(name, activityInput));
+      const resultTargetSummary = summarizeStructuredResultTarget(response.structuredContent);
+      if (resultTargetSummary !== undefined) this.activity.updateTarget(callId, resultTargetSummary);
+      this.rememberActivityContext(name, response, activityWorkspaceId, resultTargetSummary ?? resolvedTargetSummary);
+
       const resultCode = response.isError === true ? readErrorCode(response) ?? 'ERROR' : 'SUCCESS';
       const resultMessage = readErrorMessage(response);
       if (execution.deferredSettlement !== undefined) {
@@ -329,18 +341,31 @@ export class ToolRegistry {
     return candidatePath === undefined ? undefined : this.activityWorkspaceResolver(candidatePath);
   }
 
-  private withRememberedShellTaskTarget(name: string, input: unknown): unknown {
-    if (name !== 'shell' || !isRecord(input)) return input;
-    const taskId = readTrimmedString(input.task_id);
-    if (taskId === undefined) return input;
-    const target = this.shellTaskTargets.get(taskId);
-    if (target === undefined) return input;
-    return { ...input, command: target };
+  private withRememberedActivityTarget(name: string, input: unknown): unknown {
+    if (!isRecord(input)) return input;
+    if (name === 'shell') {
+      const taskId = readTrimmedString(input.task_id);
+      const target = taskId === undefined ? undefined : this.shellTaskTargets.get(taskId);
+      if (target !== undefined) return { ...input, command: target };
+    }
+    const processId = readTrimmedString(input.processId);
+    const processTarget = processId === undefined ? undefined : this.processTargets.get(processId);
+    if (processTarget !== undefined) return { ...input, command: processTarget };
+    const codexTaskId = readTrimmedString(input.codexTaskId);
+    const codexTarget = codexTaskId === undefined ? undefined : this.codexTaskTargets.get(codexTaskId);
+    if (codexTarget !== undefined) return { ...input, command: codexTarget };
+    return input;
   }
 
-  private rememberShellTaskContext(name: string, response: McpToolResponse, workspaceId: string | undefined, targetSummary: string | undefined): void {
-    if (name !== 'shell' || response.isError === true) return;
-    const taskId = readTrimmedString(response.structuredContent?.task_id);
+  private rememberActivityContext(name: string, response: McpToolResponse, workspaceId: string | undefined, targetSummary: string | undefined): void {
+    if (response.isError === true) return;
+    const structured = response.structuredContent;
+    const processId = readTrimmedString(structured?.processId);
+    if (processId !== undefined && targetSummary !== undefined) rememberBounded(this.processTargets, processId, targetSummary, MAX_REMEMBERED_ACTIVITY_HANDLES);
+    const codexTaskId = readTrimmedString(structured?.codexTaskId);
+    if (codexTaskId !== undefined && targetSummary !== undefined) rememberBounded(this.codexTaskTargets, codexTaskId, targetSummary, MAX_REMEMBERED_ACTIVITY_HANDLES);
+    if (name !== 'shell') return;
+    const taskId = readTrimmedString(structured?.task_id);
     if (taskId === undefined) return;
     if (workspaceId !== undefined) this.shellTaskWorkspaces.set(taskId, workspaceId);
     if (targetSummary !== undefined) this.shellTaskTargets.set(taskId, targetSummary);
@@ -467,6 +492,16 @@ function normalizedActivityPath(value: string): string {
 
 function readTrimmedString(value: unknown): string | undefined { return typeof value === 'string' && value.trim().length > 0 ? value.trim() : undefined; }
 function isRecord(value: unknown): value is Record<string, unknown> { return typeof value === 'object' && value !== null && !Array.isArray(value); }
+function rememberBounded(map: Map<string, string>, key: string, value: string, max: number): void {
+  if (map.has(key)) map.delete(key);
+  map.set(key, value);
+  while (map.size > max) {
+    const oldest = map.keys().next().value;
+    if (typeof oldest !== 'string') break;
+    map.delete(oldest);
+  }
+}
+
 
 function firstAbsoluteActivityPath(input: Readonly<Record<string, unknown>>): string | undefined {
   for (const key of ['cwd', 'path', 'filePath', 'targetPath', 'sourcePath', 'destinationPath']) {

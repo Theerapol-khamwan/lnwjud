@@ -1,4 +1,4 @@
-﻿# Dependencies & Package Managers
+# Dependencies & Package Managers
 node_modules/
 .pnpm-store/
 
@@ -53,6 +53,7 @@ docs/
 !docs/
 docs/*
 !docs/CHATGPT_LONG_SESSION.md
+!docs/USAGE_TH.md
 !docs/mcp/
 docs/mcp/*
 !docs/mcp/MCP_TASKS.md
@@ -70,6 +71,7 @@ docs/roadmap/*
 !docs/development/
 docs/development/*
 !docs/development/OPENAI_TUNNEL_LOCAL_CONTINUITY.md
+!docs/development/PACKAGING_WINDOWS.md
 !docs/benchmarks/
 docs/benchmarks/*
 !docs/benchmarks/BASELINE.md

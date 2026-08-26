@@ -58,9 +58,10 @@ export function WorkLogPanel(props: WorkLogPanelProps): ReactElement {
     [props.entries, props.inFlight, props.filter, search, scope],
   );
   const visible = props.compact ? rows.slice(0, 40) : rows;
+  const resolvedTargets = useMemo(() => completedTargetByCallId(props.entries), [props.entries]);
 
   async function copyRow(row: WorkLogRow): Promise<void> {
-    if (!(await copyTextToClipboard(formatWorkLogCopyText(row)))) return;
+    if (!(await copyTextToClipboard(formatWorkLogCopyText(row, resolvedTargets)))) return;
     setCopiedId(row.id);
     window.setTimeout(() => setCopiedId((current) => current === row.id ? null : current), 1_200);
   }
@@ -129,7 +130,7 @@ export function WorkLogPanel(props: WorkLogPanelProps): ReactElement {
             <time>{formatTime(row.item.timestamp)}</time>
             <span className={`tag ${row.item.kind}-tag`}>{tagFor(row.item.kind)}</span>
             <strong>{row.item.toolName}</strong>
-            <span className="worklog-summary"><ScopeBadges item={row.item} showWorkspace={workspaceId === null} showSession={sessionId === null} workspaces={props.workspaces} />{renderEntryDetail(row.item)}</span>
+            <span className="worklog-summary"><ScopeBadges item={row.item} showWorkspace={workspaceId === null} showSession={sessionId === null} workspaces={props.workspaces} />{renderEntryDetail(row.item, resolvedTargets)}</span>
             {row.item.kind !== 'task' ? <em>{row.item.durationMs}ms</em> : <span className="worklog-duration" />}
             <CopyButton row={row} copiedId={copiedId} copyLabel={props.copyLabel} copiedLabel={props.copiedLabel} onCopy={copyRow} />
           </div>
@@ -266,36 +267,61 @@ function shortScopeId(value: string): string {
   return value.length <= 14 ? value : value.slice(0, 8) + '…' + value.slice(-4);
 }
 
-function renderEntryDetail(entry: WorkLogEntry): ReactElement | string {
+function renderEntryDetail(entry: WorkLogEntry, resolvedTargets: ReadonlyMap<string, string>): ReactElement | string {
+  const targetSummary = resolvedTargetSummary(entry, resolvedTargets);
   if (entry.kind === 'error') {
-    if (entry.targetSummary && entry.errorMessage) {
+    if (targetSummary && entry.errorMessage) {
       return (
         <>
-          <span>{entry.targetSummary}</span>
+          <span>{targetSummary}</span>
           <span className="worklog-error-detail"> — {entry.errorMessage}</span>
         </>
       );
     }
     if (entry.errorMessage) return <span className="worklog-error-detail">{entry.errorMessage}</span>;
-    return entry.targetSummary ?? entry.resultCode;
+    return targetSummary ?? legacyEntryDetail(entry);
   }
-  return entry.targetSummary ?? entry.resultCode;
+  return targetSummary ?? legacyEntryDetail(entry);
 }
 
-function entryDetailText(entry: WorkLogEntry): string {
+function entryDetailText(entry: WorkLogEntry, resolvedTargets: ReadonlyMap<string, string>): string {
+  const targetSummary = resolvedTargetSummary(entry, resolvedTargets);
   if (entry.kind === 'error') {
-    if (entry.targetSummary && entry.errorMessage) return `${entry.targetSummary} — ${entry.errorMessage}`;
-    return entry.errorMessage ?? entry.targetSummary ?? entry.resultCode;
+    if (targetSummary && entry.errorMessage) return `${targetSummary} — ${entry.errorMessage}`;
+    return entry.errorMessage ?? targetSummary ?? legacyEntryDetail(entry);
   }
-  return entry.targetSummary ?? entry.resultCode;
+  return targetSummary ?? legacyEntryDetail(entry);
 }
 
-export function formatWorkLogCopyText(row: WorkLogRow): string {
+export function formatWorkLogCopyText(row: WorkLogRow, resolvedTargets: ReadonlyMap<string, string> = new Map()): string {
   if (row.kind === 'inflight') {
     return `${row.item.startedAt} [TASK] ${row.item.toolName}${row.item.targetSummary === null ? '' : ` ${row.item.targetSummary}`}`;
   }
   const duration = row.item.kind === 'task' ? '' : ` ${row.item.durationMs}ms`;
-  return `${row.item.timestamp} ${tagFor(row.item.kind)} ${row.item.toolName} ${entryDetailText(row.item)}${duration}`.trim();
+  return `${row.item.timestamp} ${tagFor(row.item.kind)} ${row.item.toolName} ${entryDetailText(row.item, resolvedTargets)}${duration}`.trim();
+}
+
+function completedTargetByCallId(entries: readonly WorkLogEntry[]): ReadonlyMap<string, string> {
+  const targets = new Map<string, string>();
+  for (const entry of entries) {
+    if (entry.kind === 'task' || entry.callId === undefined || entry.targetSummary === null || entry.targetSummary.trim().length === 0) continue;
+    targets.set(entry.callId, entry.targetSummary);
+  }
+  return targets;
+}
+
+function resolvedTargetSummary(entry: WorkLogEntry, resolvedTargets: ReadonlyMap<string, string>): string | null {
+  if (entry.targetSummary !== null && entry.targetSummary.trim().length > 0) {
+    if (entry.kind !== 'task' || entry.callId === undefined) return entry.targetSummary;
+    return resolvedTargets.get(entry.callId) ?? entry.targetSummary;
+  }
+  if (entry.callId === undefined) return null;
+  return resolvedTargets.get(entry.callId) ?? null;
+}
+
+function legacyEntryDetail(entry: WorkLogEntry): string {
+  if (entry.kind === 'task' || entry.resultCode === 'SUCCESS') return 'details unavailable (legacy log)';
+  return `${entry.resultCode} · details unavailable (legacy log)`;
 }
 
 function tagFor(kind: WorkLogEntry['kind']): string {
