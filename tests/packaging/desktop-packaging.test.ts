@@ -94,6 +94,13 @@ describe('Windows desktop packaging', () => {
     expect(mainBundle).toMatch(/setPath\(["']userData["']/);
   });
 
+  it('targets Windows 10 OCR through the .NET 8 Windows TFM without the legacy SDK contracts package', async () => {
+    const ocrProject = await readFile(path.join(repositoryRoot, 'native', 'windows-ocr', 'lnwjud-windows-ocr.csproj'), 'utf8');
+    expect(ocrProject).toContain('<TargetFramework>net8.0-windows10.0.19041.0</TargetFramework>');
+    expect(ocrProject).not.toContain('Microsoft.Windows.SDK.Contracts');
+    expect(ocrProject).not.toContain('10.0.28000');
+  });
+
   it('pins and verifies the official Windows x64 ripgrep runtime used by packaged search', async () => {
     const prepareRipgrep = await readFile(path.join(desktopRoot, 'scripts', 'prepare-ripgrep.ps1'), 'utf8');
     expect(prepareRipgrep).toContain("$version = '15.2.0'");
