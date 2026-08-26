@@ -57,9 +57,15 @@ describe('Windows desktop packaging', () => {
     expect(config).toContain('windows-capability-bridge.ps1');
     expect(config).toContain('build/lnwjud-node.exe');
     expect(config).toContain('to: lnwjud-node.exe');
+    expect(config).toContain('build/runtime-tools');
+    expect(config).toContain('to: runtime-tools');
+    expect(desktopPackage.scripts?.['package:windows']).toContain('prepare-ripgrep.ps1');
     await access(path.join(desktopRoot, 'build', 'lnwjud-node.exe'));
     const stdioLauncher = await readFile(path.join(desktopRoot, 'build', 'lnwjud-mcp-stdio.cmd'), 'utf8');
     expect(stdioLauncher).toContain('lnwjud-node.exe');
+    expect(stdioLauncher).toContain('RIPGREP_DIR');
+    expect(stdioLauncher).toContain('runtime-tools\\ripgrep');
+    expect(stdioLauncher).toContain('set "PATH=%RIPGREP_DIR%;%PATH%"');
     expect(stdioLauncher).toContain('no system Node.js is required');
     expect(stdioLauncher).not.toContain(path.win32.join('%ProgramFiles%', 'nodejs'));
     expect(stdioLauncher).not.toContain(path.win32.join('%LOCALAPPDATA%', 'Programs', 'nodejs'));
@@ -77,6 +83,16 @@ describe('Windows desktop packaging', () => {
     expect(tunnelBundle).toContain('delete env.LNWJUD_DATA_PATH');
     expect(tunnelBundle).toContain('delete env.LNWJUD_UNRESTRICTED');
     expect(mainBundle).toMatch(/setPath\(["']userData["']/);
+  });
+
+  it('pins and verifies the official Windows x64 ripgrep runtime used by packaged search', async () => {
+    const prepareRipgrep = await readFile(path.join(desktopRoot, 'scripts', 'prepare-ripgrep.ps1'), 'utf8');
+    expect(prepareRipgrep).toContain("$version = '15.2.0'");
+    expect(prepareRipgrep).toContain('ripgrep-$version-x86_64-pc-windows-msvc.zip');
+    expect(prepareRipgrep).toContain("$expectedSha256 = '71b2fef860abe467217a538ff31de02f5258807c0129f771846f87bd029aafc5'");
+    expect(prepareRipgrep).toContain("'runtime-tools\\ripgrep'");
+    expect(prepareRipgrep).toContain("'BUNDLED_RIPGREP.txt'");
+    expect(prepareRipgrep).toContain("-Filter 'rg.exe'");
   });
 
   it('runs the stdio launcher with the bundled Node runtime even when PATH contains no system Node', async () => {

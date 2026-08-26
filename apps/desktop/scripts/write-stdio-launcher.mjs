@@ -17,6 +17,9 @@ setlocal
 set "BASE=%~dp0"
 set "SCRIPT=%BASE%lnwjud-mcp-stdio.cjs"
 set "NODE_EXE=%BASE%lnwjud-node.exe"
+set "RIPGREP_DIR=%BASE%runtime-tools\\ripgrep"
+if not exist "%RIPGREP_DIR%\\rg.exe" set "RIPGREP_DIR=%BASE%resources\\runtime-tools\\ripgrep"
+if exist "%RIPGREP_DIR%\\rg.exe" set "PATH=%RIPGREP_DIR%;%PATH%"
 if not exist "%SCRIPT%" set "SCRIPT=%BASE%resources\\lnwjud-mcp-stdio.cjs"
 if not exist "%NODE_EXE%" set "NODE_EXE=%BASE%resources\\lnwjud-node.exe"
 if not exist "%SCRIPT%" (

@@ -4,6 +4,10 @@ The lnwjud desktop package is built with Electron and packaged for **Windows 10/
 
 The packaged MCP stdio launcher is self-contained: `lnwjud-mcp-stdio.cmd` launches the generated MCP bundle with a private `lnwjud-node.exe` copied from the pinned Node.js 24 build runtime. Installed and portable users do not need a separate system Node.js installation for stdio MCP or OpenAI Secure MCP Tunnel.
 
+Core text/file search is also self-contained. Packaging downloads the pinned official Windows x64 ripgrep archive, verifies its SHA-256, preserves its license notices, and ships `resources/runtime-tools/ripgrep/rg.exe` in both Setup and Portable builds. Desktop and `lnwjud-mcp-stdio.cmd` prepend that private directory to the child runtime PATH, so users do not need to install ripgrep themselves.
+
+On the first launch of each lnwjud version, Desktop runs the core Doctor checks automatically before tunnel onboarding. Only core failures (supported Windows x64, database, bundled ripgrep, workspace initialization, and local MCP readiness) interrupt startup and keep navigation on Doctor. Git and optional capabilities such as Codex, WSL, Python, FFmpeg, and Windows OCR may report warnings or feature-specific unavailable states but do not block first-run.
+
 The current release target is x64 only. Windows 7/8/8.1 and 32-bit Windows are not supported release targets.
 
 Windows 10 and Windows 11 use different renderer compatibility defaults. `windows-compatibility.ts` recognizes NT build 10240+ as Windows 10 and build 22000+ as Windows 11. Windows 10 disables Electron hardware acceleration before `app.whenReady()` so older Intel/AMD/NVIDIA drivers use software rendering; Windows 11 keeps hardware acceleration enabled. This does not weaken `sandbox`, `contextIsolation`, or `webSecurity`.
@@ -40,7 +44,8 @@ The package script rebuilds the workspace, generates the current MCP stdio bundl
 - Installer and Portable intentionally continue to share the same per-user lnwjud settings/data location.
 - The Windows capability bridge is copied as an extra resource.
 - The generated `lnwjud-mcp-stdio.cjs`, `lnwjud-mcp-stdio.cmd`, and private `lnwjud-node.exe` are copied both into resources and beside the packaged application for tunnel/local stdio use.
-- The launcher never falls back to Program Files, LocalAppData, or Node from PATH; a missing bundled runtime fails closed.
+- Pinned ripgrep is shipped under `resources/runtime-tools/ripgrep`; both Desktop and the stdio launcher resolve this private `rg.exe` before any system PATH copy.
+- The launcher never falls back to Program Files, LocalAppData, or Node from PATH; a missing bundled Node runtime fails closed.
 - Generated stdio runtime files are ignored by Git and must be regenerated from source for each build/release.
 
 `signAndEditExecutable: true` does not by itself mean the release is Authenticode-signed with a publisher certificate. Production code-signing identity/certificate handling is a separate release/CI concern.

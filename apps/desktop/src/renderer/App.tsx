@@ -34,6 +34,7 @@ import {
   writeGuidedTunnelSetupState,
 } from './features/onboarding/guided-tunnel-setup-state.js';
 import { createTranslator } from './i18n/index.js';
+import { markStartupDoctorPassed, startupDoctorCorePassed, startupDoctorRequired } from './features/onboarding/startup-doctor-state.js';
 
 const MAX_CLIENT_LOG_LINES = 30_000;
 
@@ -56,13 +57,16 @@ export function App(): ReactElement {
   const [updateStatus, setUpdateStatus] = useState<UpdateStatus | null>(null);
   const [firstRunTunnelTipOpen, setFirstRunTunnelTipOpen] = useState(false);
   const [guidedTunnelSetupOpen, setGuidedTunnelSetupOpen] = useState(false);
+  const [startupDoctorReady, setStartupDoctorReady] = useState(false);
   const [requestedSettingsSection, setRequestedSettingsSection] = useState<{ readonly section: SettingsSection; readonly requestId: number } | undefined>(undefined);
   const incidentBusyRef = useRef(false);
   const logIds = useRef<Set<number>>(new Set());
   const guidedTunnelLaunchSignature = useRef<string | null>(null);
+  const startupDoctorVersion = useRef<string | null>(null);
   const settingsRequestId = useRef(0);
 
   const t = createTranslator(locale);
+  const appVersion = dashboard?.appVersion ?? null;
   const projectWorkspaces = workspaces.filter((workspace) => workspace.kind !== 'machine_root' && (workspace.archivedAt === undefined || workspace.archivedAt === null));
 
   const appendLogLine = useCallback((line: LogLine): void => {
@@ -196,7 +200,7 @@ export function App(): ReactElement {
   }, [refresh]);
 
   useEffect(() => {
-    if (dashboard === null) return;
+    if (dashboard === null || !startupDoctorReady) return;
     const tunnel = dashboard.tunnel;
     const signature = guidedTunnelPrerequisiteSignature(tunnel);
     if (guidedTunnelLaunchSignature.current === signature) return;
@@ -208,7 +212,34 @@ export function App(): ReactElement {
       return;
     }
     if (decision === 'resume_settings') openGuidedTunnelSettings(true);
-  }, [dashboard]);
+  }, [dashboard, startupDoctorReady]);
+
+  useEffect(() => {
+    if (appVersion === null || startupDoctorVersion.current === appVersion) return;
+    startupDoctorVersion.current = appVersion;
+    if (!startupDoctorRequired(window.localStorage, appVersion)) {
+      setStartupDoctorReady(true);
+      return;
+    }
+
+    setStartupDoctorReady(false);
+    void window.lnwjud.runDoctor().then((report) => {
+      setDoctor(report);
+      if (startupDoctorCorePassed(report)) {
+        try { markStartupDoctorPassed(window.localStorage, appVersion); } catch { /* Re-run next launch if storage is unavailable. */ }
+        setStartupDoctorReady(true);
+        return;
+      }
+      setFirstRunTunnelTipOpen(false);
+      setGuidedTunnelSetupOpen(false);
+      setScreen('doctor');
+    }).catch((cause: unknown) => {
+      setError(errorMessage(cause, createTranslator(locale)('error.doctorRun')));
+      setFirstRunTunnelTipOpen(false);
+      setGuidedTunnelSetupOpen(false);
+      setScreen('doctor');
+    });
+  }, [appVersion, locale]);
 
   function requestSettingsSection(section: SettingsSection): void {
     settingsRequestId.current += 1;
@@ -486,7 +517,15 @@ export function App(): ReactElement {
 
   async function runDoctor(): Promise<void> {
     try {
-      setDoctor(await window.lnwjud.runDoctor());
+      const report = await window.lnwjud.runDoctor();
+      setDoctor(report);
+      if (startupDoctorCorePassed(report) && appVersion !== null) {
+        try { markStartupDoctorPassed(window.localStorage, appVersion); } catch { /* Re-run next launch if storage is unavailable. */ }
+        startupDoctorVersion.current = appVersion;
+        setStartupDoctorReady(true);
+      } else {
+        setStartupDoctorReady(false);
+      }
     } catch (cause: unknown) {
       setError(errorMessage(cause, t('error.doctorRun')));
     }
@@ -505,6 +544,10 @@ export function App(): ReactElement {
       screen={screen}
       onNavigate={(nextScreen) => {
         setError(null);
+        if (!startupDoctorReady && doctor?.exitCode === 1 && nextScreen !== 'doctor') {
+          setScreen('doctor');
+          return;
+        }
         setScreen(nextScreen);
       }}
       onLocaleChange={(next) => { void changeLocale(next); }}

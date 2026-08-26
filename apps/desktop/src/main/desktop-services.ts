@@ -492,10 +492,10 @@ export function createDesktopRuntime(dataPath: string, options: DesktopRuntimeOp
   }
 
   const doctorService = new DoctorService({
-    os: async (): Promise<DoctorProbeResult> => ({ status: process.platform === 'win32' ? 'pass' : 'warn', message: `${process.platform} ${process.arch}` }),
+    os: async (): Promise<DoctorProbeResult> => ({ status: process.platform === 'win32' && process.arch === 'x64' ? 'pass' : 'fail', message: `${process.platform} ${process.arch}` }),
     database: async (): Promise<DoctorProbeResult> => ({ status: 'pass', message: 'SQLite database ready' }),
-    git: async (): Promise<DoctorProbeResult> => checkExecutable(executableResolver, 'git'),
-    ripgrep: async (): Promise<DoctorProbeResult> => checkExecutable(executableResolver, 'rg'),
+    git: async (): Promise<DoctorProbeResult> => checkExecutable(executableResolver, 'git', 'warn'),
+    ripgrep: async (): Promise<DoctorProbeResult> => checkExecutable(executableResolver, 'rg', 'fail'),
     workspaces: async (): Promise<DoctorProbeResult> => ({ status: 'pass', message: `${(await workspaceService.list()).length} workspace(s) registered` }),
     mcpPort: checkLocalPort,
     codex: async (): Promise<DoctorProbeResult> => checkCodex(codexDiscovery),
@@ -1287,9 +1287,9 @@ function toManagedBrowserStatus(value: unknown): ManagedBrowserStatus {
   return { ready: value.ready, port: value.port, launched: value.launched };
 }
 
-async function checkExecutable(resolver: PathExecutableResolver, executable: string): Promise<{ readonly status: 'pass' | 'warn'; readonly message: string }> {
+async function checkExecutable(resolver: PathExecutableResolver, executable: string, missingStatus: 'warn' | 'fail'): Promise<{ readonly status: 'pass' | 'warn' | 'fail'; readonly message: string }> {
   const result = await resolver.resolve(executable);
-  return result.ok ? { status: 'pass', message: `${executable} is available` } : { status: 'warn', message: `${executable} is not available` };
+  return result.ok ? { status: 'pass', message: `${executable} is available` } : { status: missingStatus, message: `${executable} is not available` };
 }
 
 function triStateLabel(value: boolean | null): string {

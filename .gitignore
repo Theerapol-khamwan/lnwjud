@@ -93,4 +93,5 @@ Thumbs.db
 lnwjud-incident.json
 .codegraph
 apps/desktop/build/tunnel-client/
+apps/desktop/build/runtime-tools/
 apps/desktop/build/vendor/
