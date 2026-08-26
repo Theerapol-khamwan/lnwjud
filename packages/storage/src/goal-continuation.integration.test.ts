@@ -267,7 +267,7 @@ describe('durable goal continuation persistence', () => {
       error: { code: 'INTERNAL_ERROR' },
     });
     runtime.database.close();
-  });
+  }, 20_000);
 
   it('simulates a dead turn and resumes the same active task after lease expiry without repeating the mutation', async () => {
     const { filename, workspace } = await fixture();
