@@ -265,8 +265,10 @@ export interface ExportLogsRequest extends LogScopeRequest {
   readonly source: LogSource;
   readonly filePath: string;
   readonly query?: string;
-  /** Exact rows visible in the renderer when Export was clicked. */
+  /** Exact line identities visible in the renderer when Export was clicked. */
   readonly lineIds?: readonly number[];
+  /** Exact locally formatted rows visible/copyable in the renderer when Export was clicked. */
+  readonly rows?: readonly string[];
 }
 
 export interface ExportWorkLogRequest {

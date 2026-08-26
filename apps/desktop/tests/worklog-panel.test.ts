@@ -2,7 +2,7 @@ import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
 import type { InFlightWorkItem, WorkLogEntry } from '@lnwjud/ipc-contracts';
-import { newestFirstWorkLogRows, WorkLogPanel } from '../src/renderer/features/worklog/WorkLogPanel.js';
+import { formatWorkLogCopyText, newestFirstWorkLogRows, WorkLogPanel } from '../src/renderer/features/worklog/WorkLogPanel.js';
 
 const mockInFlight: InFlightWorkItem[] = [
   {
@@ -149,6 +149,15 @@ describe('WorkLogPanel', () => {
 
     const rows = newestFirstWorkLogRows(entries, [], 'all', '', { workspaceId: 'lnwjud-project', sessionId: null }, workspaces);
     expect(rows.map((row) => row.id)).toEqual(['slash', 'backslash']);
+  });
+
+  it('formats copied/exported timestamps in the same local timezone used by the UI', () => {
+    const rows = newestFirstWorkLogRows(mockEntries, mockInFlight);
+    const row = rows[0]!;
+    const text = formatWorkLogCopyText(row);
+    const localDate = new Date(row.timestamp);
+    expect(text.startsWith(`${localDate.toLocaleDateString()} ${localDate.toLocaleTimeString()}`)).toBe(true);
+    expect(text).not.toContain(row.timestamp);
   });
 
   it('renders export when supplied so the Work Log page can export its visible rows', () => {

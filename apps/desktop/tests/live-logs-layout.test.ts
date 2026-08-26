@@ -42,7 +42,11 @@ describe('viewport-sized log and list layout', () => {
     const result = { id: 11, source: 'mcp' as const, timestamp: '2026-08-22T00:00:11.000Z', level: 'info' as const, workspaceId: 'ws-a', sessionId: 'session-a', text: '[RESULT] shell SUCCESS callId=abc — powershell -NoProfile -NonInteractive -Command Write-Output full-command' };
     expect(logDisplayParts(task)).toEqual({ kind: 'task', detail: 'shell STARTED callId=abc — powershell -NoProfile -NonInteractive -Command Write-Output full-command' });
     expect(logDisplayParts(result).kind).toBe('result');
-    expect(formatLogCopyText(result)).toContain(result.text);
+    const copied = formatLogCopyText(result);
+    expect(copied).toContain(result.text);
+    const localDate = new Date(result.timestamp);
+    expect(copied.startsWith(`${localDate.toLocaleDateString()} ${localDate.toLocaleTimeString()}`)).toBe(true);
+    expect(copied).not.toContain(result.timestamp);
     const markup = renderToStaticMarkup(createElement(LogStreamPanel, {
       source: 'mcp', title: 'MCP activity', lines: [task, result], tunnelLogPath: null, tunnelLogExists: false,
       filterPlaceholder: 'filter', pauseLabel: 'pause', followLabel: 'follow', clearLabel: 'clear', clearSessionLabel: 'clear session', clearWorkspaceLabel: 'clear workspace', exportLabel: 'export',

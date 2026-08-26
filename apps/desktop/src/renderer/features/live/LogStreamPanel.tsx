@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState, type ReactElement } from 'react';
 import { canonicalWorkspaceScopeId, workspaceScopeMatches, type LogLevel, type LogLine, type LogSource, type WorkspaceSummary } from '@lnwjud/ipc-contracts';
 import { copyTextToClipboard } from '../../clipboard.js';
 import type { MessageKey } from '../../i18n/messages.js';
+import { formatLogExportDateTime, formatLogUiTime } from '../../log-timestamp.js';
 
 export type LogTab = LogSource;
 export type LogEventKind = 'task' | 'result' | 'error';
@@ -28,7 +29,7 @@ interface LogStreamPanelProps {
   readonly copyLabel?: string;
   readonly copiedLabel?: string;
   readonly onClear: (scope: LogScopeSelection) => Promise<void>;
-  readonly onExport: (scope: LogScopeSelection, query: string, lineIds: readonly number[]) => Promise<void>;
+  readonly onExport: (scope: LogScopeSelection, query: string, lineIds: readonly number[], rows: readonly string[]) => Promise<void>;
   readonly workspaces?: readonly WorkspaceSummary[];
   readonly workspaceLabel?: string;
   readonly sessionLabel?: string;
@@ -77,7 +78,7 @@ export function LogStreamPanel(props: LogStreamPanelProps): ReactElement {
           <button type="button" disabled={sessionId === null} onClick={() => { if (sessionId !== null) void props.onClear({ workspaceId: null, sessionId }); }}>{props.clearSessionLabel}</button>
           <button type="button" disabled={workspaceId === null} onClick={() => { if (workspaceId !== null) void props.onClear({ workspaceId, sessionId: null }); }}>{props.clearWorkspaceLabel}</button>
           <button type="button" onClick={() => { void props.onClear({ workspaceId: null, sessionId: null }); }}>{props.clearLabel}</button>
-          <button type="button" onClick={() => { void props.onExport(scope, filter, visible.map((line) => line.id)); }}>{props.exportLabel}</button>
+          <button type="button" onClick={() => { void props.onExport(scope, filter, visible.map((line) => line.id), visible.map(formatLogCopyText)); }}>{props.exportLabel}</button>
         </div>
       </div>
       <div className="scope-filter-bar">
@@ -118,7 +119,7 @@ export function LogStreamPanel(props: LogStreamPanelProps): ReactElement {
           const display = logDisplayParts(line);
           return (
             <div key={line.id} className={`log-line ${line.source} ${line.level}${display.kind === null ? '' : ' has-kind'}`}>
-              <time>{formatTime(line.timestamp)}</time>
+              <time>{formatLogUiTime(line.timestamp)}</time>
               <span className="tag level-tag">[{line.level.toUpperCase()}]</span>
               {display.kind === null ? null : <span className={`event-tag ${display.kind}`}>[{display.kind.toUpperCase()}]</span>}
               <span className="log-message"><ScopeBadges line={line} showWorkspace={workspaceId === null} showSession={sessionId === null} workspaces={props.workspaces} />{display.detail}</span>
@@ -232,13 +233,7 @@ export function logDisplayParts(line: LogLine): { readonly kind: LogEventKind | 
 }
 
 export function formatLogCopyText(line: LogLine): string {
-  return `${line.timestamp} [${line.level.toUpperCase()}] ${line.text}`;
-}
-
-function formatTime(value: string): string {
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return value;
-  return date.toLocaleTimeString();
+  return `${formatLogExportDateTime(line.timestamp)} [${line.level.toUpperCase()}] ${line.text}`;
 }
 
 export type { MessageKey };

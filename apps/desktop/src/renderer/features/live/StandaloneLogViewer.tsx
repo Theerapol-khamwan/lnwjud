@@ -67,7 +67,7 @@ export function StandaloneLogViewer(): ReactElement {
     setLines([]);
   }
 
-  async function exportLogs(source: LogSource, scope: LogScopeSelection, query: string, lineIds: readonly number[]): Promise<void> {
+  async function exportLogs(source: LogSource, scope: LogScopeSelection, query: string, lineIds: readonly number[], rows: readonly string[]): Promise<void> {
     await window.lnwjud.exportLogs({
       source,
       filePath: '',
@@ -75,6 +75,7 @@ export function StandaloneLogViewer(): ReactElement {
       ...(scope.sessionId === null ? {} : { sessionId: scope.sessionId }),
       ...(query.trim().length === 0 ? {} : { query: query.trim() }),
       lineIds,
+      rows,
     }).catch(() => undefined);
   }
 
@@ -130,7 +131,7 @@ export function StandaloneLogViewer(): ReactElement {
           scopeAllLabel={t('scope.all')}
           workspaces={workspaces}
           onClear={(scope) => clear(tab, scope)}
-          onExport={(scope, query, lineIds) => exportLogs(tab, scope, query, lineIds)}
+          onExport={(scope, query, lineIds, rows) => exportLogs(tab, scope, query, lineIds, rows)}
         />
       </div>
     </div>

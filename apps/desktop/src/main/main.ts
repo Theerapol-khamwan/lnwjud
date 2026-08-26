@@ -613,6 +613,10 @@ function parseExportLogsRequest(payload: unknown): ExportLogsRequest {
   if (lineIds !== undefined && (!Array.isArray(lineIds) || lineIds.length > 5_000 || lineIds.some((id) => !Number.isSafeInteger(id) || Number(id) <= 0))) {
     throw new Error('Invalid IPC payload: lineIds');
   }
+  const rows = payload.rows;
+  if (rows !== undefined && (!Array.isArray(rows) || rows.length > 5_000 || rows.some((row) => typeof row !== 'string' || row.length > 16_384))) {
+    throw new Error('Invalid IPC payload: rows');
+  }
   return {
     source: payload.source,
     filePath: typeof payload.filePath === 'string' ? payload.filePath : '',
@@ -620,6 +624,7 @@ function parseExportLogsRequest(payload: unknown): ExportLogsRequest {
     ...(sessionId === undefined ? {} : { sessionId }),
     ...(typeof payload.query === 'string' && payload.query.trim().length > 0 ? { query: payload.query.trim().slice(0, 512) } : {}),
     ...(lineIds === undefined ? {} : { lineIds: lineIds as number[] }),
+    ...(rows === undefined ? {} : { rows: rows as string[] }),
   };
 }
 
@@ -657,23 +662,28 @@ async function exportLogsToFile(
   if (result.canceled || result.filePath === undefined || result.filePath.length === 0) {
     return { exported: false };
   }
-  const snapshot = await services.getLogSnapshot();
-  const query = request.query?.toLowerCase() ?? '';
-  const requestedLineIds = request.lineIds === undefined ? null : new Set(request.lineIds);
-  const content = snapshot.lines
-    .filter((line) => line.source === request.source)
-    .filter((line) => requestedLineIds === null || requestedLineIds.has(line.id))
-    .filter((line) => requestedLineIds !== null || request.workspaceId === undefined || line.workspaceId === request.workspaceId)
-    .filter((line) => requestedLineIds !== null || request.sessionId === undefined || line.sessionId === request.sessionId)
-    .filter((line) => requestedLineIds !== null || query.length === 0 || line.text.toLowerCase().includes(query))
-    .sort((left, right) => {
-      const leftTime = Date.parse(left.timestamp);
-      const rightTime = Date.parse(right.timestamp);
-      if (Number.isFinite(leftTime) && Number.isFinite(rightTime) && leftTime !== rightTime) return rightTime - leftTime;
-      return right.id - left.id;
-    })
-    .map((line) => `[${line.timestamp}] [${line.level.toUpperCase()}] ${line.text}`)
-    .join('\r\n');
+  let content: string;
+  if (request.rows !== undefined) {
+    content = request.rows.join('\r\n');
+  } else {
+    const snapshot = await services.getLogSnapshot();
+    const query = request.query?.toLowerCase() ?? '';
+    const requestedLineIds = request.lineIds === undefined ? null : new Set(request.lineIds);
+    content = snapshot.lines
+      .filter((line) => line.source === request.source)
+      .filter((line) => requestedLineIds === null || requestedLineIds.has(line.id))
+      .filter((line) => requestedLineIds !== null || request.workspaceId === undefined || line.workspaceId === request.workspaceId)
+      .filter((line) => requestedLineIds !== null || request.sessionId === undefined || line.sessionId === request.sessionId)
+      .filter((line) => requestedLineIds !== null || query.length === 0 || line.text.toLowerCase().includes(query))
+      .sort((left, right) => {
+        const leftTime = Date.parse(left.timestamp);
+        const rightTime = Date.parse(right.timestamp);
+        if (Number.isFinite(leftTime) && Number.isFinite(rightTime) && leftTime !== rightTime) return rightTime - leftTime;
+        return right.id - left.id;
+      })
+      .map((line) => `${formatExportLogTimestamp(line.timestamp)} [${line.level.toUpperCase()}] ${line.text}`)
+      .join('\r\n');
+  }
   await atomicWrite(result.filePath, content.length === 0 ? '' : `${content}\r\n`);
   return { exported: true };
 }
@@ -689,6 +699,12 @@ async function exportWorkLogToFile(window: BrowserWindow | null, request: Export
   const content = request.rows.join('\r\n');
   await atomicWrite(result.filePath, content.length === 0 ? '' : `${content}\r\n`);
   return { exported: true };
+}
+
+function formatExportLogTimestamp(value: string): string {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  return `${date.toLocaleDateString()} ${date.toLocaleTimeString()}`;
 }
 
 function broadcastToAllWindows(channel: string, payload: unknown): void {

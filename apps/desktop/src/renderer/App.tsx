@@ -134,7 +134,7 @@ export function App(): ReactElement {
     }
   }
 
-  async function exportLogSource(source: LogSource, scope: LogScopeSelection, query: string, lineIds: readonly number[]): Promise<void> {
+  async function exportLogSource(source: LogSource, scope: LogScopeSelection, query: string, lineIds: readonly number[], rows: readonly string[]): Promise<void> {
     try {
       await window.lnwjud.exportLogs({
         source,
@@ -143,6 +143,7 @@ export function App(): ReactElement {
         ...(scope.sessionId === null ? {} : { sessionId: scope.sessionId }),
         ...(query.trim().length === 0 ? {} : { query: query.trim() }),
         lineIds,
+        rows,
       });
     } catch (cause: unknown) {
       setError(errorMessage(cause, t('error.logExport')));

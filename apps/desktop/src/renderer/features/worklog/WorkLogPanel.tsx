@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState, type ReactElement } from 'react';
 import { canonicalWorkspaceScopeId, workspaceScopeMatches, type InFlightWorkItem, type WorkLogEntry, type WorkspaceSummary } from '@lnwjud/ipc-contracts';
 import { copyTextToClipboard } from '../../clipboard.js';
 import type { MessageKey } from '../../i18n/messages.js';
+import { formatLogExportDateTime, formatLogUiTime } from '../../log-timestamp.js';
 
 export type WorkLogFilter = 'all' | 'error';
 
@@ -121,7 +122,7 @@ export function WorkLogPanel(props: WorkLogPanelProps): ReactElement {
         {visible.length === 0 ? <p>{props.emptyLabel}</p> : null}
         {visible.map((row) => row.kind === 'inflight' ? (
           <div key={`inflight:${row.id}`} className="worklog-line inflight">
-            <time>{formatTime(row.item.startedAt)}</time>
+            <time>{formatLogUiTime(row.item.startedAt)}</time>
             <span className="tag task-tag">[TASK]</span>
             <strong>{row.item.toolName}</strong>
             <span className="worklog-summary"><ScopeBadges item={row.item} showWorkspace={workspaceId === null} showSession={sessionId === null} workspaces={props.workspaces} />{row.item.targetSummary ?? ''}</span>
@@ -130,7 +131,7 @@ export function WorkLogPanel(props: WorkLogPanelProps): ReactElement {
           </div>
         ) : (
           <div key={`entry:${row.item.id}`} className={`worklog-line ${row.item.kind}`}>
-            <time>{formatTime(row.item.timestamp)}</time>
+            <time>{formatLogUiTime(row.item.timestamp)}</time>
             <span className={`tag ${row.item.kind}-tag`}>{tagFor(row.item.kind)}</span>
             <strong>{row.item.toolName}</strong>
             <span className="worklog-summary"><ScopeBadges item={row.item} showWorkspace={workspaceId === null} showSession={sessionId === null} workspaces={props.workspaces} />{renderEntryDetail(row.item, resolvedTargets)}</span>
@@ -292,10 +293,10 @@ function entryDetailText(entry: WorkLogEntry, resolvedTargets: ReadonlyMap<strin
 
 export function formatWorkLogCopyText(row: WorkLogRow, resolvedTargets: ReadonlyMap<string, string> = new Map()): string {
   if (row.kind === 'inflight') {
-    return `${row.item.startedAt} [TASK] ${row.item.toolName}${row.item.targetSummary === null ? '' : ` ${row.item.targetSummary}`}`;
+    return `${formatLogExportDateTime(row.item.startedAt)} [TASK] ${row.item.toolName}${row.item.targetSummary === null ? '' : ` ${row.item.targetSummary}`}`;
   }
   const duration = row.item.kind === 'task' ? '' : ` ${row.item.durationMs}ms`;
-  return `${row.item.timestamp} ${tagFor(row.item.kind)} ${row.item.toolName} ${entryDetailText(row.item, resolvedTargets)}${duration}`.trim();
+  return `${formatLogExportDateTime(row.item.timestamp)} ${tagFor(row.item.kind)} ${row.item.toolName} ${entryDetailText(row.item, resolvedTargets)}${duration}`.trim();
 }
 
 function completedTargetByCallId(entries: readonly WorkLogEntry[]): ReadonlyMap<string, string> {
@@ -325,12 +326,6 @@ function tagFor(kind: WorkLogEntry['kind']): string {
   if (kind === 'task') return '[TASK]';
   if (kind === 'error') return '[ERROR]';
   return '[RESULT]';
-}
-
-function formatTime(value: string): string {
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return value;
-  return date.toLocaleTimeString();
 }
 
 export type { MessageKey };
