@@ -22,6 +22,11 @@ jobs:
       - name: Checkout Code
         uses: actions/checkout@v4
 
+      - name: Setup Node.js 24
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+
       - name: Verify release tag matches package version
         shell: pwsh
         run: |
@@ -62,7 +67,9 @@ jobs:
             "lnwjud-Setup-$($package.version).exe.blockmap",
             "lnwjud-Portable-$($package.version).exe",
             'latest.yml',
-            'portable.yml'
+            'portable.yml',
+            'SHA256SUMS.txt',
+            'PROVENANCE.json'
           )
           foreach ($fileName in $requiredFiles) {
             $filePath = Join-Path $installerDirectory $fileName
@@ -72,6 +79,30 @@ jobs:
           }
           Write-Host "Using verified CI artifact from run $($run.databaseId) for commit $sha"
 
+      - name: Verify source provenance and SHA-256 evidence
+        shell: pwsh
+        env:
+          LNWJUD_EXPECTED_COMMIT_SHA: ${{ github.sha }}
+          LNWJUD_REQUIRE_CLEAN_PROVENANCE: '1'
+        run: node apps/desktop/scripts/verify-release-evidence.mjs
+
+      - name: Require valid Windows Authenticode signatures
+        shell: pwsh
+        run: |
+          $package = Get-Content package.json -Raw | ConvertFrom-Json
+          $installerDirectory = Join-Path $PWD 'apps\desktop\dist\installers'
+          $signedArtifacts = @(
+            (Join-Path $installerDirectory "lnwjud-Setup-$($package.version).exe"),
+            (Join-Path $installerDirectory "lnwjud-Portable-$($package.version).exe")
+          )
+          foreach ($artifact in $signedArtifacts) {
+            $signature = Get-AuthenticodeSignature -LiteralPath $artifact
+            if ($signature.Status -ne 'Valid') {
+              throw "Public Windows release artifact is not validly Authenticode-signed: $artifact (status=$($signature.Status)). Configure WINDOWS_CSC_LINK/WINDOWS_CSC_KEY_PASSWORD in repository secrets and rebuild CI."
+            }
+            Write-Host "Authenticode valid: $artifact signer=$($signature.SignerCertificate.Subject)"
+          }
+
       - name: Create GitHub Release & Upload Windows Artifacts
         uses: softprops/action-gh-release@v2
         with:
@@ -80,6 +111,8 @@ jobs:
             apps/desktop/dist/installers/*.blockmap
             apps/desktop/dist/installers/latest.yml
             apps/desktop/dist/installers/portable.yml
+            apps/desktop/dist/installers/SHA256SUMS.txt
+            apps/desktop/dist/installers/PROVENANCE.json
           draft: false
           prerelease: false
           generate_release_notes: true

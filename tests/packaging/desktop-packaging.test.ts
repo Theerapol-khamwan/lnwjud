@@ -8,11 +8,11 @@ const desktopRoot = path.resolve(import.meta.dirname, '..', '..', 'apps', 'deskt
 const repositoryRoot = path.resolve(desktopRoot, '..', '..');
 
 describe('Windows desktop packaging', () => {
-  it('pins the product release to v4.11.0', async () => {
+  it('pins the product release to v4.12.0', async () => {
     const rootPackage = JSON.parse(await readFile(path.join(repositoryRoot, 'package.json'), 'utf8')) as { version?: unknown };
     const desktopPackage = JSON.parse(await readFile(path.join(desktopRoot, 'package.json'), 'utf8')) as { version?: unknown };
-    expect(rootPackage.version).toBe('4.11.0');
-    expect(desktopPackage.version).toBe('4.11.0');
+    expect(rootPackage.version).toBe('4.12.0');
+    expect(desktopPackage.version).toBe('4.12.0');
   });
 
   it('publishes complete desktop application metadata', async () => {
@@ -49,6 +49,8 @@ describe('Windows desktop packaging', () => {
     expect(config).not.toContain('signAndEditExecutable: false');
     expect(config).toContain('createStartMenuShortcut: false');
     expect(config).not.toMatch(/[A-Z]:\\Users\\[^\r\n]+/i);
+    const tunnelControllerSource = await readFile(path.join(desktopRoot, 'src', 'main', 'tunnel-controller.ts'), 'utf8');
+    expect(tunnelControllerSource).not.toContain("'Downloads', 'tunnel', 'tunnel-client.exe'");
     const installerScript = await readFile(path.join(desktopRoot, 'build', 'installer.nsh'), 'utf8');
     expect(installerScript).toContain('CreateShortCut "$SMPROGRAMS\\lnwjud.lnk" "$INSTDIR\\lnwjud.exe"');
     expect(installerScript).toContain('SetOutPath "$INSTDIR"');
@@ -57,9 +59,22 @@ describe('Windows desktop packaging', () => {
     expect(config).toContain('windows-capability-bridge.ps1');
     expect(config).toContain('build/lnwjud-node.exe');
     expect(config).toContain('to: lnwjud-node.exe');
+    expect(config).toContain('build/runtime-tools');
+    expect(config).toContain('to: runtime-tools');
+    expect(desktopPackage.scripts?.['package:windows']).toContain('prepare-ripgrep.ps1');
+    expect(desktopPackage.scripts?.['package:windows']).toContain('../../scripts/prepare-windows-ocr.ps1');
+    const prepareOcr = await readFile(path.join(repositoryRoot, 'scripts', 'prepare-windows-ocr.ps1'), 'utf8');
+    expect(prepareOcr).toContain('--list-sdks');
+    expect(prepareOcr).toContain('Core installer/portable packaging will continue without OCR.');
+    const registerOcr = await readFile(path.join(repositoryRoot, 'scripts', 'register-windows-ocr.ps1'), 'utf8');
+    expect(registerOcr).toContain("GetEnvironmentVariable('ProgramFiles(x86)')");
+    expect(registerOcr).not.toContain('C:\\Program Files (x86)\\Windows Kits');
     await access(path.join(desktopRoot, 'build', 'lnwjud-node.exe'));
     const stdioLauncher = await readFile(path.join(desktopRoot, 'build', 'lnwjud-mcp-stdio.cmd'), 'utf8');
     expect(stdioLauncher).toContain('lnwjud-node.exe');
+    expect(stdioLauncher).toContain('RIPGREP_DIR');
+    expect(stdioLauncher).toContain('runtime-tools\\ripgrep');
+    expect(stdioLauncher).toContain('set "PATH=%RIPGREP_DIR%;%PATH%"');
     expect(stdioLauncher).toContain('no system Node.js is required');
     expect(stdioLauncher).not.toContain(path.win32.join('%ProgramFiles%', 'nodejs'));
     expect(stdioLauncher).not.toContain(path.win32.join('%LOCALAPPDATA%', 'Programs', 'nodejs'));
@@ -77,6 +92,23 @@ describe('Windows desktop packaging', () => {
     expect(tunnelBundle).toContain('delete env.LNWJUD_DATA_PATH');
     expect(tunnelBundle).toContain('delete env.LNWJUD_UNRESTRICTED');
     expect(mainBundle).toMatch(/setPath\(["']userData["']/);
+  });
+
+  it('targets Windows 10 OCR through the .NET 8 Windows TFM without the legacy SDK contracts package', async () => {
+    const ocrProject = await readFile(path.join(repositoryRoot, 'native', 'windows-ocr', 'lnwjud-windows-ocr.csproj'), 'utf8');
+    expect(ocrProject).toContain('<TargetFramework>net8.0-windows10.0.19041.0</TargetFramework>');
+    expect(ocrProject).not.toContain('Microsoft.Windows.SDK.Contracts');
+    expect(ocrProject).not.toContain('10.0.28000');
+  });
+
+  it('pins and verifies the official Windows x64 ripgrep runtime used by packaged search', async () => {
+    const prepareRipgrep = await readFile(path.join(desktopRoot, 'scripts', 'prepare-ripgrep.ps1'), 'utf8');
+    expect(prepareRipgrep).toContain("$version = '15.2.0'");
+    expect(prepareRipgrep).toContain('ripgrep-$version-x86_64-pc-windows-msvc.zip');
+    expect(prepareRipgrep).toContain("$expectedSha256 = '71b2fef860abe467217a538ff31de02f5258807c0129f771846f87bd029aafc5'");
+    expect(prepareRipgrep).toContain("'runtime-tools\\ripgrep'");
+    expect(prepareRipgrep).toContain("'BUNDLED_RIPGREP.txt'");
+    expect(prepareRipgrep).toContain("-Filter 'rg.exe'");
   });
 
   it('runs the stdio launcher with the bundled Node runtime even when PATH contains no system Node', async () => {

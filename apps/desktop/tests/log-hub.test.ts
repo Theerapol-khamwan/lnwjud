@@ -324,6 +324,17 @@ describe('LogHub', () => {
     expect(processLine).toMatchObject({ source: 'process', workspaceId: 'workspace-a', sessionId: null });
   });
 
+  it('retains the newest 10,000 lines per source instead of dropping recent activity too early', () => {
+    const hub = new LogHub({ tunnelLogPath: 'Z:\\missing\\lnwjud-tunnel.log' });
+    for (let index = 0; index < 10_005; index += 1) {
+      hub.feed('mcp', 'info', `line-${index}`);
+    }
+    const lines = hub.snapshot().lines.filter((line) => line.source === 'mcp');
+    expect(lines).toHaveLength(10_000);
+    expect(lines[0]?.text).toBe('line-5');
+    expect(lines.at(-1)?.text).toBe('line-10004');
+  });
+
   it('notifies subscribers of new lines', () => {
     const onLine = vi.fn();
     const hub = new LogHub({ tunnelLogPath: 'Z:\\missing\\lnwjud-tunnel.log', onLine });

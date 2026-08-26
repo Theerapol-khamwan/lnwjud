@@ -41,192 +41,22 @@ over outbound HTTPS, forwards MCP work to lnwjud's Desktop loopback HTTP MCP,
 and returns the response without opening a public inbound port on the Windows
 machine.
 
-## Current version: v4.11.0
+## Current version: v4.12.0
 
-The v4.11.0 release target and runtime contract contain **223 configurable MCP tools**,
+The v4.12.0 release target and runtime contract contain **223 configurable MCP tools**,
 with **217 advertised by default** because
 the six `codex_*` delegation tools are opt-in. The earlier 184-tool snapshot remains
 only as the compatibility baseline used by the v4 architecture; new v4 gateway
 capabilities are additive.
 
-### What's new in v4.11.0
+### What's new in v4.12.0
 
-- Adds **multiple simultaneous Active Projects** for parallel ChatGPT chats/projects. One project remains **Primary** only as the fallback when a tool call omits `workspaceId`; explicit workspace-scoped calls stay isolated per project/session.
-- Updates **Recovery Center** to render the full recovery/checkpoint history inside a fixed-height scroll area (roughly ten visible rows) and adds user-selectable automatic retention: Never, 7, 14, 30, 60, 90, 180, or 365 days. The safe upgrade default is **Never**.
-- Bundles the official **OpenAI tunnel-client v0.0.12 Windows x64** inside the lnwjud Windows packages. Packaging verifies the pinned release archive SHA-256 before inclusion; users only need to provide the Runtime API key and Tunnel ID. A manual executable path remains an advanced override/troubleshooting option.
-- Adds a single-file **`lnwjud-Portable-4.11.0.exe`** alongside the NSIS installer for Windows 10/11 x64. Portable mode needs no installation and intentionally reuses the same per-user lnwjud settings/data location as the installed build.
-- Hardens **Windows 10/11 x64 compatibility**: Windows 10 uses a conservative software-rendering profile to avoid blank/partially unclickable Chromium surfaces on older GPU drivers, while Windows 11 keeps hardware acceleration. Internal Windows child processes remain hidden and use built-in Windows PowerShell where product plumbing needs PowerShell; durable shell workers are capped at 16 concurrent tasks and managed process handles at 24 to prevent runaway `conhost.exe`/CPU growth when many chats run work in parallel.
-- Adds **distribution-aware automatic updates**. Installed builds stay on `latest.yml` and update with `lnwjud-Setup-<version>.exe`; Portable builds use the separate `portable.yml` channel and update with `lnwjud-Portable-<version>.exe`. Portable replacement waits for the running process to exit, backs up the current EXE, replaces that exact Portable path, rolls back on failure, and restarts it. Auto-update never switches a user from Portable to Installer or vice versa.
-- Adds **Durable Goal Continuation** with `run_goal`, `get_goal`, `checkpoint_goal`, `finish_goal`, and `list_goals`. Goal state survives runtime/session interruptions in SQLite, uses append-only checkpoints plus revision compare-and-swap, stores only SHA-256 lease-token hashes, and persists active task IDs so a resumed turn can inspect existing work instead of repeating it.
-- Improves Tunnel Settings spacing so status, warning, action, and evidence blocks are visually separated.
-- Removes the former 22-minute Budget Guard that appended a handoff/background instruction to tool results. MCP initialization now advertises an outcome-driven contract: ChatGPT keeps using lnwjud until the requested result is complete and never stops merely because elapsed time passed.
-- Adds a **Persistent OpenAI Tunnel Runtime** around the official `tunnel-client runtimes` lifecycle. lnwjud saves one tunnel identity, uses runtime alias `lnwjud`, and reconciles that same `tunnel_id` back to the current Desktop loopback MCP URL instead of creating replacement tunnels.
-- Lets a supported native tunnel runtime survive a short Desktop restart gap. On the next launch, Desktop MCP starts first and the reconciler rebinds the same remote tunnel identity even when the local ephemeral MCP port changes.
-- Reconnects transient runtime/control-plane failures indefinitely with capped backoff instead of permanently giving up after a fixed rapid-exit count. Authentication and operator-action failures fail closed without a tight retry loop; repairing the runtime key resumes the same saved tunnel identity.
-- Adds persistent tunnel status and controls to Settings plus Doctor checks for identity, runtime process, health, readiness, control-plane polling, local MCP reachability/binding, tunnel-ID mismatch, and runtime-key availability. Tunnel IDs are masked and secrets are never included in status/log evidence.
-- Adds deterministic continuity acceptance for runtime death, Desktop restart/rebind, short and >5-minute transient outages, revoked-key recovery, tunnel-ID mismatch, durable task resilience, and the 2026-07-28 MCP protocol catalog. The v4.11 catalog is **217 tools by default** and is byte-stable across a Desktop MCP listener restart.
-- Keeps the release claim capability-gated: the installed official tunnel client supports managed runtimes plus health/readiness/poll gates, but does not expose a proven ready-before-retire overlap primitive. v4.11 therefore **does not claim strict zero downtime**; it truthfully provides persistent same-ID reconnect continuity without requiring a VPS, public domain, or Cloudflare relay.
-
-### What's new in v4.10.0
-
-- Replaces blanket mutation prompts with a typed, action-level policy. **Full Access runs ordinary read/write/edit/replace/execute, Git, shell/process, Codex, Office/UI and remote mutations without confirmation**; prompts are reserved for detected deletion/data-loss operations, destructive rewrites, and explicit Active Project escapes, while hard-blocked machine-level actions remain denied.
-- Binds local mutations to the host-selected Active Project. A request-supplied workspace ID cannot widen authority. Full Access keeps ordinary work non-interactive, while destructive `delete_file`, Git, shell, and WSL families may use saved auto-approval only for exact targets proven inside the Active Project; broad, critical, ambiguous, or escaped forms still ask or fail closed.
-- Makes file replacement reversible: existing text writes/patches/edits create checkpoints, Office/DOCX/PowerPoint binary replacements create byte-for-byte Recovery Trash backups, and restoring a replacement backup first preserves the current version as an Undo item.
-- Makes direct file operations recoverable without making Full Access noisy: Safe/Balanced retain conservative replacement rules, while Full can `write_file`, `apply_patch`, edit, copy, move, and replace ordinary targets without prompts. Existing content is checkpointed/backed up where supported, and deletion remains limited to one file or one empty directory.
-- Applies the same profile-aware mutation classifier across Git, shell/WSL, process/Codex, Office, scheduler, HTTP mutations, browser/UI actions, and Windows-native side effects, so Full does not receive duplicate backend prompts for ordinary work. Destructive actions are never automatically retried.
-- Adds a Recovery Center that shows the real local Recovery Trash path, deleted items, pre-replacement binary backups, checkpoints, and rollback IDs. Critical-path deletion remains guarded; ordinary Full-profile edits/replacements use recovery/checkpoint protections without an extra prompt.
-- Synchronizes the live catalog at **223 configurable tools / 217 advertised by default**, including Durable Goal Continuation and the recovery/checkpoint tools, and makes README catalog drift a generated release-check failure.
-
-### What's new in v4.9.1
-
-- Adds first-class project lifecycle management in the Desktop Projects page: active projects can be archived, archived projects can be restored, and project registrations can be removed with a two-step confirmation.
-- Treats archived workspaces as inactive trust-boundary entries: they remain in SQLite for management/history labels but are excluded from normal runtime/MCP workspace lookup until restored.
-- Makes project removal registration-only. Removing a project from lnwjud does **not** delete its directory, files, Git repository, audit history, or checkpoints; system/machine-root workspaces are protected from archive/remove actions.
-- Repairs selected-workspace state after archive/removal, stops the workspace index watcher, blocks lifecycle changes while tracked Desktop work is active, and restores an archived registration instead of creating a duplicate when the same path is added again.
-- Keeps Home/Git selectors limited to active workspaces while Projects, Work Log, and Live Logs retain the management/history context needed to understand archived workspaces.
-
-### What's new in v4.9.0
-
-- Adds real multi-workspace / multi-session operation on one lnwjud installation: Desktop workspace selection no longer restarts the MCP listener, HTTP/STDIO sessions have stable ownership boundaries, and process/Codex/shell/WSL/task handles are isolated by session and workspace.
-- Makes destructive authorization request-scoped instead of relying on the Desktop-selected project, while keeping destructive auto-approval disabled by default, preserving Protected Critical Files, and supporting recoverable delete/restore.
-- Makes shared activity and durable runtime state safe for concurrent owners with per-owner activity leases, session-namespaced state, atomic writes, inter-process locking, shared plugin/worktree ledgers, and fail-closed checkpoint persistence under I/O contention.
-- Propagates workspace/session metadata through audit, Work Log, Live Logs, and process feeds; adds workspace/session filters, badges, scoped clear controls, and filtered log export without splitting global settings.
-- Adds real two-session/two-workspace release acceptance and release-gate coverage, including parallel build/test/background/Git workflows, handle isolation, updater safety, packaging, and Windows installer verification.
-- Fixes Work Log attribution for shell calls from clients with an older/stale schema: a registered workspace is inferred from cwd for logging only, and the task workspace is retained for later wait/status/logs/result/cancel activity without weakening permission or path policy.
-
-### What's new in v4.8.5
-
-- Adds two user-configurable wait controls under **Settings → Tools & Timeouts**.
-  **MCP Poll / Tool Wait** is adjustable from 5–60 seconds with a 5-second
-  default, while **Foreground Shell Wait** is adjustable from 5–60 seconds
-  with a 60-second default. Both limits are validated by the desktop IPC
-  boundary and persisted in the local SQLite settings store.
-- v4.8.5 originally applied both wait settings to the Desktop HTTP runtime and
-  the then-shared direct STDIO / Secure Tunnel runtime. In v4.10.0 Secure Tunnel
-  moved to the Desktop HTTP MCP; standalone/headless STDIO keeps its own runtime
-  policy while shell and MCP polling continue to read the configured wait values.
-- Uses the same configurable MCP poll window for experimental `tasks/result` and
-  advertised task `pollInterval`, while preserving the durable background-task
-  contract: reaching the wait limit never kills the command running on the machine.
-- Strengthens agent guidance for long-running work: after one or two checks still
-  report `running`, preserve the task ID and return control instead of tight-polling
-  inside one ChatGPT turn. This reduces message-delivery timeouts without losing
-  the background build, test, install, or packaging task.
-
-### What's new in v4.8.4
-
-- Makes MCP command execution non-blocking by policy: `shell` and `wsl_exec`
-  `run` requests are normalized to durable background execution and return a
-  task handle immediately, while MCP `wait` polling is capped at 5 seconds.
-  Long builds, tests, installs, and packaging jobs therefore keep running on the
-  machine instead of holding one ChatGPT/MCP tool request open until it times out.
-- Keeps the core `ShellCapabilityBackend` independent from that transport policy.
-  Direct/internal foreground callers retain the 60-second synchronous wait ceiling;
-  regression coverage verifies a foreground command running beyond 5 seconds still
-  returns its terminal result normally.
-- Bounds experimental MCP Tasks `tasks/result` to a short ~5-second request window.
-  Non-terminal tasks direct clients back to `tasks/get` polling, while durable task
-  state, logs, cancellation, and later result retrieval continue across runtime runs.
-- Clarifies immediate-return `process_start` and `project_*` contracts, updates the
-  live catalog to 214 configurable tools (208 advertised by default because the six
-  `codex_*` delegation tools are opt-in), and synchronizes the README, architecture,
-  packaging, and release metadata for v4.8.4.
-- Documents the separately configurable STDIO permission profile and optional Strict
-  Roots while preserving the backward-compatible `full` profile default.
-
-### What's new in v4.8.3
-
-- Hardened the real desktop MCP E2E flow for hosted Windows runners by allowing
-  the managed project-test process up to 60 seconds to publish its terminal
-  status. The test already has a 180-second scenario budget; this change only
-  removes the overly strict 15-second inner poll and keeps the same terminal
-  state assertions.
-- Keeps the v4.8.2 canonical-path fix and targeted Vitest timeout budgets intact;
-  no runtime permission, process, or MCP behavior is relaxed by this patch.
-
-### What's new in v4.8.2
-
-- Hardened the v4.8 release line for clean Windows CI/release runners: document
-  workspace-boundary checks now compare canonical paths so Windows 8.3 aliases
-  do not produce false outside-workspace failures while junction/symlink escapes
-  remain rejected.
-- Increased the Vitest budget only for the three process/I/O-heavy smoke and
-  integration tests that legitimately exceed the 5-second default on hosted
-  Windows runners. Performance assertions remain separate and unchanged.
-- Version metadata, packaging assertions, installer naming, and the generated
-  213-tool runtime contract are synchronized to `4.8.2`.
-
-### What's new in v4.8.0
-
-- Durable background tasks (shell/wsl_exec `execution=background`) are exposed
-  through the experimental MCP Tasks utility (spec 2025-11-25): `tasks/get`,
-  `tasks/result`, `tasks/list`, and `tasks/cancel`, advertised as
-  `capabilities.tasks { list, cancel }`. Task creation stays with the `shell`
-  tool; task-augmented `tools/call` is intentionally not declared yet. See
-  `docs/mcp/MCP_TASKS.md` for the state mapping and known deviations.
-- Wave 3: the WinRT OCR helper gained build/sign/register scripts
-  (`scripts/build-windows-ocr.ps1`, `scripts/register-windows-ocr.ps1` with a
-  self-signed dev path), real cached host-side identity probing, packaging
-  assets, and installer shipping (`windows-ocr` extra resource).
-- Wave 5: `event_watch`/`crash_trace` serve bounded allowlisted `Get-WinEvent`
-  queries; `sandbox_exec` stages the artifact-only WSB plan, launches
-  `WindowsSandbox.exe`, and retrieves stdout/stderr/exit-code behind dry-run
-  and confirmation gating.
-- Wave 6: read-only SQLite `db_inspect`/`db_query` (workspace-confined,
-  single SELECT/PRAGMA), a minimal stdio LSP client behind
-  `lsp_diagnostics`/`lsp_rename` (`LNWJUD_LSP_<LANGUAGE>_COMMAND`), and a
-  persisted Git worktree ownership ledger with `git_worktree_remove`.
-  DAP stays contract-only by design.
-- Wave 7: PowerPoint `read`/`save_as` and read-only Outlook folder/message
-  headers joined the Office COM boundary; `pdf_extract_tables`/`inspect_pdf`
-  run through an optional local PDF provider; `docx_merge` and
-  `inspect_workbook` use Word/Excel COM; the phase-37 compare/preview
-  adapters now report truthful optional availability.
-- Wave 8: `self_heal_plan` proposes allowlisted reversible fixes from live
-  evidence and `self_heal_apply` executes them behind dry-run + explicit
-  confirmation with no automatic destructive retry. `agent_swarm_run`
-  remains planned (the only local subagent provider is Codex, which the
-  chat-quota-only policy keeps off-limits).
-### What's new in v4.7.1
-
-- Resilient long-session workflows for chat-quota runs: a run budget guard
-  appends near-limit warnings to tool results, `session_handoff` builds a
-  same-chat continuation prompt from the tracker, Git state, and durable task
-  IDs, and `verify_incremental` caches typecheck results keyed by the Git diff.
-- Codex delegation tools (`codex_*`) are disabled unless explicitly enabled,
-  keeping the separate Codex work quota untouched. The long-session guide is
-  `docs/CHATGPT_LONG_SESSION.md`.
-
-### What's new in v4.7.0
-
-- End-user configuration: the desktop Settings page gained a user config panel
-  with persisted preferences, plus tray, tunnel-controller, and update-check
-  scheduler refinements backed by new persistence tests.
-
-### What's new in v4.6.0
-
-- Durable background command tasks decouple long-running Windows work from a
-  single MCP tool-call lifetime. Background tasks can survive MCP/stdio runtime
-  replacement and are recovered by task ID for status, logs, result, or cancel.
-- Selectable standalone/headless STDIO permission profiles (`safe`, `balanced`,
-  `full`, or `custom`) plus opt-in **Strict Roots**. The compatibility default
-  remains `full` with existing machine roots until Strict Roots is enabled.
-  v4.10.0 routes Secure Tunnel through the Desktop HTTP MCP instead, so remote
-  tunnel calls use the Desktop permission profile, Active Project, and native approval.
-- Historical v4.6.0 introduced per-command-family **AI Destructive Actions** toggles. That model is superseded in v4.10.0: only the exact recoverable `delete_file` operation can be scoped auto-approved. Git, shell, and WSL destructive forms are never toggle-auto-approved; they are blocked by command policy or remain opaque mutations requiring current chat confirmation and independent host exact-action approval.
-- Checkpoint file payloads are encrypted at rest with AES-256-GCM. The local
-  encryption key is protected with Windows DPAPI, and legacy plaintext
-  checkpoint rows are upgraded to ciphertext as the encrypted repository starts.
-- SQLite-consistent automatic backup/restore with daily and weekly retention,
-  pre-migration/pre-update snapshots, cross-process backup coordination, and
-  restart-safe restore handling.
-- PowerShell hardening adds `-NonInteractive` to internal launches and verifies
-  the packaged Windows capability bridge SHA-256 before every execution.
-- Live Logs and Work Log now use newest-first bounded tables, filtering/search,
-  full-entry copy actions, clear-all handling, improved pop-out behavior, and
-  clearer MCP TASK/RESULT/ERROR presentation.
-- Desktop dependencies were refreshed within compatible release lines to
-  Electron 43.4.1 and Vite 7.3.6 without migrating to electron-vite.
+- Adds a bilingual **Guided Local Tunnel Setup** for first-time users. A pristine install shows a Tips dialog and can route directly to **Settings > Secure Tunnel** without requiring Terminal commands or manual config-file editing.
+- Adds a five-step Secure Tunnel guide for creating/pasting the Tunnel ID, securely saving the Runtime API key through the existing Windows DPAPI path, configuring the bundled `tunnel-client` profile, starting the tunnel, and opening ChatGPT Plugins for the final user-controlled connection step.
+- Adds strict allowlisted external setup links. Renderer code sends only one of three fixed targets; the main process resolves those targets to the official OpenAI Tunnel Settings, OpenAI API Keys, or ChatGPT Plugins HTTPS pages and rejects arbitrary URLs.
+- Adds resume/recovery behavior based on real tunnel status. Existing configured users are not interrupted, dismissed users can reopen the guide from Home or Settings, and in-progress setup resumes at the first step still required by the local key/profile/runtime state.
+- Keeps secrets local: onboarding storage contains only a finite UI state, Runtime API key drafts are cleared after a successful save or guide close, and status/summary UI uses only masked Tunnel IDs.
+- Adds focused unit/IPC/renderer coverage plus a real isolated Electron E2E smoke for first-run Tips, Secure Tunnel navigation, language switching, and the Set up later/reopen flow.
 
 Current v4 highlights include:
 
@@ -321,7 +151,7 @@ stops the current local HTTP listener.
 
 1. Download the latest published installer from
    [GitHub Releases](https://github.com/engasnm111/lnwjud/releases/latest).
-   Current Windows 10/11 x64 artifacts are `lnwjud-Setup-4.11.0.exe` (recommended installer) and `lnwjud-Portable-4.11.0.exe` (no installation required).
+   Current Windows 10/11 x64 artifacts are `lnwjud-Setup-4.12.0.exe` (recommended installer) and `lnwjud-Portable-4.12.0.exe` (no installation required).
 2. Run the NSIS installer and launch **lnwjud Agent Control Center**.
 3. Add or select the project/workspace you want lnwjud to operate on.
 4. Review **Settings** before attaching an AI client, especially Permission
@@ -682,8 +512,8 @@ corepack pnpm@10.15.0 package:windows
 The Windows 10/11 x64 artifacts are written to:
 
 ```text
-apps/desktop/dist/installers/lnwjud-Setup-4.11.0.exe
-apps/desktop/dist/installers/lnwjud-Portable-4.11.0.exe
+apps/desktop/dist/installers/lnwjud-Setup-4.12.0.exe
+apps/desktop/dist/installers/lnwjud-Portable-4.12.0.exe
 ```
 
 The installer is per-user by default. The portable executable needs no installation but uses the same per-user lnwjud data/settings location. A common installed executable path is:
@@ -770,7 +600,7 @@ Local Codex clients can use stdio directly; they do not need Secure MCP Tunnel.
 Point the entry at the stdio-capable installed executable:
 
 ```powershell
-codex mcp add lnwjud -- "$env:LOCALAPPDATA\Programs\lnwjud\lnwjud-mcp-stdio.cmd" --workspace E:\lnwjud
+codex mcp add lnwjud -- "$env:LOCALAPPDATA\Programs\lnwjud\lnwjud-mcp-stdio.cmd" --workspace D:\Projects\my-app
 codex mcp list
 ```
 
@@ -942,7 +772,7 @@ finally {
 Run once as the same Windows user who saved the DPAPI secret:
 
 ```powershell
-$runner = 'C:/Users/<WindowsUser>/Downloads/tunnel/start-lnwjud-tunnel.ps1'
+$runner = 'C:/path/to/start-lnwjud-tunnel.ps1'
 $userId = "$env:USERDOMAIN/$env:USERNAME"
 $argument = '-NoProfile -ExecutionPolicy Bypass -File "' + $runner + '"'
 $action = New-ScheduledTaskAction -Execute 'powershell.exe' -Argument $argument
@@ -1013,7 +843,7 @@ This index is generated from the current `ToolRegistry`, not copied from an olde
 
 | # | Tool | Permission | Runtime description |
 | ---: | --- | --- | --- |
-| 1 | `workspace_list` | DANGEROUS | List all registered workspaces/drive roots available to lnwjud. Call this first to discover workspace IDs. Entries include kind=machine_root\|project. |
+| 1 | `workspace_list` | READ | List all registered workspaces/drive roots available to lnwjud. Call this first to discover workspace IDs. Entries include kind=machine_root\|project. |
 | 2 | `workspace_register` | WRITE | Register an existing project directory under a machine-root drive. parentWorkspaceId must be a machine root from workspace_list. Idempotent for the same path. |
 | 3 | `workspace_info` | READ | Return the configured workspace summary. |
 | 4 | `workspace_tree` | READ | List a bounded workspace tree. Absolute path does not require workspaceId. |
@@ -1053,27 +883,27 @@ This index is generated from the current `ToolRegistry`, not copied from an olde
 | 38 | `codex_task_logs` | READ | Read bounded logs for an owned Codex task. |
 | 39 | `codex_stop` | EXECUTE | Stop an owned Codex task process after explicit chat confirmation. |
 | 40 | `shell` | EXECUTE | Non-blocking command runner for system operations and CLI tasks. Use shell for command execution, builds/tests, package managers, and system operations; do not use it as a text editor. For source/config/text changes, prefer edit_file for exact replacements, apply_patch for reviewed multi-file or whole-file replacements, and write_file for creation/replacement. Do not wrap Node, Python, or PowerShell inline scripts around fs.writeFile, writeFileSync, Set-Content, or equivalent when a guarded file tool can perform the edit. MCP run calls are ALWAYS forced to execution=background, even if a client requests foreground or auto, so the call returns a task_id immediately instead of waiting for command completion. Follow with status/logs/result; wait uses the user-configurable MCP poll window (5-60 seconds, default 5). After one or two checks still show running, do not keep polling in the same chat turn: preserve task_id and return control so the durable task can continue without risking a ChatGPT turn timeout. Full Access runs ordinary policy-allowed commands without confirmation. Destructive/data-loss command forms ask unless an exact scoped destructive family is enabled for auto-approval; broad, recursive, critical, outside-project, or unparseable destructive forms remain interactive. dry_run and task observation are non-mutating. Active Project is the default cwd/ownership context, but an explicitly absolute cwd outside it may be used when the active capability policy allows that location; executable paths are never required to live inside the Active Project. |
-| 41 | `dom_cdp` | DANGEROUS | Default for web-page DOM work inside managed Chrome: inspect content, query selectors, click, type, navigate, evaluate JavaScript, wait, manage tabs, and capture screenshots. Any action that can change local or remote state requires explicit chat confirmation and userConfirmed: true. Use steps to batch related DOM actions in one call. |
-| 42 | `accessibility` | DANGEROUS | Semantic native Windows UI tool. Inspect UI trees and named controls, then click, focus, read or set values, select controls and menus, or manage a native element. Prefer shell for direct system work and dom_cdp for web pages. |
-| 43 | `input_event` | DANGEROUS | Low-level keyboard and pointer fallback. Use only when DOM/CDP and Accessibility cannot operate the target. Supports text, keys, mouse movement, clicks, drag, scroll, held buttons, release_all, and batched sequences. |
+| 41 | `dom_cdp` | READ | Default for web-page DOM work inside managed Chrome: inspect content, query selectors, click, type, navigate, evaluate JavaScript, wait, manage tabs, and capture screenshots. Any action that can change local or remote state requires explicit chat confirmation and userConfirmed: true. Use steps to batch related DOM actions in one call. |
+| 42 | `accessibility` | READ | Semantic native Windows UI tool. Inspect UI trees and named controls, then click, focus, read or set values, select controls and menus, or manage a native element. Prefer shell for direct system work and dom_cdp for web pages. |
+| 43 | `input_event` | EXECUTE | Low-level keyboard and pointer fallback. Use only when DOM/CDP and Accessibility cannot operate the target. Supports text, keys, mouse movement, clicks, drag, scroll, held buttons, release_all, and batched sequences. |
 | 44 | `vision` | READ | Visual and OCR fallback for content unavailable through DOM or Accessibility. Capture a display, window, or region, or run local Vision OCR. It never clicks or types. |
 | 45 | `vision_annotated_capture` | READ | Capture a local Windows screen/region/window and return a short-lived Set-of-Marks observation with numbered bounds, a content hash, and an annotated PNG. This tool only observes; use ui_target_action for a separately gated action. |
-| 46 | `ui_target_action` | DANGEROUS | Act on one mark from a current vision_annotated_capture observation. The observation ID, optional hash, TTL, workspace owner, and current Accessibility element are checked before the action is sent. |
-| 47 | `window` | DANGEROUS | Direct native Windows window management. List, inspect, activate, move, resize, minimize, maximize, restore, or close windows without raw coordinates when a window operation is sufficient. |
+| 46 | `ui_target_action` | EXECUTE | Act on one mark from a current vision_annotated_capture observation. The observation ID, optional hash, TTL, workspace owner, and current Accessibility element are checked before the action is sent. |
+| 47 | `window` | EXECUTE | Direct native Windows window management. List, inspect, activate, move, resize, minimize, maximize, restore, or close windows without raw coordinates when a window operation is sufficient. |
 | 48 | `health` | READ | Diagnostics only. Check all lnwjud backends or one public tool after a failure, when asked for status, or while diagnosing permissions. Do not use as a preflight before normal work. |
 | 49 | `system_info` | READ | Read-only system information: OS, CPU, memory, disks, battery, uptime, and top processes by memory. Use for environment checks and diagnostics. |
 | 50 | `notification` | EXECUTE | Show a Windows notification (toast when BurntToast is installed, balloon otherwise). Use to tell the user when a long task finishes. |
 | 51 | `file_dialog` | EXECUTE | Open a native Windows file open/save dialog and return the chosen path(s). The dialog does not read or write files itself; use the guarded file tools afterwards. |
-| 52 | `clipboard` | DANGEROUS | Read or write the Windows clipboard (text, or PNG image as base64). Use get_text/get_image to read and set_text to write. |
-| 53 | `web_fetch` | DANGEROUS | Fetch an http/https URL (GET/POST/PUT/DELETE/HEAD) with bounded size and timeout. Every POST, PUT, or DELETE requires explicit chat confirmation and userConfirmed: true; dry_run remains safe. Returns status, headers, and text or base64 body. |
-| 54 | `audio` | DANGEROUS | Record the microphone to a WAV file or play a local audio file through MCI. Recording requires the host-selected Active Project workspaceId, explicit confirmation, and a Recovery Trash backup before an existing output is replaced. record is synchronous and limited to 600 seconds. Use stop to abort an ongoing record/play. |
-| 55 | `screen_record` | DANGEROUS | Record the screen to an MP4 using ffmpeg gdigrab (requires ffmpeg on PATH). Starting a recording requires the host-selected Active Project workspaceId, explicit confirmation, and a Recovery Trash backup before an existing output is replaced. start spawns a background capture, status checks it, stop finalizes the file. Recording stops automatically after 3600 seconds. |
-| 56 | `office` | DANGEROUS | Automate Excel, Word, PowerPoint, or Outlook through COM. Every write, replace, merge, or save_as action requires an Active Project workspaceId, explicit chat confirmation, userConfirmed: true, and a Recovery Trash backup before an existing target is replaced. Requires Microsoft Office installed. |
-| 57 | `scheduler` | DANGEROUS | Manage Windows scheduled tasks with schtasks.exe. list is read-only; create, run, and delete always require explicit chat confirmation and userConfirmed: true. |
+| 52 | `clipboard` | EXECUTE | Read or write the Windows clipboard (text, or PNG image as base64). Use get_text/get_image to read and set_text to write. |
+| 53 | `web_fetch` | READ | Fetch an http/https URL (GET/POST/PUT/DELETE/HEAD) with bounded size and timeout. Every POST, PUT, or DELETE requires explicit chat confirmation and userConfirmed: true; dry_run remains safe. Returns status, headers, and text or base64 body. |
+| 54 | `audio` | EXECUTE | Record the microphone to a WAV file or play a local audio file through MCI. Recording requires the host-selected Active Project workspaceId, explicit confirmation, and a Recovery Trash backup before an existing output is replaced. record is synchronous and limited to 600 seconds. Use stop to abort an ongoing record/play. |
+| 55 | `screen_record` | EXECUTE | Record the screen to an MP4 using ffmpeg gdigrab (requires ffmpeg on PATH). Starting a recording requires the host-selected Active Project workspaceId, explicit confirmation, and a Recovery Trash backup before an existing output is replaced. start spawns a background capture, status checks it, stop finalizes the file. Recording stops automatically after 3600 seconds. |
+| 56 | `office` | WRITE | Automate Excel, Word, PowerPoint, or Outlook through COM. Every write, replace, merge, or save_as action requires an Active Project workspaceId, explicit chat confirmation, userConfirmed: true, and a Recovery Trash backup before an existing target is replaced. Requires Microsoft Office installed. |
+| 57 | `scheduler` | EXECUTE | Manage Windows scheduled tasks with schtasks.exe. list is read-only; create, run, and delete always require explicit chat confirmation and userConfirmed: true. |
 | 58 | `wsl_exec` | EXECUTE | Non-blocking WSL2 developer runner. MCP run calls are ALWAYS forced to background and return a task_id immediately; foreground/auto requests are normalized by the server. Follow with status/logs/result; wait uses the user-configurable MCP poll window (5-60 seconds, default 5). After one or two checks still show running, do not keep polling in the same chat turn: preserve task_id and return control so the durable task can continue without risking a ChatGPT turn timeout. It executes one Linux executable with argv, an explicit distribution, and a Windows workspace cwd, and never accepts shell command strings. Full Access runs ordinary WSL commands without confirmation. Destructive/data-loss forms ask unless an exact scoped WSL destructive family is enabled for auto-approval; broad, recursive, outside-project, or unparseable forms remain interactive. Active Project remains the default cwd/ownership context, while an explicitly requested external cwd may be used when the capability policy allows it; the Linux executable itself is not restricted to the Active Project. |
 | 59 | `wsl_fs` | READ | Translate paths and inspect metadata between a registered Windows workspace and WSL without exposing raw \\wsl$ read/write access. |
-| 60 | `skills_list` | DANGEROUS | List local agent skills discovered from Cursor, Claude, Agents, workspace skill roots, and lnwjud settings. Filter with query or source. |
-| 61 | `skills_read` | DANGEROUS | Read a local skill SKILL.md (or a relative file inside the skill folder). Follow the skill instructions with lnwjud tools and mcp_call. |
+| 60 | `skills_list` | READ | List local agent skills discovered from Cursor, Claude, Agents, workspace skill roots, and lnwjud settings. Filter with query or source. |
+| 61 | `skills_read` | READ | Read a local skill SKILL.md (or a relative file inside the skill folder). Follow the skill instructions with lnwjud tools and mcp_call. |
 | 62 | `mcp_list` | READ | List local MCP servers discovered from Cursor, Claude Desktop, and lnwjud settings. This inspection is read-only and does not flatten child tools into the lnwjud catalog. |
 | 63 | `mcp_describe` | READ | Connect to one local MCP server (if needed) and return its tool names, descriptions, and input schemas. This operation only inspects the child tool catalog. |
 | 64 | `mcp_call` | DANGEROUS | Call a tool on a discovered local MCP server. Child side effects and filesystem/network scope are controlled by that child server, so every mcp_call is treated as opaque mutation and requires explicit chat plus host exact-action approval. |
@@ -1140,7 +970,7 @@ This index is generated from the current `ToolRegistry`, not copied from an olde
 | 125 | `hook_remove` | WRITE | Remove a lifecycle hook descriptor. |
 | 126 | `skill_match` | READ | Match relevant local skills without loading all skill text. |
 | 127 | `skill_load` | READ | Load a selected local skill by identifier. |
-| 128 | `plugin_install` | DANGEROUS | Install a declared plugin after permission evaluation. |
+| 128 | `plugin_install` | WRITE | Register a declared plugin descriptor after validation and permission evaluation. |
 | 129 | `plugin_list` | READ | List installed and enabled plugins. |
 | 130 | `plugin_enable` | WRITE | Enable an installed plugin. |
 | 131 | `plugin_disable` | WRITE | Disable an installed plugin. |
@@ -1223,11 +1053,11 @@ This index is generated from the current `ToolRegistry`, not copied from an olde
 | 208 | `lsp_rename` | WRITE | Create a cross-file LSP rename edit plan before any workspace write. |
 | 209 | `debug_attach` | EXECUTE | Attach a DAP client only to an owned workspace debug adapter. |
 | 210 | `debug_step` | EXECUTE | Perform a bounded DAP stepping/read operation in an owned debug session. |
-| 211 | `git_worktree_spawn` | DANGEROUS | Create an owned Git worktree for isolated agent work with collision metadata. |
+| 211 | `git_worktree_spawn` | WRITE | Create a confined, ledger-owned Git worktree for isolated agent work with collision metadata. |
 | 212 | `git_worktree_remove` | DANGEROUS | Remove a ledger-owned Git worktree after dry-run and explicit confirmation. |
 | 213 | `db_inspect` | READ | Inspect a local database schema through a configured, read-only connection. |
-| 214 | `db_query` | DANGEROUS | Run a bounded local database query under explicit connection and mutation policy. |
-| 215 | `office_ppt` | DANGEROUS | Automate PowerPoint through the existing Office policy boundary. |
+| 214 | `db_query` | READ | Run a bounded read-only local SQLite SELECT, PRAGMA, or WITH...SELECT query. |
+| 215 | `office_ppt` | WRITE | Read PowerPoint content or save a copy through the existing Office policy boundary. |
 | 216 | `office_outlook` | READ | Read Outlook folder and message headers through the existing Office policy boundary. |
 | 217 | `pdf_extract_tables` | READ | Extract bounded PDF text and tables through a local document provider. |
 | 218 | `docx_merge` | WRITE | Create a deterministic DOCX merge plan and write only after approval. |
@@ -1235,7 +1065,7 @@ This index is generated from the current `ToolRegistry`, not copied from an olde
 | 220 | `self_heal_apply` | DANGEROUS | Apply an approved reversible recovery plan without automatic destructive retries. |
 | 221 | `skills_import` | WRITE | Import a compatible skill descriptor after validation and permission review. |
 | 222 | `agent_swarm_run` | EXECUTE | Plan bounded parallel subagents with ownership, collision, approval, and cancellation metadata. |
-| 223 | `tool_batch` | DANGEROUS | Execute multiple MCP tools with parallel, dependency-aware, timeout, cancellation, and partial-result handling. |
+| 223 | `tool_batch` | EXECUTE | Execute multiple MCP tools with parallel, dependency-aware, timeout, cancellation, and partial-result handling. |
 <!-- END GENERATED README TOOL REGISTRY -->
 
 ## Detailed capability guide
@@ -1253,14 +1083,16 @@ This index is generated from the current `ToolRegistry`, not copied from an olde
 The current default is **Unrestricted mode**, which registers every available
 fixed drive (C:, D:, E:, …) as a machine root for read/discovery compatibility.
 If Unrestricted mode is explicitly disabled, the restricted machine-root contract
-keeps **E:** (`E:\`) as the sole machine root and prunes other drive-root
-registrations. Project folders may be registered below the active machine roots
-through MCP or the desktop UI. This visibility setting does not widen mutation
-authority beyond the host-selected Active Project.
+selects the active/preferred Windows drive dynamically (falling back through the
+normal system, home, and current-working-directory drive discovery) and prunes
+other drive-root registrations. No fixed drive letter is required. Project folders
+may be registered below the active machine roots through MCP or the desktop UI.
+This visibility setting does not widen mutation authority beyond the host-selected
+Active Project.
 
 | Tool | Permission | Input | What it does |
 | --- | --- | --- | --- |
-| workspace_list | DANGEROUS | Empty object | Lists registered machine roots and project workspaces (`kind`: `machine_root` or `project`) |
+| workspace_list | EXECUTE | Empty object | Lists registered machine roots and project workspaces (`kind`: `machine_root` or `project`). Read-only discovery; Safe asks, Balanced/Full allow. |
 | workspace_register | WRITE | parentWorkspaceId, path, optional displayName | Registers an existing project directory below a machine root (idempotent; any drive root in unrestricted mode) |
 
 The extension still validates the parent ID, canonical path, and reparse points.
@@ -1385,21 +1217,21 @@ narrows its mode but does not make its changes automatically recoverable.
 | Tool | Permission | Actions |
 | --- | --- | --- |
 | shell | EXECUTE | Non-blocking MCP command execution; `run` is forced to background, returns `task_id` immediately, and follow-up status/logs/result calls inspect progress without holding the connection open |
-| dom_cdp | DANGEROUS | Managed Chrome launch/status/tabs/navigation/JavaScript/DOM query/click/type/wait/screenshot |
-| accessibility | DANGEROUS | Windows UI Automation for app/window discovery, element inspection, focus, values, clicks, selections, and menus |
-| input_event | DANGEROUS | Text, paste, keys/hotkeys, pointer movement, clicks, drag, scroll, button state, release-all, and sequences |
+| dom_cdp | READ | Read-only DOM inspection is READ; navigation/type/evaluate and other mutating actions are escalated to DANGEROUS per invocation |
+| accessibility | READ | Inspection/read actions are READ; clicks, value changes, selections, menus, and window mutations are escalated per invocation |
+| input_event | EXECUTE | Low-level keyboard/pointer execution; dry-run is READ and real input is treated as opaque/DANGEROUS per invocation |
 | vision | READ | Local display/region/window PNG capture and optional OCR; never clicks or types |
-| window | DANGEROUS | Native window list/inspect/activate/close/minimize/maximize/restore/move/resize/frame operations |
+| window | EXECUTE | List/inspection is READ, ordinary window-state changes are WRITE, and close/unknown actions are escalated to DANGEROUS |
 | health | READ | Per-backend diagnostics with no input/browser/window side effects |
 | system_info | READ | OS/CPU/memory/disks/battery/uptime and top processes (read-only) |
 | notification | EXECUTE | Windows toast (BurntToast) or balloon notification |
 | file_dialog | EXECUTE | Native open/save dialogs returning chosen paths; does not read or write files itself |
-| clipboard | DANGEROUS | Clipboard text read/write and PNG image read as base64 |
-| web_fetch | DANGEROUS | Bounded http/https GET/POST/PUT/DELETE/HEAD with text or base64 responses; POST/PUT/DELETE require approval |
-| audio | DANGEROUS | Microphone WAV recording (up to 600s), local audio playback, stop; replacement outputs are recovery-backed |
-| screen_record | DANGEROUS | ffmpeg gdigrab screen recording with start/stop/status (requires ffmpeg on PATH); replacement outputs are recovery-backed |
-| office | DANGEROUS | Excel/Word/PowerPoint/Outlook COM; mutating replacement targets are prepared through FileService recovery |
-| scheduler | DANGEROUS | Windows scheduled task list/create/run/delete; mutation requires exact approval and uncertain failures are not automatically retried |
+| clipboard | EXECUTE | Clipboard reads are READ; set_text replaces clipboard state and is escalated to DANGEROUS per invocation |
+| web_fetch | READ | GET/HEAD are READ; POST is opaque, PUT/PATCH replace remote state, and DELETE is DANGEROUS per invocation |
+| audio | DANGEROUS | Microphone WAV recording (up to 600s), local audio playback, stop; privacy/capture surface remains high-risk and replacement outputs are recovery-backed |
+| screen_record | DANGEROUS | Screen capture remains high-risk; status/dry-run are downgraded to READ at invocation and replacement outputs are recovery-backed |
+| office | WRITE | Read/list actions are READ; mutating replacement actions are WRITE with confirmation and FileService recovery |
+| scheduler | EXECUTE | List is READ; create/run are opaque and delete is DANGEROUS per invocation |
 
 Use dom_cdp for web pages, accessibility for semantic native controls, and
 input_event only as a low-level fallback. Command-bearing actions remain argv-
@@ -1414,8 +1246,8 @@ all discovered servers except lnwjud itself (recursion guard).
 
 | Tool | Permission | What it does |
 | --- | --- | --- |
-| skills_list | DANGEROUS | Lists discovered skills from Cursor/Claude/Agents/workspace roots |
-| skills_read | DANGEROUS | Reads a skill `SKILL.md` or a relative file inside that skill folder |
+| skills_list | READ | Lists discovered skills from Cursor/Claude/Agents/workspace roots |
+| skills_read | READ | Reads a skill `SKILL.md` or a relative file inside that skill folder |
 | mcp_list | READ | Lists discovered local MCP servers and enabled/connected state |
 | mcp_describe | READ | Connects if needed and returns child tool names/schemas |
 | mcp_call | DANGEROUS | Forwards one opaque tool call to a child MCP server after explicit chat and host exact-action approval |
@@ -1545,7 +1377,7 @@ The repository ships `scripts/start-lnwjud-tunnel.ps1`. Copy it anywhere and
 run it instead of a manual `tunnel-client run`:
 
 ```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File "C:\Users\<WindowsUser>\Downloads\tunnel\start-lnwjud-tunnel.ps1"
+powershell -NoProfile -ExecutionPolicy Bypass -File "C:\path\to\start-lnwjud-tunnel.ps1"
 ```
 
 The script sets `--mcp.connection-max-ttl 168h0m0s` (prevents the 10-minute
@@ -1595,7 +1427,7 @@ current client rather than copying a fixed port:
 
 ```powershell
 $profile = Join-Path $env:APPDATA 'tunnel-client'
-$tc = if ($env:LNWJUD_TUNNEL_CLIENT_PATH) { $env:LNWJUD_TUNNEL_CLIENT_PATH } else { Join-Path $env:USERPROFILE 'Downloads\tunnel\tunnel-client.exe' }
+$tc = if ($env:LNWJUD_TUNNEL_CLIENT_PATH) { $env:LNWJUD_TUNNEL_CLIENT_PATH } else { Join-Path $env:LOCALAPPDATA 'Programs\lnwjud\resources\tunnel-client\tunnel-client.exe' }
 if (-not (Test-Path -LiteralPath $tc -PathType Leaf)) { throw "Missing tunnel-client executable: $tc" }
 if (-not (Test-Path -LiteralPath (Join-Path $profile 'lnwjud.yaml') -PathType Leaf)) { throw "Missing configured profile: $(Join-Path $profile 'lnwjud.yaml')" }
 Get-Content (Join-Path $profile 'lnwjud.tunnel.lock') -ErrorAction SilentlyContinue

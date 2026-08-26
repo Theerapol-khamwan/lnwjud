@@ -68,9 +68,12 @@ try {
     $rootPackage = Get-Content -LiteralPath (Join-Path $repositoryRoot 'package.json') -Raw | ConvertFrom-Json
     $requiredWindowsArtifacts = @(
         "lnwjud-Setup-$($rootPackage.version).exe",
+        "lnwjud-Setup-$($rootPackage.version).exe.blockmap",
         "lnwjud-Portable-$($rootPackage.version).exe",
         'latest.yml',
-        'portable.yml'
+        'portable.yml',
+        'SHA256SUMS.txt',
+        'PROVENANCE.json'
     )
     foreach ($artifactName in $requiredWindowsArtifacts) {
         $artifactPath = Join-Path $installerDirectory $artifactName

@@ -29,6 +29,7 @@ test('control center auto-starts MCP and supports project + doctor journey', asy
     windowsHide: true,
     env: {
       ...process.env,
+      APPDATA: dataRoot,
       LNWJUD_DATA_PATH: dataRoot,
       LNWJUD_WORKSPACE: fixtureRoot,
       LNWJUD_UNRESTRICTED: '1',
@@ -48,6 +49,10 @@ test('control center auto-starts MCP and supports project + doctor journey', asy
     await expect.poll(() => context.pages().length).toBeGreaterThan(0);
     const page = context.pages()[0];
     if (page === undefined) throw new Error('Electron did not create a renderer page');
+
+    const firstRunDialog = page.getByRole('dialog', { name: /ตั้งค่า ChatGPT ให้ใช้ lnwjud|Set up ChatGPT to use lnwjud/ });
+    await page.getByRole('button', { name: /ไว้ทีหลัง|Set up later/ }).click({ timeout: 30_000 });
+    await expect(firstRunDialog).toBeHidden();
 
     await expect(page.getByRole('heading', { name: 'ศูนย์ควบคุม Agent' })).toBeVisible({ timeout: 30_000 });
     await expect(page.getByTestId('mcp-status')).toHaveText(/Agent พร้อมทำงาน|Agent ready/, { timeout: 30_000 });

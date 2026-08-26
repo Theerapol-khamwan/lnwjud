@@ -14,7 +14,7 @@ MCP with long TTL, file logging, and automatic restart when the tunnel drops.
 - Opens the lnwjud log viewer window after start (use -NoViewer to skip)
 
 .PARAMETER TunnelClientPath
-Path to tunnel-client.exe. Defaults to %USERPROFILE%\Downloads\tunnel\tunnel-client.exe
+Path to tunnel-client.exe. Defaults to the tunnel-client bundled with the per-user lnwjud installation.
 
 .PARAMETER LnwjudPath
 Path to lnwjud.exe (desktop app / viewer). Defaults to the per-user install location
@@ -70,11 +70,15 @@ foreach ($envFile in $candidateEnvFiles) {
 $ErrorActionPreference = 'Stop'
 $ProgressPreference = 'SilentlyContinue'
 
-if ([string]::IsNullOrWhiteSpace($TunnelClientPath)) {
-  $TunnelClientPath = if ($env:LNWJUD_TUNNEL_CLIENT_PATH) { $env:LNWJUD_TUNNEL_CLIENT_PATH } else { Join-Path $env:USERPROFILE 'Downloads\tunnel\tunnel-client.exe' }
-}
 if ([string]::IsNullOrWhiteSpace($LnwjudPath)) {
   $LnwjudPath = if ($env:LNWJUD_PATH) { $env:LNWJUD_PATH } else { Join-Path $env:LOCALAPPDATA 'Programs\lnwjud\lnwjud.exe' }
+}
+if ([string]::IsNullOrWhiteSpace($TunnelClientPath)) {
+  $TunnelClientPath = if ($env:LNWJUD_TUNNEL_CLIENT_PATH) {
+    $env:LNWJUD_TUNNEL_CLIENT_PATH
+  } else {
+    Join-Path (Split-Path -Parent $LnwjudPath) 'resources\tunnel-client\tunnel-client.exe'
+  }
 }
 
 $profileName = 'lnwjud'

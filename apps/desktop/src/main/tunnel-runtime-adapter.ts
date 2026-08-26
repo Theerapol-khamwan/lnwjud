@@ -10,6 +10,8 @@ import {
 const execFileAsync = promisify(execFile);
 const DEFAULT_EXEC_TIMEOUT_MS = 60_000;
 const MAX_CLI_OUTPUT_BYTES = 2 * 1024 * 1024;
+const DEFAULT_STOP_VERIFY_ATTEMPTS = 20;
+const DEFAULT_STOP_VERIFY_INTERVAL_MS = 250;
 
 export interface TunnelRuntimeExecResult {
   readonly stdout: string;
@@ -28,6 +30,9 @@ export interface TunnelRuntimeAdapterOptions {
   readonly environment: NodeJS.ProcessEnv;
   readonly alias?: string;
   readonly execute?: TunnelRuntimeExecutor;
+  readonly stopVerifyAttempts?: number;
+  readonly stopVerifyIntervalMs?: number;
+  readonly sleep?: (delayMs: number) => Promise<void>;
 }
 
 export interface NativeRuntimeConnectRequest {
@@ -130,7 +135,16 @@ export class TunnelRuntimeAdapter {
       if (isUnknownAliasMessage(message)) return missingRuntime(message);
       throw new Error(message || 'tunnel-client runtimes stop failed');
     }
-    return parseNativeRuntimeStatus(result.stdout, result.stderr);
+
+    const attempts = Math.max(1, Math.min(100, this.options.stopVerifyAttempts ?? DEFAULT_STOP_VERIFY_ATTEMPTS));
+    const intervalMs = Math.max(0, Math.min(5_000, this.options.stopVerifyIntervalMs ?? DEFAULT_STOP_VERIFY_INTERVAL_MS));
+    const sleep = this.options.sleep ?? delay;
+    for (let attempt = 0; attempt < attempts; attempt += 1) {
+      const current = await this.status();
+      if (!current.exists || !current.running) return current;
+      if (attempt + 1 < attempts && intervalMs > 0) await sleep(intervalMs);
+    }
+    throw new Error(`Tunnel runtime ${this.alias} is still running after stop`);
   }
 
   private async capture(args: readonly string[], timeout: number): Promise<{ readonly ok: boolean; readonly stdout: string; readonly stderr: string }> {
@@ -153,6 +167,10 @@ export class TunnelRuntimeAdapter {
 async function defaultExecutor(executable: string, args: readonly string[], options: ExecFileOptionsWithStringEncoding): Promise<TunnelRuntimeExecResult> {
   const result = await execFileAsync(executable, [...args], options);
   return { stdout: String(result.stdout ?? ''), stderr: String(result.stderr ?? '') };
+}
+
+async function delay(delayMs: number): Promise<void> {
+  await new Promise<void>((resolve) => setTimeout(resolve, delayMs));
 }
 
 export function parseNativeRuntimeStatus(stdout: string, stderr = ''): NativeTunnelRuntimeStatus {
@@ -194,9 +212,9 @@ export function parseNativeRuntimeStatus(stdout: string, stderr = ''): NativeTun
     running: pickBoolean(flat, ['process.running', 'runtime.running', 'running', 'process_running']) ?? inferRunning(flat),
     healthy: pickBoolean(flat, ['health.healthy', 'healthy', 'health.live', 'healthz.live', 'health_ok']),
     ready: pickBoolean(flat, ['health.ready', 'ready', 'readyz.ready', 'ready_ok']),
-    pollHealthy: pickBoolean(flat, ['control_plane.poll_healthy', 'controlplanepollhealthy', 'poll_healthy', 'pollhealthy', 'control_plane_poll_healthy']),
+    pollHealthy: pickControlPlanePollHealth(flat),
     tunnelId: pickString(flat, ['tunnel_id', 'tunnel.id', 'tunnelid']) ?? matchTunnelId(text),
-    mcpServerUrl: pickString(flat, ['mcp_server_url', 'mcp.server_url', 'mcp.url', 'server_url']) ?? matchMcpUrl(text),
+    mcpServerUrl: pickRuntimeMcpServerUrl(flat, text),
     pid: pickNumber(flat, ['process.pid', 'pid', 'runtime.pid']),
     uiUrl: pickString(flat, ['ui_url', 'health.ui_url', 'admin_ui_url', 'url']) ?? matchUiUrl(text),
     message: pickString(flat, ['message', 'error', 'status_message']) ?? normalizedCliMessage(stderr),
@@ -266,6 +284,41 @@ function pickNumber(flat: ReadonlyMap<string, unknown>, keys: readonly string[])
     if (Number.isInteger(parsed) && parsed > 0 && parsed <= 2_147_483_647) return parsed;
   }
   return null;
+}
+
+function pickControlPlanePollHealth(flat: ReadonlyMap<string, unknown>): boolean | null {
+  const direct = pickBoolean(flat, [
+    'control_plane.poll_healthy',
+    'controlplanepollhealthy',
+    'poll_healthy',
+    'pollhealthy',
+    'control_plane_poll_healthy',
+  ]);
+  if (direct !== null) return direct;
+
+  const state = pickString(flat, [
+    'control_plane_poll_health.state',
+    'local.control_plane_poll_health.state',
+    'control_plane.poll_health.state',
+  ]);
+  if (state === null || /^(unknown|unavailable|not_observable|not-observable)$/i.test(state)) return null;
+  if (/^(true|ok|healthy|ready|live|connected)$/i.test(state)) return true;
+  if (/^(false|down|unhealthy|failed|error|dead|disconnected)$/i.test(state)) return false;
+  return null;
+}
+
+function pickRuntimeMcpServerUrl(flat: ReadonlyMap<string, unknown>, text: string): string | null {
+  const direct = pickString(flat, ['mcp_server_url', 'mcp.server_url', 'mcp.url', 'server_url']);
+  const directMatch = direct === null ? null : matchMcpUrl(direct);
+  if (directMatch !== null) return directMatch;
+
+  const targetKind = pickString(flat, ['target_kind', 'process.target_kind', 'runtime.target_kind']);
+  if (targetKind === null || /server[_-]?url|mcp/i.test(targetKind)) {
+    const target = pickString(flat, ['target_value', 'process.target_value', 'runtime.target_value']);
+    const targetMatch = target === null ? null : matchMcpUrl(target);
+    if (targetMatch !== null) return targetMatch;
+  }
+  return matchMcpUrl(text);
 }
 
 function inferRunning(flat: ReadonlyMap<string, unknown>): boolean {

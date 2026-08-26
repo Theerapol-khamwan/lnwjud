@@ -344,6 +344,9 @@ export function createDesktopRuntime(dataPath: string, options: DesktopRuntimeOp
       const status = await mcpLifecycle.start();
       return status.url;
     },
+    ...(process.env.LNWJUD_E2E_FIXTURE === '1'
+      ? { isExternalTunnelRunning: async (): Promise<boolean> => false }
+      : {}),
     autoReconnect: (): boolean => readSettings().tunnelAutoReconnect,
     maxAutoRestarts: (): number => readSettings().tunnelMaxAutoRestarts,
     getTunnelId: (): string | null => settingsRepository.get(tunnelIdentitySettingKey),
@@ -489,10 +492,10 @@ export function createDesktopRuntime(dataPath: string, options: DesktopRuntimeOp
   }
 
   const doctorService = new DoctorService({
-    os: async (): Promise<DoctorProbeResult> => ({ status: process.platform === 'win32' ? 'pass' : 'warn', message: `${process.platform} ${process.arch}` }),
+    os: async (): Promise<DoctorProbeResult> => ({ status: process.platform === 'win32' && process.arch === 'x64' ? 'pass' : 'fail', message: `${process.platform} ${process.arch}` }),
     database: async (): Promise<DoctorProbeResult> => ({ status: 'pass', message: 'SQLite database ready' }),
-    git: async (): Promise<DoctorProbeResult> => checkExecutable(executableResolver, 'git'),
-    ripgrep: async (): Promise<DoctorProbeResult> => checkExecutable(executableResolver, 'rg'),
+    git: async (): Promise<DoctorProbeResult> => checkExecutable(executableResolver, 'git', 'warn'),
+    ripgrep: async (): Promise<DoctorProbeResult> => checkExecutable(executableResolver, 'rg', 'fail'),
     workspaces: async (): Promise<DoctorProbeResult> => ({ status: 'pass', message: `${(await workspaceService.list()).length} workspace(s) registered` }),
     mcpPort: checkLocalPort,
     codex: async (): Promise<DoctorProbeResult> => checkCodex(codexDiscovery),
@@ -804,7 +807,8 @@ export function createDesktopRuntime(dataPath: string, options: DesktopRuntimeOp
     runDoctor: async (): Promise<DoctorReport> => {
       await ensureMachineRoots();
       const base = await doctorService.run();
-      const tunnel = await observedTunnelStatus();
+      const tunnel = await tunnelController.diagnosticStatus();
+      recordPersistentTunnelStatus(tunnel);
       const mcp = mcpLifecycle.status();
       const tunnelHealth = await tunnelController.incidentHealth();
       const checks = [...base.checks, ...buildPersistentTunnelDoctorChecks({ tunnel, mcp, tunnelHealth, persistentEnabled: readSettings().tunnelAutoReconnect })];
@@ -828,7 +832,8 @@ export function createDesktopRuntime(dataPath: string, options: DesktopRuntimeOp
       return logHub.snapshot();
     },
     clearLogBuffer: async (request: ClearLogBufferRequest): Promise<{ readonly cleared: boolean }> => {
-      logHub.clear(request.source, request);
+      const workspaceSummaries = (await workspaceRepository.listAll()).map(toWorkspaceSummary);
+      logHub.clear(request.source, request, workspaceSummaries);
       return { cleared: true };
     },
     captureIncident: async (updaterEvents: readonly string[] = []): Promise<IncidentReport> => {
@@ -923,10 +928,13 @@ export function createDesktopRuntime(dataPath: string, options: DesktopRuntimeOp
       return mcpLifecycle.start();
     },
     autoStartTunnel: async (): Promise<TunnelStatus | null> => {
-      if (!readSettings().tunnelAutoReconnect) return null;
+      const settings = readSettings();
       const status = await tunnelController.status();
-      if (!status.profileExists || !status.hasApiKey || status.clientPath === null) return status;
-      return tunnelController.start();
+      if (!settings.tunnelAutoReconnect || !status.profileExists || !status.hasApiKey || status.clientPath === null) {
+        await tunnelController.stopPersistedNativeRuntimeIfOwned();
+        return tunnelController.status();
+      }
+      return tunnelController.startAutomatically();
     },
     close: async (): Promise<void> => {
       await tunnelController.shutdownForDesktopExit();
@@ -1077,7 +1085,7 @@ async function buildWorkLog(
   repository: AuditEventRepository,
   viewState: WorkLogViewState,
 ): Promise<readonly WorkLogEntry[]> {
-  const events = await listVisibleMcpEvents(repository, viewState, 100);
+  const events = await listVisibleMcpEvents(repository, viewState, 500);
   return events.map((event) => {
     const toolName = typeof event.metadata.toolName === 'string' ? event.metadata.toolName : event.action.replace(/^mcp_tool:/, '');
     const phase = event.metadata.phase === 'started' ? 'started' : 'completed';
@@ -1280,9 +1288,9 @@ function toManagedBrowserStatus(value: unknown): ManagedBrowserStatus {
   return { ready: value.ready, port: value.port, launched: value.launched };
 }
 
-async function checkExecutable(resolver: PathExecutableResolver, executable: string): Promise<{ readonly status: 'pass' | 'warn'; readonly message: string }> {
+async function checkExecutable(resolver: PathExecutableResolver, executable: string, missingStatus: 'warn' | 'fail'): Promise<{ readonly status: 'pass' | 'warn' | 'fail'; readonly message: string }> {
   const result = await resolver.resolve(executable);
-  return result.ok ? { status: 'pass', message: `${executable} is available` } : { status: 'warn', message: `${executable} is not available` };
+  return result.ok ? { status: 'pass', message: `${executable} is available` } : { status: missingStatus, message: `${executable} is not available` };
 }
 
 function triStateLabel(value: boolean | null): string {
@@ -1298,7 +1306,7 @@ export function buildPersistentTunnelDoctorChecks(input: {
   const persistent = input.tunnel.persistent;
   const required = input.persistentEnabled;
   const identityPresent = persistent?.tunnelIdMasked !== null && persistent?.tunnelIdMasked !== undefined;
-  const nativeRuntime = persistent?.mode === 'native-managed';
+  const nativeRuntime = persistent?.mode === 'native-managed' || persistent?.runtimeAliasActive === true;
   const runtimeRunning = input.tunnel.state === 'running' && (persistent === null || persistent.state === 'running');
   const localBindingMatches = persistent?.localMcpUrl !== null && persistent?.localMcpUrl !== undefined
     && input.mcp.url !== null && sameLocalMcpEndpoint(persistent.localMcpUrl, input.mcp.url);

@@ -11,10 +11,10 @@ import { probeProcessStart, type ProcessProbeResult } from '@lnwjud/mcp-server';
 import { formatTunnelExitMessage, tunnelExitHintFromLog } from './tunnel-exit.js';
 import { acquireTunnelLock, readTunnelLock, type TunnelLockAcquisition, type TunnelLockOwner } from './tunnel-lock.js';
 import { extractTunnelId, extractTunnelMcpServerUrl, normalizeLoopbackMcpUrl, rewriteTunnelYamlMcpServerUrl, rewriteTunnelYamlRuntimeApiKeyRef } from './tunnel-profile.js';
-import { TunnelRuntimeAdapter } from './tunnel-runtime-adapter.js';
-import { TunnelRuntimeReconciler, type TunnelRuntimeDesiredState } from './tunnel-runtime-reconciler.js';
+import { TunnelRuntimeAdapter, type TunnelRuntimeAdapterOptions } from './tunnel-runtime-adapter.js';
+import { TunnelRuntimeReconciler, type TunnelRuntimeDesiredState, type TunnelRuntimeReconcilerAdapter } from './tunnel-runtime-reconciler.js';
 import { TunnelRuntimeSupervisor } from './tunnel-runtime-supervisor.js';
-import { maskTunnelId, type TunnelRuntimeSnapshot } from './tunnel-runtime-state.js';
+import { maskTunnelId, TUNNEL_RUNTIME_ALIAS, type TunnelRuntimeSnapshot } from './tunnel-runtime-state.js';
 
 const execFileAsync = promisify(execFile);
 
@@ -64,6 +64,7 @@ export interface TunnelControllerOptions {
   readonly maxAutoRestarts?: () => number;
   readonly getTunnelId?: () => string | null;
   readonly setTunnelId?: (value: string) => void;
+  readonly createRuntimeAdapter?: (options: TunnelRuntimeAdapterOptions) => TunnelRuntimeReconcilerAdapter;
 }
 
 export class TunnelController {
@@ -107,17 +108,11 @@ export class TunnelController {
     return path.join(this.profileDirectory(), 'lnwjud-tunnel.log');
   }
 
-  public defaultClientPath(): string {
-    return path.join(os.homedir(), 'Downloads', 'tunnel', 'tunnel-client.exe');
-  }
-
   public resolveClientPath(): string | null {
     const configured = this.options.getClientPath();
     if (configured !== null && configured.trim().length > 0 && existsSync(configured)) return configured;
     const bundled = this.options.getBundledClientPath?.() ?? null;
     if (bundled !== null && bundled.trim().length > 0 && existsSync(bundled)) return bundled;
-    const fallback = this.defaultClientPath();
-    if (existsSync(fallback)) return fallback;
     return configured ?? bundled;
   }
 
@@ -230,6 +225,52 @@ export class TunnelController {
     };
   }
 
+  /**
+   * Enrich Doctor diagnostics with the official runtime alias status without
+   * taking ownership, reconnecting, or stopping the currently running tunnel.
+   */
+  public async diagnosticStatus(): Promise<TunnelStatus> {
+    const status = await this.status();
+    if (status.persistent === null || status.persistent.mode === 'native-managed') return status;
+    const clientPath = status.clientPath;
+    if (clientPath === null || !existsSync(clientPath)) return status;
+
+    try {
+      const observed = await this.createRuntimeAdapter(clientPath, '').status();
+      if (!observed.exists) return {
+        ...status,
+        persistent: { ...status.persistent, runtimeAliasActive: false },
+      };
+      const savedTunnelId = await this.resolvePersistentTunnelId();
+      const mismatch = savedTunnelId !== null && observed.tunnelId !== null && savedTunnelId !== observed.tunnelId;
+      const observedRunning = observed.running;
+      return {
+        ...status,
+        state: observedRunning ? 'running' : status.state,
+        source: observedRunning ? 'external' : status.source,
+        persistent: {
+          ...status.persistent,
+          runtimeAliasActive: observedRunning,
+          state: observedRunning ? 'running' : status.persistent.state,
+          healthy: observed.healthy ?? status.persistent.healthy,
+          ready: observed.ready ?? status.persistent.ready,
+          pollHealthy: observed.pollHealthy ?? status.persistent.pollHealthy,
+          localMcpUrl: observed.mcpServerUrl ?? status.persistent.localMcpUrl,
+          uiUrl: observed.uiUrl ?? status.persistent.uiUrl,
+          lastErrorCode: mismatch ? 'TUNNEL_ID_MISMATCH' : status.persistent.lastErrorCode,
+          capabilityEvidence: 'Runtime alias observed read-only via tunnel-client runtimes status; ' + status.persistent.capabilityEvidence,
+        },
+      };
+    } catch {
+      return status;
+    }
+  }
+
+  private invalidateExternalProbeCache(): void {
+    this.externalProbeAt = 0;
+    this.lastExternalProbe = 'unverifiable';
+  }
+
   private async probeExternalRunning(force = false): Promise<ExternalTunnelProbe> {
     const now = Date.now();
     if (!force && now - this.externalProbeAt < EXTERNAL_PROBE_TTL_MS) return this.lastExternalProbe;
@@ -252,6 +293,11 @@ export class TunnelController {
     } catch {
       return false;
     }
+  }
+
+  public startAutomatically(): Promise<TunnelStatus> {
+    if (this.intentionalStop) return this.status();
+    return this.start();
   }
 
   public start(): Promise<TunnelStatus> {
@@ -367,15 +413,20 @@ export class TunnelController {
 
   private async stopOnce(): Promise<TunnelStatus> {
     if (this.runtimeMode === 'native-managed' && this.runtimeSupervisor !== null) {
-      await this.runtimeSupervisor.stopRuntime();
+      const result = await this.runtimeSupervisor.stopRuntime();
+      if (result !== null && result.snapshot.state !== 'stopped') {
+        throw new Error(result.snapshot.message ?? 'Tunnel runtime did not stop');
+      }
       this.disposeRuntimeSupervisor();
       this.state = 'stopped';
       this.message = null;
       this.lastApiKey = null;
       this.restartAttempts = 0;
       this.clearStableTimer();
+      this.invalidateExternalProbeCache();
       return this.status();
     }
+    await this.stopPersistedNativeRuntimeIfOwned();
     await this.killOwnedChild();
     await this.releaseTunnelLock();
     this.state = 'stopped';
@@ -384,6 +435,7 @@ export class TunnelController {
     this.restartAttempts = 0;
     this.runtimeMode = null;
     this.clearStableTimer();
+    this.invalidateExternalProbeCache();
     return this.status();
   }
 
@@ -685,6 +737,46 @@ export class TunnelController {
     }
   }
 
+  public async stopPersistedNativeRuntimeIfOwned(): Promise<boolean> {
+    const storedTunnelIdRaw = this.options.getTunnelId?.()?.trim() ?? '';
+    const storedTunnelId = /^tunnel_[A-Za-z0-9_-]{8,128}$/.test(storedTunnelIdRaw) ? storedTunnelIdRaw : null;
+    const clientPath = this.resolveClientPath();
+    if (clientPath === null || !existsSync(clientPath)) return false;
+
+    const adapter = this.createRuntimeAdapter(clientPath, '');
+    if (storedTunnelId === null && adapter.runtimeAlias() !== TUNNEL_RUNTIME_ALIAS) return false;
+    let capabilities;
+    try {
+      capabilities = await adapter.capabilities();
+    } catch {
+      return false;
+    }
+    if (!capabilities.nativeRuntimes) return false;
+
+    let nativeStatus;
+    try {
+      nativeStatus = await adapter.status();
+    } catch {
+      return false;
+    }
+    if (!nativeStatus.exists) return false;
+    if (storedTunnelId !== null && nativeStatus.tunnelId !== null && nativeStatus.tunnelId !== storedTunnelId) {
+      throw new Error('Persistent tunnel alias lnwjud belongs to a different Tunnel ID; refusing to stop it automatically');
+    }
+    if (nativeStatus.running) await adapter.stop();
+    this.invalidateExternalProbeCache();
+    return true;
+  }
+
+  private createRuntimeAdapter(clientPath: string, apiKey: string): TunnelRuntimeReconcilerAdapter {
+    const options: TunnelRuntimeAdapterOptions = {
+      clientPath,
+      profileDirectory: this.profileDirectory(),
+      environment: tunnelClientEnv(apiKey, this.profileDirectory()),
+    };
+    return this.options.createRuntimeAdapter?.(options) ?? new TunnelRuntimeAdapter(options);
+  }
+
   private async tryStartNativeManagedRuntime(externalProbe: ExternalTunnelProbe, signal: AbortSignal): Promise<TunnelStatus | null> {
     // Native supervision is opt-in at the composition boundary. Legacy/test
     // controllers without persistent identity storage keep the v4.10 fallback.
@@ -705,11 +797,7 @@ export class TunnelController {
     await this.requireMcpServerUrl();
     throwIfStartCancelled(signal);
 
-    const adapter = new TunnelRuntimeAdapter({
-      clientPath,
-      profileDirectory: this.profileDirectory(),
-      environment: tunnelClientEnv(apiKey, this.profileDirectory()),
-    });
+    const adapter = this.createRuntimeAdapter(clientPath, apiKey);
     const capabilities = await adapter.capabilities();
     throwIfStartCancelled(signal);
     if (!capabilities.managedConnect) return null;
@@ -807,6 +895,7 @@ export class TunnelController {
       enabled: this.autoReconnectEnabled(),
       tunnelIdMasked: maskTunnelId(snapshot.tunnelId),
       runtimeAlias: snapshot.alias,
+      runtimeAliasActive: snapshot.state === 'running' || snapshot.state === 'reconnecting',
       mode: snapshot.mode,
       state: snapshot.state,
       healthy: snapshot.healthy,
@@ -827,8 +916,9 @@ export class TunnelController {
   }
 
   private async fallbackPersistentStatus(source: TunnelStatus['source']): Promise<TunnelPersistentStatus | null> {
-    const tunnelId = await this.resolvePersistentTunnelId();
-    if (tunnelId === null && !existsSync(this.profilePath())) return null;
+    const profileExists = existsSync(this.profilePath());
+    const tunnelId = profileExists ? await this.resolvePersistentTunnelId() : null;
+    if (!profileExists && source !== 'external') return null;
     let localMcpUrl: string | null = null;
     try { localMcpUrl = extractTunnelMcpServerUrl(await readFile(this.profilePath(), 'utf8')); } catch { /* profile unavailable */ }
     return {
@@ -873,8 +963,8 @@ export class TunnelController {
     const serverUrl = await this.requireMcpServerUrl();
     const yaml = await readFile(this.profilePath(), 'utf8');
     const withDesktopMcp = rewriteTunnelYamlMcpServerUrl(yaml, serverUrl);
-    if (withDesktopMcp === yaml && !/^mcp:\s*$/im.test(yaml)) {
-      throw new Error('Tunnel profile does not contain an MCP section; run Configure Tunnel again');
+    if (extractTunnelMcpServerUrl(withDesktopMcp) === null) {
+      throw new Error('Tunnel profile does not contain a usable Desktop MCP binding; run Configure Tunnel again');
     }
     const next = rewriteTunnelYamlRuntimeApiKeyRef(withDesktopMcp);
     if (next !== yaml) await writeFile(this.profilePath(), next, 'utf8');

@@ -11,7 +11,7 @@ import { hasExplicitUserConfirmation } from './destructive-policy.js';
 import { isScopedAutoApprovalAllowed, type WorkspaceScope } from './destructive-scope.js';
 import { FilePageEngine } from './file-page-engine.js';
 import { IncrementalVerifier } from './incremental-verifier.js';
-import { inspectMutationOperation, requiresMutationConfirmation, type MutationPolicyDecision } from './mutation-policy.js';
+import { inspectMutationOperation, permissionLevelForMutationDecision, requiresMutationConfirmation, type MutationPolicyDecision } from './mutation-policy.js';
 import { mapError, mapResult, type McpToolResponse } from './result-mapper.js';
 import { batchTools } from './tools/batch-tools.js';
 import { contextTools } from './tools/context-tools.js';
@@ -221,9 +221,10 @@ export class ToolRegistry {
         await this.activity.end(callId, 'PERMISSION_REQUIRED', Date.now() - started, message);
         return response;
       }
+      const effectivePermission = permissionLevelForMutationDecision(mutationDecision);
       const permissionDecision = this.permissionEngine.decide(profile, {
         action: 'mcp:' + tool.name,
-        level: policyAllowsScopedDestructive ? 'WRITE' : tool.permission,
+        level: policyAllowsScopedDestructive ? 'WRITE' : effectivePermission,
         workspaceId: readWorkspaceId(parsed.value),
         target: tool.name,
         destructive: isDestructiveMutation(mutationDecision),

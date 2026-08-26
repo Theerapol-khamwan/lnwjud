@@ -53,6 +53,35 @@ describe('MCP tool registry', () => {
     expect(registration?.description).not.toContain('E:\\');
   });
 
+  it('marks workspace discovery as a genuine read-only operation', () => {
+    const registry = new ToolRegistry({}, actor);
+    const workspaceList = registry.list().find((tool) => tool.name === 'workspace_list');
+    expect(workspaceList).toMatchObject({
+      permission: 'READ',
+      annotations: { readOnlyHint: true, destructiveHint: false },
+    });
+    expect(permissionProfiles.safe.defaults.READ).toBe('ALLOW');
+    expect(permissionProfiles.balanced.defaults.READ).toBe('ALLOW');
+    expect(permissionProfiles.full.defaults.READ).toBe('ALLOW');
+  });
+
+  it('lists workspaces without mutation approval in every built-in profile', async () => {
+    const list = vi.fn(async () => ok([{ id: 'workspace-1', displayName: 'Project', rootPath: 'D:\\Project', realRootPath: 'D:\\Project' }]));
+    const approval = vi.fn(async () => true);
+    const services = { workspaceInfo: { list } } as unknown as McpApplicationServices;
+    for (const profile of [permissionProfiles.safe, permissionProfiles.balanced, permissionProfiles.full]) {
+      const registry = new ToolRegistry(services, actor, {
+        profileProvider: (): typeof profile => profile,
+        hostMutationApprovalProvider: approval,
+      });
+      await expect(registry.invoke('workspace_list', {})).resolves.toMatchObject({
+        structuredContent: { value: [{ id: 'workspace-1' }] },
+      });
+    }
+    expect(list).toHaveBeenCalledTimes(3);
+    expect(approval).not.toHaveBeenCalled();
+  });
+
   it('exposes the local desktop capability contract', () => {
     const registry = new ToolRegistry({}, actor);
     const byName = new Map(registry.list().map((tool) => [tool.name, tool]));
@@ -120,9 +149,24 @@ describe('MCP tool registry', () => {
     const registry = new ToolRegistry({ capabilities: { async execute(): Promise<ReturnType<typeof ok>> { executed = true; return ok({ executed: true }); } } }, actor, {
       profileProvider: (): typeof permissionProfiles.safe => permissionProfiles.safe,
     });
-    const response = await registry.invoke('dom_cdp', { action: 'query', parameters: { selector: 'body' } });
-    expect(response).toMatchObject({ isError: true, structuredContent: { error: { code: 'PERMISSION_DENIED' } } });
+    const response = await registry.invoke('dom_cdp', { action: 'type', parameters: { selector: 'input', text: 'unsafe' } });
+    expect(response).toMatchObject({ isError: true, structuredContent: { error: { code: 'PERMISSION_REQUIRED' } } });
     expect(executed).toBe(false);
+  });
+
+  it('uses action-level permission for mixed tools so Safe can read without allowing mutations', async () => {
+    const calls: Array<{ tool: string; input: unknown }> = [];
+    const registry = new ToolRegistry({ capabilities: { async execute(tool, input): Promise<ReturnType<typeof ok>> { calls.push({ tool, input }); return ok({ executed: true }); } } }, actor, {
+      profileProvider: (): typeof permissionProfiles.safe => permissionProfiles.safe,
+    });
+    const read = await registry.invoke('web_fetch', { url: 'https://example.com', method: 'GET' });
+    expect(read.isError).not.toBe(true);
+    await expect(registry.invoke('web_fetch', { url: 'https://example.com', method: 'POST', userConfirmed: true })).resolves.toMatchObject({
+      isError: true, structuredContent: { error: { code: 'PERMISSION_DENIED' } },
+    });
+    const clipboardRead = await registry.invoke('clipboard', { action: 'get_text' });
+    expect(clipboardRead.isError).not.toBe(true);
+    expect(calls.map((call) => call.tool)).toEqual(['web_fetch', 'clipboard']);
   });
 
   it('lets explicit confirmation satisfy ASK without overriding a profile DENY', async () => {
@@ -165,9 +209,9 @@ describe('MCP tool registry', () => {
     expect(byName.get('list_recovery_items')?.annotations).toMatchObject({ readOnlyHint: true, destructiveHint: false });
     expect(byName.get('list_checkpoints')?.annotations).toMatchObject({ readOnlyHint: true, destructiveHint: false });
     expect(byName.get('restore_checkpoint')?.annotations).toMatchObject({ readOnlyHint: false, destructiveHint: true });
-    expect(byName.get('skills_list')?.annotations).toMatchObject({ readOnlyHint: false, destructiveHint: true });
+    expect(byName.get('skills_list')?.annotations).toMatchObject({ readOnlyHint: true, destructiveHint: false });
     expect(byName.get('mcp_call')?.permission).toBe('DANGEROUS');
-    expect(byName.get('tool_batch')?.permission).toBe('DANGEROUS');
+    expect(byName.get('tool_batch')?.permission).toBe('EXECUTE');
     expect(byName.get('tool_batch')?.annotations).toMatchObject({ readOnlyHint: false, destructiveHint: true });
     expect(byName.get('workspace_context')?.annotations).toMatchObject({ readOnlyHint: true, destructiveHint: false });
     expect(byName.get('read_file_page')?.annotations).toMatchObject({ readOnlyHint: true, destructiveHint: false });
@@ -498,7 +542,7 @@ describe('MCP tool registry', () => {
       activeWorkspaceScopeProvider: async (): Promise<WorkspaceScope | null> => ({ workspaceId: 'workspace-a', rootPath: 'E:\\project-a' }),
       hostMutationApprovalProvider: approveMutation,
     });
-    await expect(registry.invoke(tool, { ...request, userConfirmed: true })).resolves.toMatchObject({ isError: true, structuredContent: { error: { code: 'PERMISSION_DENIED' } } });
+    await expect(registry.invoke(tool, { ...request, userConfirmed: true })).resolves.toMatchObject({ isError: true, structuredContent: { error: { code: 'INVALID_INPUT' } } });
     await expect(registry.invoke(tool, { ...request, workspaceId: 'workspace-b', userConfirmed: true })).resolves.toMatchObject({ isError: true, structuredContent: { error: { code: 'PERMISSION_DENIED' } } });
     const response = await registry.invoke(tool, { ...request, workspaceId: 'workspace-a', userConfirmed: true });
     expect(response).toMatchObject({ structuredContent: { started: true, replacementBackup: { recoveryId: 'media-backup-1', recoveryPath: 'E:\\recovery\\media-backup-1\\payload' } } });

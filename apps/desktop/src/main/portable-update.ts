@@ -79,7 +79,10 @@ export async function preparePortableReplacement(
   }
   await access(sourcePath);
 
-  const systemRoot = process.env.SystemRoot ?? path.join(path.parse(targetPath).root || 'C:\\', 'Windows');
+  const systemRoot = process.env.SystemRoot ?? process.env.WINDIR;
+  if (systemRoot === undefined || systemRoot.trim().length === 0) {
+    throw new Error('Windows system root is unavailable; cannot prepare the portable updater safely');
+  }
   const powershellPath = path.join(systemRoot, 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe');
   await access(powershellPath);
 

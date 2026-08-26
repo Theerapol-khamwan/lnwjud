@@ -1,5 +1,5 @@
 export const APP_NAME = 'lnwjud';
-export const APP_VERSION = '4.11.0';
+export const APP_VERSION = '4.12.0';
 
 export const ipcChannels = {
   listWorkspaces: 'lnwjud:list-workspaces',
@@ -33,11 +33,14 @@ export const ipcChannels = {
   setUserSettings: 'lnwjud:set-user-settings',
   chooseTunnelClientPath: 'lnwjud:choose-tunnel-client-path',
   configureTunnelProfile: 'lnwjud:configure-tunnel-profile',
+  openExternalSetupPage: 'lnwjud:open-external-setup-page',
   launchManagedBrowser: 'lnwjud:launch-managed-browser',
   runDoctor: 'lnwjud:run-doctor',
   getLogSnapshot: 'lnwjud:get-log-snapshot',
   clearLogBuffer: 'lnwjud:clear-log-buffer',
   exportLogs: 'lnwjud:export-logs',
+
+  exportWorkLog: 'lnwjud:export-work-log',
   captureIncident: 'lnwjud:capture-incident',
   openLogViewer: 'lnwjud:open-log-viewer',
   getUpdateStatus: 'lnwjud:get-update-status',
@@ -191,6 +194,8 @@ export interface TunnelPersistentStatus {
   readonly enabled: boolean;
   readonly tunnelIdMasked: string | null;
   readonly runtimeAlias: string;
+  /** True when tunnel-client runtimes status confirms this alias currently has a live process. */
+  readonly runtimeAliasActive?: boolean;
   readonly mode: TunnelPersistentMode;
   readonly state: TunnelPersistentRunState;
   readonly healthy: boolean | null;
@@ -262,6 +267,52 @@ export interface ExportLogsRequest extends LogScopeRequest {
   readonly source: LogSource;
   readonly filePath: string;
   readonly query?: string;
+  /** Exact line identities visible in the renderer when Export was clicked. */
+  readonly lineIds?: readonly number[];
+  /** Exact locally formatted rows visible/copyable in the renderer when Export was clicked. */
+  readonly rows?: readonly string[];
+}
+
+export interface ExportWorkLogRequest {
+  /** Exact formatted rows visible in Work Log when Export was clicked. */
+  readonly rows: readonly string[];
+}
+
+/** Normalize legacy path-shaped workspace IDs emitted by older builds. */
+export function normalizeWorkspaceScopeIdentity(value: string): string {
+  return value.trim().replace(/\\/g, '/').replace(/\/+$/, '').toLocaleLowerCase();
+}
+
+export function canonicalWorkspaceScopeId(workspaces: readonly WorkspaceSummary[], workspaceId: string): string {
+  const direct = workspaces.find((workspace) => workspace.id === workspaceId);
+  if (direct !== undefined) {
+    const identity = normalizeWorkspaceScopeIdentity(direct.realRootPath || direct.rootPath);
+    const rootMatch = workspaces.find((workspace) =>
+      workspace.kind !== 'machine_root'
+      && (normalizeWorkspaceScopeIdentity(workspace.realRootPath) === identity
+        || normalizeWorkspaceScopeIdentity(workspace.rootPath) === identity),
+    );
+    return rootMatch?.id ?? workspaceId;
+  }
+
+  const identity = normalizeWorkspaceScopeIdentity(workspaceId);
+  const rootMatch = workspaces.find((workspace) =>
+    workspace.kind !== 'machine_root'
+    && (normalizeWorkspaceScopeIdentity(workspace.realRootPath) === identity
+      || normalizeWorkspaceScopeIdentity(workspace.rootPath) === identity),
+  );
+  if (rootMatch !== undefined) return rootMatch.id;
+
+  const displayMatches = workspaces.filter((workspace) =>
+    workspace.kind !== 'machine_root'
+    && normalizeWorkspaceScopeIdentity(workspace.displayName) === identity,
+  );
+  return displayMatches.length === 1 ? displayMatches[0]!.id : workspaceId;
+}
+
+export function workspaceScopeMatches(workspaces: readonly WorkspaceSummary[], candidate: string | null, selected: string): boolean {
+  if (candidate === null) return false;
+  return canonicalWorkspaceScopeId(workspaces, candidate) === canonicalWorkspaceScopeId(workspaces, selected);
 }
 
 export type IncidentClassification = 'local_tool_failed' | 'tunnel_disconnected' | 'remote_turn_stopped' | 'healthy_or_inconclusive';
@@ -487,6 +538,18 @@ export interface ConfigureTunnelProfileRequest {
   readonly tunnelId: string;
 }
 
+export type ExternalSetupTarget = 'openai_tunnels' | 'openai_api_keys' | 'chatgpt_plugins';
+
+export const EXTERNAL_SETUP_URLS: Readonly<Record<ExternalSetupTarget, string>> = Object.freeze({
+  openai_tunnels: 'https://platform.openai.com/settings/organization/tunnels',
+  openai_api_keys: 'https://platform.openai.com/api-keys',
+  chatgpt_plugins: 'https://chatgpt.com/plugins',
+});
+
+export interface OpenExternalSetupPageRequest {
+  readonly target: ExternalSetupTarget;
+}
+
 export interface McpConnectionStatus {
   readonly running: boolean;
   readonly url: string | null;
@@ -531,11 +594,13 @@ export interface IpcRequestMap {
   readonly [ipcChannels.setUserSettings]: SetUserSettingsRequest;
   readonly [ipcChannels.chooseTunnelClientPath]: undefined;
   readonly [ipcChannels.configureTunnelProfile]: ConfigureTunnelProfileRequest;
+  readonly [ipcChannels.openExternalSetupPage]: OpenExternalSetupPageRequest;
   readonly [ipcChannels.launchManagedBrowser]: undefined;
   readonly [ipcChannels.runDoctor]: undefined;
   readonly [ipcChannels.getLogSnapshot]: undefined;
   readonly [ipcChannels.clearLogBuffer]: ClearLogBufferRequest;
   readonly [ipcChannels.exportLogs]: ExportLogsRequest;
+  readonly [ipcChannels.exportWorkLog]: ExportWorkLogRequest;
   readonly [ipcChannels.captureIncident]: undefined;
   readonly [ipcChannels.openLogViewer]: undefined;
   readonly [ipcChannels.getUpdateStatus]: undefined;
@@ -575,11 +640,13 @@ export interface IpcResponseMap {
   readonly [ipcChannels.setUserSettings]: { readonly settings: UserSettings; readonly restartRequired: boolean };
   readonly [ipcChannels.chooseTunnelClientPath]: { readonly clientPath: string | null };
   readonly [ipcChannels.configureTunnelProfile]: { readonly configured: boolean; readonly profilePath: string };
+  readonly [ipcChannels.openExternalSetupPage]: { readonly opened: true };
   readonly [ipcChannels.launchManagedBrowser]: ManagedBrowserStatus;
   readonly [ipcChannels.runDoctor]: DoctorReport;
   readonly [ipcChannels.getLogSnapshot]: LogSnapshot;
   readonly [ipcChannels.clearLogBuffer]: { readonly cleared: boolean };
   readonly [ipcChannels.exportLogs]: { readonly exported: boolean };
+  readonly [ipcChannels.exportWorkLog]: { readonly exported: boolean };
   readonly [ipcChannels.captureIncident]: IncidentExportResult;
   readonly [ipcChannels.openLogViewer]: { readonly opened: boolean };
   readonly [ipcChannels.getUpdateStatus]: UpdateStatus;
@@ -619,11 +686,13 @@ export interface LnwjudApi {
   setUserSettings(request: SetUserSettingsRequest): Promise<IpcResponseMap[typeof ipcChannels.setUserSettings]>;
   chooseTunnelClientPath(): Promise<IpcResponseMap[typeof ipcChannels.chooseTunnelClientPath]>;
   configureTunnelProfile(request: ConfigureTunnelProfileRequest): Promise<IpcResponseMap[typeof ipcChannels.configureTunnelProfile]>;
+  openExternalSetupPage(request: OpenExternalSetupPageRequest): Promise<IpcResponseMap[typeof ipcChannels.openExternalSetupPage]>;
   launchManagedBrowser(): Promise<IpcResponseMap[typeof ipcChannels.launchManagedBrowser]>;
   runDoctor(): Promise<IpcResponseMap[typeof ipcChannels.runDoctor]>;
   getLogSnapshot(): Promise<IpcResponseMap[typeof ipcChannels.getLogSnapshot]>;
   clearLogBuffer(request: ClearLogBufferRequest): Promise<IpcResponseMap[typeof ipcChannels.clearLogBuffer]>;
   exportLogs(request: ExportLogsRequest): Promise<IpcResponseMap[typeof ipcChannels.exportLogs]>;
+  exportWorkLog(request: ExportWorkLogRequest): Promise<IpcResponseMap[typeof ipcChannels.exportWorkLog]>;
   captureIncident(): Promise<IpcResponseMap[typeof ipcChannels.captureIncident]>;
   openLogViewer(): Promise<IpcResponseMap[typeof ipcChannels.openLogViewer]>;
   getUpdateStatus(): Promise<IpcResponseMap[typeof ipcChannels.getUpdateStatus]>;

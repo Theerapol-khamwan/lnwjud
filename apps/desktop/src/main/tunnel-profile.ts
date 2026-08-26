@@ -21,6 +21,32 @@ export function rewriteTunnelYamlMcpCommand(yaml: string, stdioCmdPath: string):
 
 export function rewriteTunnelYamlMcpServerUrl(yaml: string, serverUrl: string): string {
   const normalized = normalizeLoopbackMcpUrl(serverUrl);
+  const json = parseJsonProfile(yaml);
+  if (json !== null) {
+    const mcp = asJsonRecord(json.mcp) ?? {};
+    const existingUrls = Array.isArray(mcp.server_urls) ? mcp.server_urls : [];
+    const nextUrls: unknown[] = [];
+    let replacedMain = false;
+    for (const entry of existingUrls) {
+      const record = asJsonRecord(entry);
+      if (record === null) {
+        nextUrls.push(entry);
+        continue;
+      }
+      if (!replacedMain && String(record.channel ?? '').toLowerCase() === 'main') {
+        nextUrls.push({ ...record, channel: 'main', url: normalized });
+        replacedMain = true;
+      } else {
+        nextUrls.push(record);
+      }
+    }
+    if (!replacedMain) nextUrls.push({ channel: 'main', url: normalized });
+    mcp.connection_max_ttl = '168h0m0s';
+    mcp.server_urls = nextUrls;
+    delete mcp.commands;
+    json.mcp = mcp;
+    return serializeJsonProfile(json, yaml);
+  }
   return replaceTopLevelBlock(yaml, 'mcp', [
     'mcp:',
     '  connection_max_ttl: 168h0m0s',
@@ -31,6 +57,15 @@ export function rewriteTunnelYamlMcpServerUrl(yaml: string, serverUrl: string): 
 }
 
 export function rewriteTunnelYamlRuntimeApiKeyRef(yaml: string): string {
+  const json = parseJsonProfile(yaml);
+  if (json !== null) {
+    const controlPlane = asJsonRecord(json.control_plane);
+    if (controlPlane === null) return yaml;
+    controlPlane.api_key = RUNTIME_API_KEY_REF;
+    json.control_plane = controlPlane;
+    return serializeJsonProfile(json, yaml);
+  }
+
   const parsed = splitYaml(yaml);
   const range = findTopLevelBlock(parsed.lines, 'control_plane');
   if (range === null) return yaml;
@@ -46,6 +81,13 @@ export function rewriteTunnelYamlRuntimeApiKeyRef(yaml: string): string {
 }
 
 export function extractTunnelId(yaml: string): string | null {
+  const json = parseJsonProfile(yaml);
+  if (json !== null) {
+    const controlPlane = asJsonRecord(json.control_plane);
+    const tunnelId = controlPlane?.tunnel_id;
+    return typeof tunnelId === 'string' && tunnelId.trim().length > 0 ? tunnelId.trim() : null;
+  }
+
   const parsed = splitYaml(yaml);
   const range = findTopLevelBlock(parsed.lines, 'control_plane');
   if (range === null) return null;
@@ -57,6 +99,27 @@ export function extractTunnelId(yaml: string): string | null {
 }
 
 export function extractTunnelMcpServerUrl(yaml: string): string | null {
+  const json = parseJsonProfile(yaml);
+  if (json !== null) {
+    const mcp = asJsonRecord(json.mcp);
+    const entries = Array.isArray(mcp?.server_urls) ? mcp.server_urls : [];
+    const ordered = [...entries].sort((left, right) => {
+      const leftMain = String(asJsonRecord(left)?.channel ?? '').toLowerCase() === 'main' ? 0 : 1;
+      const rightMain = String(asJsonRecord(right)?.channel ?? '').toLowerCase() === 'main' ? 0 : 1;
+      return leftMain - rightMain;
+    });
+    for (const entry of ordered) {
+      const url = asJsonRecord(entry)?.url;
+      if (typeof url !== 'string') continue;
+      try {
+        return normalizeLoopbackMcpUrl(url);
+      } catch {
+        continue;
+      }
+    }
+    return null;
+  }
+
   const parsed = splitYaml(yaml);
   const range = findTopLevelBlock(parsed.lines, 'mcp');
   if (range === null) return null;
@@ -66,7 +129,7 @@ export function extractTunnelMcpServerUrl(yaml: string): string | null {
     try {
       return normalizeLoopbackMcpUrl(match[1]);
     } catch {
-      return null;
+      continue;
     }
   }
   return null;
@@ -140,6 +203,28 @@ export function packagedStdioLauncherCandidates(execPath: string, resourcesPath?
     candidates.push(path.join(resourcesPath, 'lnwjud-mcp-stdio.cmd'));
   }
   return candidates;
+}
+
+type JsonRecord = Record<string, unknown>;
+
+function parseJsonProfile(value: string): JsonRecord | null {
+  const trimmed = value.trim();
+  if (!trimmed.startsWith('{')) return null;
+  try {
+    return asJsonRecord(JSON.parse(trimmed));
+  } catch {
+    return null;
+  }
+}
+
+function asJsonRecord(value: unknown): JsonRecord | null {
+  return typeof value === 'object' && value !== null && !Array.isArray(value) ? value as JsonRecord : null;
+}
+
+function serializeJsonProfile(profile: JsonRecord, original: string): string {
+  const newline = original.includes('\r\n') ? '\r\n' : '\n';
+  const trailingNewline = /\r?\n$/.test(original);
+  return JSON.stringify(profile, null, 2).replace(/\n/g, newline) + (trailingNewline ? newline : '');
 }
 
 interface SplitYaml {

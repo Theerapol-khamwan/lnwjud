@@ -1,4 +1,4 @@
-import { app, BrowserWindow, dialog, ipcMain, Menu, nativeImage, Tray, type IpcMainInvokeEvent } from 'electron';
+import { app, BrowserWindow, dialog, ipcMain, Menu, nativeImage, shell, Tray, type IpcMainInvokeEvent } from 'electron';
 import path from 'node:path';
 import os from 'node:os';
 import { access } from 'node:fs/promises';
@@ -18,6 +18,7 @@ import {
   type DestructiveDeletePolicy,
   type DoctorReport,
   type ExportLogsRequest,
+  type ExportWorkLogRequest,
   type IpcResponseMap,
   type LogSnapshot,
   type ManagedBrowserStatus,
@@ -52,6 +53,7 @@ import { DEFAULT_MCP_POLL_WAIT_SECONDS, DEFAULT_SHELL_SYNCHRONOUS_WAIT_SECONDS, 
 import { applyPendingSqliteRestoreSync } from '@lnwjud/storage';
 import { createDesktopRuntime, type DesktopRuntime } from './desktop-services.js';
 import { DesktopShutdownCoordinator } from './desktop-shutdown.js';
+import { parseOpenExternalSetupPageRequest, resolveExternalSetupUrl } from './external-setup-links.js';
 import { shouldHoldSingleInstanceLock, wantsMcpStdio } from './instance-lock.js';
 import { createLogViewerWindow, createMainWindow, getRendererEntryPath, getWindowIconPath, isAllowedRendererUrl } from './window.js';
 import { createTrayMenuTemplate, createTrayToolTip, createTrayUpdateLabel, shouldHideMainWindowOnClose } from './tray.js';
@@ -70,6 +72,7 @@ import { IncidentSaveCoordinator } from './incident-save.js';
 import { localizedUpdateStatusMessage, nativeMessages } from './native-i18n.js';
 import { CrashDiagnosticsRecorder, RendererRecoveryPolicy } from './crash-recovery.js';
 import { isMutationApprovalResponse, mutationApprovalDialogOptions } from './mutation-approval.js';
+import { prependBundledRuntimeToolsToPath } from './runtime-tools.js';
 
 export interface DesktopIpcServices {
   listWorkspaces(): Promise<IpcResponseMap[typeof ipcChannels.listWorkspaces]>;
@@ -429,6 +432,12 @@ export function registerIpcHandlers(
     assertTrustedSender(event, getMainWindow());
     return services.configureTunnelProfile(parseConfigureTunnelProfileRequest(payload));
   });
+  ipcMain.handle(ipcChannels.openExternalSetupPage, async (event, payload: unknown) => {
+    assertTrustedSender(event, getMainWindow());
+    const request = parseOpenExternalSetupPageRequest(payload);
+    await shell.openExternal(resolveExternalSetupUrl(request.target));
+    return { opened: true as const };
+  });
   ipcMain.handle(ipcChannels.launchManagedBrowser, async (event, payload: unknown) => {
     assertTrustedSender(event, getMainWindow());
     assertNoPayload(payload);
@@ -451,6 +460,10 @@ export function registerIpcHandlers(
   ipcMain.handle(ipcChannels.exportLogs, async (event, payload: unknown) => {
     assertTrustedSender(event, getMainWindow());
     return exportLogsToFile(getMainWindow(), services, parseExportLogsRequest(payload));
+  });
+  ipcMain.handle(ipcChannels.exportWorkLog, async (event, payload: unknown) => {
+    assertTrustedSender(event, getMainWindow());
+    return exportWorkLogToFile(getMainWindow(), parseExportWorkLogRequest(payload));
   });
   ipcMain.handle(ipcChannels.captureIncident, async (event, payload: unknown) => {
     assertTrustedSender(event, getMainWindow());
@@ -596,13 +609,34 @@ function parseExportLogsRequest(payload: unknown): ExportLogsRequest {
   }
   const workspaceId = optionalScopeId(payload.workspaceId, 'workspaceId');
   const sessionId = optionalScopeId(payload.sessionId, 'sessionId');
+  const lineIds = payload.lineIds;
+  if (lineIds !== undefined && (!Array.isArray(lineIds) || lineIds.length > 5_000 || lineIds.some((id) => !Number.isSafeInteger(id) || Number(id) <= 0))) {
+    throw new Error('Invalid IPC payload: lineIds');
+  }
+  const rows = payload.rows;
+  if (rows !== undefined && (!Array.isArray(rows) || rows.length > 5_000 || rows.some((row) => typeof row !== 'string' || row.length > 16_384))) {
+    throw new Error('Invalid IPC payload: rows');
+  }
   return {
     source: payload.source,
     filePath: typeof payload.filePath === 'string' ? payload.filePath : '',
     ...(workspaceId === undefined ? {} : { workspaceId }),
     ...(sessionId === undefined ? {} : { sessionId }),
     ...(typeof payload.query === 'string' && payload.query.trim().length > 0 ? { query: payload.query.trim().slice(0, 512) } : {}),
+    ...(lineIds === undefined ? {} : { lineIds: lineIds as number[] }),
+    ...(rows === undefined ? {} : { rows: rows as string[] }),
   };
+}
+
+function parseExportWorkLogRequest(payload: unknown): ExportWorkLogRequest {
+  if (!isRecord(payload) || !Array.isArray(payload.rows) || payload.rows.length > 5_000) {
+    throw new Error('Invalid IPC payload: rows');
+  }
+  const rows = payload.rows.map((row) => {
+    if (typeof row !== 'string' || row.length > 16_384) throw new Error('Invalid IPC payload: rows');
+    return row;
+  });
+  return { rows };
 }
 
 function optionalScopeId(value: unknown, key: string): string | undefined {
@@ -628,18 +662,49 @@ async function exportLogsToFile(
   if (result.canceled || result.filePath === undefined || result.filePath.length === 0) {
     return { exported: false };
   }
-  const snapshot = await services.getLogSnapshot();
-  const query = request.query?.toLowerCase() ?? '';
-  const content = snapshot.lines
-    .filter((line) => line.source === request.source)
-    .filter((line) => request.workspaceId === undefined || line.workspaceId === request.workspaceId)
-    .filter((line) => request.sessionId === undefined || line.sessionId === request.sessionId)
-    .filter((line) => query.length === 0 || line.text.toLowerCase().includes(query))
-    .sort((left, right) => right.id - left.id)
-    .map((line) => `[${line.timestamp}] [${line.level.toUpperCase()}] ${line.text}`)
-    .join('\r\n');
+  let content: string;
+  if (request.rows !== undefined) {
+    content = request.rows.join('\r\n');
+  } else {
+    const snapshot = await services.getLogSnapshot();
+    const query = request.query?.toLowerCase() ?? '';
+    const requestedLineIds = request.lineIds === undefined ? null : new Set(request.lineIds);
+    content = snapshot.lines
+      .filter((line) => line.source === request.source)
+      .filter((line) => requestedLineIds === null || requestedLineIds.has(line.id))
+      .filter((line) => requestedLineIds !== null || request.workspaceId === undefined || line.workspaceId === request.workspaceId)
+      .filter((line) => requestedLineIds !== null || request.sessionId === undefined || line.sessionId === request.sessionId)
+      .filter((line) => requestedLineIds !== null || query.length === 0 || line.text.toLowerCase().includes(query))
+      .sort((left, right) => {
+        const leftTime = Date.parse(left.timestamp);
+        const rightTime = Date.parse(right.timestamp);
+        if (Number.isFinite(leftTime) && Number.isFinite(rightTime) && leftTime !== rightTime) return rightTime - leftTime;
+        return right.id - left.id;
+      })
+      .map((line) => `${formatExportLogTimestamp(line.timestamp)} [${line.level.toUpperCase()}] ${line.text}`)
+      .join('\r\n');
+  }
   await atomicWrite(result.filePath, content.length === 0 ? '' : `${content}\r\n`);
   return { exported: true };
+}
+
+async function exportWorkLogToFile(window: BrowserWindow | null, request: ExportWorkLogRequest): Promise<{ readonly exported: boolean }> {
+  if (window === null) return { exported: false };
+  const result = await dialog.showSaveDialog(window, {
+    title: 'Export lnwjud work log',
+    defaultPath: 'lnwjud-work-log.txt',
+    filters: [{ name: 'Text', extensions: ['txt', 'log'] }],
+  });
+  if (result.canceled || result.filePath === undefined || result.filePath.length === 0) return { exported: false };
+  const content = request.rows.join('\r\n');
+  await atomicWrite(result.filePath, content.length === 0 ? '' : `${content}\r\n`);
+  return { exported: true };
+}
+
+function formatExportLogTimestamp(value: string): string {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  return `${date.toLocaleDateString()} ${date.toLocaleTimeString()}`;
 }
 
 function broadcastToAllWindows(channel: string, payload: unknown): void {
@@ -1027,6 +1092,7 @@ function bootstrapMcpStdio(): void {
   app.commandLine.appendSwitch('disable-software-rasterizer');
   const dataPath = configureDataPath();
   void app.whenReady().then(async () => {
+    prependBundledRuntimeToolsToPath();
     const runtime = createDesktopRuntime(dataPath, {
       permissionProfile: 'full',
       hostMutationApprovalProvider: requestNativeMutationApproval,
@@ -1299,6 +1365,7 @@ function bootstrapDesktop(): void {
       `[WindowsCompatibility] ${windowsCompatibility.generation} build=${windowsCompatibility.build ?? 'unknown'} arch=${process.arch} gpu=${windowsCompatibility.disableHardwareAcceleration ? 'software' : 'hardware'}; ${windowsCompatibility.reason}`,
     );
 
+    prependBundledRuntimeToolsToPath();
     const runtime = createDesktopRuntime(dataPath, { hostMutationApprovalProvider: requestNativeMutationApproval });
     desktopRuntime = runtime;
     setDesktopLocale(runtime.getLocale());
@@ -1333,6 +1400,7 @@ function bootstrapLogViewerOnly(): void {
   if (windowsCompatibility.disableHardwareAcceleration) app.disableHardwareAcceleration();
   void app.whenReady().then(async () => {
     app.setAppUserModelId('com.lnwjud.desktop');
+    prependBundledRuntimeToolsToPath();
     const runtime = createDesktopRuntime(dataPath, { hostMutationApprovalProvider: requestNativeMutationApproval });
     desktopRuntime = runtime;
     configureDesktopShutdown(runtime);

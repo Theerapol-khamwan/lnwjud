@@ -42,8 +42,8 @@ export function windowsCompatibilityProfile(
       supportedReleaseTarget: false,
       disableHardwareAcceleration: false,
       reason: x64
-        ? 'lnwjud v4.11.0 requires Windows 10 or Windows 11.'
-        : 'lnwjud v4.11.0 Windows packages require 64-bit x64 Windows.',
+        ? 'lnwjud requires Windows 10 or Windows 11.'
+        : 'lnwjud Windows packages require 64-bit x64 Windows.',
     };
   }
 

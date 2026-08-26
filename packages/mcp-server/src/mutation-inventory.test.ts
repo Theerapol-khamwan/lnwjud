@@ -22,23 +22,26 @@ const mandatoryCases = [
  * mixed tool cannot silently inherit this exception.
  */
 const mixedOperationReadCases = [
-  ['workspace_list', {}, 'DANGEROUS'],
-  ['skills_list', {}, 'DANGEROUS'],
-  ['skills_read', { skillId: 'agents-skills/executing-plans' }, 'DANGEROUS'],
-  ['mcp_list', {}, 'DANGEROUS'],
-  ['mcp_describe', { server: 'child' }, 'DANGEROUS'],
+  ['workspace_list', {}, 'READ'],
+  ['skills_list', {}, 'READ'],
+  ['skills_read', { skillId: 'agents-skills/executing-plans' }, 'READ'],
+  ['mcp_list', {}, 'READ'],
+  ['mcp_describe', { server: 'child' }, 'READ'],
   ['shell', { operation: 'status', task_id: 'task-1' }, 'EXECUTE'],
   ['wsl_exec', { operation: 'status', task_id: 'task-1' }, 'EXECUTE'],
   ['web_fetch', { method: 'GET', url: 'https://example.test' }, 'READ'],
   ['scheduler', { action: 'list' }, 'EXECUTE'],
   ['office', { action: 'read' }, 'WRITE'],
-  ['office_ppt', { action: 'read' }, 'DANGEROUS'],
+  ['office_ppt', { action: 'read' }, 'WRITE'],
   ['docx_merge', {}, 'WRITE'],
-  ['dom_cdp', { action: 'query', parameters: { selector: 'body' } }, 'DANGEROUS'],
-  ['window', { operation: 'list' }, 'READ'],
-  ['audio', { action: 'record', dry_run: true }, 'DANGEROUS'],
-  ['screen_record', { action: 'status' }, 'DANGEROUS'],
-  ['tool_batch', { calls: [] }, 'DANGEROUS'],
+  ['dom_cdp', { action: 'query', parameters: { selector: 'body' } }, 'READ'],
+  ['window', { operation: 'list' }, 'EXECUTE'],
+  ['audio', { action: 'record', dry_run: true }, 'EXECUTE'],
+  ['screen_record', { action: 'status' }, 'EXECUTE'],
+  ['tool_batch', { calls: [] }, 'EXECUTE'],
+  ['git_worktree_spawn', {}, 'WRITE'],
+  ['git_worktree_remove', {}, 'DANGEROUS'],
+  ['self_heal_apply', {}, 'DANGEROUS'],
 ] as const satisfies readonly [string, Readonly<Record<string, unknown>>, McpPermissionLevel][];
 
 const mixedOperationNames = new Set(mixedOperationReadCases.map(([tool]) => tool));
