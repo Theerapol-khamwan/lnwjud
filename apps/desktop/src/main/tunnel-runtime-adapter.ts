@@ -10,6 +10,8 @@ import {
 const execFileAsync = promisify(execFile);
 const DEFAULT_EXEC_TIMEOUT_MS = 60_000;
 const MAX_CLI_OUTPUT_BYTES = 2 * 1024 * 1024;
+const DEFAULT_STOP_VERIFY_ATTEMPTS = 20;
+const DEFAULT_STOP_VERIFY_INTERVAL_MS = 250;
 
 export interface TunnelRuntimeExecResult {
   readonly stdout: string;
@@ -28,6 +30,9 @@ export interface TunnelRuntimeAdapterOptions {
   readonly environment: NodeJS.ProcessEnv;
   readonly alias?: string;
   readonly execute?: TunnelRuntimeExecutor;
+  readonly stopVerifyAttempts?: number;
+  readonly stopVerifyIntervalMs?: number;
+  readonly sleep?: (delayMs: number) => Promise<void>;
 }
 
 export interface NativeRuntimeConnectRequest {
@@ -130,7 +135,16 @@ export class TunnelRuntimeAdapter {
       if (isUnknownAliasMessage(message)) return missingRuntime(message);
       throw new Error(message || 'tunnel-client runtimes stop failed');
     }
-    return parseNativeRuntimeStatus(result.stdout, result.stderr);
+
+    const attempts = Math.max(1, Math.min(100, this.options.stopVerifyAttempts ?? DEFAULT_STOP_VERIFY_ATTEMPTS));
+    const intervalMs = Math.max(0, Math.min(5_000, this.options.stopVerifyIntervalMs ?? DEFAULT_STOP_VERIFY_INTERVAL_MS));
+    const sleep = this.options.sleep ?? delay;
+    for (let attempt = 0; attempt < attempts; attempt += 1) {
+      const current = await this.status();
+      if (!current.exists || !current.running) return current;
+      if (attempt + 1 < attempts && intervalMs > 0) await sleep(intervalMs);
+    }
+    throw new Error(`Tunnel runtime ${this.alias} is still running after stop`);
   }
 
   private async capture(args: readonly string[], timeout: number): Promise<{ readonly ok: boolean; readonly stdout: string; readonly stderr: string }> {
@@ -153,6 +167,10 @@ export class TunnelRuntimeAdapter {
 async function defaultExecutor(executable: string, args: readonly string[], options: ExecFileOptionsWithStringEncoding): Promise<TunnelRuntimeExecResult> {
   const result = await execFileAsync(executable, [...args], options);
   return { stdout: String(result.stdout ?? ''), stderr: String(result.stderr ?? '') };
+}
+
+async function delay(delayMs: number): Promise<void> {
+  await new Promise<void>((resolve) => setTimeout(resolve, delayMs));
 }
 
 export function parseNativeRuntimeStatus(stdout: string, stderr = ''): NativeTunnelRuntimeStatus {

@@ -230,6 +230,11 @@ export class TunnelController {
     };
   }
 
+  private invalidateExternalProbeCache(): void {
+    this.externalProbeAt = 0;
+    this.lastExternalProbe = 'unverifiable';
+  }
+
   private async probeExternalRunning(force = false): Promise<ExternalTunnelProbe> {
     const now = Date.now();
     if (!force && now - this.externalProbeAt < EXTERNAL_PROBE_TTL_MS) return this.lastExternalProbe;
@@ -252,6 +257,11 @@ export class TunnelController {
     } catch {
       return false;
     }
+  }
+
+  public startAutomatically(): Promise<TunnelStatus> {
+    if (this.intentionalStop) return this.status();
+    return this.start();
   }
 
   public start(): Promise<TunnelStatus> {
@@ -367,13 +377,17 @@ export class TunnelController {
 
   private async stopOnce(): Promise<TunnelStatus> {
     if (this.runtimeMode === 'native-managed' && this.runtimeSupervisor !== null) {
-      await this.runtimeSupervisor.stopRuntime();
+      const result = await this.runtimeSupervisor.stopRuntime();
+      if (result !== null && result.snapshot.state !== 'stopped') {
+        throw new Error(result.snapshot.message ?? 'Tunnel runtime did not stop');
+      }
       this.disposeRuntimeSupervisor();
       this.state = 'stopped';
       this.message = null;
       this.lastApiKey = null;
       this.restartAttempts = 0;
       this.clearStableTimer();
+      this.invalidateExternalProbeCache();
       return this.status();
     }
     await this.killOwnedChild();
@@ -384,6 +398,7 @@ export class TunnelController {
     this.restartAttempts = 0;
     this.runtimeMode = null;
     this.clearStableTimer();
+    this.invalidateExternalProbeCache();
     return this.status();
   }
 

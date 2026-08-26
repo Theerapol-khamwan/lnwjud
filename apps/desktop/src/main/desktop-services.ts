@@ -930,7 +930,7 @@ export function createDesktopRuntime(dataPath: string, options: DesktopRuntimeOp
       if (!readSettings().tunnelAutoReconnect) return null;
       const status = await tunnelController.status();
       if (!status.profileExists || !status.hasApiKey || status.clientPath === null) return status;
-      return tunnelController.start();
+      return tunnelController.startAutomatically();
     },
     close: async (): Promise<void> => {
       await tunnelController.shutdownForDesktopExit();

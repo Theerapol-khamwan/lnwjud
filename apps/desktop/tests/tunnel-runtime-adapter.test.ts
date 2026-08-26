@@ -51,6 +51,47 @@ describe('TunnelRuntimeAdapter', () => {
     await expect(adapter.status()).resolves.toMatchObject({ exists: false, running: false });
   });
 
+  it('verifies the managed runtime is actually stopped instead of trusting the stop command exit code', async () => {
+    let statusCalls = 0;
+    const execute: TunnelRuntimeExecutor = vi.fn(async (_executable, args) => {
+      const key = args.join(' ');
+      if (key === 'runtimes stop lnwjud --json') return { stdout: JSON.stringify({ alias: 'lnwjud' }), stderr: '' };
+      if (key === 'runtimes status lnwjud --json') {
+        statusCalls += 1;
+        return {
+          stdout: JSON.stringify({
+            tunnel_id: 'tunnel_fixture012345',
+            process: { running: statusCalls < 2, pid: statusCalls < 2 ? 1234 : null },
+          }),
+          stderr: '',
+        };
+      }
+      throw new Error(`unexpected command: ${key}`);
+    });
+    const adapter = new TunnelRuntimeAdapter({
+      clientPath: 'client.exe', profileDirectory: 'profile', environment: {}, execute,
+      stopVerifyAttempts: 3, stopVerifyIntervalMs: 0,
+    });
+
+    await expect(adapter.stop()).resolves.toMatchObject({ running: false });
+    expect(statusCalls).toBe(2);
+  });
+
+  it('fails loudly when the managed runtime remains live after an explicit stop', async () => {
+    const execute: TunnelRuntimeExecutor = vi.fn(async (_executable, args) => {
+      const key = args.join(' ');
+      if (key === 'runtimes stop lnwjud --json') return { stdout: JSON.stringify({ alias: 'lnwjud' }), stderr: '' };
+      if (key === 'runtimes status lnwjud --json') return { stdout: JSON.stringify({ tunnel_id: 'tunnel_fixture012345', process: { running: true, pid: 1234 } }), stderr: '' };
+      throw new Error(`unexpected command: ${key}`);
+    });
+    const adapter = new TunnelRuntimeAdapter({
+      clientPath: 'client.exe', profileDirectory: 'profile', environment: {}, execute,
+      stopVerifyAttempts: 2, stopVerifyIntervalMs: 0,
+    });
+
+    await expect(adapter.stop()).rejects.toThrow('still running after stop');
+  });
+
   it('connects the same tunnel with an environment key reference and no literal secret in argv', async () => {
     const tunnelId = 'tunnel_0123456789abcdef';
     const mcpServerUrl = 'http://127.0.0.1:18765/mcp';

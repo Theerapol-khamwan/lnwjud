@@ -45,6 +45,41 @@ describe('TunnelController lifecycle', () => {
     expect(await readTunnelLock(fixture.profileDir)).toBeNull();
   });
 
+  it('does not let a pending automatic start override an explicit operator stop', async () => {
+    const dataPath = await mkdtemp(path.join(os.tmpdir(), 'lnwjud-tunnel-auto-stop-'));
+    temporaryRoots.push(dataPath);
+    vi.stubEnv('APPDATA', path.join(dataPath, 'appdata'));
+    const controller = new TunnelController({
+      getClientPath: (): string | null => null,
+      setClientPath: (): void => undefined,
+      getDataPath: (): string => dataPath,
+      isExternalTunnelRunning: async (): Promise<boolean> => false,
+    });
+
+    await expect(controller.stop()).resolves.toMatchObject({ state: 'stopped' });
+    await expect(controller.startAutomatically()).resolves.toMatchObject({ state: 'stopped' });
+  });
+
+  it('invalidates a cached external-live probe when the operator explicitly stops the tunnel', async () => {
+    const dataPath = await mkdtemp(path.join(os.tmpdir(), 'lnwjud-tunnel-stop-cache-'));
+    temporaryRoots.push(dataPath);
+    vi.stubEnv('APPDATA', path.join(dataPath, 'appdata'));
+    let probes = 0;
+    const controller = new TunnelController({
+      getClientPath: (): string | null => null,
+      setClientPath: (): void => undefined,
+      getDataPath: (): string => dataPath,
+      isExternalTunnelRunning: async (): Promise<boolean> => { probes += 1; return false; },
+    });
+    const internals = controllerInternals(controller);
+    internals.state = 'running';
+    internals.lastExternalProbe = 'live';
+    internals.externalProbeAt = Date.now();
+
+    await expect(controller.stop()).resolves.toMatchObject({ state: 'stopped' });
+    expect(probes).toBe(1);
+  });
+
   it('releases ownership when the child already has an exit code before signaling', async () => {
     const fixture = await ownedController(() => false);
     fixture.child.exitCode = 0;
@@ -587,12 +622,16 @@ function controllerInternals(controller: TunnelController): {
   ownedChildStartedAt: string | null;
   tunnelLock: TunnelLockAcquisition | null;
   state: 'stopped' | 'starting' | 'running' | 'error';
+  externalProbeAt: number;
+  lastExternalProbe: 'live' | 'gone' | 'unverifiable';
 } {
   return controller as unknown as {
     child: ChildProcess | null;
     ownedChildStartedAt: string | null;
     tunnelLock: TunnelLockAcquisition | null;
     state: 'stopped' | 'starting' | 'running' | 'error';
+    externalProbeAt: number;
+    lastExternalProbe: 'live' | 'gone' | 'unverifiable';
   };
 }
 
