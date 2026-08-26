@@ -10,6 +10,8 @@ import type {
   UpdateStatus,
   UserSettings,
   IncidentClassification,
+  ExternalSetupTarget,
+  TunnelStatus,
   WorkspaceSummary,
 } from '@lnwjud/ipc-contracts';
 import { AppShell, type Screen } from './features/shell/AppShell.js';
@@ -20,8 +22,14 @@ import { WorkLogPage } from './features/worklog/WorkLogPage.js';
 import { LiveLogsPage } from './features/live/LiveLogsPage.js';
 import type { LogScopeSelection } from './features/live/LogStreamPanel.js';
 import { applyLogSnapshot } from './features/live/log-buffer.js';
-import { SettingsPage } from './features/settings/SettingsPage.js';
+import { SettingsPage, type SettingsSection } from './features/settings/SettingsPage.js';
 import { DoctorPanel } from './features/doctor/DoctorPanel.js';
+import { FirstRunTunnelTip } from './features/onboarding/FirstRunTunnelTip.js';
+import {
+  guidedTunnelLaunchDecision,
+  readGuidedTunnelSetupState,
+  writeGuidedTunnelSetupState,
+} from './features/onboarding/guided-tunnel-setup-state.js';
 import { createTranslator } from './i18n/index.js';
 
 const MAX_CLIENT_LOG_LINES = 4_000;
@@ -43,8 +51,13 @@ export function App(): ReactElement {
   const [incidentNotice, setIncidentNotice] = useState<string | null>(null);
   const [incidentBusy, setIncidentBusy] = useState(false);
   const [updateStatus, setUpdateStatus] = useState<UpdateStatus | null>(null);
+  const [firstRunTunnelTipOpen, setFirstRunTunnelTipOpen] = useState(false);
+  const [guidedTunnelSetupOpen, setGuidedTunnelSetupOpen] = useState(false);
+  const [requestedSettingsSection, setRequestedSettingsSection] = useState<{ readonly section: SettingsSection; readonly requestId: number } | undefined>(undefined);
   const incidentBusyRef = useRef(false);
   const logIds = useRef<Set<number>>(new Set());
+  const guidedTunnelLaunchHandled = useRef(false);
+  const settingsRequestId = useRef(0);
 
   const t = createTranslator(locale);
   const projectWorkspaces = workspaces.filter((workspace) => workspace.kind !== 'machine_root' && (workspace.archivedAt === undefined || workspace.archivedAt === null));
@@ -177,6 +190,50 @@ export function App(): ReactElement {
     const interval = window.setInterval(() => { void refresh(); }, 1_000);
     return (): void => { window.clearInterval(interval); };
   }, [refresh]);
+
+  useEffect(() => {
+    if (dashboard === null || guidedTunnelLaunchHandled.current) return;
+    guidedTunnelLaunchHandled.current = true;
+    const state = readGuidedTunnelSetupState(window.localStorage);
+    const decision = guidedTunnelLaunchDecision(dashboard.tunnel, state);
+    if (decision === 'show_tip') {
+      setFirstRunTunnelTipOpen(true);
+      return;
+    }
+    if (decision === 'resume_settings') openGuidedTunnelSettings(true);
+  }, [dashboard]);
+
+  function requestSettingsSection(section: SettingsSection): void {
+    settingsRequestId.current += 1;
+    setRequestedSettingsSection({ section, requestId: settingsRequestId.current });
+    setError(null);
+    setScreen('settings');
+  }
+
+  function openGuidedTunnelSettings(markInProgress: boolean): void {
+    if (markInProgress) {
+      try { writeGuidedTunnelSetupState(window.localStorage, 'in_progress'); } catch { /* UI still works without storage. */ }
+    }
+    setFirstRunTunnelTipOpen(false);
+    setGuidedTunnelSetupOpen(true);
+    requestSettingsSection('tunnel');
+  }
+
+  function changeGuidedTunnelSetupOpen(open: boolean): void {
+    if (!open) {
+      setGuidedTunnelSetupOpen(false);
+      return;
+    }
+    openGuidedTunnelSettings(dashboard?.tunnel.state !== 'running');
+  }
+
+  function completeGuidedTunnelSetup(): void {
+    try { writeGuidedTunnelSetupState(window.localStorage, 'completed'); } catch { /* Completion is also derived from tunnel state. */ }
+  }
+
+  async function openExternalSetupPage(target: ExternalSetupTarget): Promise<void> {
+    await window.lnwjud.openExternalSetupPage({ target });
+  }
 
   async function handleUpdateAction(): Promise<void> {
     try {
@@ -322,15 +379,22 @@ export function App(): ReactElement {
     }
   }
 
-  async function startTunnel(): Promise<void> {
+  async function startTunnelWithStatus(): Promise<TunnelStatus> {
+    setTunnelBusy(true);
     try {
-      setTunnelBusy(true);
-      await window.lnwjud.startTunnel();
+      const status = await window.lnwjud.startTunnel();
       await refresh();
-    } catch (cause: unknown) {
-      setError(errorMessage(cause, t('error.tunnelStart')));
+      return status;
     } finally {
       setTunnelBusy(false);
+    }
+  }
+
+  async function startTunnel(): Promise<void> {
+    try {
+      await startTunnelWithStatus();
+    } catch (cause: unknown) {
+      setError(errorMessage(cause, t('error.tunnelStart')));
     }
   }
 
@@ -447,6 +511,7 @@ export function App(): ReactElement {
           onAddWorkspace={addWorkspace}
           onStartTunnel={startTunnel}
           onStopTunnel={stopTunnel}
+          onOpenTunnelSetup={() => openGuidedTunnelSettings(dashboard.tunnel.state !== 'running')}
           onCaptureIncident={captureIncident}
           incidentBusy={incidentBusy}
           incidentClassification={incidentClassification}
@@ -516,8 +581,14 @@ export function App(): ReactElement {
           onUserSettingsChange={setUserSettings}
           onChooseTunnelClientPath={chooseTunnelClientPath}
           onConfigureTunnelProfile={configureTunnelProfile}
-          onStartTunnel={startTunnel}
+          onStartTunnel={startTunnelWithStatus}
           onStopTunnel={stopTunnel}
+          onOpenExternalSetupPage={openExternalSetupPage}
+          onRefresh={refresh}
+          guidedTunnelSetupOpen={guidedTunnelSetupOpen}
+          onGuidedTunnelSetupOpenChange={changeGuidedTunnelSetupOpen}
+          onGuidedTunnelLocalComplete={completeGuidedTunnelSetup}
+          requestedSection={requestedSettingsSection}
         />
       ) : null}
       {screen === 'doctor' ? (
@@ -525,6 +596,16 @@ export function App(): ReactElement {
           <h1>{t('doctor.title')}</h1>
           <DoctorPanel locale={locale} report={doctor} onRunDoctor={runDoctor} />
         </div>
+      ) : null}
+      {firstRunTunnelTipOpen ? (
+        <FirstRunTunnelTip
+          locale={locale}
+          onStart={() => openGuidedTunnelSettings(true)}
+          onLater={() => {
+            try { writeGuidedTunnelSetupState(window.localStorage, 'dismissed'); } catch { /* Dismiss for this session even if storage is unavailable. */ }
+            setFirstRunTunnelTipOpen(false);
+          }}
+        />
       ) : null}
     </AppShell>
   );

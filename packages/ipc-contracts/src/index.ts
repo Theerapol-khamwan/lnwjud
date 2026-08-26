@@ -1,5 +1,5 @@
 export const APP_NAME = 'lnwjud';
-export const APP_VERSION = '4.11.0';
+export const APP_VERSION = '4.12.0';
 
 export const ipcChannels = {
   listWorkspaces: 'lnwjud:list-workspaces',
@@ -33,6 +33,7 @@ export const ipcChannels = {
   setUserSettings: 'lnwjud:set-user-settings',
   chooseTunnelClientPath: 'lnwjud:choose-tunnel-client-path',
   configureTunnelProfile: 'lnwjud:configure-tunnel-profile',
+  openExternalSetupPage: 'lnwjud:open-external-setup-page',
   launchManagedBrowser: 'lnwjud:launch-managed-browser',
   runDoctor: 'lnwjud:run-doctor',
   getLogSnapshot: 'lnwjud:get-log-snapshot',
@@ -487,6 +488,18 @@ export interface ConfigureTunnelProfileRequest {
   readonly tunnelId: string;
 }
 
+export type ExternalSetupTarget = 'openai_tunnels' | 'openai_api_keys' | 'chatgpt_plugins';
+
+export const EXTERNAL_SETUP_URLS: Readonly<Record<ExternalSetupTarget, string>> = Object.freeze({
+  openai_tunnels: 'https://platform.openai.com/settings/organization/tunnels',
+  openai_api_keys: 'https://platform.openai.com/api-keys',
+  chatgpt_plugins: 'https://chatgpt.com/plugins',
+});
+
+export interface OpenExternalSetupPageRequest {
+  readonly target: ExternalSetupTarget;
+}
+
 export interface McpConnectionStatus {
   readonly running: boolean;
   readonly url: string | null;
@@ -531,6 +544,7 @@ export interface IpcRequestMap {
   readonly [ipcChannels.setUserSettings]: SetUserSettingsRequest;
   readonly [ipcChannels.chooseTunnelClientPath]: undefined;
   readonly [ipcChannels.configureTunnelProfile]: ConfigureTunnelProfileRequest;
+  readonly [ipcChannels.openExternalSetupPage]: OpenExternalSetupPageRequest;
   readonly [ipcChannels.launchManagedBrowser]: undefined;
   readonly [ipcChannels.runDoctor]: undefined;
   readonly [ipcChannels.getLogSnapshot]: undefined;
@@ -575,6 +589,7 @@ export interface IpcResponseMap {
   readonly [ipcChannels.setUserSettings]: { readonly settings: UserSettings; readonly restartRequired: boolean };
   readonly [ipcChannels.chooseTunnelClientPath]: { readonly clientPath: string | null };
   readonly [ipcChannels.configureTunnelProfile]: { readonly configured: boolean; readonly profilePath: string };
+  readonly [ipcChannels.openExternalSetupPage]: { readonly opened: true };
   readonly [ipcChannels.launchManagedBrowser]: ManagedBrowserStatus;
   readonly [ipcChannels.runDoctor]: DoctorReport;
   readonly [ipcChannels.getLogSnapshot]: LogSnapshot;
@@ -619,6 +634,7 @@ export interface LnwjudApi {
   setUserSettings(request: SetUserSettingsRequest): Promise<IpcResponseMap[typeof ipcChannels.setUserSettings]>;
   chooseTunnelClientPath(): Promise<IpcResponseMap[typeof ipcChannels.chooseTunnelClientPath]>;
   configureTunnelProfile(request: ConfigureTunnelProfileRequest): Promise<IpcResponseMap[typeof ipcChannels.configureTunnelProfile]>;
+  openExternalSetupPage(request: OpenExternalSetupPageRequest): Promise<IpcResponseMap[typeof ipcChannels.openExternalSetupPage]>;
   launchManagedBrowser(): Promise<IpcResponseMap[typeof ipcChannels.launchManagedBrowser]>;
   runDoctor(): Promise<IpcResponseMap[typeof ipcChannels.runDoctor]>;
   getLogSnapshot(): Promise<IpcResponseMap[typeof ipcChannels.getLogSnapshot]>;

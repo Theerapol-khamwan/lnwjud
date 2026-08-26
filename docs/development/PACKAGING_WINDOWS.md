@@ -63,13 +63,13 @@ The `makeappx.exe`/`signtool.exe` steps need the Windows SDK. No certificate or 
 
 ## Expected Windows outputs
 
-For v4.11.0:
+For v4.12.0:
 
 ```text
-apps/desktop/dist/installers/lnwjud-Setup-4.11.0.exe
+apps/desktop/dist/installers/lnwjud-Setup-4.12.0.exe
 apps/desktop/dist/installers/latest.yml
 apps/desktop/dist/installers/portable.yml
-apps/desktop/dist/installers/lnwjud-Portable-4.11.0.exe
+apps/desktop/dist/installers/lnwjud-Portable-4.12.0.exe
 ```
 
 Generic patterns:

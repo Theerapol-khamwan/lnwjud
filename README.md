@@ -41,13 +41,22 @@ over outbound HTTPS, forwards MCP work to lnwjud's Desktop loopback HTTP MCP,
 and returns the response without opening a public inbound port on the Windows
 machine.
 
-## Current version: v4.11.0
+## Current version: v4.12.0
 
-The v4.11.0 release target and runtime contract contain **223 configurable MCP tools**,
+The v4.12.0 release target and runtime contract contain **223 configurable MCP tools**,
 with **217 advertised by default** because
 the six `codex_*` delegation tools are opt-in. The earlier 184-tool snapshot remains
 only as the compatibility baseline used by the v4 architecture; new v4 gateway
 capabilities are additive.
+
+### What's new in v4.12.0
+
+- Adds a bilingual **Guided Local Tunnel Setup** for first-time users. A pristine install shows a Tips dialog and can route directly to **Settings > Secure Tunnel** without requiring Terminal commands or manual config-file editing.
+- Adds a five-step Secure Tunnel guide for creating/pasting the Tunnel ID, securely saving the Runtime API key through the existing Windows DPAPI path, configuring the bundled `tunnel-client` profile, starting the tunnel, and opening ChatGPT Plugins for the final user-controlled connection step.
+- Adds strict allowlisted external setup links. Renderer code sends only one of three fixed targets; the main process resolves those targets to the official OpenAI Tunnel Settings, OpenAI API Keys, or ChatGPT Plugins HTTPS pages and rejects arbitrary URLs.
+- Adds resume/recovery behavior based on real tunnel status. Existing configured users are not interrupted, dismissed users can reopen the guide from Home or Settings, and in-progress setup resumes at the first step still required by the local key/profile/runtime state.
+- Keeps secrets local: onboarding storage contains only a finite UI state, Runtime API key drafts are cleared after a successful save or guide close, and status/summary UI uses only masked Tunnel IDs.
+- Adds focused unit/IPC/renderer coverage plus a real isolated Electron E2E smoke for first-run Tips, Secure Tunnel navigation, language switching, and the Set up later/reopen flow.
 
 ### What's new in v4.11.0
 
@@ -321,7 +330,7 @@ stops the current local HTTP listener.
 
 1. Download the latest published installer from
    [GitHub Releases](https://github.com/engasnm111/lnwjud/releases/latest).
-   Current Windows 10/11 x64 artifacts are `lnwjud-Setup-4.11.0.exe` (recommended installer) and `lnwjud-Portable-4.11.0.exe` (no installation required).
+   Current Windows 10/11 x64 artifacts are `lnwjud-Setup-4.12.0.exe` (recommended installer) and `lnwjud-Portable-4.12.0.exe` (no installation required).
 2. Run the NSIS installer and launch **lnwjud Agent Control Center**.
 3. Add or select the project/workspace you want lnwjud to operate on.
 4. Review **Settings** before attaching an AI client, especially Permission
@@ -682,8 +691,8 @@ corepack pnpm@10.15.0 package:windows
 The Windows 10/11 x64 artifacts are written to:
 
 ```text
-apps/desktop/dist/installers/lnwjud-Setup-4.11.0.exe
-apps/desktop/dist/installers/lnwjud-Portable-4.11.0.exe
+apps/desktop/dist/installers/lnwjud-Setup-4.12.0.exe
+apps/desktop/dist/installers/lnwjud-Portable-4.12.0.exe
 ```
 
 The installer is per-user by default. The portable executable needs no installation but uses the same per-user lnwjud data/settings location. A common installed executable path is:

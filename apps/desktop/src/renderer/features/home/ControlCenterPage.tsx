@@ -16,6 +16,7 @@ interface ControlCenterPageProps {
   readonly onAddWorkspace: (rootPath: string) => Promise<void>;
   readonly onStartTunnel: () => Promise<void>;
   readonly onStopTunnel: () => Promise<void>;
+  readonly onOpenTunnelSetup: () => void;
   readonly onCaptureIncident: () => Promise<void>;
   readonly incidentBusy: boolean;
   readonly incidentClassification: IncidentClassification | null;
@@ -156,6 +157,12 @@ export function ControlCenterPage(props: ControlCenterPageProps): ReactElement {
           {dashboard.tunnel.message ? <p className="hint error-text">{dashboard.tunnel.message}</p> : null}
           {!dashboard.tunnel.hasApiKey ? <p className="hint">{t('tunnel.needKey')}</p> : null}
           {!dashboard.tunnel.profileExists ? <p className="hint">{t('tunnel.needProfile')}</p> : null}
+          {dashboard.tunnel.hasApiKey && dashboard.tunnel.profileExists ? null : (
+            <div className="guided-tunnel-home-entry">
+              <p className="hint">{t('guidedTunnel.dismissedHint')}</p>
+              <button type="button" className="btn-save-gold" onClick={props.onOpenTunnelSetup}>{t('guidedTunnel.openGuide')}</button>
+            </div>
+          )}
           <div className="inline-actions">
             <button
               type="button"

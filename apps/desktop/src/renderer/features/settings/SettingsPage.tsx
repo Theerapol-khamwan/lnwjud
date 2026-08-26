@@ -1,6 +1,7 @@
 import { useEffect, useState, type ReactElement } from 'react';
-import type { DashboardSnapshot, DestructiveDeletePolicy, PermissionProfileName, UiLocale, UserSettings } from '@lnwjud/ipc-contracts';
+import type { DashboardSnapshot, DestructiveDeletePolicy, ExternalSetupTarget, PermissionProfileName, TunnelStatus, UiLocale, UserSettings } from '@lnwjud/ipc-contracts';
 import { createTranslator } from '../../i18n/index.js';
+import { GuidedTunnelSetup } from '../onboarding/GuidedTunnelSetup.js';
 import { SettingSwitch } from './SettingSwitch.js';
 import { UserConfigPanel, type UserConfigSection } from './UserConfigPanel.js';
 
@@ -21,12 +22,18 @@ interface SettingsPageProps {
   readonly onUserSettingsChange: (settings: UserSettings) => Promise<boolean>;
   readonly onChooseTunnelClientPath: () => Promise<string | null>;
   readonly onConfigureTunnelProfile: (tunnelId: string) => Promise<string>;
-  readonly onStartTunnel: () => Promise<void>;
+  readonly onStartTunnel: () => Promise<TunnelStatus>;
   readonly onStopTunnel: () => Promise<void>;
+  readonly onOpenExternalSetupPage: (target: ExternalSetupTarget) => Promise<void>;
+  readonly onRefresh: () => Promise<void>;
+  readonly guidedTunnelSetupOpen: boolean;
+  readonly onGuidedTunnelSetupOpenChange: (open: boolean) => void;
+  readonly onGuidedTunnelLocalComplete: () => void;
   readonly initialSection?: SettingsSection;
+  readonly requestedSection?: { readonly section: SettingsSection; readonly requestId: number } | undefined;
 }
 
-type SettingsSection = 'general' | 'security' | 'tools' | 'mcp' | 'tunnel' | 'backup';
+export type SettingsSection = 'general' | 'security' | 'tools' | 'mcp' | 'tunnel' | 'backup';
 type DestructiveApprovalKey = keyof DestructiveDeletePolicy['approvals'];
 
 export function SettingsPage(props: SettingsPageProps): ReactElement {
@@ -53,6 +60,11 @@ export function SettingsPage(props: SettingsPageProps): ReactElement {
   const [recoveryMessage, setRecoveryMessage] = useState<string | null>(null);
   const [recoveryError, setRecoveryError] = useState<string | null>(null);
   const [retentionBusy, setRetentionBusy] = useState(false);
+
+  useEffect(() => {
+    if (props.requestedSection === undefined) return;
+    setActiveSection(props.requestedSection.section);
+  }, [props.requestedSection]);
 
   const persistedRootsText = props.dashboard.stdioAllowedRoots.join('\n');
   useEffect(() => {
@@ -392,7 +404,29 @@ export function SettingsPage(props: SettingsPageProps): ReactElement {
           <UserConfigPanel locale={props.locale} settings={props.dashboard.settings} section={userConfigSection} onSave={props.onUserSettingsChange} />
 
           {activeSection === 'tunnel' ? (
-            <section className="panel settings-card settings-card-polished" aria-label={t('settings.tunnelTitle')}>
+            <>
+              <section className="panel settings-card settings-card-polished guided-tunnel-launch-card" aria-label={t('guidedTunnel.openGuide')}>
+                <SettingsCardHeading icon="↗" title={t('guidedTunnel.openGuide')} subtitle={t('guidedTunnel.privacy')} badge={props.dashboard.tunnel.state === 'running' ? 'RUNNING' : props.dashboard.tunnel.profileExists ? 'READY' : 'SETUP'} />
+                <p className="hint">{props.dashboard.tunnel.state === 'running' ? t('guidedTunnel.localComplete') : t('guidedTunnel.dismissedHint')}</p>
+                <button type="button" className="btn-save-gold" onClick={() => props.onGuidedTunnelSetupOpenChange(true)}>{t('guidedTunnel.openGuide')}</button>
+              </section>
+
+              <GuidedTunnelSetup
+                locale={props.locale}
+                tunnel={props.dashboard.tunnel}
+                open={props.guidedTunnelSetupOpen}
+                onOpenChange={props.onGuidedTunnelSetupOpenChange}
+                onOpenExternal={props.onOpenExternalSetupPage}
+                onSaveApiKey={props.onSaveTunnelApiKey}
+                onConfigureProfile={props.onConfigureTunnelProfile}
+                onStartTunnel={props.onStartTunnel}
+                onRefresh={props.onRefresh}
+                onLocalComplete={props.onGuidedTunnelLocalComplete}
+              />
+
+              <details className="guided-tunnel-advanced">
+                <summary>{t('guidedTunnel.advanced')}</summary>
+                <section className="panel settings-card settings-card-polished" aria-label={t('settings.tunnelTitle')}>
               <SettingsCardHeading icon="↗" title={t('settings.tunnelTitle')} subtitle={props.locale === 'th' ? 'Credential, tunnel-client และ Setup Wizard' : 'Credentials, tunnel-client, and setup wizard'} badge={props.dashboard.tunnel.profileExists ? (props.locale === 'th' ? 'พร้อมใช้งาน' : 'READY') : (props.locale === 'th' ? 'ต้องตั้งค่า' : 'SETUP')} />
               <div className="setting-grid two-col">
                 <div className="setting-field">
@@ -433,7 +467,9 @@ export function SettingsPage(props: SettingsPageProps): ReactElement {
                   {props.dashboard.tunnel.persistent.capabilityEvidence === null ? null : <p className="hint">{props.dashboard.tunnel.persistent.capabilityEvidence}</p>}
                 </div>
               )}
-            </section>
+                </section>
+              </details>
+            </>
           ) : null}
 
           {activeSection === 'backup' ? (

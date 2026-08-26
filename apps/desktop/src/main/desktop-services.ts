@@ -344,6 +344,9 @@ export function createDesktopRuntime(dataPath: string, options: DesktopRuntimeOp
       const status = await mcpLifecycle.start();
       return status.url;
     },
+    ...(process.env.LNWJUD_E2E_FIXTURE === '1'
+      ? { isExternalTunnelRunning: async (): Promise<boolean> => false }
+      : {}),
     autoReconnect: (): boolean => readSettings().tunnelAutoReconnect,
     maxAutoRestarts: (): number => readSettings().tunnelMaxAutoRestarts,
     getTunnelId: (): string | null => settingsRepository.get(tunnelIdentitySettingKey),

@@ -18,6 +18,7 @@ import {
   type InFlightWorkItem,
   type LnwjudApi,
   type LogLine,
+  type OpenExternalSetupPageRequest,
   type LogSnapshot,
   type ManagedBrowserStatus,
   type McpConnectionStatus,
@@ -728,6 +729,19 @@ function configureTunnelProfile(request: ConfigureTunnelProfileRequest): Promise
   });
 }
 
+function openExternalSetupPage(request: OpenExternalSetupPageRequest): Promise<{ readonly opened: true }> {
+  if (
+    !isRecord(request) ||
+    (request.target !== 'openai_tunnels' && request.target !== 'openai_api_keys' && request.target !== 'chatgpt_plugins')
+  ) {
+    return Promise.reject(new Error('Invalid IPC request'));
+  }
+  return invoke(ipcChannels.openExternalSetupPage, { target: request.target }).then((value: unknown) => {
+    if (!isRecord(value) || value.opened !== true) throw new Error('Invalid IPC response');
+    return { opened: true };
+  });
+}
+
 function launchManagedBrowser(): Promise<ManagedBrowserStatus> {
   return invoke(ipcChannels.launchManagedBrowser).then(managedBrowserStatus);
 }
@@ -857,6 +871,7 @@ const api: LnwjudApi = {
   setUserSettings,
   chooseTunnelClientPath,
   configureTunnelProfile,
+  openExternalSetupPage,
   launchManagedBrowser,
   runDoctor: () => invoke(ipcChannels.runDoctor).then(doctorReport),
   getLogSnapshot: () => invoke(ipcChannels.getLogSnapshot).then(logSnapshot),

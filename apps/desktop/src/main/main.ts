@@ -1,4 +1,4 @@
-import { app, BrowserWindow, dialog, ipcMain, Menu, nativeImage, Tray, type IpcMainInvokeEvent } from 'electron';
+import { app, BrowserWindow, dialog, ipcMain, Menu, nativeImage, shell, Tray, type IpcMainInvokeEvent } from 'electron';
 import path from 'node:path';
 import os from 'node:os';
 import { access } from 'node:fs/promises';
@@ -52,6 +52,7 @@ import { DEFAULT_MCP_POLL_WAIT_SECONDS, DEFAULT_SHELL_SYNCHRONOUS_WAIT_SECONDS, 
 import { applyPendingSqliteRestoreSync } from '@lnwjud/storage';
 import { createDesktopRuntime, type DesktopRuntime } from './desktop-services.js';
 import { DesktopShutdownCoordinator } from './desktop-shutdown.js';
+import { parseOpenExternalSetupPageRequest, resolveExternalSetupUrl } from './external-setup-links.js';
 import { shouldHoldSingleInstanceLock, wantsMcpStdio } from './instance-lock.js';
 import { createLogViewerWindow, createMainWindow, getRendererEntryPath, getWindowIconPath, isAllowedRendererUrl } from './window.js';
 import { createTrayMenuTemplate, createTrayToolTip, createTrayUpdateLabel, shouldHideMainWindowOnClose } from './tray.js';
@@ -428,6 +429,12 @@ export function registerIpcHandlers(
   ipcMain.handle(ipcChannels.configureTunnelProfile, async (event, payload: unknown) => {
     assertTrustedSender(event, getMainWindow());
     return services.configureTunnelProfile(parseConfigureTunnelProfileRequest(payload));
+  });
+  ipcMain.handle(ipcChannels.openExternalSetupPage, async (event, payload: unknown) => {
+    assertTrustedSender(event, getMainWindow());
+    const request = parseOpenExternalSetupPageRequest(payload);
+    await shell.openExternal(resolveExternalSetupUrl(request.target));
+    return { opened: true as const };
   });
   ipcMain.handle(ipcChannels.launchManagedBrowser, async (event, payload: unknown) => {
     assertTrustedSender(event, getMainWindow());
