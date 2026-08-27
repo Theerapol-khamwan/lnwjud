@@ -88,6 +88,14 @@ Flow ที่ควรใช้:
 
 Goal state เป็น SQLite durable state และใช้ monotonic revision/CAS + append-only checkpoint history. Raw lease token ไม่ถูกเก็บใน authoritative state; repository เก็บ hash สำหรับตรวจสิทธิ์เท่านั้น และ activity logs ต้องไม่แสดง lease token
 
+### Rolling one-time Scheduled Continuation
+
+เมื่อ run ปัจจุบันยังไม่เสร็จและต้องมี successor ให้ใช้ `prepare_scheduled_continuation` เพื่อ checkpoint + จอง successor แบบ **one-time** ล่วงหน้า 2–5 นาที แล้วให้ native ChatGPT Scheduled Tasks สร้าง occurrence เดียวในแชทเดิม. ช่วง 2 นาทีเป็น lead time สำหรับ handoff ไม่ใช่ work slice; run ปัจจุบันทำงานต่อได้จนถึง `handoffDeadlineAt`.
+
+หลัง native create ให้บันทึกผลด้วย `record_scheduled_continuation_receipt`. ถ้า host ไม่คืนหลักฐาน `Runs on` ให้เก็บเป็น `unverified` ห้ามอ้างว่าเป็น cloud. เมื่อ successor ตื่นต้องเรียก `claim_scheduled_continuation` ก่อน mutation ใด ๆ. lnwjud มี session-level workspace mutation fence: predecessor ทำ mutation ได้ก่อน `dueAt`; หลังถึง deadline predecessor ถูกบล็อก และ successor ต้อง claim จาก MCP session ใหม่ก่อนจึงเขียนไฟล์, Git, shell/process, `project_*`, incremental verification หรือ delegated mutation ได้. ถ้า host reuse session เดิม ระบบจะ fail closed เป็น `busy_blocked` แทนการปล่อย writer สองตัวชนกัน. Workspace อื่นยังทำงานพร้อมกันได้ตามปกติ.
+
+เมื่อ goal เสร็จก่อน successor ทำงาน ให้ `finish_goal` แล้วลบ native one-time task ตาม cancellation instruction ที่คืนมา. ห้าม fallback ไป Windows Task Scheduler, OS cron, shell timer, recurring every-two-minute task, browser automation หรือ undocumented OpenAI API.
+
 `session_checkpoint` เดิมยังเป็น summary checkpoint สำหรับ development session และ file checkpoint/Recovery Center ยังใช้กู้คืนไฟล์ ทั้งสองอย่าง backward compatible และ **ไม่ใช่ authoritative goal state**
 
 ### Owner scope และ session rotation

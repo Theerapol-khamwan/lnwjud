@@ -7,6 +7,7 @@ import {
   FileService,
   GitService,
   GoalContinuationService,
+  ScheduledContinuationService,
   ProjectService,
   ProjectSnapshotService,
   ProcessService,
@@ -192,7 +193,8 @@ export function createDesktopRuntime(dataPath: string, options: DesktopRuntimeOp
   const database = new SqliteDatabase(databaseFilename, { backupDirectory });
   const workspaceRepository = new SqliteWorkspaceRepository(database);
   const goalRepository = new SqliteGoalRepository(database);
-  const goalService = new GoalContinuationService(workspaceRepository, goalRepository);
+  const scheduledContinuationService = new ScheduledContinuationService(goalRepository);
+  const goalService = new GoalContinuationService(workspaceRepository, goalRepository, { scheduledContinuations: goalRepository });
   const workspaceIndex = new WorkspaceIndexService(workspaceRepository, new JsonWorkspaceIndexStore(path.join(dataPath, 'workspace-index')));
   const settingsRepository = new SqliteSettingsRepository(database);
   const workLogViewState = new WorkLogViewState(settingsRepository);
@@ -296,6 +298,7 @@ export function createDesktopRuntime(dataPath: string, options: DesktopRuntimeOp
     file: fileService,
     checkpoint: checkpointService,
     goals: goalService,
+    scheduledContinuations: scheduledContinuationService,
     search: searchService,
     workspaceIndex,
     git: gitService,

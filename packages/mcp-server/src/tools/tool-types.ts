@@ -17,6 +17,7 @@ import type {
   ReadFileRequest,
   ReadFilesRequest,
   SearchService,
+  ScheduledContinuationService,
   WorkspaceIndexService,
   WorkspaceQueryService,
   WriteFileRequest,
@@ -55,6 +56,7 @@ export interface McpApplicationServices {
   readonly file?: Pick<FileService, 'readFile' | 'readFiles' | 'writeFile' | 'applyPatch' | 'editFile' | 'moveFile' | 'copyFile' | 'deleteFile' | 'listRecoveryItems' | 'restoreDeletedFile' | 'prepareExternalFileMutation'>;
   readonly checkpoint?: Pick<CheckpointService, 'list' | 'restore'>;
   readonly goals?: Pick<GoalContinuationService, 'runGoal' | 'getGoal' | 'checkpointGoal' | 'finishGoal' | 'listGoals'>;
+  readonly scheduledContinuations?: Pick<ScheduledContinuationService, 'prepareScheduledContinuation' | 'recordScheduledContinuationReceipt' | 'claimScheduledContinuation' | 'getScheduledContinuation' | 'authorizeWorkspaceMutation'>;
   readonly search?: Pick<SearchService, 'searchFiles' | 'searchText'>;
   readonly workspaceIndex?: Pick<WorkspaceIndexService, 'indexWorkspace' | 'status' | 'startWatch' | 'stopWatch'>;
   readonly git?: Pick<GitService, 'status' | 'diff' | 'log' | 'run'>;

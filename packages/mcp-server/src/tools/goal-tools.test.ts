@@ -70,6 +70,52 @@ describe('durable goal MCP tools', () => {
     expect(tool(context, 'run_goal').description).toMatch(/Immediate-return/i);
   });
 
+  it('passes exact pending-native-task cancellation guidance through finish_goal', async () => {
+    let finishes = 0;
+    const context = {
+      actor,
+      contextEconomy: new ContextEconomyRuntime(),
+      services: {
+        goals: {
+          async finishGoal() {
+            finishes += 1;
+            return ok({
+              goalId: 'goal-1',
+              status: 'completed',
+              scheduledTaskCancellation: {
+                action: 'delete_native_task',
+                continuationId: 'continuation-c',
+                nativeTaskId: 'native-task-c',
+                reason: 'live_task_confirmed',
+              },
+            });
+          },
+        },
+      },
+    } as unknown as McpToolContext;
+
+    const result = await tool(context, 'finish_goal').execute({
+      goalId: 'goal-1',
+      leaseToken: 'lease-token',
+      expectedRevision: 3,
+      status: 'completed',
+      summary: 'done',
+      evidence: [],
+    }, new AbortController().signal);
+    expect(result).toMatchObject({
+      ok: true,
+      value: {
+        status: 'completed',
+        scheduledTaskCancellation: {
+          action: 'delete_native_task',
+          continuationId: 'continuation-c',
+          nativeTaskId: 'native-task-c',
+        },
+      },
+    });
+    expect(finishes).toBe(1);
+  });
+
   it('never exposes leaseToken or sensitive goal text through activity records', async () => {
     const events: ActivitySinkEvent[] = [];
     const leaseToken = 'lease-token-SUPERSECRET';

@@ -6,6 +6,7 @@ export * from './doctor-service.js';
 export * from './error-sanitizer.js';
 export * from './git-service.js';
 export * from './goal-continuation-service.js';
+export * from './scheduled-continuation-service.js';
 export * from './machine-root-sync.js';
 export * from './project-service.js';
 export * from './process-service.js';

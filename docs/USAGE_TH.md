@@ -154,6 +154,14 @@ v4.11.0 เพิ่มเครื่องมือ `run_goal`, `get_goal`, `c
 
 สำหรับงานยาว ให้ checkpoint หลังจบ phase สำคัญหรือหลังเริ่ม durable background task แล้วใส่ `nextAction` ให้ชัดว่า turn ถัดไปต้องตรวจอะไรต่อ
 
+### ทำ successor แบบ one-time โดยไม่ให้งานชนกัน
+
+ถ้างานยังไม่เสร็จใกล้ขอบเขตของ ChatGPT turn สามารถใช้ rolling Scheduled Continuation ได้: `prepare_scheduled_continuation` จะ checkpoint และคืนคำขอสำหรับ native ChatGPT Scheduled Task แบบ occurrence เดียวล่วงหน้า 2–5 นาที. เวลานี้เป็นช่วงเผื่อ handoff เท่านั้น ไม่ได้จำกัดให้ AI ทำงานครั้งละ 2 นาที และ run เดิมยังทำงานต่อได้จนถึง deadline.
+
+เมื่อ Scheduled turn ใหม่ตื่นขึ้น ต้อง `claim_scheduled_continuation` ก่อนแก้ไฟล์ รัน Git/shell/process/`project_*` หรือ mutation อื่น. lnwjud ผูก lease กับ MCP session และใช้ workspace mutation fence ป้องกัน predecessor/successor เขียนพร้อมกัน: ก่อน deadline session เดิมถือสิทธิ์; หลัง deadline session เดิมถูกบล็อกจน session ใหม่ claim สำเร็จ. ถ้า host reuse session เดิมหรือพิสูจน์ ownership ไม่ได้ ระบบจะ `busy_blocked` แบบ fail-closed แทนการเสี่ยงให้สอง AI run ทำงานซ้อนกัน. Fence นี้ล็อกเฉพาะ workspace ที่มี rolling continuation จึงไม่ขัดกับการทำหลายโปรเจกต์พร้อมกัน.
+
+ใช้เฉพาะ native ChatGPT Scheduled Tasks สำหรับ successor. ห้ามใช้ Windows Task Scheduler, `schtasks.exe`, OS cron, shell timer, recurring ทุก 2 นาที, browser automation หรือ undocumented OpenAI API เป็นตัวแทน. ถ้า native host ไม่ยืนยัน `Runs on` ชัดเจน ให้รายงานเป็น `unverified` ไม่ใช่เดาว่า cloud.
+
 ## 9. Active Projects และหลายแชทพร้อมกัน
 
 v4.11.0 รองรับ Active Projects หลายรายการพร้อมกัน
