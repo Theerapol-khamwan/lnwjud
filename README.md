@@ -91,6 +91,7 @@ Authoritative in-repository references:
   policy classes, and compatibility rules; the 227-tool configurable index below comes from the live runtime registry.
 - [Upgrade architecture](docs/architecture/UPGRADE_ARCHITECTURE.md) — v4 runtime
   architecture and additive gateway design.
+- [Release process](docs/development/RELEASE_PROCESS.md) — canonical `dev -> PR -> main CI -> tag -> Release -> dev sync` sequence, exact-SHA artifact rule, and failure handling.
 - [Roadmap phase status](docs/architecture/ROADMAP_PHASE_STATUS.md) — completed
   implementation phases.
 
@@ -1633,7 +1634,7 @@ Electron end-to-end tests:
 corepack pnpm@10.15.0 test:e2e
 ```
 
-Use git diff --check before committing.
+Use `git diff --check` before committing. For publishing, follow the canonical [release process](docs/development/RELEASE_PROCESS.md): PR/non-main CI skips only the expensive Windows installer packaging, while the exact commit on `main` runs the full gate and creates the SHA-scoped artifact that the tag-triggered Release workflow reuses.
 
 ## Repository layout
 

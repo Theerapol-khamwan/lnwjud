@@ -114,4 +114,15 @@ describe('public repository hygiene', () => {
     expect(readme).not.toContain('| workspace_list | DANGEROUS |');
     expect(readme).toContain('| workspace_list | EXECUTE |');
   });
+
+  it('keeps release documentation canonical instead of preserving stale candidate instructions', async () => {
+    const readme = await readFile(path.join(repositoryRoot, 'README.md'), 'utf8');
+    const legacyChecklist = await readFile(path.join(repositoryRoot, 'docs', 'development', 'RELEASE_CHECKLIST.md'), 'utf8');
+    const releaseProcess = await readFile(path.join(repositoryRoot, 'docs', 'development', 'RELEASE_PROCESS.md'), 'utf8');
+
+    expect(readme).toContain('docs/development/RELEASE_PROCESS.md');
+    expect(legacyChecklist).toContain('[RELEASE_PROCESS.md](RELEASE_PROCESS.md)');
+    expect(legacyChecklist).not.toContain('v4.9.1');
+    expect(releaseProcess).toContain('canonical release sequence');
+  });
 });

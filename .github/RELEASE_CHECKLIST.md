@@ -1,8 +1,10 @@
 # lnwjud Release Checklist
 
+Operational release sequencing is defined by [`docs/development/RELEASE_PROCESS.md`](../docs/development/RELEASE_PROCESS.md). This checklist records current-version acceptance evidence and does not override that sequence.
+
 **Current version:** `v4.13.0` - Windows installer `lnwjud-Setup-4.13.0.exe` and portable executable `lnwjud-Portable-4.13.0.exe`; MCP registry **227 configurable tools / 221 advertised by default**.
 
-Run the release verification from PowerShell at the repository root. The automated gate must fail fast on any non-zero stage and `git diff --check` must pass before packaging or publishing.
+Run the release verification from PowerShell at the repository root. The automated gate must fail fast on any non-zero stage and `git diff --check` must pass before packaging or publishing. Pull-request/non-main CI may pass `-SkipWindowsPackaging`; the exact `main` commit that will be tagged must run the full gate and produce the SHA-scoped release artifact.
 
 For GitHub releases, the `main` CI workflow is the single authoritative build: after the full verification gate succeeds it uploads the Windows installer, portable executable, blockmap, `latest.yml`, `portable.yml`, `SHA256SUMS.txt`, and `PROVENANCE.json` as a SHA-scoped Actions artifact. A `v*` tag may publish only by reusing the successful CI artifact for that exact commit SHA; the Release workflow verifies the provenance commit/hashes and must not rerun the full verification/build/package pipeline. If production Windows signing secrets are configured, Setup and Portable must have valid Authenticode signatures. When signing secrets are absent, the release may publish unsigned artifacts only after the same provenance and SHA-256 verification, with the unsigned Authenticode status reported explicitly in the workflow log and provenance recording that signing credentials were not configured.
 
@@ -37,7 +39,7 @@ For GitHub releases, the `main` CI workflow is the single authoritative build: a
 
 On a clean Windows account or VM, install and launch the packaged application, confirm first-run data creation, exercise a disposable workspace and Doctor, close the application, then uninstall it. Separately launch `lnwjud-Portable-<version>.exe` without installing it and confirm the dashboard, bundled runtime assets, workspace scope, and tunnel controls initialize normally. Record only pass/fail status, OS architecture, artifact path, and relevant error codes.
 
-For the current tunnel release candidate, perform the final ChatGPT Web continuity check with the same configured tunnel and existing conversation: do not refresh the connector, do not create a replacement tunnel/chat, perform a normal Desktop restart or supported update/reinstall handoff, and confirm the next tool call succeeds with the same Tunnel ID. This manual Windows artifact check is the release boundary for end-to-end ChatGPT Web continuity.
+For the current tunnel release, perform the final ChatGPT Web continuity check with the same configured tunnel and existing conversation: do not refresh the connector, do not create a replacement tunnel/chat, perform a normal Desktop restart or supported update/reinstall handoff, and confirm the next tool call succeeds with the same Tunnel ID. This manual Windows artifact check is the release boundary for end-to-end ChatGPT Web continuity.
 
 Run one low-impact real Codex discovery/delegation check only in a disposable Git fixture. Do not automate provider quota consumption and do not read Codex credential files.
 
