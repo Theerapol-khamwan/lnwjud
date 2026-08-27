@@ -330,7 +330,11 @@ export class TunnelController {
           return this.statusFromRuntimeSnapshot(this.runtimeSnapshot, this.resolveClientPath());
         }
       }
-      if (this.state === 'running' || this.state === 'starting') return this.status();
+      // A status probe may have marked a surviving persistent runtime as
+      // running/external before Desktop has re-adopted the native alias. Only
+      // short-circuit for a process we actually own; otherwise continue into
+      // native reconciliation so update/restart can rebind the same Tunnel ID
+      // to the current Desktop MCP endpoint without spawning a duplicate.
       if (this.child !== null && this.child.exitCode === null) return this.status();
       const externalProbe = this.tunnelLock === null ? await this.probeExternalRunning(true) : 'gone';
       throwIfStartCancelled(signal);

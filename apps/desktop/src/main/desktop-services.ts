@@ -167,6 +167,25 @@ export interface DesktopRuntimeOptions {
   readonly hostMutationApprovalProvider?: (request: HostMutationApprovalRequest) => boolean | Promise<boolean>;
 }
 
+interface StartupTunnelController {
+  status(): Promise<TunnelStatus>;
+  startAutomatically(): Promise<TunnelStatus>;
+}
+
+/**
+ * Desktop startup is recovery-only: it may start/reconcile the saved tunnel,
+ * but it must never stop a surviving persistent runtime merely because a local
+ * prerequisite is temporarily unavailable during an update or reinstall.
+ */
+export async function autoStartPersistentTunnel(
+  tunnelController: StartupTunnelController,
+  autoReconnect: boolean,
+): Promise<TunnelStatus> {
+  const status = await tunnelController.status();
+  if (!autoReconnect || !status.profileExists || !status.hasApiKey || status.clientPath === null) return status;
+  return tunnelController.startAutomatically();
+}
+
 export function createDesktopRuntime(dataPath: string, options: DesktopRuntimeOptions = {}): DesktopRuntime {
   const databaseFilename = path.join(dataPath, 'lnwjud.sqlite');
   const backupDirectory = path.join(dataPath, 'backups');
@@ -927,15 +946,10 @@ export function createDesktopRuntime(dataPath: string, options: DesktopRuntimeOp
       await activateWorkspace(selected.id);
       return mcpLifecycle.start();
     },
-    autoStartTunnel: async (): Promise<TunnelStatus | null> => {
-      const settings = readSettings();
-      const status = await tunnelController.status();
-      if (!settings.tunnelAutoReconnect || !status.profileExists || !status.hasApiKey || status.clientPath === null) {
-        await tunnelController.stopPersistedNativeRuntimeIfOwned();
-        return tunnelController.status();
-      }
-      return tunnelController.startAutomatically();
-    },
+    autoStartTunnel: async (): Promise<TunnelStatus | null> => autoStartPersistentTunnel(
+      tunnelController,
+      readSettings().tunnelAutoReconnect,
+    ),
     close: async (): Promise<void> => {
       await tunnelController.shutdownForDesktopExit();
       logHub.stop();

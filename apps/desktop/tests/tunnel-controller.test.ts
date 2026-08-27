@@ -62,6 +62,63 @@ describe('TunnelController lifecycle', () => {
     await expect(controller.startAutomatically()).resolves.toMatchObject({ state: 'stopped' });
   });
 
+  it('re-adopts a surviving native runtime after status first observes it as external', async () => {
+    const dataPath = await mkdtemp(path.join(os.tmpdir(), 'lnwjud-tunnel-restart-adopt-'));
+    temporaryRoots.push(dataPath);
+    const appData = path.join(dataPath, 'appdata');
+    vi.stubEnv('APPDATA', appData);
+    const profileDir = path.join(appData, 'tunnel-client');
+    await (await import('node:fs/promises')).mkdir(profileDir, { recursive: true });
+    await writeFile(path.join(profileDir, 'lnwjud.yaml'), JSON.stringify({
+      control_plane: { tunnel_id: 'tunnel_fixture012345' },
+      mcp: { server_urls: [{ channel: 'main', url: 'http://127.0.0.1:17654/mcp' }] },
+    }, null, 2), 'utf8');
+    await writeFile(path.join(profileDir, 'lnwjud.runtime.secret'), 'encrypted-fixture', 'utf8');
+    const clientPath = path.join(dataPath, 'tunnel-client.exe');
+    await writeFile(clientPath, 'fixture', 'utf8');
+    const capabilities: TunnelRuntimeCapabilities = {
+      clientVersion: 'fixture', nativeRuntimes: true, managedConnect: true, healthProbe: true,
+      pollHealthGate: true, readyBeforeRetire: false, strictZeroDowntime: false, evidence: 'fixture',
+    };
+    const status = vi.fn(async () => ({
+      exists: true, running: true, healthy: true, ready: true, pollHealthy: true,
+      tunnelId: 'tunnel_fixture012345', mcpServerUrl: 'http://127.0.0.1:17654/mcp', pid: 4321, uiUrl: null, message: null,
+    }));
+    const connect = vi.fn(async () => ({
+      exists: true, running: true, healthy: true, ready: true, pollHealthy: true,
+      tunnelId: 'tunnel_fixture012345', mcpServerUrl: 'http://127.0.0.1:18765/mcp', pid: 4321, uiUrl: null, message: null,
+    }));
+    const adapter: TunnelRuntimeReconcilerAdapter = {
+      runtimeAlias: (): string => 'lnwjud',
+      capabilities: vi.fn(async () => capabilities),
+      status,
+      connect,
+      stop: vi.fn(async () => { throw new Error('stop should not be called'); }),
+    };
+    const controller = new TunnelController({
+      getClientPath: (): string => clientPath,
+      setClientPath: (): void => undefined,
+      getDataPath: (): string => dataPath,
+      getMcpServerUrl: (): string => 'http://127.0.0.1:18765/mcp',
+      getTunnelId: (): string => 'tunnel_fixture012345',
+      setTunnelId: (): void => undefined,
+      createRuntimeAdapter: (): TunnelRuntimeReconcilerAdapter => adapter,
+      decryptSecret: async (): Promise<string> => 'runtime-key',
+      isExternalTunnelRunning: async (): Promise<boolean> => true,
+    });
+
+    await expect(controller.status()).resolves.toMatchObject({
+      state: 'running', source: 'external', persistent: { mode: 'external' },
+    });
+    await expect(controller.startAutomatically()).resolves.toMatchObject({
+      state: 'running', source: 'desktop', persistent: { mode: 'native-managed', localMcpUrl: 'http://127.0.0.1:18765/mcp' },
+    });
+    expect(connect).toHaveBeenCalledWith({
+      tunnelId: 'tunnel_fixture012345',
+      mcpServerUrl: 'http://127.0.0.1:18765/mcp',
+    });
+  });
+
   it('invalidates a cached external-live probe when the operator explicitly stops the tunnel', async () => {
     const dataPath = await mkdtemp(path.join(os.tmpdir(), 'lnwjud-tunnel-stop-cache-'));
     temporaryRoots.push(dataPath);

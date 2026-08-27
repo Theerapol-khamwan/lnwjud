@@ -68,10 +68,12 @@ describe('guided tunnel onboarding UI', () => {
     expect(stale).not.toContain('Open ChatGPT Plugins');
   });
 
-  it('does not treat a configured externally-owned runtime as locally complete', () => {
+  it('treats a configured externally-observed persistent runtime as locally complete', () => {
     const external = guideMarkup('en', tunnel({ state: 'running', source: 'external', hasApiKey: true, profileExists: true }));
-    expect(external).toContain('4. Start the Tunnel');
-    expect(external).not.toContain('Local setup is complete.');
+    expect(external).toContain('Local setup is complete.');
+    expect(external).toContain('5. Connect in ChatGPT');
+    expect(external).toContain('Open ChatGPT Plugins');
+    expect(external).not.toContain('4. Start the Tunnel');
   });
 
   it('disables Start Tunnel until both the key and profile are ready', () => {

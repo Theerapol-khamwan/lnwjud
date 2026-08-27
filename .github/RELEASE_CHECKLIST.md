@@ -1,6 +1,6 @@
 # lnwjud Release Checklist
 
-**Current version:** `v4.12.0` - Windows installer `lnwjud-Setup-4.12.0.exe` and portable executable `lnwjud-Portable-4.12.0.exe`; MCP registry **223 configurable tools / 217 advertised by default**.
+**Current version:** `v4.12.1` - Windows installer `lnwjud-Setup-4.12.1.exe` and portable executable `lnwjud-Portable-4.12.1.exe`; MCP registry **223 configurable tools / 217 advertised by default**.
 
 Run the release verification from PowerShell at the repository root. The automated gate must fail fast on any non-zero stage and `git diff --check` must pass before packaging or publishing.
 
@@ -12,7 +12,7 @@ For GitHub releases, the `main` CI workflow is the single authoritative build: a
 - Secret-file policy and log/incident redaction tests pass; release evidence must never contain credentials or tokens.
 - MCP local HTTP and STDIO transport tests pass, including protocol-only stdout and production handshake coverage.
 - OpenAI Secure Tunnel targets the Desktop loopback HTTP MCP (`sample_mcp_remote_no_auth`) rather than a separate headless stdio runtime, preserving dynamic Active Project scope and native exact-action approval.
-- v4.11 persistent-tunnel acceptance preserves one saved tunnel identity across managed-runtime loss and Desktop/local-MCP rebinding; transient retry is capped but unbounded in count, while auth/operator failures do not tight-loop.
+- Persistent-tunnel acceptance preserves one saved tunnel identity across managed-runtime loss, Desktop/local-MCP rebinding, update/reinstall startup, and detached-runtime handoff; transient retry is capped but unbounded in count, while auth/operator failures do not tight-loop.
 - The installed official tunnel client capability probe must show managed `runtimes connect/status/stop` plus health/readiness/control-plane-poll support. Strict zero-downtime may be claimed only if a ready-before-retire overlap primitive is actually proven; otherwise the product must display the capability limitation.
 - The 2026-07-28 MCP protocol catalog is compared before/after Desktop MCP listener restart: all 217 default descriptors and their canonical SHA-256 digest must remain identical, and a production tool call must work on both sides of the restart.
 - Durable task/session resilience remains independent from one tunnel request; release evidence must not kill a user's live connector merely to manufacture a continuity result.
@@ -37,7 +37,7 @@ For GitHub releases, the `main` CI workflow is the single authoritative build: a
 
 On a clean Windows account or VM, install and launch the packaged application, confirm first-run data creation, exercise a disposable workspace and Doctor, close the application, then uninstall it. Separately launch `lnwjud-Portable-<version>.exe` without installing it and confirm the dashboard, bundled runtime assets, workspace scope, and tunnel controls initialize normally. Record only pass/fail status, OS architecture, artifact path, and relevant error codes.
 
-For the v4.11 tunnel candidate, perform the final ChatGPT Web continuity check with the same configured tunnel and conversation: do not refresh the connector, do not create a replacement tunnel/chat, cause one real supported reconnect/restart event, and confirm the next tool call succeeds. This manual Windows artifact check is the release boundary for end-to-end ChatGPT Web continuity.
+For the current tunnel release candidate, perform the final ChatGPT Web continuity check with the same configured tunnel and existing conversation: do not refresh the connector, do not create a replacement tunnel/chat, perform a normal Desktop restart or supported update/reinstall handoff, and confirm the next tool call succeeds with the same Tunnel ID. This manual Windows artifact check is the release boundary for end-to-end ChatGPT Web continuity.
 
 Run one low-impact real Codex discovery/delegation check only in a disposable Git fixture. Do not automate provider quota consumption and do not read Codex credential files.
 
