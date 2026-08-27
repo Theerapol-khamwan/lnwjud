@@ -85,7 +85,7 @@ test('desktop serves the real MCP client development workflow', async () => {
       'apply_patch', 'edit_file', 'move_file', 'copy_file', 'delete_file', 'list_recovery_items', 'restore_deleted_file', 'list_checkpoints', 'restore_checkpoint', 'process_start', 'process_list', 'process_status',
       'process_logs', 'process_stop', 'project_dev', 'project_test', 'project_lint',
       'project_typecheck', 'project_build',
-      'shell', 'dom_cdp', 'accessibility', 'input_event', 'vision', 'vision_annotated_capture', 'ui_target_action', 'window', 'health',
+      'shell', 'dom_cdp', 'computer_use', 'accessibility', 'input_event', 'vision', 'vision_annotated_capture', 'ui_target_action', 'window', 'health',
       'system_info', 'notification', 'file_dialog', 'clipboard', 'web_fetch',
       'audio', 'screen_record', 'office', 'scheduler', 'wsl_exec', 'wsl_fs',
       'skills_list', 'skills_read', 'mcp_list', 'mcp_describe', 'mcp_call',
@@ -102,7 +102,7 @@ test('desktop serves the real MCP client development workflow', async () => {
       ...UPGRADE_TOOL_CATALOG.map((entry) => entry.name),
       'tool_batch',
     ]);
-    expect(advertisedTools).toHaveLength(221);
+    expect(advertisedTools).toHaveLength(222);
     expect(advertisedTools.some((name) => name.startsWith('codex_'))).toBe(false);
 
     if (process.platform === 'win32') {

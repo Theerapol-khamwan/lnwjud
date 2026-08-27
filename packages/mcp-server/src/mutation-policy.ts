@@ -151,6 +151,13 @@ export function inspectMutationOperation(
         : replace('DOCX merge can replace its target document');
     case 'dom_cdp':
       return inspectDomCdp(value);
+    case 'computer_use': {
+      const action = normalized(value.action);
+      if (['snapshot', 'inspect'].includes(action)) return read('computer_use observation action');
+      if (value.dry_run === true) return read('computer_use dry run');
+      if (['activate_window', 'mouse_move'].includes(action)) return execute('computer_use desktop state action');
+      return opaque('computer_use input can trigger unbounded application side effects');
+    }
     case 'accessibility': {
       const action = normalized(value.action);
       if (['status', 'list_windows', 'observe', 'observe_summary', 'observe_changes', 'inspect_elements', 'find_element', 'read_value'].includes(action)) {

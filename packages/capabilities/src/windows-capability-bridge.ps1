@@ -174,13 +174,27 @@ function Load-UiAutomation {
   try { Add-Type -AssemblyName UIAutomationClient -ErrorAction Stop; Add-Type -AssemblyName UIAutomationTypes -ErrorAction Stop; return $true } catch { return $false }
 }
 
+function Get-FiniteUiBounds {
+  param([object]$Rect)
+  if ($null -eq $Rect) { return $null }
+  $x = [double]$Rect.X
+  $y = [double]$Rect.Y
+  $width = [double]$Rect.Width
+  $height = [double]$Rect.Height
+  foreach ($value in @($x, $y, $width, $height)) {
+    if ([double]::IsNaN($value) -or [double]::IsInfinity($value)) { return $null }
+  }
+  return [ordered]@{ x = $x; y = $y; width = $width; height = $height }
+}
+
 function Get-ElementRecord {
   param([object]$Element)
   $current = $Element.Current
   $rect = $current.BoundingRectangle
+  $bounds = Get-FiniteUiBounds $rect
   $controlType = ''
   if ($null -ne $current.ControlType) { $controlType = [string]$current.ControlType.ProgrammaticName }
-  return [ordered]@{ name = [string]$current.Name; automation_id = [string]$current.AutomationId; control_type = $controlType; class_name = [string]$current.ClassName; enabled = [bool]$current.IsEnabled; offscreen = [bool]$current.IsOffscreen; bounds = [ordered]@{ x = [double]$rect.X; y = [double]$rect.Y; width = [double]$rect.Width; height = [double]$rect.Height } }
+  return [ordered]@{ name = [string]$current.Name; automation_id = [string]$current.AutomationId; control_type = $controlType; class_name = [string]$current.ClassName; enabled = [bool]$current.IsEnabled; offscreen = [bool]$current.IsOffscreen; bounds = $bounds }
 }
 
 function Test-UiWindowSelector {

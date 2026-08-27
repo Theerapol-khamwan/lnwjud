@@ -2,12 +2,14 @@ import { defineTool, missingService, type McpToolContext, type McpToolDefinition
 import { appError, err, ok, type Result } from '@lnwjud/domain';
 import { DEFAULT_MCP_POLL_WAIT_SECONDS, MAX_CONFIGURABLE_WAIT_SECONDS, MIN_CONFIGURABLE_WAIT_SECONDS } from '@lnwjud/shared';
 import { SetOfMarksService } from '../set-of-marks-service.js';
+import { ComputerUseService } from '../computer-use-service.js';
 import { withReplacementRecoveryDetails } from '../replacement-recovery.js';
 import { withCapabilityOwnerMetadata } from '../request-scope.js';
 import {
   accessibilityCapabilitySchema,
   audioCapabilitySchema,
   clipboardCapabilitySchema,
+  computerUseSchema,
   domCdpCapabilitySchema,
   fileDialogCapabilitySchema,
   healthCapabilitySchema,
@@ -73,6 +75,7 @@ export function capabilityTools(context: McpToolContext): McpToolDefinition[] {
     return ok({ ...value, replacementBackup });
   };
   const setOfMarks = new SetOfMarksService(context.services.capabilities);
+  const computerUse = new ComputerUseService(context.services.capabilities, setOfMarks);
 
   return [
     defineTool({
@@ -90,6 +93,14 @@ export function capabilityTools(context: McpToolContext): McpToolDefinition[] {
       annotations: { readOnlyHint: false, destructiveHint: true },
       inputSchema: domCdpCapabilitySchema,
       handler: async (input, signal) => execute('dom_cdp', input, signal),
+    }),
+    defineTool({
+      name: 'computer_use',
+      description: 'Codex-style native Windows computer use for testing desktop apps. Take annotated screenshots, inspect semantic controls, and operate by semantic target, numbered visual mark, or explicit coordinates. Routes through Accessibility first and uses guarded pointer/keyboard input only when needed. Supports click, typing, keys, hotkeys, scroll, drag, pointer movement, and window activation.',
+      permission: 'EXECUTE',
+      annotations: { readOnlyHint: false, destructiveHint: true },
+      inputSchema: computerUseSchema,
+      handler: async (input, signal) => computerUse.execute(input, signal),
     }),
     defineTool({
       name: 'accessibility',

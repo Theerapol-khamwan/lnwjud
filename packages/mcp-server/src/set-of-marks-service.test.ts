@@ -73,6 +73,7 @@ describe('SetOfMarksService', () => {
     now = 11_001;
     await expect(service.act({ workspaceId: 'ws-1', observationId: captured.value.observationId, markId: 'm1', observationHash: captured.value.observationHash, action: 'click', userConfirmed: true })).resolves.toMatchObject({ ok: false, error: { code: 'INVALID_INPUT' } });
     expect(calls.some((call) => isRecord(call.input) && call.input.action === 'find_element')).toBe(true);
+    expect(calls.find((call) => isRecord(call.input) && call.input.action === 'click')?.input).toMatchObject({ userConfirmed: true });
   });
 
   it('does not dispatch a marked UI action when cancellation wins during revalidation', async () => {

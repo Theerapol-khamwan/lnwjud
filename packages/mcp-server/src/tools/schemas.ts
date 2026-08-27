@@ -311,6 +311,41 @@ export const uiTargetActionSchema = z.object({
   ...capabilityRequestSchema,
 }).strict();
 
+const computerUseTargetSchema = z.object({
+  name: z.string().trim().min(1).max(512).optional(),
+  automation_id: z.string().trim().min(1).max(512).optional(),
+  observationId: z.string().trim().min(1).max(128).optional(),
+  observationHash: z.string().trim().regex(/^[a-f0-9]{64}$/).optional(),
+  markId: z.string().trim().min(1).max(32).optional(),
+  x: z.number().finite().optional(),
+  y: z.number().finite().optional(),
+}).strict();
+
+const computerUsePointSchema = z.object({ x: z.number().finite(), y: z.number().finite() }).strict();
+
+export const computerUseSchema = z.object({
+  workspaceId: workspaceIdSchema,
+  action: z.enum(['snapshot', 'inspect', 'click', 'double_click', 'right_click', 'mouse_move', 'type_text', 'press_key', 'hotkey', 'scroll', 'drag', 'activate_window']),
+  app: capabilityParametersSchema.optional(),
+  window_index: z.number().int().min(0).optional(),
+  capture: z.enum(['display', 'region', 'window']).default('display'),
+  region: capabilityParametersSchema.optional(),
+  display_id: z.string().trim().min(1).max(128).optional(),
+  target: computerUseTargetSchema.optional(),
+  text: z.string().max(1_000_000).optional(),
+  key: z.union([z.string().trim().min(1).max(64), z.number().int().min(0).max(65535)]).optional(),
+  modifiers: z.array(z.string().trim().min(1).max(32)).max(8).optional(),
+  delta_y: z.number().int().min(-120_000).max(120_000).optional(),
+  from: computerUsePointSchema.optional(),
+  to: computerUsePointSchema.optional(),
+  max_depth: z.number().int().min(0).max(12).optional(),
+  max_items: z.number().int().min(1).max(2_000).optional(),
+  max_marks: z.number().int().min(1).max(500).optional(),
+  ttl_seconds: z.number().min(1).max(300).optional(),
+  timeout_seconds: z.number().min(0.1).max(14_400).optional(),
+  ...capabilityRequestSchema,
+}).strict();
+
 export const windowCapabilitySchema = z.object({
   operation: z.enum(['list', 'get_active', 'get_bounds', 'get_display', 'activate', 'close', 'minimize', 'maximize', 'restore', 'move', 'resize', 'set_window_frame']),
   parameters: capabilityParametersSchema.optional(),

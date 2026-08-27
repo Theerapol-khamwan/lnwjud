@@ -23,7 +23,7 @@ describe('MCP tool registry', () => {
       'search_files', 'search_text', 'git_status', 'git_diff', 'git_log', 'git', 'write_file',
       'apply_patch', 'edit_file', 'move_file', 'copy_file', 'delete_file', 'list_recovery_items', 'restore_deleted_file', 'list_checkpoints', 'restore_checkpoint', 'process_start', 'process_list', 'process_status',
       'process_logs', 'process_stop', 'project_dev', 'project_test', 'project_lint',
-      'project_typecheck', 'project_build', 'shell', 'dom_cdp', 'accessibility', 'input_event', 'vision', 'vision_annotated_capture', 'ui_target_action', 'window', 'health',
+      'project_typecheck', 'project_build', 'shell', 'dom_cdp', 'computer_use', 'accessibility', 'input_event', 'vision', 'vision_annotated_capture', 'ui_target_action', 'window', 'health',
       'system_info', 'notification', 'file_dialog', 'clipboard', 'web_fetch',
       'audio', 'screen_record', 'office', 'scheduler',
       'wsl_exec', 'wsl_fs',
@@ -88,6 +88,7 @@ describe('MCP tool registry', () => {
     const byName = new Map(registry.list().map((tool) => [tool.name, tool]));
     expect(byName.get('shell')?.parse({ operation: 'run', executable: 'node', arguments: [] })).toMatchObject({ ok: true });
     expect(byName.get('dom_cdp')?.parse({ action: 'query', parameters: { selector: '#app' } })).toMatchObject({ ok: true });
+    expect(byName.get('computer_use')?.parse({ workspaceId: 'workspace-1', action: 'click', target: { x: 10, y: 20 }, userConfirmed: true })).toMatchObject({ ok: true });
     expect(byName.get('accessibility')?.parse({})).toMatchObject({ ok: false, error: { code: 'INVALID_INPUT' } });
     expect(byName.get('input_event')?.parse({ operation: 'click', parameters: { x: 1, y: 2 } })).toMatchObject({ ok: true });
     expect(byName.get('vision')?.parse({ action: 'capture_display' })).toMatchObject({ ok: true });

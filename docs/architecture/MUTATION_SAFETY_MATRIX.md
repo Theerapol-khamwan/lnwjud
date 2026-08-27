@@ -75,7 +75,7 @@ This document is the release-time inventory for every MCP tool advertised by `To
 
 ### 7. Mixed native desktop/UI/media capabilities
 
-**Covered tools:** `dom_cdp`, `input_event`, `ui_target_action`, `window`, `notification`, `file_dialog`, `clipboard`, `audio`, `screen_record`.
+**Covered tools:** `dom_cdp`, `computer_use`, `input_event`, `ui_target_action`, `window`, `notification`, `file_dialog`, `clipboard`, `audio`, `screen_record`.
 
 | Mutation kind | Chat confirmation | Host approval | Recoverable | Auto-approvable | Active Project | Command policy | Packaged transports |
 | --- | --- | --- | --- | --- | --- | --- | --- |

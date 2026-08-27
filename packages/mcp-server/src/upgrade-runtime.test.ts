@@ -218,6 +218,7 @@ describe('upgrade runtime', () => {
     const templates = [
       ['run a Linux WSL developer command', 'wsl_exec'],
       ['capture a numbered native UI observation', 'vision_annotated_capture'],
+      ['control a native desktop app with mouse and keyboard', 'computer_use'],
       ['read Thai and English text with offline OCR', 'vision'],
       ['detonate an artifact offline in Windows Sandbox', 'sandbox_exec'],
       ['watch an allowlisted ETW event provider', 'event_watch'],

@@ -139,7 +139,7 @@ export class SetOfMarksService {
     if (!current.ok) return current;
     if (signal?.aborted) return cancelledResult('Marked UI action');
     const actionParameters = parsed.value.value === undefined ? targetParameters : { ...targetParameters, value: parsed.value.value };
-    return this.executeCapability('accessibility', { action: parsed.value.action, parameters: actionParameters }, signal);
+    return this.executeCapability('accessibility', { action: parsed.value.action, parameters: actionParameters, userConfirmed: parsed.value.userConfirmed }, signal);
   }
 
   private async executeCapability(tool: 'accessibility' | 'vision', input: unknown, signal?: AbortSignal): Promise<Result<unknown>> {
