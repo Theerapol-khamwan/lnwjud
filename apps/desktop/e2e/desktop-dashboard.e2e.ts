@@ -144,7 +144,11 @@ async function waitForDevTools(port: number, child: ChildProcess, stderr: string
 
 async function terminateProcessTree(child: ChildProcess): Promise<void> {
   if (child.pid !== undefined) {
-    spawn('taskkill', ['/pid', String(child.pid), '/T', '/F'], { shell: false, windowsHide: true });
+    const killer = spawn('taskkill.exe', ['/PID', String(child.pid), '/T', '/F'], { shell: false, windowsHide: true });
+    await new Promise<void>((resolve) => {
+      killer.once('error', () => resolve());
+      killer.once('close', () => resolve());
+    });
   }
   await new Promise<void>((resolve) => {
     if (child.exitCode !== null) {
@@ -157,7 +161,14 @@ async function terminateProcessTree(child: ChildProcess): Promise<void> {
 }
 
 async function removeTemporaryRoot(root: string): Promise<void> {
-  await rm(root, { recursive: true, force: true });
+  await expect.poll(async () => {
+    try {
+      await rm(root, { recursive: true, force: true });
+      return true;
+    } catch {
+      return false;
+    }
+  }, { timeout: 10_000, intervals: [50, 100, 250] }).toBe(true);
 }
 
 async function expectNoHorizontalOverflow(page: Page): Promise<void> {

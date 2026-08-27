@@ -131,7 +131,10 @@ export class DurableShellTaskStore {
       await writeFile(specPath, JSON.stringify(spec), 'utf8');
       const workerPath = await this.ensureWorkerScript();
       const worker = spawn(process.execPath, [workerPath, specPath], {
-        cwd: request.cwd,
+        // The durable worker only coordinates the real child process; it does not need
+        // the workspace as its own cwd. Keeping the worker outside the workspace avoids
+        // a transient Windows directory lock after the child has already completed.
+        cwd: path.dirname(process.execPath),
         detached: true,
         stdio: 'ignore',
         shell: false,
