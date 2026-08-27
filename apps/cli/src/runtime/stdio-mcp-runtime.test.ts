@@ -25,7 +25,12 @@ beforeEach(() => {
 afterEach(async () => {
   delete process.env.TUNNEL_CLIENT_PROFILE_DIR;
   delete process.env.LNWJUD_CHECKPOINT_KEY_BASE64;
-  await Promise.all(temporaryRoots.splice(0).map((root) => rm(root, { recursive: true, force: true })));
+  await Promise.all(temporaryRoots.splice(0).map((root) => rm(root, {
+    recursive: true,
+    force: true,
+    maxRetries: process.platform === 'win32' ? 5 : 0,
+    retryDelay: 100,
+  })));
 });
 
 describe('stdio MCP runtime', () => {

@@ -58,7 +58,7 @@ async function ensureThaiLocale(page: Page): Promise<void> {
   });
   await expect.poll(async () => page.evaluate(async () => (
     await window.lnwjud.getDashboard()
-  ).locale)).toBe('th');
+  ).locale), { timeout: 15_000, intervals: [100, 250, 500] }).toBe('th');
 }
 
 async function withFreshDesktop(run: (page: Page) => Promise<void>): Promise<void> {

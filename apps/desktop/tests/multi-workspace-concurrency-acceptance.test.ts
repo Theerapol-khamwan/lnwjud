@@ -321,7 +321,7 @@ async function waitForTerminalShellTask(
 }
 
 async function waitForTerminalProcess(client: Client, workspaceId: string, processId: string): Promise<Record<string, unknown>> {
-  const deadline = Date.now() + 15_000;
+  const deadline = Date.now() + (process.env.CI ? 45_000 : 15_000);
   while (Date.now() < deadline) {
     const response = await client.callTool({
       name: 'process_status',

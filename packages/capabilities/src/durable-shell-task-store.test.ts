@@ -8,7 +8,12 @@ import { DurableShellTaskStore } from './durable-shell-task-store.js';
 const temporaryRoots: string[] = [];
 
 afterEach(async () => {
-  await Promise.all(temporaryRoots.splice(0).map((root) => rm(root, { recursive: true, force: true })));
+  await Promise.all(temporaryRoots.splice(0).map((root) => rm(root, {
+    recursive: true,
+    force: true,
+    maxRetries: process.platform === 'win32' ? 5 : 0,
+    retryDelay: 100,
+  })));
 });
 
 describe('durable shell background tasks', () => {
