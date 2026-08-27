@@ -57,7 +57,7 @@ import { parseOpenExternalSetupPageRequest, resolveExternalSetupUrl } from './ex
 import { shouldHoldSingleInstanceLock, wantsMcpStdio } from './instance-lock.js';
 import { createLogViewerWindow, createMainWindow, getRendererEntryPath, getWindowIconPath, isAllowedRendererUrl } from './window.js';
 import { createTrayMenuTemplate, createTrayToolTip, createTrayUpdateLabel, shouldHideMainWindowOnClose } from './tray.js';
-import { UpdateInstallCoordinator, type UpdateSharedActivitySnapshot } from './update-install.js';
+import { confirmTunnelStopForUpdate, UpdateInstallCoordinator, updateInstallNeedsTunnelStopConfirmation, type UpdateSharedActivitySnapshot } from './update-install.js';
 import { UpdateCheckScheduler } from './update-check-scheduler.js';
 import {
   configureUpdaterForDistribution,
@@ -875,6 +875,7 @@ let autoUpdaterInitialized = false;
 let quitRequested = false;
 let desktopShutdownCoordinator: DesktopShutdownCoordinator | null = null;
 let updateInstallCoordinator: UpdateInstallCoordinator | null = null;
+let updateInstallConfirmationPending = false;
 let updateCheckScheduler: UpdateCheckScheduler | null = null;
 let pendingUpdateCheckSource: 'automatic' | 'tray' | 'renderer' | null = null;
 const windowsDistribution = detectWindowsDistribution(app.isPackaged);
@@ -1018,22 +1019,79 @@ function requestUpdateCheck(source: 'automatic' | 'tray' | 'renderer'): UpdateSt
   return status;
 }
 
-function requestUpdateInstall(): { readonly accepted: boolean; readonly status: UpdateStatus } {
-  if (!app.isPackaged || currentUpdateStatus.phase !== 'ready' || updateInstallCoordinator === null) {
+async function requestUpdateInstall(): Promise<{ readonly accepted: boolean; readonly status: UpdateStatus }> {
+  if (!app.isPackaged || currentUpdateStatus.phase !== 'ready' || updateInstallCoordinator === null || updateInstallConfirmationPending) {
     return { accepted: false, status: currentUpdateStatus };
   }
-  const status = patchUpdateStatus({
-    phase: 'installing',
-    message: nativeMessages(desktopLocale).updaterInstallWaiting,
-    canInstall: false,
-  });
-  updateInstallCoordinator.requestInstall();
-  return { accepted: true, status };
+  const runtime = desktopRuntime;
+  if (runtime === null) return { accepted: false, status: currentUpdateStatus };
+
+  updateInstallConfirmationPending = true;
+  try {
+    const approved = await confirmTunnelStopForUpdate({
+      getTunnelStatus: () => runtime.services.getTunnelStatus(),
+      confirmStop: async (): Promise<boolean> => {
+        const messages = nativeMessages(desktopLocale);
+        const options = {
+          type: 'warning' as const,
+          title: messages.updaterTunnelStopTitle,
+          message: messages.updaterTunnelStopMessage,
+          detail: messages.updaterTunnelStopDetail,
+          buttons: [messages.updaterTunnelStopConfirm, messages.cancel],
+          defaultId: 1,
+          cancelId: 1,
+          noLink: true,
+        };
+        const parent = mainWindow !== null && !mainWindow.isDestroyed() ? mainWindow : null;
+        const result = parent === null
+          ? await dialog.showMessageBox(options)
+          : await dialog.showMessageBox(parent, options);
+        return result.response === 0;
+      },
+    });
+    if (!approved) return { accepted: false, status: currentUpdateStatus };
+
+    const status = patchUpdateStatus({
+      phase: 'installing',
+      message: nativeMessages(desktopLocale).updaterInstallWaiting,
+      canInstall: false,
+    });
+    updateInstallCoordinator.requestInstall();
+    return { accepted: true, status };
+  } finally {
+    updateInstallConfirmationPending = false;
+  }
+}
+
+async function stopTunnelForUpdateInstall(runtime: DesktopRuntime): Promise<boolean> {
+  try {
+    const status = await runtime.services.stopTunnel();
+    if (status.state !== 'stopped' || updateInstallNeedsTunnelStopConfirmation(status)) {
+      throw new Error(status.message ?? 'Secure Tunnel did not reach the stopped state');
+    }
+    return true;
+  } catch (error: unknown) {
+    const messages = nativeMessages(desktopLocale);
+    const detail = error instanceof Error ? error.message : messages.updaterTunnelStopFailedMessage;
+    patchUpdateStatus({
+      phase: 'ready',
+      message: messages.updaterTunnelStopFailedMessage,
+      canInstall: true,
+    });
+    void dialog.showMessageBox({
+      type: 'error',
+      title: messages.updaterTunnelStopFailedTitle,
+      message: messages.updaterTunnelStopFailedMessage,
+      detail,
+      buttons: [messages.ok],
+    });
+    return false;
+  }
 }
 
 function checkForUpdatesFromTray(): void {
   if (currentUpdateStatus.phase === 'ready') {
-    requestUpdateInstall();
+    void requestUpdateInstall();
     revealMainWindow();
     return;
   }
@@ -1204,30 +1262,33 @@ function initAutoUpdater(runtime: DesktopRuntime): void {
           : { state: snapshot.state, reason: snapshot.reason };
       },
       install: (): void => {
-        void runtime.createBackup('pre-update').catch((error: unknown) => {
-          console.error(`Pre-update backup failed: ${error instanceof Error ? error.message : 'unknown error'}`);
-        }).finally(() => {
-          if (windowsDistribution === 'installer') {
-            void desktopShutdownCoordinator?.requestQuit(() => autoUpdater.quitAndInstall(), 'install');
-            return;
-          }
-          const portableUpdate = pendingPortableUpdate;
-          if (portableUpdate === null) {
-            patchUpdateStatus({ phase: 'error', message: 'Portable update file is unavailable. Check for updates again.', canInstall: false });
-            return;
-          }
-          void preparePortableReplacement({
-            downloadedFile: portableUpdate.downloadedFile,
-            currentExecutablePath: currentPortableExecutablePath(),
-          }).then((prepared) => {
-            void desktopShutdownCoordinator?.requestQuit(() => {
-              launchPortableReplacement(prepared);
-              app.quit();
-            }, 'install');
-          }).catch((error: unknown) => {
-            const message = error instanceof Error ? error.message : 'Portable update could not be prepared.';
-            console.error(`[AutoUpdater] portable install preparation failed: ${message}`);
-            patchUpdateStatus({ phase: 'error', message, canInstall: false });
+        void stopTunnelForUpdateInstall(runtime).then((tunnelStopped) => {
+          if (!tunnelStopped) return;
+          void runtime.createBackup('pre-update').catch((error: unknown) => {
+            console.error(`Pre-update backup failed: ${error instanceof Error ? error.message : 'unknown error'}`);
+          }).finally(() => {
+            if (windowsDistribution === 'installer') {
+              void desktopShutdownCoordinator?.requestQuit(() => autoUpdater.quitAndInstall(), 'install');
+              return;
+            }
+            const portableUpdate = pendingPortableUpdate;
+            if (portableUpdate === null) {
+              patchUpdateStatus({ phase: 'error', message: 'Portable update file is unavailable. Check for updates again.', canInstall: false });
+              return;
+            }
+            void preparePortableReplacement({
+              downloadedFile: portableUpdate.downloadedFile,
+              currentExecutablePath: currentPortableExecutablePath(),
+            }).then((prepared) => {
+              void desktopShutdownCoordinator?.requestQuit(() => {
+                launchPortableReplacement(prepared);
+                app.quit();
+              }, 'install');
+            }).catch((error: unknown) => {
+              const message = error instanceof Error ? error.message : 'Portable update could not be prepared.';
+              console.error(`[AutoUpdater] portable install preparation failed: ${message}`);
+              patchUpdateStatus({ phase: 'error', message, canInstall: false });
+            });
           });
         });
       },
