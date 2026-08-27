@@ -52,6 +52,18 @@ describe('PowerShellWindowsCapabilityBridge integrity', () => {
     expect(outlookSection).toContain('Release-ComObject $outlook');
   });
 
+  it('keeps UI Automation observations compatible with Windows PowerShell 5.1', async () => {
+    const scriptPath = path.join(path.dirname(fileURLToPath(import.meta.url)), 'windows-capability-bridge.ps1');
+    const script = await readFile(scriptPath, 'utf8');
+
+    expect(script).toContain('elements = $items.ToArray()');
+    expect(script).not.toContain('elements = @($items)');
+    expect(script).toContain('[System.Windows.Automation.AutomationElement]::RootElement');
+    expect(script).toContain('[void]$Items.Add');
+    expect(script).toContain("$failureMessage = 'Windows native capability failed'");
+    expect(script).toContain("$failureMessage = $failureMessage + ': ' + $detail");
+  });
+
   it('rejects a missing or malformed expected hash before starting PowerShell', async () => {
     const root = await temporaryRoot();
     const scriptPath = path.join(root, 'bridge.ps1');

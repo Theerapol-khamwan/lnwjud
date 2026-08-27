@@ -41,31 +41,22 @@ over outbound HTTPS, forwards MCP work to lnwjud's Desktop loopback HTTP MCP,
 and returns the response without opening a public inbound port on the Windows
 machine.
 
-## Current version: v4.12.1
+## Current version: v4.13.0
 
-The v4.12.1 release target and runtime contract contain **227 configurable MCP tools**,
+The v4.13.0 release target and runtime contract contain **227 configurable MCP tools**,
 with **221 advertised by default** because
 the six `codex_*` delegation tools are opt-in. The earlier 184-tool snapshot remains
 only as the compatibility baseline used by the v4 architecture; new v4 gateway
 capabilities are additive.
 
-### What's new in v4.12.0
+### What's new in v4.13.0
 
-- Adds a bilingual **Guided Local Tunnel Setup** for first-time users. A pristine install shows a Tips dialog and can route directly to **Settings > Secure Tunnel** without requiring Terminal commands or manual config-file editing.
-- Adds a five-step Secure Tunnel guide for creating/pasting the Tunnel ID, securely saving the Runtime API key through the existing Windows DPAPI path, configuring the bundled `tunnel-client` profile, starting the tunnel, and opening ChatGPT Plugins for the final user-controlled connection step.
-- Adds strict allowlisted external setup links. Renderer code sends only one of three fixed targets; the main process resolves those targets to the official OpenAI Tunnel Settings, OpenAI API Keys, or ChatGPT Plugins HTTPS pages and rejects arbitrary URLs.
-- Adds resume/recovery behavior based on real tunnel status. Existing configured users are not interrupted, dismissed users can reopen the guide from Home or Settings, and in-progress setup resumes at the first step still required by the local key/profile/runtime state.
-- Keeps secrets local: onboarding storage contains only a finite UI state, Runtime API key drafts are cleared after a successful save or guide close, and status/summary UI uses only masked Tunnel IDs.
-- Adds focused unit/IPC/renderer coverage plus a real isolated Electron E2E smoke for first-run Tips, Secure Tunnel navigation, language switching, and the Set up later/reopen flow.
-
-#### Hotfix v4.12.1
-
-- Fixes a v4.12.0 regression where Desktop startup during an update/reinstall could stop an already-surviving persistent tunnel when a local prerequisite was temporarily unavailable. Startup is now recovery-only and never tears down that saved tunnel identity.
-- Preserves the **same Tunnel ID, profile, and DPAPI-protected Runtime API key** across normal app restart, in-place update, reinstall, and Desktop reconnect. The existing tunnel is reconciled/rebound to the current local MCP endpoint instead of provisioning a replacement identity.
-- Treats a configured detached persistent runtime as **Running** even while it is temporarily reported as `source=external`, so Home, Settings, and the setup guide agree on the live tunnel state.
-- Prevents previously configured users from being redirected into **Settings > Secure Tunnel** after an update/reinstall. Stale `in_progress` onboarding state is normalized from the real saved tunnel prerequisites.
-- Prevents the setup guide from offering a duplicate **Start Tunnel** step when the preserved tunnel is already running; reopening the guide goes directly to the ChatGPT connection step.
-- Adds regression coverage for reinstall/startup prerequisite gaps, detached-runtime recognition, onboarding continuity, and reuse of the existing tunnel without automatic stop/replacement.
+- Fixes `vision_annotated_capture` and `accessibility.observe` on the built-in **Windows PowerShell 5.1** runtime. UI Automation results now serialize `List[object]` through `ToArray()` instead of the PowerShell array-subexpression path that raised `Argument types do not match` and surfaced only as `Operation failed`.
+- Makes Set-of-Marks capture more robust on live Windows desktops: unscoped observations use the UI Automation desktop root instead of an arbitrary first HWND, `window_index` resolves consistently, and controls that disappear during enumeration are skipped without aborting the whole observation.
+- Improves native capability diagnostics so a bounded underlying Windows exception message is returned with `Windows native capability failed`, making future failures actionable instead of collapsing to a generic error.
+- Adds safe current-chat scheduled continuation primitives. A run can reserve one future successor near the end of its work window while the current run keeps working; duplicate pending successors are prevented and stale successors no-op after the goal becomes terminal.
+- Improves in-app update UX when a tunnel is running: the updater asks for confirmation, stops the tunnel only after approval, and then continues installation instead of appearing stuck while waiting for the user to stop the tunnel manually.
+- Synchronizes the Desktop, CLI, package metadata, docs, packaging assertions, and Windows artifacts to **v4.13.0**.
 
 Current v4 highlights include:
 
@@ -160,13 +151,13 @@ stops the current local HTTP listener.
 
 1. Download the latest published installer from
    [GitHub Releases](https://github.com/engasnm111/lnwjud/releases/latest).
-   Current Windows 10/11 x64 artifacts are `lnwjud-Setup-4.12.1.exe` (recommended installer) and `lnwjud-Portable-4.12.1.exe` (no installation required).
+   Current Windows 10/11 x64 artifacts are `lnwjud-Setup-4.13.0.exe` (recommended installer) and `lnwjud-Portable-4.13.0.exe` (no installation required).
 2. Run the NSIS installer and launch **lnwjud Agent Control Center**.
 3. Add or select the project/workspace you want lnwjud to operate on.
 4. Review **Settings** before attaching an AI client, especially Permission
    Profile and Unrestricted Mode.
 
-If you prefer not to install the app, run `lnwjud-Portable-4.12.1.exe` directly.
+If you prefer not to install the app, run `lnwjud-Portable-4.13.0.exe` directly.
 Portable mode uses the same per-user lnwjud data/settings location as the installer;
 it is a portable executable, not a keep-all-data-next-to-the-EXE mode.
 Automatic updates preserve the distribution you chose. Installer users read
@@ -183,6 +174,31 @@ Node.js 24 runtime for `lnwjud-mcp-stdio.cmd`, so end users do **not** need a
 separate system Node.js installation. Secure Tunnel uses the running Desktop HTTP
 MCP plus the bundled official `tunnel-client.exe`; it does not
 spawn the packaged STDIO launcher.
+
+### Windows vision / Set-of-Marks requirements
+
+For normal Windows 10/11 desktop use, **no extra Windows Settings toggle or separate
+accessibility package is required** for `vision.capture_*`, `accessibility.observe`,
+or `vision_annotated_capture`. lnwjud uses the built-in Windows screen-capture APIs,
+Microsoft UI Automation, and the Windows PowerShell runtime already present on the
+machine.
+
+A few operating-system boundaries still apply:
+
+- lnwjud must run in the same interactive Windows session as the UI being observed.
+  The Windows lock screen, sign-in screen, and UAC secure desktop are intentionally
+  outside normal desktop capture/automation.
+- If the target application is running **as Administrator** while lnwjud is not,
+  Windows integrity isolation can limit semantic UI Automation access. Prefer
+  running both at the same privilege level; only elevate lnwjud when the target
+  genuinely requires it.
+- Set-of-Marks labels come from controls exposed through Microsoft UI Automation.
+  Apps that draw their whole interface on a custom canvas may return few or no
+  semantic marks even though ordinary `vision.capture_display`, `capture_window`,
+  and `capture_region` screenshots still work.
+- A minimized, locked, or disconnected target may not have capturable pixels.
+  Restore the target window and keep the desktop session active when validating a
+  visual workflow.
 
 ### 2. Prepare OpenAI Secure MCP Tunnel for ChatGPT web
 
@@ -292,8 +308,8 @@ Secure Tunnel จะส่งงานเข้าที่ Desktop loopback HTT
 
 ### 1. ติดตั้ง lnwjud หรือใช้ Portable
 
-1. แบบแนะนำ: ดาวน์โหลด `lnwjud-Setup-4.12.1.exe` แล้วติดตั้งตามปกติ
-2. ถ้าไม่ต้องการติดตั้ง: ดาวน์โหลด `lnwjud-Portable-4.12.1.exe` แล้วเปิดได้ทันที
+1. แบบแนะนำ: ดาวน์โหลด `lnwjud-Setup-4.13.0.exe` แล้วติดตั้งตามปกติ
+2. ถ้าไม่ต้องการติดตั้ง: ดาวน์โหลด `lnwjud-Portable-4.13.0.exe` แล้วเปิดได้ทันที
 3. เปิด **lnwjud Agent Control Center**
 4. เพิ่มหรือเลือก Project/Workspace ที่ต้องการให้ ChatGPT ทำงานด้วย
 
@@ -308,7 +324,7 @@ Portable ใช้ Settings/ข้อมูลต่อผู้ใช้ Window
 
 ### 3. tunnel-client มากับตัวติดตั้งแล้ว
 
-ถ้าใช้ `lnwjud-Setup-4.12.1.exe` หรือ `lnwjud-Portable-4.12.1.exe` บน Windows x64 **ไม่ต้องดาวน์โหลด
+ถ้าใช้ `lnwjud-Setup-4.13.0.exe` หรือ `lnwjud-Portable-4.13.0.exe` บน Windows x64 **ไม่ต้องดาวน์โหลด
 `tunnel-client.exe` เอง** ตัว release รวม official OpenAI
 `tunnel-client v0.0.12` มาให้และ lnwjud จะเลือกใช้ให้อัตโนมัติ
 
@@ -521,8 +537,8 @@ corepack pnpm@10.15.0 package:windows
 The Windows 10/11 x64 artifacts are written to:
 
 ```text
-apps/desktop/dist/installers/lnwjud-Setup-4.12.1.exe
-apps/desktop/dist/installers/lnwjud-Portable-4.12.1.exe
+apps/desktop/dist/installers/lnwjud-Setup-4.13.0.exe
+apps/desktop/dist/installers/lnwjud-Portable-4.13.0.exe
 ```
 
 The installer is per-user by default. The portable executable needs no installation but uses the same per-user lnwjud data/settings location. A common installed executable path is:
