@@ -1,8 +1,8 @@
-# คู่มือใช้งาน lnwjud v4.12.1 (ภาษาไทย)
+# คู่มือใช้งาน lnwjud v4.13.0 (ภาษาไทย)
 
 lnwjud คือ Windows-first local AI-agent runtime / MCP gateway สำหรับให้ ChatGPT, Codex และ MCP client อื่นทำงานกับเครื่อง Windows ของคุณ เช่น อ่าน/ค้น/แก้ไฟล์, Git, รันโปรเซส, Windows UI automation, WSL, Office และเครื่องมือพัฒนาอื่น ๆ โดยงานจริงยังทำบนเครื่องของคุณ
 
-> สำหรับผู้ใช้ Windows x64 ที่ใช้ `lnwjud-Setup-4.12.1.exe` หรือ `lnwjud-Portable-4.12.1.exe` **ไม่ต้องติดตั้ง Node.js และไม่ต้องดาวน์โหลด `tunnel-client.exe` เอง** ตัว release รวม private Node.js runtime และ official OpenAI `tunnel-client v0.0.12` มาให้แล้ว
+> สำหรับผู้ใช้ Windows x64 ที่ใช้ `lnwjud-Setup-4.13.0.exe` หรือ `lnwjud-Portable-4.13.0.exe` **ไม่ต้องติดตั้ง Node.js และไม่ต้องดาวน์โหลด `tunnel-client.exe` เอง** ตัว release รวม private Node.js runtime และ official OpenAI `tunnel-client v0.0.12` มาให้แล้ว
 
 ---
 
@@ -15,7 +15,7 @@ lnwjud คือ Windows-first local AI-agent runtime / MCP gateway สำหร
 สำหรับ v4.11.0 ตัวโปรแกรมแยก compatibility profile ตามระบบ: Windows 10 x64 ใช้ software rendering เป็นค่าเริ่มต้นเพื่อลดปัญหาหน้าจอ Electron/Chromium ค้าง, วาดไม่ครบ หรือบาง control กดไม่ได้บน GPU/driver รุ่นเก่า ส่วน Windows 11 x64 ยังใช้ hardware acceleration ตามปกติ
 
 งานภายในโปรแกรมที่ต้องเรียก PowerShell ใช้ `powershell.exe` ที่มากับ Windows ไม่บังคับให้ติดตั้ง PowerShell 7 และ child process ภายในถูกเปิดแบบซ่อนหน้าต่าง console. ระบบยังจำกัด durable background task พร้อมกันไว้ 16 งาน และ managed process พร้อมกันไว้ 24 งาน เพื่อกันกรณีหลายแชทสั่งงานพร้อมกันจนเกิด `conhost.exe` จำนวนมาก/CPU เต็ม
-- `lnwjud-Setup-4.12.1.exe` หรือ `lnwjud-Portable-4.12.1.exe`
+- `lnwjud-Setup-4.13.0.exe` หรือ `lnwjud-Portable-4.13.0.exe`
 - OpenAI Platform tunnel ที่ผูกกับ ChatGPT workspace ที่จะใช้
 - Runtime API key ที่มีสิทธิ์ **Tunnels Read + Use**
 - อินเทอร์เน็ตขาออก HTTPS สำหรับ Secure MCP Tunnel
@@ -35,7 +35,7 @@ Node.js, pnpm และ Git จำเป็นเฉพาะกรณีพั�
 
 ### แบบแนะนำ: Installer
 
-1. ดาวน์โหลด `lnwjud-Setup-4.12.1.exe` จาก GitHub Releases
+1. ดาวน์โหลด `lnwjud-Setup-4.13.0.exe` จาก GitHub Releases
 2. ติดตั้งตามปกติ
 3. เปิด **lnwjud Agent Control Center**
 4. เพิ่ม Project/Workspace ที่ต้องการใช้งาน
@@ -43,7 +43,7 @@ Node.js, pnpm และ Git จำเป็นเฉพาะกรณีพั�
 
 ### แบบไม่ต้องติดตั้ง: Portable EXE
 
-1. ดาวน์โหลด `lnwjud-Portable-4.12.1.exe`
+1. ดาวน์โหลด `lnwjud-Portable-4.13.0.exe`
 2. วางไว้ในโฟลเดอร์ที่ต้องการแล้วเปิดไฟล์ได้ทันที ไม่ต้องรัน installer
 3. เพิ่ม Project/Workspace และตั้ง Tunnel เหมือนเวอร์ชันติดตั้ง
 
@@ -154,6 +154,14 @@ v4.11.0 เพิ่มเครื่องมือ `run_goal`, `get_goal`, `c
 
 สำหรับงานยาว ให้ checkpoint หลังจบ phase สำคัญหรือหลังเริ่ม durable background task แล้วใส่ `nextAction` ให้ชัดว่า turn ถัดไปต้องตรวจอะไรต่อ
 
+### ทำ successor แบบ one-time โดยไม่ให้งานชนกัน
+
+ถ้างานยังไม่เสร็จใกล้ขอบเขตของ ChatGPT turn สามารถใช้ rolling Scheduled Continuation ได้: `prepare_scheduled_continuation` จะ checkpoint และคืนคำขอสำหรับ native ChatGPT Scheduled Task แบบ occurrence เดียวล่วงหน้า 2–5 นาที. เวลานี้เป็นช่วงเผื่อ handoff เท่านั้น ไม่ได้จำกัดให้ AI ทำงานครั้งละ 2 นาที และ run เดิมยังทำงานต่อได้จนถึง deadline.
+
+เมื่อ Scheduled turn ใหม่ตื่นขึ้น ต้อง `claim_scheduled_continuation` ก่อนแก้ไฟล์ รัน Git/shell/process/`project_*` หรือ mutation อื่น. lnwjud ผูก lease กับ MCP session และใช้ workspace mutation fence ป้องกัน predecessor/successor เขียนพร้อมกัน: ก่อน deadline session เดิมถือสิทธิ์; หลัง deadline session เดิมถูกบล็อกจน session ใหม่ claim สำเร็จ. ถ้า host reuse session เดิมหรือพิสูจน์ ownership ไม่ได้ ระบบจะ `busy_blocked` แบบ fail-closed แทนการเสี่ยงให้สอง AI run ทำงานซ้อนกัน. Fence นี้ล็อกเฉพาะ workspace ที่มี rolling continuation จึงไม่ขัดกับการทำหลายโปรเจกต์พร้อมกัน.
+
+ใช้เฉพาะ native ChatGPT Scheduled Tasks สำหรับ successor. ห้ามใช้ Windows Task Scheduler, `schtasks.exe`, OS cron, shell timer, recurring ทุก 2 นาที, browser automation หรือ undocumented OpenAI API เป็นตัวแทน. ถ้า native host ไม่ยืนยัน `Runs on` ชัดเจน ให้รายงานเป็น `unverified` ไม่ใช่เดาว่า cloud.
+
 ## 9. Active Projects และหลายแชทพร้อมกัน
 
 v4.11.0 รองรับ Active Projects หลายรายการพร้อมกัน
@@ -263,8 +271,8 @@ corepack pnpm@10.15.0 package:windows
 ไฟล์ที่ได้จะอยู่ที่:
 
 ```text
-apps/desktop/dist/installers/lnwjud-Setup-4.12.1.exe
-apps/desktop/dist/installers/lnwjud-Portable-4.12.1.exe
+apps/desktop/dist/installers/lnwjud-Setup-4.13.0.exe
+apps/desktop/dist/installers/lnwjud-Portable-4.13.0.exe
 apps/desktop/dist/installers/latest.yml
 apps/desktop/dist/installers/portable.yml
 ```

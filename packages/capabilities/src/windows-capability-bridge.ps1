@@ -121,7 +121,13 @@ try { Add-Type -TypeDefinition $nativeSource -ErrorAction Stop | Out-Null } catc
 
 function Resolve-Window {
   param([object]$Parameters)
-  $windows = [LnwjudNative]::Windows()
+  $windows = @([LnwjudNative]::Windows())
+  $windowIndex = Get-Field $Parameters 'window_index'
+  if ($windowIndex -is [int] -or $windowIndex -is [long]) {
+    $index = [int]$windowIndex
+    if ($index -lt 0 -or $index -ge $windows.Count) { return $null }
+    return $windows[$index]
+  }
   $handle = Get-Field $Parameters 'hwnd'
   if ($null -ne $handle) {
     $found = $windows | Where-Object { [int64]$_.hwnd -eq [int64]$handle } | Select-Object -First 1
@@ -172,11 +178,28 @@ function Get-ElementRecord {
   param([object]$Element)
   $current = $Element.Current
   $rect = $current.BoundingRectangle
-  return [ordered]@{ name = $current.Name; automation_id = $current.AutomationId; control_type = $current.ControlType.ProgrammaticName; class_name = $current.ClassName; enabled = $current.IsEnabled; offscreen = $current.IsOffscreen; bounds = [ordered]@{ x = $rect.X; y = $rect.Y; width = $rect.Width; height = $rect.Height } }
+  $controlType = ''
+  if ($null -ne $current.ControlType) { $controlType = [string]$current.ControlType.ProgrammaticName }
+  return [ordered]@{ name = [string]$current.Name; automation_id = [string]$current.AutomationId; control_type = $controlType; class_name = [string]$current.ClassName; enabled = [bool]$current.IsEnabled; offscreen = [bool]$current.IsOffscreen; bounds = [ordered]@{ x = [double]$rect.X; y = [double]$rect.Y; width = [double]$rect.Width; height = [double]$rect.Height } }
+}
+
+function Test-UiWindowSelector {
+  param([object]$Parameters)
+  if ($null -eq $Parameters) { return $false }
+  foreach ($name in @('hwnd', 'title', 'process_name', 'window_index')) {
+    $value = Get-Field $Parameters $name
+    if ($null -ne $value) {
+      if ($value -isnot [string] -or $value.Length -gt 0) { return $true }
+    }
+  }
+  return $false
 }
 
 function Get-UiRoot {
   param([object]$Parameters)
+  if (-not (Test-UiWindowSelector $Parameters)) {
+    return [System.Windows.Automation.AutomationElement]::RootElement
+  }
   $window = Resolve-Window $Parameters
   if ($null -eq $window) { throw 'Window not found' }
   return [System.Windows.Automation.AutomationElement]::FromHandle([IntPtr]([int64]$window.hwnd))
@@ -184,14 +207,22 @@ function Get-UiRoot {
 
 function Add-UiTree {
   param([object]$Element, [System.Collections.Generic.List[object]]$Items, [int]$Depth, [int]$MaxDepth, [int]$MaxItems)
-  if ($Items.Count -ge $MaxItems) { return }
-  $Items.Add([ordered]@{ depth = $Depth; element = Get-ElementRecord $Element })
-  if ($Depth -ge $MaxDepth) { return }
+  if ($null -eq $Element -or $Items.Count -ge $MaxItems) { return }
+  try {
+    $record = Get-ElementRecord $Element
+    [void]$Items.Add([ordered]@{ depth = $Depth; element = $record })
+  } catch {
+    # UI Automation trees are live. A control can disappear between sibling
+    # enumeration and property reads; skip only that stale element instead of
+    # failing the entire observation.
+  }
+  if ($Depth -ge $MaxDepth -or $Items.Count -ge $MaxItems) { return }
   $walker = [System.Windows.Automation.TreeWalker]::ControlViewWalker
-  $child = $walker.GetFirstChild($Element)
+  try { $child = $walker.GetFirstChild($Element) } catch { return }
   while ($null -ne $child -and $Items.Count -lt $MaxItems) {
-    Add-UiTree $child $Items ($Depth + 1) $MaxDepth $MaxItems
-    $child = $walker.GetNextSibling($child)
+    $currentChild = $child
+    try { $child = $walker.GetNextSibling($currentChild) } catch { $child = $null }
+    Add-UiTree $currentChild $Items ($Depth + 1) $MaxDepth $MaxItems
   }
 }
 
@@ -229,10 +260,15 @@ function Invoke-AccessibilityAction {
   $root = Get-UiRoot $Parameters
   if ($Action -in @('observe', 'observe_summary', 'observe_changes', 'inspect_elements')) {
     $items = New-Object 'System.Collections.Generic.List[object]'
-    $maxDepth = [int](Get-Field $Parameters 'max_depth'); if ($maxDepth -le 0) { $maxDepth = 4 }
-    $maxItems = [int](Get-Field $Parameters 'max_items'); if ($maxItems -le 0) { $maxItems = 200 }
+    $maxDepthValue = Get-Field $Parameters 'max_depth'
+    $maxDepth = if ($null -eq $maxDepthValue) { 4 } else { [Math]::Max(0, [int]$maxDepthValue) }
+    $maxItemsValue = Get-Field $Parameters 'max_items'
+    $maxItems = if ($null -eq $maxItemsValue -or [int]$maxItemsValue -le 0) { 200 } else { [int]$maxItemsValue }
     Add-UiTree $root $items 0 $maxDepth $maxItems
-    return [ordered]@{ elements = @($items); count = $items.Count }
+    # Windows PowerShell 5.1 throws "Argument types do not match" when the
+    # array-subexpression operator wraps List[object]. ToArray() is stable on
+    # both Windows 10 and Windows 11 and keeps the JSON shape deterministic.
+    return [ordered]@{ elements = $items.ToArray(); count = $items.Count }
   }
   $element = Find-UiElement $root $Parameters
   if ($null -eq $element) { throw 'UI element was not found' }
@@ -851,5 +887,14 @@ try {
   $result = Success $value
   Write-Output ($result | ConvertTo-Json -Compress -Depth 50)
 } catch {
-  Write-Output ((Failure 'INTERNAL_ERROR' 'Windows native capability failed' $true) | ConvertTo-Json -Compress -Depth 50)
+  $failureMessage = 'Windows native capability failed'
+  try {
+    $detail = [string]$_.Exception.Message
+    if (-not [string]::IsNullOrWhiteSpace($detail)) {
+      $detail = ($detail -replace '[\r\n]+', ' ').Trim()
+      if ($detail.Length -gt 1000) { $detail = $detail.Substring(0, 1000) }
+      $failureMessage = $failureMessage + ': ' + $detail
+    }
+  } catch { }
+  Write-Output ((Failure 'INTERNAL_ERROR' $failureMessage $true) | ConvertTo-Json -Compress -Depth 50)
 }

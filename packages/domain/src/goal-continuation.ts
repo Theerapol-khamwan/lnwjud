@@ -54,6 +54,7 @@ export interface GoalRecord {
   readonly blockers: readonly string[];
   readonly activeTaskIds: readonly string[];
   readonly leaseOwnerClientId?: string;
+  readonly leaseOwnerSessionId?: string;
   readonly leaseTokenHash?: string;
   readonly leaseDurationSeconds?: number;
   readonly leaseHeartbeatAt?: string;
@@ -86,6 +87,7 @@ export interface AcquireGoalRecordRequest {
   readonly workspaceId: string;
   readonly goalKey: string;
   readonly ownerClientId: string;
+  readonly ownerSessionId: string;
   readonly objective?: string;
   readonly plan?: GoalPlan;
   readonly leaseTokenHash: string;
@@ -103,6 +105,7 @@ export interface CheckpointGoalRecordRequest {
   readonly checkpointId: string;
   readonly goalId: string;
   readonly ownerClientId: string;
+  readonly ownerSessionId: string;
   readonly leaseTokenHash: string;
   readonly expectedRevision: number;
   readonly plan: GoalPlan;
@@ -121,6 +124,7 @@ export interface FinishGoalRecordRequest {
   readonly checkpointId: string;
   readonly goalId: string;
   readonly ownerClientId: string;
+  readonly ownerSessionId: string;
   readonly leaseTokenHash: string;
   readonly expectedRevision: number;
   readonly status: GoalTerminalStatus;
@@ -134,6 +138,13 @@ export interface ListGoalRecordsRequest {
   readonly workspaceId?: string;
   readonly status?: GoalStatus;
   readonly limit: number;
+}
+
+export interface ScheduledTaskCancellationInstruction {
+  readonly action: 'delete_native_task' | 'none';
+  readonly continuationId?: string;
+  readonly nativeTaskId?: string;
+  readonly reason: 'live_task_confirmed' | 'no_live_task' | 'already_fired' | 'native_task_unverified';
 }
 
 export interface GoalRepository {

@@ -7,6 +7,7 @@ import {
   FileService,
   GitService,
   GoalContinuationService,
+  ScheduledContinuationService,
   ProcessService,
   ProjectService,
   ProjectSnapshotService,
@@ -90,7 +91,8 @@ export function createStdioMcpRuntime(
     ? rawWorkspaceRepository
     : new StrictWorkspaceRepository(rawWorkspaceRepository, options.strictAllowedRoots);
   const goalRepository = new SqliteGoalRepository(database);
-  const goalService = new GoalContinuationService(workspaceRepository, goalRepository);
+  const scheduledContinuationService = new ScheduledContinuationService(goalRepository);
+  const goalService = new GoalContinuationService(workspaceRepository, goalRepository, { scheduledContinuations: goalRepository });
   const workspaceIndex = new WorkspaceIndexService(workspaceRepository, new JsonWorkspaceIndexStore(path.join(dataPath, 'workspace-index')));
   const settingsRepository = new SqliteSettingsRepository(database);
   const auditRepository = new SqliteAuditRepository(database);
@@ -211,6 +213,7 @@ export function createStdioMcpRuntime(
     file: fileService,
     checkpoint: checkpointService,
     goals: goalService,
+    scheduledContinuations: scheduledContinuationService,
     search: new SearchService(workspaceRepository),
     workspaceIndex,
     git: gitService,

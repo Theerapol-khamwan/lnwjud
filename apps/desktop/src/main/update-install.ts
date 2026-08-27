@@ -1,3 +1,29 @@
+import type { TunnelStatus } from '@lnwjud/ipc-contracts';
+
+export interface UpdateTunnelStopConfirmationOptions {
+  readonly getTunnelStatus: () => Promise<TunnelStatus>;
+  readonly confirmStop: () => Promise<boolean>;
+}
+
+export function updateInstallNeedsTunnelStopConfirmation(status: TunnelStatus): boolean {
+  if (status.state === 'running' || status.state === 'starting') return true;
+  const persistent = status.persistent;
+  if (persistent === null) return false;
+  if (persistent.runtimeAliasActive === true) return true;
+  return persistent.state === 'starting' || persistent.state === 'running' || persistent.state === 'reconnecting';
+}
+
+export async function confirmTunnelStopForUpdate(options: UpdateTunnelStopConfirmationOptions): Promise<boolean> {
+  try {
+    const status = await options.getTunnelStatus();
+    if (!updateInstallNeedsTunnelStopConfirmation(status)) return true;
+  } catch {
+    // Fail safe: if the tunnel status cannot be verified, require explicit user
+    // consent before the installer attempts to stop it.
+  }
+  return options.confirmStop();
+}
+
 export interface UpdateReadyDialogOptions {
   readonly type: 'info';
   readonly title: string;

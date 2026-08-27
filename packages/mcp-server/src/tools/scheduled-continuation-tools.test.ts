@@ -1,0 +1,87 @@
+import { describe, expect, it, vi } from 'vitest';
+import { appError, err, ok } from '@lnwjud/domain';
+import { ContextEconomyRuntime } from '../context-economy.js';
+import { ToolRegistry } from '../tool-registry.js';
+import { scheduledContinuationTools } from './scheduled-continuation-tools.js';
+import type { McpApplicationServices, McpToolContext } from './tool-types.js';
+
+const actor = { clientId: 'chatgpt-web-client', clientName: 'ChatGPT Web', sessionId: 'session-a' };
+
+function context(services: McpApplicationServices = {}): McpToolContext {
+  return { actor, services, contextEconomy: new ContextEconomyRuntime() };
+}
+
+describe('scheduled continuation MCP tools', () => {
+  it('publishes exactly four strict tools with the intended permission metadata', () => {
+    const tools = scheduledContinuationTools(context());
+    const byName = new Map(tools.map((tool) => [tool.name, tool]));
+    expect([...byName.keys()]).toEqual([
+      'prepare_scheduled_continuation',
+      'record_scheduled_continuation_receipt',
+      'claim_scheduled_continuation',
+      'get_scheduled_continuation',
+    ]);
+    for (const name of ['prepare_scheduled_continuation', 'record_scheduled_continuation_receipt', 'claim_scheduled_continuation']) {
+      expect(byName.get(name)).toMatchObject({ permission: 'WRITE', annotations: { readOnlyHint: false, destructiveHint: false } });
+    }
+    expect(byName.get('get_scheduled_continuation')).toMatchObject({ permission: 'READ', annotations: { readOnlyHint: true, destructiveHint: false } });
+
+    const validPrepare = {
+      goalId: 'goal-1', leaseToken: 'lease-secret', expectedRevision: 0, currentPhase: 'implement', summary: 'checkpoint',
+      stepUpdates: [], nextAction: 'continue', blockers: [], evidence: [], activeTaskIds: [],
+    };
+    expect(byName.get('prepare_scheduled_continuation')?.parse(validPrepare)).toMatchObject({ ok: true, value: { delayMinutes: 2 } });
+    expect(byName.get('prepare_scheduled_continuation')?.parse({ ...validPrepare, delayMinutes: 1 })).toMatchObject({ ok: false });
+    expect(byName.get('prepare_scheduled_continuation')?.parse({ ...validPrepare, delayMinutes: 6 })).toMatchObject({ ok: false });
+    expect(byName.get('prepare_scheduled_continuation')?.parse({ ...validPrepare, releaseLease: true })).toMatchObject({ ok: false });
+
+    expect(byName.get('record_scheduled_continuation_receipt')?.parse({ continuationId: 'c-1', expectedVersion: 0, outcome: 'created' })).toMatchObject({ ok: false });
+    expect(byName.get('record_scheduled_continuation_receipt')?.parse({ continuationId: 'c-1', expectedVersion: 0, outcome: 'created', nativeTaskId: 'native-1' })).toMatchObject({ ok: true });
+    expect(byName.get('get_scheduled_continuation')?.parse({})).toMatchObject({ ok: false });
+    expect(byName.get('get_scheduled_continuation')?.parse({ continuationId: 'c-1', goalId: 'g-1', latest: true })).toMatchObject({ ok: false });
+    expect(byName.get('get_scheduled_continuation')?.parse({ goalId: 'g-1', latest: true })).toMatchObject({ ok: true });
+  });
+
+  it('records continuation state without invoking process, capability, shell, or Windows scheduler backends', async () => {
+    const calls = { scheduled: 0, process: 0, capability: 0 };
+    const services = {
+      scheduledContinuations: {
+        async prepareScheduledContinuation() {
+          calls.scheduled += 1;
+          return ok({
+            outcome: 'prepared', currentRunMayContinue: true, handoffDeadlineAt: '2026-08-27T10:02:00.000Z',
+            goal: { goalId: 'g-1' }, continuation: { continuationId: 'c-1' },
+            scheduleRequest: { provider: 'chatgpt_scheduled_task', occurrence: 'once', destination: 'current_chat' },
+          });
+        },
+      },
+      process: { async start() { calls.process += 1; return ok({}); } },
+      capabilities: { async execute() { calls.capability += 1; return ok({}); } },
+    } as unknown as McpApplicationServices;
+    const prepare = scheduledContinuationTools(context(services)).find((tool) => tool.name === 'prepare_scheduled_continuation');
+    if (prepare === undefined) throw new Error('prepare tool missing');
+    const result = await prepare.execute({
+      goalId: 'g-1', leaseToken: 'lease-secret', expectedRevision: 0, currentPhase: 'implement', summary: 'checkpoint',
+      stepUpdates: [], nextAction: 'continue', blockers: [], evidence: [], activeTaskIds: [], delayMinutes: 2, executionPreference: 'cloud',
+    }, new AbortController().signal);
+    expect(result).toMatchObject({ ok: true });
+    expect(calls).toEqual({ scheduled: 1, process: 0, capability: 0 });
+  });
+
+  it('blocks fenced workspace mutations before the underlying file/Git/process service runs', async () => {
+    const authorizeWorkspaceMutation = vi.fn(async () => err(appError('CONFLICT', 'scheduled-continuation fence', true)));
+    const writeFile = vi.fn(async () => ok({ path: 'file.txt', bytesWritten: 1 }));
+    const services = {
+      scheduledContinuations: { authorizeWorkspaceMutation },
+      file: { writeFile },
+    } as unknown as McpApplicationServices;
+    const registry = new ToolRegistry(services, actor, {
+      activeWorkspaceScopeProvider: async (): Promise<{ readonly workspaceId: string; readonly rootPath: string }> => ({ workspaceId: 'workspace-1', rootPath: 'E:\\project' }),
+    });
+
+    const response = await registry.invoke('write_file', { workspaceId: 'workspace-1', path: 'file.txt', content: 'x' });
+    expect(response).toMatchObject({ isError: true, structuredContent: { error: { code: 'CONFLICT' } } });
+    expect(authorizeWorkspaceMutation).toHaveBeenCalledWith(actor, 'workspace-1');
+    expect(writeFile).not.toHaveBeenCalled();
+  });
+});

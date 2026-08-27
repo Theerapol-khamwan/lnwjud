@@ -28,6 +28,7 @@ import { mcpBridgeTools } from './tools/mcp-bridge-tools.js';
 import { processTools } from './tools/process-tools.js';
 import { sessionTools } from './tools/session-tools.js';
 import { searchTools } from './tools/search-tools.js';
+import { scheduledContinuationTools } from './tools/scheduled-continuation-tools.js';
 import { skillTools } from './tools/skill-tools.js';
 import { workspaceTools } from './tools/workspace-tools.js';
 import type { McpApplicationServices, McpToolContext, McpToolDefinition } from './tools/tool-types.js';
@@ -89,6 +90,7 @@ type ApprovalPreparation =
 export class ToolRegistry {
   private readonly tools: readonly McpToolDefinition[];
   private readonly services: McpApplicationServices;
+  private readonly actor: FileActor;
   private readonly diagnostic: DiagnosticLogger | undefined;
   private readonly activity: ActivityTracker;
   private readonly schemaRegistry: ToolSchemaRegistry;
@@ -109,6 +111,7 @@ export class ToolRegistry {
 
   public constructor(services: McpApplicationServices, actor: FileActor, options: ToolRegistryOptions = {}) {
     this.services = services;
+    this.actor = actor;
     this.diagnostic = options.diagnostic;
     this.activity = options.activityTracker ?? new ActivityTracker(options.activity);
     this.sessionId = options.sessionId;
@@ -143,6 +146,7 @@ export class ToolRegistry {
       ...workspaceIndexTools(context),
       ...sessionTools(context, incrementalVerifier),
       ...goalTools(context),
+      ...scheduledContinuationTools(context),
       ...upgradeTools(context),
     ];
     this.tools = [
@@ -210,6 +214,20 @@ export class ToolRegistry {
         const response = mapError(appError('PERMISSION_DENIED', message));
         await this.activity.end(callId, 'PERMISSION_DENIED', Date.now() - started, message);
         return response;
+      }
+      const mutationFenceWorkspaceId = mutationWorkspaceId ?? activeWorkspaceScope?.workspaceId ?? activityWorkspaceId;
+      if (
+        mutationDecision.kind !== 'read'
+        && mutationFenceWorkspaceId !== undefined
+        && SCHEDULED_CONTINUATION_FENCED_TOOLS.has(tool.name)
+        && this.services.scheduledContinuations !== undefined
+      ) {
+        const fenced = await this.services.scheduledContinuations.authorizeWorkspaceMutation(this.actor, mutationFenceWorkspaceId);
+        if (!fenced.ok) {
+          const response = mapError(fenced.error);
+          await this.activity.end(callId, fenced.error.code, Date.now() - started, fenced.error.message);
+          return response;
+        }
       }
       const profile = this.profileProvider();
       const policyAllowsScopedDestructive = mutationWorkspaceId !== undefined
@@ -537,6 +555,13 @@ function normalizeActiveWorkspaceScopesProvider(options: ActiveWorkspaceScopeOpt
 
 const NATIVE_ACTIVE_SCOPE_TOOLS = new Set(['office', 'audio', 'screen_record']);
 const COMMAND_EXECUTION_TOOLS = new Set(['shell', 'wsl_exec', 'process_start']);
+const SCHEDULED_CONTINUATION_FENCED_TOOLS = new Set([
+  'write_file', 'apply_patch', 'edit_file', 'move_file', 'copy_file', 'delete_file',
+  'restore_deleted_file', 'restore_checkpoint', 'git', 'shell', 'wsl_exec',
+  'process_start', 'process_stop', 'project_dev', 'project_test', 'project_lint', 'project_typecheck', 'project_build',
+  'verify_incremental', 'codex_run', 'codex_stop', 'git_worktree_spawn', 'git_worktree_remove', 'self_heal_apply',
+  'office', 'audio', 'screen_record', 'docx_merge', 'office_ppt',
+]);
 type CommandScopeBinding = { readonly ok: true; readonly value: unknown } | { readonly ok: false; readonly message: string };
 function bindCommandExecutionToActiveWorkspace(toolName: string, input: unknown, activeWorkspaceScope: WorkspaceScope | null): CommandScopeBinding {
   const commandTool = toolName === 'shell' || toolName === 'wsl_exec' || toolName === 'process_start';

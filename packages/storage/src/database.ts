@@ -5,6 +5,8 @@ import { AUDIT_MIGRATION_SQL } from './migrations/audit-migration.js';
 import { AUDIT_SCOPE_MIGRATION_SQL } from './migrations/audit-scope-migration.js';
 import { CHECKPOINT_MIGRATION_SQL } from './migrations/checkpoint-migration.js';
 import { GOAL_CONTINUATION_MIGRATION_SQL } from './migrations/goal-continuation-migration.js';
+import { SCHEDULED_CONTINUATION_MIGRATION_SQL } from './migrations/scheduled-continuation-migration.js';
+import { SCHEDULED_CONTINUATION_SESSION_FENCE_MIGRATION_SQL } from './migrations/scheduled-continuation-session-fence-migration.js';
 import { WORKSPACE_ARCHIVE_MIGRATION_SQL } from './migrations/workspace-archive-migration.js';
 
 export interface SqliteDatabaseOptions {
@@ -49,6 +51,8 @@ export class SqliteDatabase {
     this.applyMigration({ id: '004_audit_scope', sql: AUDIT_SCOPE_MIGRATION_SQL });
     this.applyMigration({ id: '005_workspace_archive', sql: WORKSPACE_ARCHIVE_MIGRATION_SQL });
     this.applyMigration({ id: '006_goal_continuation', sql: GOAL_CONTINUATION_MIGRATION_SQL });
+    this.applyMigration({ id: '007_scheduled_continuations', sql: SCHEDULED_CONTINUATION_MIGRATION_SQL });
+    this.applyMigration({ id: '008_scheduled_continuation_session_fence', sql: SCHEDULED_CONTINUATION_SESSION_FENCE_MIGRATION_SQL });
   }
 
   public applyMigration(migration: Migration): void {

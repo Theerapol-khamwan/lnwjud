@@ -34,6 +34,18 @@ afterEach(async () => {
 });
 
 describe('stdio MCP runtime', () => {
+  it('wires durable goals and scheduled continuation orchestration from the same SQLite repository', async () => {
+    const dataPath = await mkdtemp(path.join(os.tmpdir(), 'lnwjud-stdio-continuation-'));
+    temporaryRoots.push(dataPath);
+    const runtime = createStdioMcpRuntime(dataPath, workspace);
+    try {
+      expect(runtime.services.goals).toBeDefined();
+      expect(runtime.services.scheduledContinuations).toBeDefined();
+    } finally {
+      await runtime.close();
+    }
+  });
+
   it('does not overwrite the Desktop permission profile when using full tunnel access', async () => {
     const dataPath = await mkdtemp(path.join(os.tmpdir(), 'lnwjud-stdio-profile-'));
     temporaryRoots.push(dataPath);

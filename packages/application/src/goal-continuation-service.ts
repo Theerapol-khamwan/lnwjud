@@ -15,6 +15,9 @@ import {
   type GoalStepUpdate,
   type GoalTerminalStatus,
   type Result,
+  type ScheduledContinuationRecord,
+  type ScheduledContinuationRepository,
+  type ScheduledTaskCancellationInstruction,
 } from '@lnwjud/domain';
 import type { WorkspaceRepository } from '@lnwjud/workspace';
 import type { FileActor } from './file-service.js';
@@ -115,6 +118,10 @@ export interface GoalSnapshot {
   readonly terminalAt?: string;
 }
 
+export interface FinishGoalResult extends GoalSnapshot {
+  readonly scheduledTaskCancellation: ScheduledTaskCancellationInstruction;
+}
+
 export interface RunGoalResult extends Omit<GoalSnapshot, 'workspaceId' | 'objective' | 'createdAt' | 'updatedAt' | 'terminalSummary' | 'terminalEvidence' | 'terminalAt'> {
   readonly acquired: boolean;
   readonly leaseToken?: string;
@@ -127,10 +134,12 @@ export interface ListGoalsResult {
 
 export interface GoalContinuationServiceOptions {
   readonly now?: () => Date;
+  readonly scheduledContinuations?: Pick<ScheduledContinuationRepository, 'markGoalFinishedForScheduledContinuation'>;
 }
 
 export class GoalContinuationService {
   private readonly now: () => Date;
+  private readonly scheduledContinuations: Pick<ScheduledContinuationRepository, 'markGoalFinishedForScheduledContinuation'> | undefined;
 
   public constructor(
     private readonly workspaces: WorkspaceRepository,
@@ -138,6 +147,7 @@ export class GoalContinuationService {
     options: GoalContinuationServiceOptions = {},
   ) {
     this.now = options.now ?? ((): Date => new Date());
+    this.scheduledContinuations = options.scheduledContinuations;
   }
 
   public async runGoal(actor: FileActor, request: RunGoalRequest): Promise<Result<RunGoalResult>> {
@@ -161,6 +171,7 @@ export class GoalContinuationService {
         workspaceId,
         goalKey,
         ownerClientId,
+        ownerSessionId: stableOwnerSessionId(actor),
         ...(objective === undefined ? {} : { objective }),
         ...(plan === undefined ? {} : { plan }),
         leaseTokenHash: hashLeaseToken(leaseToken),
@@ -217,6 +228,7 @@ export class GoalContinuationService {
         checkpointId: randomUUID(),
         goalId,
         ownerClientId,
+        ownerSessionId: stableOwnerSessionId(actor),
         leaseTokenHash: hashLeaseToken(requiredBounded(request.leaseToken, 'leaseToken', 256)),
         expectedRevision: request.expectedRevision,
         plan: updatedPlan,
@@ -236,7 +248,7 @@ export class GoalContinuationService {
     }
   }
 
-  public async finishGoal(actor: FileActor, request: FinishGoalRequest): Promise<Result<GoalSnapshot>> {
+  public async finishGoal(actor: FileActor, request: FinishGoalRequest): Promise<Result<FinishGoalResult>> {
     try {
       const ownerClientId = stableOwnerClientId(actor);
       const goalId = requiredBounded(request.goalId, 'goalId', 128);
@@ -244,18 +256,33 @@ export class GoalContinuationService {
       if (current === null) return err(appError('INVALID_INPUT', 'Goal was not found'));
       if (current.ownerClientId !== ownerClientId) return err(appError('PERMISSION_DENIED', 'Goal belongs to another client'));
       if (!Number.isInteger(request.expectedRevision) || request.expectedRevision < 0) return err(appError('INVALID_INPUT', 'expectedRevision is invalid'));
+      const now = this.now().toISOString();
       const goal = await this.goals.finish({
         checkpointId: randomUUID(),
         goalId,
         ownerClientId,
+        ownerSessionId: stableOwnerSessionId(actor),
         leaseTokenHash: hashLeaseToken(requiredBounded(request.leaseToken, 'leaseToken', 256)),
         expectedRevision: request.expectedRevision,
         status: request.status,
         summary: safeText(request.summary, MAX_SUMMARY, 'summary'),
         evidence: normalizeEvidence(request.evidence),
-        now: this.now().toISOString(),
+        now,
       });
-      return ok(toSnapshot(goal));
+
+      let scheduledTaskCancellation: ScheduledTaskCancellationInstruction = {
+        action: 'none',
+        reason: 'no_live_task',
+      };
+      if (this.scheduledContinuations !== undefined) {
+        try {
+          const marked = await this.scheduledContinuations.markGoalFinishedForScheduledContinuation(goalId, now);
+          scheduledTaskCancellation = cancellationInstruction(marked.continuation);
+        } catch {
+          scheduledTaskCancellation = { action: 'none', reason: 'native_task_unverified' };
+        }
+      }
+      return ok({ ...toSnapshot(goal), scheduledTaskCancellation });
     } catch (error: unknown) {
       return this.mapError(error);
     }
@@ -297,6 +324,34 @@ export class GoalContinuationService {
     if (error instanceof Error) return err(appError('INVALID_INPUT', 'Durable goal input is invalid'));
     return err(appError('INTERNAL_ERROR', 'Durable goal operation failed'));
   }
+}
+
+function cancellationInstruction(continuation: ScheduledContinuationRecord | null): ScheduledTaskCancellationInstruction {
+  if (continuation === null || continuation.status === 'superseded') {
+    return { action: 'none', reason: 'no_live_task' };
+  }
+  if ((continuation.status === 'cancel_required' || continuation.status === 'cancel_failed') && continuation.nativeTaskId !== undefined) {
+    return {
+      action: 'delete_native_task',
+      continuationId: continuation.continuationId,
+      nativeTaskId: continuation.nativeTaskId,
+      reason: 'live_task_confirmed',
+    };
+  }
+  if (continuation.status === 'claimed' || continuation.status === 'terminal_noop' || continuation.status === 'cancelled') {
+    return {
+      action: 'none',
+      continuationId: continuation.continuationId,
+      ...(continuation.nativeTaskId === undefined ? {} : { nativeTaskId: continuation.nativeTaskId }),
+      reason: 'already_fired',
+    };
+  }
+  return {
+    action: 'none',
+    continuationId: continuation.continuationId,
+    ...(continuation.nativeTaskId === undefined ? {} : { nativeTaskId: continuation.nativeTaskId }),
+    reason: 'native_task_unverified',
+  };
 }
 
 function toRunSnapshot(goal: GoalRecord): Omit<RunGoalResult, 'acquired' | 'leaseToken' | 'retryAfterSeconds'> {
@@ -432,6 +487,10 @@ function requiredBounded(value: string, label: string, maxLength: number): strin
   const trimmed = value.trim();
   if (trimmed.length === 0 || trimmed.length > maxLength) throw new Error(`${label} is invalid`);
   return trimmed;
+}
+
+function stableOwnerSessionId(actor: FileActor): string {
+  return requiredBounded(actor.sessionId?.trim() || actor.clientId, 'session identity', 128);
 }
 
 function stableOwnerClientId(actor: FileActor): string {

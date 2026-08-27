@@ -34,6 +34,7 @@ describe('MCP tool registry', () => {
       'workspace_index', 'workspace_index_status', 'workspace_index_watch', 'workspace_index_stop',
       'session_handoff', 'verify_incremental',
       'run_goal', 'get_goal', 'checkpoint_goal', 'finish_goal', 'list_goals',
+      'prepare_scheduled_continuation', 'record_scheduled_continuation_receipt', 'claim_scheduled_continuation', 'get_scheduled_continuation',
       ...UPGRADE_TOOL_CATALOG.map((entry) => entry.name),
       'tool_batch',
     ]);

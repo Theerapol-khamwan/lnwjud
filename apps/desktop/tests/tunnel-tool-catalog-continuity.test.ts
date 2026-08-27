@@ -38,7 +38,7 @@ describe('v4.11 tool catalog continuity', () => {
       if (firstConnection.url === null) throw new Error('first MCP endpoint was not started');
 
       const first = await captureCatalog(firstConnection.url, 'before-desktop-restart');
-      expect(first.tools).toHaveLength(217);
+      expect(first.tools).toHaveLength(221);
       expect(first.tools.some((tool) => tool.name.startsWith('codex_'))).toBe(false);
       expect(first.workspaceListSucceeded).toBe(true);
 

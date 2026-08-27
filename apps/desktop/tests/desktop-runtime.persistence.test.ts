@@ -23,6 +23,17 @@ afterEach(async () => {
 });
 
 describe('DesktopRuntime persistence', () => {
+  it('wires durable goals and scheduled continuation orchestration into desktop MCP services', async () => {
+    const rawDataRoot = await mkdtemp(path.join(os.tmpdir(), 'lnwjud-runtime-continuation-data-'));
+    temporaryRoots.push(rawDataRoot);
+    const runtime = createDesktopRuntime(await realpath(rawDataRoot));
+    try {
+      expect(runtime.mcpServices.goals).toBeDefined();
+      expect(runtime.mcpServices.scheduledContinuations).toBeDefined();
+    } finally {
+      await runtime.close();
+    }
+  });
   it('applies and restores permission settings without restoring an MCP listener', async () => {
     const rawDataRoot = await mkdtemp(path.join(os.tmpdir(), 'lnwjud-runtime-data-'));
     const rawWorkspaceRoot = await mkdtemp(path.join(os.tmpdir(), 'lnwjud-runtime-workspace-'));

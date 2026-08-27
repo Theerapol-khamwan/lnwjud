@@ -31,7 +31,9 @@ This document is the release-time inventory for every MCP tool advertised by `To
 
 **Durable Goal Continuation:** `get_goal` and `list_goals` are bounded `read` operations. `run_goal` performs app-owned create/resume plus lease acquisition, while `checkpoint_goal` and `finish_goal` replace only the matching app-owned goal state under lease-token and revision CAS. Their authoritative SQLite rows/checkpoint history are internal state, not authority to mutate source files; lease tokens are hashed at rest and never logged.
 
-**Covered goal tools:** `run_goal`, `get_goal`, `checkpoint_goal`, `finish_goal`, `list_goals`.
+**Covered goal tools:** `run_goal`, `get_goal`, `checkpoint_goal`, `finish_goal`, `list_goals`, `prepare_scheduled_continuation`, `record_scheduled_continuation_receipt`, `claim_scheduled_continuation`, `get_scheduled_continuation`.
+
+**Scheduled-continuation ownership:** `get_scheduled_continuation` is bounded `read`; prepare/receipt/claim mutate only app-owned durable continuation/lease state. They do not themselves authorize source mutation. A separate session-level workspace mutation fence is checked in `ToolRegistry` before workspace-changing file/Git/process/project/Codex/worktree/self-heal dispatch, so predecessor/successor overlap fails closed at the execution boundary.
 
 | Mutation kind | Chat confirmation | Host approval | Recoverable | Auto-approvable | Active Project | Command policy | Packaged transports |
 | --- | --- | --- | --- | --- | --- | --- | --- |
