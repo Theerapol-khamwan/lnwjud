@@ -29,6 +29,7 @@ import { FirstRunTunnelTip } from './features/onboarding/FirstRunTunnelTip.js';
 import {
   guidedTunnelLaunchDecision,
   guidedTunnelPrerequisiteSignature,
+  isTunnelConfigured,
   isTunnelRunning,
   readGuidedTunnelSetupState,
   writeGuidedTunnelSetupState,
@@ -206,7 +207,14 @@ export function App(): ReactElement {
     const signature = guidedTunnelPrerequisiteSignature(tunnel);
     if (guidedTunnelLaunchSignature.current === signature) return;
     guidedTunnelLaunchSignature.current = signature;
-    const state = readGuidedTunnelSetupState(window.localStorage);
+    let state = readGuidedTunnelSetupState(window.localStorage);
+    if (isTunnelConfigured(tunnel) && state !== 'completed') {
+      // Upgrades/reinstalls preserve the real tunnel prerequisites outside this
+      // renderer's localStorage. Normalize any stale onboarding marker so a
+      // previously configured user is never sent back to setup on next launch.
+      try { writeGuidedTunnelSetupState(window.localStorage, 'completed'); } catch { /* Real tunnel state remains authoritative. */ }
+      state = 'completed';
+    }
     const decision = guidedTunnelLaunchDecision(tunnel, state);
     if (decision === 'show_tip') {
       setFirstRunTunnelTipOpen(true);
