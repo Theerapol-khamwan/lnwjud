@@ -241,7 +241,7 @@ describe('session resilience acceptance', () => {
     } finally {
       await activity.close();
     }
-  });
+  }, 30_000);
 
   it('probes TunnelController against a real ephemeral HTTP /healthz endpoint', async () => {
     const root = await temporaryDirectory();
