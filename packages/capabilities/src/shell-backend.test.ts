@@ -53,6 +53,33 @@ describe('ShellCapabilityBackend', () => {
     })).resolves.toMatchObject({ ok: true, value: { dry_run: true, executable: 'missing-command', cwd: canonicalRoot } });
   });
 
+  it('rejects inline text-file editing even when the caller marks the command confirmed', async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), 'lnwjud-shell-'));
+    temporaryRoots.push(root);
+    let resolutions = 0;
+    const backend = new ShellCapabilityBackend({
+      allowedRoots: [root],
+      executableResolver: {
+        async resolve(): Promise<Result<string>> {
+          resolutions += 1;
+          return ok(process.execPath);
+        },
+      },
+    });
+
+    const result = await backend.execute({
+      operation: 'run',
+      executable: 'node.exe',
+      arguments: ['-e', "const fs=require('fs'); fs.writeFileSync('src/a.ts', 'next')"],
+      cwd: root,
+      execution: 'foreground',
+      userConfirmed: true,
+    });
+
+    expect(result).toMatchObject({ ok: false, error: { code: 'PERMISSION_DENIED', message: expect.stringContaining('Use edit_file') } });
+    expect(resolutions).toBe(0);
+  });
+
   it.each([
     ['direct delete utility', 'rm', ['victim.txt']],
     ['inline PowerShell command', 'powershell.exe', ['-NoProfile', '-Command', 'Remove-Item victim.txt']],

@@ -52,7 +52,7 @@ describe('PowerShellWindowsCapabilityBridge integrity', () => {
     expect(outlookSection).toContain('Release-ComObject $outlook');
   });
 
-  it('keeps UI Automation observations compatible with Windows PowerShell 5.1', async () => {
+  it('keeps UI Automation observations compatible with the Windows PowerShell 5.x baseline used by Windows 10/11', async () => {
     const scriptPath = path.join(path.dirname(fileURLToPath(import.meta.url)), 'windows-capability-bridge.ps1');
     const script = await readFile(scriptPath, 'utf8');
 

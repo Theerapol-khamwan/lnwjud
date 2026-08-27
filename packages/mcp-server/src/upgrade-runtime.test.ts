@@ -75,8 +75,9 @@ describe('upgrade runtime', () => {
     const byName = new Map(registry.list().map((tool) => [tool.name, tool.description]));
     expect(byName.get('edit_file')).toContain('First choice');
     expect(byName.get('edit_file')).toContain('instead of shell');
-    expect(byName.get('shell')).toContain('do not use it as a text editor');
-    expect(byName.get('shell')).toContain('prefer edit_file');
+    expect(byName.get('shell')).toContain('Never use shell as a source/config/text editor');
+    expect(byName.get('shell')).toContain('call edit_file first');
+    expect(byName.get('shell')).toContain('rejected before native approval');
   });
 
   it('returns route reason codes and a measurable deterministic model selection', async () => {

@@ -8,7 +8,7 @@ export function processTools(context: McpToolContext): McpToolDefinition[] {
   return [
     defineTool({
       name: 'process_start',
-      description: 'Immediate-return managed process launcher. Normal policy-allowed commands run without confirmation; only risky command shapes, protected scope changes, or permission-profile ASK decisions require explicit confirmation. Starts one policy-checked executable with separate arguments and returns processId as soon as the child is spawned; it never waits for command completion. Follow with process_status/process_logs/process_stop. For restart-safe durable work, use shell, whose MCP run mode is forced to background.',
+      description: 'Immediate-return managed process launcher for real executables and long-lived processes. Do not use process_start as a source/config/text editor: inline Node/Python/PowerShell/sed file rewrites are rejected and must use edit_file first, apply_patch for reviewed whole-file or multi-file replacements, or write_file for creation/replacement. Normal policy-allowed commands run without confirmation; only risky command shapes, protected scope changes, or permission-profile ASK decisions require explicit confirmation. Starts one policy-checked executable with separate arguments and returns processId as soon as the child is spawned; it never waits for command completion. Follow with process_status/process_logs/process_stop. For restart-safe durable work, use shell, whose MCP run mode is forced to background.',
       permission: 'EXECUTE',
       annotations: { readOnlyHint: false, destructiveHint: false },
       inputSchema: processStartSchema,
