@@ -12,7 +12,7 @@ const required = [
 ] as const;
 
 describe('scheduled continuation runtime contract', () => {
-  it('publishes all five scheduling tools with one-time cloud/same-task semantics', () => {
+  it('publishes all five scheduling tools with adaptive one-time cloud/same-task semantics', () => {
     const registry = new ToolRegistry({}, actor);
     const tools = new Map(registry.list().map((tool) => [tool.name, tool]));
     for (const name of required) expect(tools.has(name), name).toBe(true);
@@ -20,7 +20,9 @@ describe('scheduled continuation runtime contract', () => {
     expect(tools.has('checkpoint_goal')).toBe(true);
 
     const serialized = required.map((name) => `${name}:${tools.get(name)?.description ?? ''}`).join('\n');
-    expect(serialized).toContain('25 minutes');
+    expect(serialized).toContain('adaptive');
+    expect(serialized).toContain('2 and 25 minutes');
+    expect(serialized).toContain('60 seconds early');
     expect(serialized).toContain('cloud');
     expect(serialized).toContain('same');
     expect(serialized).not.toMatch(/RRULE|recurr|schtasks|executable|shell command/i);

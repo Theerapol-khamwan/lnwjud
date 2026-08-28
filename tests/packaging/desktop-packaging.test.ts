@@ -61,6 +61,9 @@ describe('Windows desktop packaging', () => {
     expect(config).toContain('to: lnwjud-node.exe');
     expect(config).toContain('build/runtime-tools');
     expect(config).toContain('to: runtime-tools');
+    expect(config).toContain('from: ../../.agents/skills/lnwjud-scheduled-continuation');
+    expect(config).toContain('to: agent-skills/lnwjud-scheduled-continuation');
+    await access(path.join(repositoryRoot, '.agents', 'skills', 'lnwjud-scheduled-continuation', 'SKILL.md'));
     expect(desktopPackage.scripts?.['package:windows']).toContain('prepare-ripgrep.ps1');
     expect(desktopPackage.scripts?.['package:windows']).toContain('../../scripts/prepare-windows-ocr.ps1');
     const prepareOcr = await readFile(path.join(repositoryRoot, 'scripts', 'prepare-windows-ocr.ps1'), 'utf8');

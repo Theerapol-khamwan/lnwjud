@@ -20,8 +20,13 @@ import {
 import type { FileActor } from './file-service.js';
 import type { GoalSnapshot, RunGoalResult } from './goal-continuation-service.js';
 
-export const SUCCESSOR_DELAY_MINUTES = 25;
+export const DEFAULT_SUCCESSOR_DELAY_MINUTES = 25;
+export const MIN_SUCCESSOR_DELAY_MINUTES = 2;
+export const MAX_SUCCESSOR_DELAY_MINUTES = 25;
+/** @deprecated Use DEFAULT_SUCCESSOR_DELAY_MINUTES for the adaptive watchdog default. */
+export const SUCCESSOR_DELAY_MINUTES = DEFAULT_SUCCESSOR_DELAY_MINUTES;
 export const COLLISION_RESCHEDULE_MINUTES = 2;
+export const SCHEDULED_WAKE_EARLY_TOLERANCE_SECONDS = 60;
 
 const MAX_ID = 128;
 const MAX_TEXT = 2_048;
@@ -39,7 +44,7 @@ export interface PrepareScheduledContinuationRequest {
   readonly blockers: readonly string[];
   readonly evidence: readonly GoalEvidence[];
   readonly activeTaskIds: readonly string[];
-  readonly successorDelayMinutes?: 25;
+  readonly successorDelayMinutes?: number;
   readonly executionPreference?: 'cloud';
 }
 
@@ -322,6 +327,7 @@ export class ScheduledContinuationService {
         ownerSessionId: ownerSession(actor),
         leaseTokenHash: hashLeaseToken(leaseToken),
         leaseSeconds,
+        earlyToleranceSeconds: SCHEDULED_WAKE_EARLY_TOLERANCE_SECONDS,
         liveness,
         now,
       });
@@ -481,7 +487,7 @@ export class ScheduledContinuationService {
 }
 
 function buildScheduleRequest(continuation: ScheduledContinuationSnapshot, workspaceId: string): ScheduledContinuationRequest {
-  const prompt = `Call claim_scheduled_continuation for continuation ${continuation.continuationId}, goal ${continuation.goalId}, workspace ${workspaceId}. If acquired, immediately arm exactly one cloud successor due 25 minutes later, record its receipt, then continue the durable goal until complete. If a real worker collision is confirmed, update the same native task to now+2 minutes; if liveness is uncertain, fail closed and update the same task to now+2 minutes. When work finishes, call finish_goal first, delete the exact successor through the native ChatGPT Scheduled Task host, record cancelled only with the native host deletion receipt, then read the continuation back and require status cancelled. Never report cancellation as successful while deletion is failed, uncertain, or unverified. If the goal is terminal, stop and do not schedule again. Never use Windows Task Scheduler.`;
+  const prompt = `Call claim_scheduled_continuation first for continuation ${continuation.continuationId}, goal ${continuation.goalId}, workspace ${workspaceId}; native wake jitter up to 60 seconds early is accepted. If acquired, immediately arm exactly one cloud successor using an adaptive delay between 2 and 25 minutes and record its receipt before continuing the durable goal. 25 minutes is the maximum watchdog, not a fixed cadence: use a shorter delay for bounded final work, and if this turn will end while unfinished, move the same native task to now+2 through expedite_scheduled_continuation. Keep working or waiting on active task IDs until their terminal results are inspected. Never send a completion response while get_goal still reports active. When acceptance evidence is complete, call finish_goal even if the user disabled further scheduling, then require get_goal to be terminal. Delete the exact successor through the native ChatGPT Scheduled Task host when requested, record cancelled only with the native host deletion receipt, then read the continuation back and require status cancelled. Never report cancellation as successful while deletion is failed, uncertain, or unverified. If the goal is terminal, stop and do not schedule again. Never use Windows Task Scheduler.`;
   return {
     provider: 'chatgpt_scheduled_task',
     occurrence: 'once',
@@ -591,10 +597,12 @@ function toRunSnapshot(goal: GoalSnapshot): Omit<RunGoalResult, 'leaseToken' | '
   };
 }
 
-function normalizeSuccessorDelay(value: number | undefined): 25 {
-  const delay = value ?? SUCCESSOR_DELAY_MINUTES;
-  if (delay !== SUCCESSOR_DELAY_MINUTES) throw new Error('successorDelayMinutes must be 25');
-  return SUCCESSOR_DELAY_MINUTES;
+function normalizeSuccessorDelay(value: number | undefined): number {
+  const delay = value ?? DEFAULT_SUCCESSOR_DELAY_MINUTES;
+  if (!Number.isInteger(delay) || delay < MIN_SUCCESSOR_DELAY_MINUTES || delay > MAX_SUCCESSOR_DELAY_MINUTES) {
+    throw new Error(`successorDelayMinutes must be between ${MIN_SUCCESSOR_DELAY_MINUTES} and ${MAX_SUCCESSOR_DELAY_MINUTES}`);
+  }
+  return delay;
 }
 
 function normalizeStepUpdates(updates: readonly GoalStepUpdate[], plan: GoalPlan): readonly GoalStepUpdate[] {

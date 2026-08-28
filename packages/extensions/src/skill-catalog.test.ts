@@ -103,6 +103,52 @@ Use one native successor.
     expect(read.value.content).toContain('Use one native successor.');
   });
 
+  it('lists every standard global, plugin, and workspace skill root together with configured roots', async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), 'lnwjud-all-skill-roots-'));
+    temporaryRoots.push(root);
+    const home = path.join(root, 'home');
+    const workspace = path.join(root, 'workspace');
+    const extra = path.join(root, 'extra-skills');
+    const skillRoots = [
+      [path.join(home, '.agents', 'skills', 'global-agent'), 'global-agent'],
+      [path.join(home, '.agents', 'skills', 'vendor', 'collection', 'nested', 'global-deep-agent'), 'global-deep-agent'],
+      [path.join(home, '.codex', 'skills', 'global-codex'), 'global-codex'],
+      [path.join(home, '.codex', 'plugins', 'cache', 'vendor', 'plugin', '1.0.0', 'skills', 'global-plugin'), 'global-plugin'],
+      [path.join(workspace, '.agents', 'skills', 'workspace-agent'), 'workspace-agent'],
+      [path.join(workspace, '.codex', 'skills', 'workspace-codex'), 'workspace-codex'],
+      [path.join(workspace, '.cursor', 'skills-cursor', 'workspace-cursor'), 'workspace-cursor'],
+      [path.join(workspace, '.github', 'skills', 'workspace-github'), 'workspace-github'],
+      [path.join(extra, 'configured-extra'), 'configured-extra'],
+    ] as const;
+    await mkdir(home, { recursive: true });
+    await mkdir(workspace, { recursive: true });
+    for (const [skillRoot, name] of skillRoots) {
+      await mkdir(skillRoot, { recursive: true });
+      await writeFile(path.join(skillRoot, 'SKILL.md'), `---\nname: ${name}\ndescription: Use when testing ${name}\n---\n# ${name}\n`, 'utf8');
+    }
+
+    const catalog = new SkillCatalog({
+      homeDir: home,
+      workspaceRoot: workspace,
+      settings: DEFAULT_EXTENSIONS_SETTINGS,
+      extraRoots: [extra],
+    });
+    const listed = await catalog.list();
+    expect(listed.ok).toBe(true);
+    if (!listed.ok) return;
+    expect(listed.value.skills.map((skill) => skill.name).sort()).toEqual([
+      'configured-extra',
+      'global-agent',
+      'global-codex',
+      'global-deep-agent',
+      'global-plugin',
+      'workspace-agent',
+      'workspace-codex',
+      'workspace-cursor',
+      'workspace-github',
+    ]);
+  });
+
   it('reads an unambiguous skill by bare or dollar-prefixed name', async () => {
     const home = await mkdtemp(path.join(os.tmpdir(), 'lnwjud-skill-alias-'));
     temporaryRoots.push(home);
@@ -125,6 +171,26 @@ Alias content.
     expect(dollarPrefixed.ok).toBe(true);
     if (!dollarPrefixed.ok) return;
     expect(dollarPrefixed.value.id).toBe('agents-skills/demo-alias');
+  });
+
+  it('keeps same-name skills from different nested plugin versions source-addressable', async () => {
+    const home = await mkdtemp(path.join(os.tmpdir(), 'lnwjud-plugin-skill-collisions-'));
+    temporaryRoots.push(home);
+    for (const [version, marker] of [['1.0.0', 'old'], ['2.0.0', 'new']] as const) {
+      const skillRoot = path.join(home, '.codex', 'plugins', 'cache', 'vendor', 'demo', version, 'skills', 'shared');
+      await mkdir(skillRoot, { recursive: true });
+      await writeFile(path.join(skillRoot, 'SKILL.md'), `---\nname: shared-plugin-skill\ndescription: Plugin ${marker}\n---\n${marker}\n`, 'utf8');
+    }
+
+    const catalog = new SkillCatalog({ homeDir: home, settings: DEFAULT_EXTENSIONS_SETTINGS });
+    const listed = await catalog.list({ query: 'shared-plugin-skill' });
+    expect(listed.ok).toBe(true);
+    if (!listed.ok) return;
+    expect(listed.value.skills).toHaveLength(2);
+    expect(new Set(listed.value.skills.map((skill) => skill.id)).size).toBe(2);
+    const contents = await Promise.all(listed.value.skills.map((skill) => catalog.read({ skillId: skill.id })));
+    expect(contents.map((result) => result.ok ? result.value.content.trim().split(/\r?\n/).at(-1) : 'error').sort())
+      .toEqual(['new', 'old']);
   });
 
   it('rejects ambiguous unqualified skill names with source-qualified candidates', async () => {

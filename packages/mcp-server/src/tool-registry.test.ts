@@ -167,7 +167,13 @@ describe('MCP tool registry', () => {
     configured = 999;
     await registry.invoke('wsl_exec', { operation: 'wait', workspaceId: 'workspace-1', task_id: 'task-2', timeout_seconds: 60 });
     expect(waits).toEqual([30, 5, 60]);
-    expect(registry.list().find((tool) => tool.name === 'shell')?.description).toContain('do not keep polling in the same chat turn');
+    const shellDescription = registry.list().find((tool) => tool.name === 'shell')?.description ?? '';
+    const wslDescription = registry.list().find((tool) => tool.name === 'wsl_exec')?.description ?? '';
+    for (const description of [shellDescription, wslDescription]) {
+      expect(description).toContain('When the user requires babysitting until completion, keep using bounded waits');
+      expect(description).toContain('do not report completion until the terminal result is inspected');
+      expect(description).not.toContain('do not keep polling in the same chat turn');
+    }
   });
 
   it('blocks dangerous capability execution under the safe profile before reaching the backend', async () => {

@@ -15,6 +15,7 @@ export interface LocalExtensionsServiceOptions {
   readonly homeDir?: string;
   readonly appDataDir?: string;
   readonly workspaceRootProvider?: () => Promise<string | undefined>;
+  readonly bundledSkillRoots?: readonly string[];
   readonly clientFactory?: McpClientFactory;
   readonly callTimeoutMs?: number;
   readonly idleTimeoutMs?: number;
@@ -25,6 +26,7 @@ export class LocalExtensionsService implements ExtensionsService {
   private readonly homeDir: string | undefined;
   private readonly appDataDir: string | undefined;
   private readonly workspaceRootProvider: () => Promise<string | undefined>;
+  private readonly bundledSkillRoots: readonly string[];
   private readonly sessions: McpSessionManager;
 
   public constructor(options: LocalExtensionsServiceOptions) {
@@ -32,6 +34,7 @@ export class LocalExtensionsService implements ExtensionsService {
     this.homeDir = options.homeDir;
     this.appDataDir = options.appDataDir;
     this.workspaceRootProvider = options.workspaceRootProvider ?? (async (): Promise<undefined> => undefined);
+    this.bundledSkillRoots = options.bundledSkillRoots ?? [];
     this.sessions = new McpSessionManager({
       ...(options.clientFactory === undefined ? {} : { clientFactory: options.clientFactory }),
       ...(options.callTimeoutMs === undefined ? {} : { callTimeoutMs: options.callTimeoutMs }),
@@ -124,6 +127,7 @@ export class LocalExtensionsService implements ExtensionsService {
       settings: this.settings,
       ...(this.homeDir === undefined ? {} : { homeDir: this.homeDir }),
       ...(workspaceRoot === undefined ? {} : { workspaceRoot }),
+      extraRoots: this.bundledSkillRoots,
     });
   }
 

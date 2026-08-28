@@ -1,4 +1,4 @@
-import { readdir, readFile, stat } from 'node:fs/promises';
+import { readdir, readFile, realpath, stat } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { appError, err, ok, type Result } from '@lnwjud/domain';
@@ -78,7 +78,7 @@ export class SkillCatalog {
     const skills: SkillSummary[] = [];
     for (const root of roots) {
       if (!isSkillRootEnabled(root.path, this.options.settings)) continue;
-      const skillFiles = await findSkillFiles(root.path, 3);
+      const skillFiles = await findSkillFiles(root.path);
       for (const skillPath of skillFiles) {
         try {
           const content = await readFile(skillPath, 'utf8');
@@ -97,23 +97,32 @@ export class SkillCatalog {
         }
       }
     }
-    return dedupeById(skills);
+    return dedupeByPathAndDisambiguateIds(skills);
   }
 
   private roots(): readonly { readonly source: string; readonly path: string }[] {
     const home = this.options.homeDir ?? os.homedir();
+    const configuredCodexHome = this.options.homeDir === undefined ? process.env.CODEX_HOME?.trim() : undefined;
+    const codexHome = configuredCodexHome === undefined || configuredCodexHome.length === 0
+      ? path.join(home, '.codex')
+      : path.resolve(configuredCodexHome);
     const defaults: { readonly source: string; readonly path: string }[] = [
       { source: 'cursor-skills-cursor', path: path.join(home, '.cursor', 'skills-cursor') },
       { source: 'cursor-skills', path: path.join(home, '.cursor', 'skills') },
       { source: 'claude-skills', path: path.join(home, '.claude', 'skills') },
       { source: 'agents-skills', path: path.join(home, '.agents', 'skills') },
+      { source: 'codex-skills', path: path.join(codexHome, 'skills') },
+      { source: 'codex-plugin-skills', path: path.join(codexHome, 'plugins', 'cache') },
     ];
     const workspaceRoot = this.options.workspaceRoot?.trim();
     if (workspaceRoot !== undefined && workspaceRoot.length > 0) {
       defaults.push(
         { source: 'workspace-cursor-skills', path: path.join(workspaceRoot, '.cursor', 'skills') },
+        { source: 'workspace-cursor-skills-cursor', path: path.join(workspaceRoot, '.cursor', 'skills-cursor') },
         { source: 'workspace-claude-skills', path: path.join(workspaceRoot, '.claude', 'skills') },
         { source: 'workspace-agents-skills', path: path.join(workspaceRoot, '.agents', 'skills') },
+        { source: 'workspace-codex-skills', path: path.join(workspaceRoot, '.codex', 'skills') },
+        { source: 'workspace-github-skills', path: path.join(workspaceRoot, '.github', 'skills') },
       );
     }
     for (const extra of [...this.options.settings.extraSkillRoots, ...(this.options.extraRoots ?? [])]) {
@@ -198,29 +207,44 @@ function firstParagraph(body: string): string {
   return paragraph ?? '';
 }
 
-async function findSkillFiles(root: string, maxDepth: number): Promise<readonly string[]> {
+async function findSkillFiles(root: string): Promise<readonly string[]> {
   const results: string[] = [];
-  await walkForSkills(root, 0, maxDepth, results);
+  await walkForSkills(root, results, new Set<string>());
   return results;
 }
 
-async function walkForSkills(current: string, depth: number, maxDepth: number, results: string[]): Promise<void> {
-  if (depth > maxDepth) return;
+async function walkForSkills(current: string, results: string[], visited: Set<string>): Promise<void> {
+  const canonical = await safeRealpath(current);
+  if (canonical === undefined) return;
+  const visitKey = process.platform === 'win32' ? canonical.toLowerCase() : canonical;
+  if (visited.has(visitKey)) return;
+  visited.add(visitKey);
+
   const skillPath = path.join(current, 'SKILL.md');
-  if (depth > 0 && await isFile(skillPath)) {
+  if (await isFile(skillPath)) {
     results.push(skillPath);
     return;
   }
-  if (depth === maxDepth) return;
   for (const entry of await safeReaddir(current)) {
-    await walkForSkills(path.join(current, entry), depth + 1, maxDepth, results);
+    await walkForSkills(path.join(current, entry), results, visited);
+  }
+}
+
+async function safeRealpath(target: string): Promise<string | undefined> {
+  try {
+    return await realpath(target);
+  } catch {
+    return undefined;
   }
 }
 
 async function safeReaddir(root: string): Promise<readonly string[]> {
   try {
     const entries = await readdir(root, { withFileTypes: true });
-    return entries.filter((entry) => entry.isDirectory()).map((entry) => entry.name);
+    return entries
+      .filter((entry) => entry.isDirectory() || entry.isSymbolicLink())
+      .map((entry) => entry.name)
+      .sort((left, right) => left.localeCompare(right));
   } catch {
     return [];
   }
@@ -242,15 +266,38 @@ function isPathInside(root: string, candidate: string): boolean {
   return firstSegment !== '..';
 }
 
-function dedupeById(skills: readonly SkillSummary[]): readonly SkillSummary[] {
-  const seen = new Set<string>();
+function dedupeByPathAndDisambiguateIds(skills: readonly SkillSummary[]): readonly SkillSummary[] {
+  const seenPaths = new Set<string>();
+  const usedIds = new Set<string>();
   const result: SkillSummary[] = [];
   for (const skill of skills) {
-    if (seen.has(skill.id)) continue;
-    seen.add(skill.id);
-    result.push(skill);
+    const pathKey = normalizePathKey(skill.skillPath);
+    if (seenPaths.has(pathKey)) continue;
+    seenPaths.add(pathKey);
+
+    let id = skill.id;
+    if (usedIds.has(id)) {
+      const relativeFolder = path.relative(skill.rootPath, path.dirname(skill.skillPath))
+        .split(path.sep)
+        .filter((segment) => segment.length > 0 && segment !== '..')
+        .join('/');
+      const pathQualifiedId = `${skill.source}/${relativeFolder || skill.name}`;
+      id = pathQualifiedId;
+      let suffix = 2;
+      while (usedIds.has(id)) {
+        id = `${pathQualifiedId}#${suffix}`;
+        suffix += 1;
+      }
+    }
+    usedIds.add(id);
+    result.push(id === skill.id ? skill : { ...skill, id });
   }
   return result;
+}
+
+function normalizePathKey(value: string): string {
+  const resolved = path.resolve(value).replaceAll('\\', '/');
+  return process.platform === 'win32' ? resolved.toLowerCase() : resolved;
 }
 
 function normalizeSearchText(value: string): string {

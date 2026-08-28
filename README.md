@@ -76,7 +76,9 @@ Current v4 highlights include:
   expiring observation hashes and approval-gated target actions.
 - Scoped WSL execution and Windows/WSL path translation for registered
   workspaces.
-- Skills discovery plus child MCP discovery/description/call contracts.
+- Complete local skill discovery across bundled, Codex/plugin, Agents, Cursor,
+  Claude, GitHub workspace, and configured skill roots, plus child MCP
+  discovery/description/call contracts.
 - Compound and parallel workflows, deterministic semantic tool routing, and
   Context Economy telemetry.
 - Trace-correlated activity, NDJSON/SQLite audit metadata, Work Log, Live Logs,
@@ -440,6 +442,30 @@ These generated runtime files are intentionally ignored by Git. The Windows
 package copies them next to the installed application and into its resources
 directory, and the launcher uses only this bundled runtime rather than a system
 Node installation or `PATH`.
+
+### Bundled autonomous continuation skill (Setup and Portable)
+
+Both `lnwjud-Setup-*.exe` and `lnwjud-Portable-*.exe` ship the same
+`lnwjud-scheduled-continuation` skill under the packaged resources directory.
+No repository checkout is required. `skills_list` returns this bundled skill
+together with every discovered machine-global and active-workspace skill; it
+does not replace the user's Cursor, Claude, Agents, Codex, Codex-plugin, GitHub
+workspace, or configured extra roots.
+
+When the client exposes skill names directly, a user on either distribution can
+start the full autonomous chain with a prompt such as:
+
+```text
+Use $lnwjud-scheduled-continuation in workspace D:\projects\my-app. Create or resume goalKey release-audit, do the requested work autonomously until get_goal is terminal, then cancel the exact remaining successor and report once.
+```
+
+For clients that do not expose `$skill-name` syntax, ask the agent to call
+`skills_list`, choose the source-qualified `lnwjud-scheduled-continuation`
+result, call `skills_read`, and follow that skill. The first run creates or
+resumes the durable goal, arms one adaptive one-time cloud watchdog, and keeps
+working. A request to stop future scheduling cancels only that watchdog; the
+current run must still inspect background task results and call `finish_goal`
+before it reports completion.
 
 ### STDIO permission profiles and strict roots
 
@@ -919,7 +945,7 @@ This index is generated from the current `ToolRegistry`, not copied from an olde
 | 37 | `codex_task_status` | READ | Read status for an owned Codex task. |
 | 38 | `codex_task_logs` | READ | Read bounded logs for an owned Codex task. |
 | 39 | `codex_stop` | EXECUTE | Stop an owned Codex task process after explicit chat confirmation in standard mode. Trusted Full Bypass skips the lnwjud confirmation gate; task ownership still applies. |
-| 40 | `shell` | EXECUTE | Non-blocking command runner for real command execution, builds/tests, package managers, and system operations. Never use shell as a source/config/text editor. For any direct text-file change, call edit_file first; use apply_patch for reviewed whole-file or multi-file replacements and write_file for file creation/replacement. Inline Node/Python/PowerShell/sed commands that rewrite text files are rejected before native approval so the client can route to the guarded file tools instead. MCP run calls are ALWAYS forced to execution=background, even if a client requests foreground or auto, so the call returns a task_id immediately instead of waiting for command completion. Follow with status/logs/result; wait uses the user-configurable MCP poll window (5-60 seconds, default 5). After one or two checks still show running, do not keep polling in the same chat turn: preserve task_id and return control so the durable task can continue without risking a ChatGPT turn timeout. With Full Bypass OFF, Full Access runs ordinary policy-allowed commands without confirmation while destructive, broad, recursive, critical, outside-project, or unparseable forms retain normal approval/command policy. Trusted Full Bypass skips lnwjud approval, command-policy, Active Project, goalLease, and allowed-root checks, including an explicitly absolute cwd outside the project; input validation, executable availability, Windows ACL/UAC, and child-process failures still apply. dry_run and task observation are non-mutating. |
+| 40 | `shell` | EXECUTE | Non-blocking command runner for real command execution, builds/tests, package managers, and system operations. Never use shell as a source/config/text editor. For any direct text-file change, call edit_file first; use apply_patch for reviewed whole-file or multi-file replacements and write_file for file creation/replacement. Inline Node/Python/PowerShell/sed commands that rewrite text files are rejected before native approval so the client can route to the guarded file tools instead. MCP run calls are ALWAYS forced to execution=background, even if a client requests foreground or auto, so the call returns a task_id immediately instead of waiting for command completion. Follow with status/logs/result; wait uses the user-configurable MCP poll window (5-60 seconds, default 5). When the user requires babysitting until completion, keep using bounded waits and do not report completion until the terminal result is inspected. Otherwise, if the host turn must yield while a durable task is still running, checkpoint its task_id and use the active scheduled-continuation handoff instead of abandoning the goal. With Full Bypass OFF, Full Access runs ordinary policy-allowed commands without confirmation while destructive, broad, recursive, critical, outside-project, or unparseable forms retain normal approval/command policy. Trusted Full Bypass skips lnwjud approval, command-policy, Active Project, goalLease, and allowed-root checks, including an explicitly absolute cwd outside the project; input validation, executable availability, Windows ACL/UAC, and child-process failures still apply. dry_run and task observation are non-mutating. |
 | 41 | `dom_cdp` | READ | Default for web-page DOM work inside managed Chrome: inspect content, query selectors, click, type, navigate, evaluate JavaScript, wait, manage tabs, and capture screenshots. In standard mode, any action that can change local or remote state requires explicit chat confirmation and host approval. Trusted Full Bypass skips lnwjud approval without forging userConfirmed. Use steps to batch related DOM actions in one call. |
 | 42 | `computer_use` | EXECUTE | Codex-style native Windows computer use for testing desktop apps. Take annotated screenshots, inspect semantic controls, and operate by semantic target, numbered visual mark, or explicit coordinates. Routes through Accessibility first and uses guarded pointer/keyboard input only when needed. Supports click, typing, keys, hotkeys, scroll, drag, pointer movement, and window activation. |
 | 43 | `accessibility` | READ | Semantic native Windows UI tool. Inspect UI trees and named controls, then click, focus, read or set values, select controls and menus, or manage a native element. Prefer shell for direct system work and dom_cdp for web pages. |
@@ -938,9 +964,9 @@ This index is generated from the current `ToolRegistry`, not copied from an olde
 | 56 | `screen_record` | EXECUTE | Record the screen to an MP4 using ffmpeg gdigrab (requires ffmpeg on PATH). In standard mode starting a recording requires the host-selected Active Project workspaceId and explicit confirmation; trusted Full Bypass skips lnwjud approval/scope checks. Existing in-workspace outputs use Recovery Trash before replacement when available. start spawns a background capture, status checks it, stop finalizes the file. Recording stops automatically after 3600 seconds. |
 | 57 | `office` | WRITE | Automate Excel, Word, PowerPoint, or Outlook through COM. In standard mode every write, replace, merge, or save_as action requires an Active Project workspaceId, explicit chat confirmation, and host approval. Trusted Full Bypass skips lnwjud approval/scope checks without forging userConfirmed. Existing in-workspace targets use Recovery Trash before replacement when available. Requires Microsoft Office installed. |
 | 58 | `scheduler` | EXECUTE | Manage Windows scheduled tasks with schtasks.exe. list is read-only; in standard mode create, run, and delete require explicit chat confirmation and host approval. Trusted Full Bypass skips lnwjud approval without forging userConfirmed. |
-| 59 | `wsl_exec` | EXECUTE | Non-blocking WSL2 developer runner for one Linux executable plus argv; shell command strings are not accepted. Do not use wsl_exec as a source/config/text editor. For any direct text-file change, call edit_file first; use apply_patch for reviewed whole-file or multi-file replacements and write_file for file creation/replacement. Inline Node/Python/PowerShell-style rewrites and sed in-place edits are rejected before native approval so the client can route to guarded file tools. MCP run calls are ALWAYS forced to execution=background, even if a client requests foreground or auto, and return a task_id immediately. Follow with status/logs/result; wait uses the user-configurable MCP poll window (5-60 seconds, default 5). After one or two checks still show running, do not keep polling in the same chat turn: preserve task_id and return control. With Full Bypass OFF, Full Access runs ordinary WSL commands without confirmation while destructive, broad, recursive, outside-project, or unparseable forms retain normal approval/command policy. Trusted Full Bypass skips lnwjud approval, command-policy, Active Project, goalLease, and allowed-root checks, including an explicitly requested external cwd; WSL availability, argv validation, Linux permissions, and process failures still apply. |
+| 59 | `wsl_exec` | EXECUTE | Non-blocking WSL2 developer runner for one Linux executable plus argv; shell command strings are not accepted. Do not use wsl_exec as a source/config/text editor. For any direct text-file change, call edit_file first; use apply_patch for reviewed whole-file or multi-file replacements and write_file for file creation/replacement. Inline Node/Python/PowerShell-style rewrites and sed in-place edits are rejected before native approval so the client can route to guarded file tools. MCP run calls are ALWAYS forced to execution=background, even if a client requests foreground or auto, and return a task_id immediately. Follow with status/logs/result; wait uses the user-configurable MCP poll window (5-60 seconds, default 5). When the user requires babysitting until completion, keep using bounded waits and do not report completion until the terminal result is inspected. Otherwise, if the host turn must yield while a durable task is still running, checkpoint its task_id and use the active scheduled-continuation handoff instead of abandoning the goal. With Full Bypass OFF, Full Access runs ordinary WSL commands without confirmation while destructive, broad, recursive, outside-project, or unparseable forms retain normal approval/command policy. Trusted Full Bypass skips lnwjud approval, command-policy, Active Project, goalLease, and allowed-root checks, including an explicitly requested external cwd; WSL availability, argv validation, Linux permissions, and process failures still apply. |
 | 60 | `wsl_fs` | READ | Translate paths and inspect metadata between a registered Windows workspace and WSL without exposing raw \\wsl$ read/write access. |
-| 61 | `skills_list` | READ | List local agent skills discovered from Cursor, Claude, Agents, workspace skill roots, and lnwjud settings. Filter with query or source. |
+| 61 | `skills_list` | READ | List the union of bundled skills and every discovered machine-global or active-workspace skill from Cursor, Claude, Agents, Codex, the Codex plugin cache, GitHub workspace roots, and lnwjud settings. Nested and symlinked skill collections are included. Filter with query or source. |
 | 62 | `skills_read` | READ | Read a local skill SKILL.md (or a relative file inside the skill folder). Prefer the source-qualified id returned by skills_list; an unambiguous bare name or $name is also accepted. Follow the skill instructions with lnwjud tools and mcp_call. |
 | 63 | `mcp_list` | READ | List local MCP servers discovered from Cursor, Claude Desktop, and lnwjud settings. This inspection is read-only and does not flatten child tools into the lnwjud catalog. |
 | 64 | `mcp_describe` | READ | Connect to one local MCP server (if needed) and return its tool names, descriptions, and input schemas. This operation only inspects the child tool catalog. |
@@ -963,13 +989,13 @@ This index is generated from the current `ToolRegistry`, not copied from an olde
 | 81 | `run_goal` | WRITE | Immediate-return durable goal create/resume and lease acquisition. It never runs a model or waits for foreground work. |
 | 82 | `get_goal` | READ | Read the latest durable goal snapshot without changing state or returning a lease token. |
 | 83 | `checkpoint_goal` | WRITE | Atomically checkpoint durable goal progress using the current lease and expected revision. |
-| 84 | `finish_goal` | WRITE | Finish the local durable goal using lease/revision compare-and-swap. If scheduledTaskCancellation requests delete_native_task, the chain is not fully cancelled yet: delete that exact task through the native ChatGPT Scheduled Task host, record its native deletion receipt, and verify status=cancelled before reporting cancellation success. |
+| 84 | `finish_goal` | WRITE | Finish the local durable goal using lease/revision compare-and-swap. It must be called before any completion report, even when scheduling was disabled or the user requested no more successors. If scheduledTaskCancellation requests delete_native_task, delete that exact task through the native ChatGPT Scheduled Task host, record its native deletion receipt, and verify status=cancelled before reporting cancellation success. |
 | 85 | `list_goals` | READ | List a bounded set of durable goals owned by the current stable MCP client, optionally filtered by workspace/status. |
-| 86 | `prepare_scheduled_continuation` | WRITE | Checkpoint and reserve exactly one current-chat successor due 25 minutes later. This workflow is one-time and cloud-only; it never creates or deletes the native task itself. |
+| 86 | `prepare_scheduled_continuation` | WRITE | Checkpoint and reserve exactly one current-chat cloud successor with an adaptive delay between 2 and 25 minutes. The 25-minute default is a maximum watchdog, while bounded final work may use a shorter delay. This workflow never creates or deletes the native task itself. |
 | 87 | `record_scheduled_continuation_receipt` | WRITE | Record host-owned cloud one-time task create, same-task reschedule, or cancellation receipts. Cancelled is accepted only with a matching native ChatGPT host deletion receipt; a model assertion is not cancellation proof. The stored native task ID is immutable across reschedules. |
-| 88 | `claim_scheduled_continuation` | WRITE | Scheduled-wake entrypoint. Claim before workspace mutation. If native task creation was never confirmed, returns receipt_required instead of throwing so the host can reconcile created/create_failed/create_uncertain. On an active-worker collision, update the exact existing native one-time cloud task to now+2 minutes. Do not mutate the workspace, create a replacement task, mark the goal terminal, or stop the durable chain. |
-| 89 | `get_scheduled_continuation` | READ | Read one scheduled-continuation snapshot by continuation ID or the latest record for a goal. Healthy unfinished work does not move the existing T+25 task. |
-| 90 | `expedite_scheduled_continuation` | WRITE | For an enumerated handoff-risk signal only, move the exact existing cloud one-time native task to now+2 minutes. Elapsed time or unfinished work alone is not a valid reason and no replacement task is created. |
+| 88 | `claim_scheduled_continuation` | WRITE | Scheduled-wake entrypoint. Claim before workspace mutation; a confirmed cloud wake up to 60 seconds early is accepted so a one-time task is not consumed without handoff. If native task creation was never confirmed, returns receipt_required for reconciliation. On an active-worker collision, update the exact existing native one-time cloud task to now+2 minutes. Do not mutate the workspace, create a replacement task, mark the goal terminal, or stop the durable chain. |
+| 89 | `get_scheduled_continuation` | READ | Read one scheduled-continuation snapshot by continuation ID or the latest record for a goal. A healthy current run keeps its adaptive watchdog unless a real turn-yield signal requires same-task +2 handoff. |
+| 90 | `expedite_scheduled_continuation` | WRITE | For an enumerated handoff-risk signal, including a turn that is about to end while the goal is unfinished, move the exact existing cloud one-time native task to now+2 minutes. No replacement task is created. |
 | 91 | `symbol_search` | READ | Search indexed symbols across the workspace. |
 | 92 | `find_definition` | READ | Find deterministic symbol definitions. |
 | 93 | `find_references` | READ | Find textual and indexed references to a symbol. |
@@ -1287,7 +1313,7 @@ all discovered servers except lnwjud itself (recursion guard).
 
 | Tool | Permission | What it does |
 | --- | --- | --- |
-| skills_list | READ | Lists discovered skills from Cursor/Claude/Agents/workspace roots |
+| skills_list | READ | Lists bundled skills plus all discovered Cursor/Claude/Agents/Codex/Codex-plugin/GitHub workspace/configured roots |
 | skills_read | READ | Reads a skill `SKILL.md` or a relative file inside that skill folder |
 | mcp_list | READ | Lists discovered local MCP servers and enabled/connected state |
 | mcp_describe | READ | Connects if needed and returns child tool names/schemas |

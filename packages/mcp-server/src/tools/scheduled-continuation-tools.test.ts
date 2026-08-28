@@ -32,7 +32,11 @@ describe('scheduled continuation MCP tools', () => {
       stepUpdates: [], nextAction: 'continue', blockers: [], evidence: [], activeTaskIds: [],
     };
     expect(byName.get('prepare_scheduled_continuation')?.parse(validPrepare)).toMatchObject({ ok: true, value: { successorDelayMinutes: 25, executionPreference: 'cloud' } });
-    expect(byName.get('prepare_scheduled_continuation')?.parse({ ...validPrepare, successorDelayMinutes: 24 })).toMatchObject({ ok: false });
+    expect(byName.get('prepare_scheduled_continuation')?.parse({ ...validPrepare, successorDelayMinutes: 2 })).toMatchObject({ ok: true, value: { successorDelayMinutes: 2 } });
+    expect(byName.get('prepare_scheduled_continuation')?.parse({ ...validPrepare, successorDelayMinutes: 5 })).toMatchObject({ ok: true, value: { successorDelayMinutes: 5 } });
+    expect(byName.get('prepare_scheduled_continuation')?.parse({ ...validPrepare, successorDelayMinutes: 24 })).toMatchObject({ ok: true, value: { successorDelayMinutes: 24 } });
+    expect(byName.get('prepare_scheduled_continuation')?.parse({ ...validPrepare, successorDelayMinutes: 1 })).toMatchObject({ ok: false });
+    expect(byName.get('prepare_scheduled_continuation')?.parse({ ...validPrepare, successorDelayMinutes: 2.5 })).toMatchObject({ ok: false });
     expect(byName.get('prepare_scheduled_continuation')?.parse({ ...validPrepare, successorDelayMinutes: 26 })).toMatchObject({ ok: false });
     expect(byName.get('prepare_scheduled_continuation')?.parse({ ...validPrepare, executionPreference: 'auto' })).toMatchObject({ ok: false });
     expect(byName.get('prepare_scheduled_continuation')?.parse({ ...validPrepare, executionPreference: 'local' })).toMatchObject({ ok: false });
@@ -60,6 +64,9 @@ describe('scheduled continuation MCP tools', () => {
     expect(byName.get('get_scheduled_continuation')?.parse({})).toMatchObject({ ok: false });
     expect(byName.get('get_scheduled_continuation')?.parse({ continuationId: 'c-1', goalId: 'g-1', latest: true })).toMatchObject({ ok: false });
     expect(byName.get('get_scheduled_continuation')?.parse({ goalId: 'g-1', latest: true })).toMatchObject({ ok: true });
+    expect(byName.get('prepare_scheduled_continuation')?.description).toContain('adaptive');
+    expect(byName.get('prepare_scheduled_continuation')?.description).toContain('2 and 25 minutes');
+    expect(byName.get('claim_scheduled_continuation')?.description).toContain('60 seconds early');
   });
 
   it('records continuation state without invoking process, capability, shell, or Windows scheduler backends', async () => {

@@ -623,7 +623,11 @@ export class SqliteGoalRepository implements GoalRepository, ScheduledContinuati
 
       const nowMs = parseIso(request.now, 'request time');
       const dueMs = parseIso(continuation.dueAt, 'scheduled continuation due_at');
-      if (nowMs < dueMs) {
+      const earlyToleranceSeconds = request.earlyToleranceSeconds ?? 0;
+      if (!Number.isInteger(earlyToleranceSeconds) || earlyToleranceSeconds < 0 || earlyToleranceSeconds > 300) {
+        throw new GoalStateError('corrupt', 'Scheduled continuation early tolerance is invalid');
+      }
+      if (nowMs + earlyToleranceSeconds * 1000 < dueMs) {
         return {
           outcome: 'not_due',
           continuation,

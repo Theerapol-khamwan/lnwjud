@@ -10,7 +10,7 @@ export function skillTools(context: McpToolContext): McpToolDefinition[] {
   return [
     defineTool({
       name: 'skills_list',
-      description: 'List local agent skills discovered from Cursor, Claude, Agents, workspace skill roots, and lnwjud settings. Filter with query or source.',
+      description: 'List the union of bundled skills and every discovered machine-global or active-workspace skill from Cursor, Claude, Agents, Codex, the Codex plugin cache, GitHub workspace roots, and lnwjud settings. Nested and symlinked skill collections are included. Filter with query or source.',
       ...readOnlyInspection,
       inputSchema: skillsListSchema,
       handler: async (input) => context.services.extensions === undefined

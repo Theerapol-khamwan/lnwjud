@@ -120,11 +120,33 @@ describe('ScheduledContinuationService', () => {
     }
   });
 
-  it('rejects non-25 successor delay, non-cloud execution, empty nextAction, stale revision, and caller-controlled releaseLease', async () => {
+  it('uses an adaptive five-minute successor for bounded near-term work', async () => {
     const { database, goals, scheduled } = await fixture();
     try {
       const started = await startGoal(goals);
-      for (const successorDelayMinutes of [24, 26]) {
+      const result = await scheduled.prepareScheduledContinuation(actor, validPrepare(started, {
+        successorDelayMinutes: 5,
+        currentPhase: 'final-verification',
+        nextAction: 'Read the running package result and close the goal.',
+      }));
+      expect(result).toMatchObject({
+        ok: true,
+        value: {
+          handoffDeadlineAt: '2026-08-27T10:05:00.000Z',
+          scheduleRequest: { dueAt: '2026-08-27T10:05:00.000Z' },
+          goal: { leaseExpiresAt: '2026-08-27T10:05:00.000Z' },
+        },
+      });
+    } finally {
+      database.close();
+    }
+  });
+
+  it('rejects successor delays outside the adaptive two-to-25-minute window, non-cloud execution, empty nextAction, stale revision, and caller-controlled releaseLease', async () => {
+    const { database, goals, scheduled } = await fixture();
+    try {
+      const started = await startGoal(goals);
+      for (const successorDelayMinutes of [1, 2.5, 26]) {
         const result = await scheduled.prepareScheduledContinuation(actor, validPrepare(started, { successorDelayMinutes }));
         expect(result).toMatchObject({ ok: false, error: { code: 'INVALID_INPUT' } });
       }
@@ -186,7 +208,10 @@ describe('ScheduledContinuationService', () => {
       for (const marker of Object.values(markers)) expect(serialized).not.toContain(marker);
       expect(serialized).not.toContain(started.leaseToken!);
       expect(result.value.scheduleRequest.prompt).toContain('claim_scheduled_continuation');
-      expect(result.value.scheduleRequest.prompt).toContain('arm exactly one cloud successor due 25 minutes later');
+      expect(result.value.scheduleRequest.prompt).toContain('adaptive delay between 2 and 25 minutes');
+      expect(result.value.scheduleRequest.prompt).toContain('25 minutes is the maximum watchdog');
+      expect(result.value.scheduleRequest.prompt).toContain('Never send a completion response while get_goal still reports active');
+      expect(result.value.scheduleRequest.prompt).toContain('finish_goal');
       expect(result.value.scheduleRequest.prompt).toContain('Never report cancellation as successful');
       expect(result.value.scheduleRequest.prompt).toContain('native host deletion receipt');
       expect(result.value.scheduleRequest.prompt).toContain('Never use Windows Task Scheduler');
@@ -260,6 +285,61 @@ describe('ScheduledContinuationService', () => {
       });
       expect(JSON.stringify(earlyWake)).not.toContain('retry_prepared');
       expect(JSON.stringify(earlyWake)).not.toContain('previousContinuationId');
+    } finally {
+      database.close();
+    }
+  });
+
+  it('accepts a confirmed cloud wake up to 60 seconds early so a one-time host task is not consumed without handoff', async () => {
+    const { database, goals, scheduled, clock } = await fixture('2026-08-27T10:00:46.000Z');
+    const successorActor: FileActor = { ...actor, sessionId: 'scheduled-continuation-early-wake' };
+    try {
+      const started = await startGoal(goals);
+      const prepared = await scheduled.prepareScheduledContinuation(actor, validPrepare(started));
+      expect(prepared.ok).toBe(true);
+      if (!prepared.ok) throw new Error('prepare failed');
+      const receipt = await scheduled.recordScheduledContinuationReceipt(actor, {
+        continuationId: prepared.value.continuation.continuationId,
+        expectedVersion: prepared.value.continuation.version,
+        outcome: 'created',
+        nativeTaskId: 'native-task-early-wake',
+        runsOn: 'cloud',
+      });
+      expect(receipt.ok).toBe(true);
+      database.connection.prepare('UPDATE goals SET lease_expires_at = ? WHERE id = ?')
+        .run('2026-08-27T10:25:00.000Z', started.goalId);
+
+      clock.set('2026-08-27T10:25:10.000Z');
+      await expect(scheduled.claimScheduledContinuation(successorActor, {
+        continuationId: prepared.value.continuation.continuationId,
+      })).resolves.toMatchObject({
+        ok: true,
+        value: {
+          outcome: 'acquired',
+          acquisition: 'expired_lease',
+          goal: { status: 'active' },
+        },
+      });
+    } finally {
+      database.close();
+    }
+  });
+
+  it('keeps a wake more than 60 seconds early in not_due state', async () => {
+    const { database, goals, scheduled, clock } = await fixture('2026-08-27T10:00:46.000Z');
+    try {
+      const started = await startGoal(goals);
+      const prepared = await scheduled.prepareScheduledContinuation(actor, validPrepare(started));
+      expect(prepared.ok).toBe(true);
+      if (!prepared.ok) throw new Error('prepare failed');
+
+      clock.set('2026-08-27T10:24:45.000Z');
+      await expect(scheduled.claimScheduledContinuation(actor, {
+        continuationId: prepared.value.continuation.continuationId,
+      })).resolves.toMatchObject({
+        ok: true,
+        value: { outcome: 'not_due', retryAfterSeconds: 61 },
+      });
     } finally {
       database.close();
     }

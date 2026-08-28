@@ -161,6 +161,7 @@ export interface ClaimScheduledContinuationRecordRequest {
   readonly ownerSessionId: string;
   readonly leaseTokenHash: string;
   readonly leaseSeconds: number;
+  readonly earlyToleranceSeconds?: number;
   readonly liveness: ScheduledContinuationWorkerLiveness;
   readonly now: string;
 }

@@ -24,6 +24,8 @@ describe('durable goal MCP tools', () => {
     expect(byName.get('list_goals')).toMatchObject({ permission: 'READ', annotations: { readOnlyHint: true, destructiveHint: false } });
     expect(byName.get('checkpoint_goal')).toMatchObject({ permission: 'WRITE', annotations: { readOnlyHint: false, destructiveHint: false } });
     expect(byName.get('finish_goal')).toMatchObject({ permission: 'WRITE', annotations: { readOnlyHint: false, destructiveHint: false } });
+    expect(byName.get('finish_goal')?.description).toContain('must be called before any completion report');
+    expect(byName.get('finish_goal')?.description).toContain('even when scheduling was disabled');
 
     expect(byName.get('run_goal')?.parse({ workspaceId: 'workspace-1', goalKey: 'stable-key' })).toMatchObject({ ok: true });
     expect(byName.get('run_goal')?.parse({ workspaceId: 'workspace-1', goalKey: 'stable-key', leaseSeconds: 5 })).toMatchObject({ ok: false });

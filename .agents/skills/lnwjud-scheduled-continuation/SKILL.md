@@ -1,78 +1,84 @@
 ---
 name: lnwjud-scheduled-continuation
-description: Continue one durable lnwjud goal through rolling one-time cloud ChatGPT Scheduled Tasks while preventing overlap with per-run goal lease token/generation fencing.
+description: Use when a user wants one durable lnwjud goal to continue autonomously across ChatGPT turns until verified terminal completion, especially during long builds, tests, or managed background tasks.
 ---
 
 # lnwjud Scheduled Continuation
 
-Use this workflow only when a user wants a long durable goal to survive ChatGPT turn boundaries. It uses one native one-time cloud successor at a time. It never uses recurrence, Windows Task Scheduler, `schtasks.exe`, cron, shell timers, browser automation, or undocumented scheduling APIs.
+One user request starts one durable chain: acquire the goal, arm one cloud successor, keep doing useful work, hand off when necessary, and stop only after the goal is verifiably terminal.
 
-## Initial or manually resumed run
+## Non-negotiable outcome
 
-1. Call `run_goal` with a stable workspace and goal key. Keep the returned lease token and lease generation private.
-2. After `run_goal` and the first durable checkpoint for non-trivial work, create exactly one native one-time cloud successor due **25 minutes** later and record a `created` receipt with `runsOn: cloud` before long work.
-3. Attach the current proof as `goalLease` to every later fenced mutation. Never put the raw token in activity text, errors, receipts, prompts, docs, or logs.
-4. Work continuously. T+15 by itself is not a handoff signal. If the worker is healthy and unfinished at T+15, the existing T+25 successor stays unchanged.
-5. If an enumerated handoff-risk signal appears while the current lease is valid, call `expedite_scheduled_continuation` once. Update the **same native task** to `now+2 minutes`, preserve one-time/cloud/current-chat settings, and record the reschedule receipt.
-6. If the goal finishes before any due time, call `finish_goal` first, delete the exact pending native task requested by `scheduledTaskCancellation`, record cancellation with the native host deletion receipt, read the continuation back, and create no successor.
+- Never require the user to type “continue”, “ทำต่อ”, or ask for status to restart an unfinished goal.
+- Never send a completion report while `get_goal` reports `active`.
+- A request to stop scheduling cancels only the successor. It does not cancel, block, pause, or complete the durable goal. Continue in the current run and still call `finish_goal` when the work is actually done.
+- Use one native one-time cloud ChatGPT Scheduled Task in the current chat. Never use recurrence, Windows Task Scheduler, `schtasks.exe`, cron, shell timers, browser automation, or undocumented scheduling APIs.
+- Native task creation, update, and deletion are host-owned. lnwjud stores the reservation, receipts, claim, and cancellation truth.
+
+## Start or resume
+
+1. Call `run_goal` with a stable workspace and goal key. Keep the returned lease token and generation private.
+2. Read the durable checkpoint and do the next useful work. Record real milestones with `checkpoint_goal`; do not checkpoint merely because time elapsed.
+3. After the first checkpoint, call `prepare_scheduled_continuation` and create exactly one native one-time task from its `scheduleRequest`. Record `created` with the real native task ID and `runsOn: cloud` before relying on it.
+4. Choose `successorDelayMinutes` adaptively within **2–25 minutes**:
+
+   | Remaining work at this checkpoint | Delay |
+   | --- | --- |
+   | Long or open-ended work while this run is healthy | 25 minutes |
+   | One bounded phase expected within about 15 minutes | 10 minutes |
+   | Final build, smoke, or verification expected soon | 5 minutes |
+   | This turn must end while work remains | update the same task to now +2 minutes |
+
+   25 minutes is the maximum watchdog, not a fixed cadence. A schedule is a recovery handoff, never permission to stop working early.
+5. Attach the current proof as `goalLease` to every fenced mutation. Never put the raw token in prompts, logs, receipts, docs, or user-visible text.
+6. Keep working continuously. For a managed build/test/shell task, use condition-based task wait/status calls, inspect its terminal output, and do not end the turn with only “still running” when the user asked to babysit it to completion.
+
+## Before any turn boundary
+
+If `get_goal` is still `active` and scheduling remains authorized:
+
+1. Checkpoint the exact next action and every active task ID.
+2. Require one confirmed cloud successor. Do not create a second task when one already exists.
+3. If the turn is about to yield, call `expedite_scheduled_continuation` with `turn_yield_signal`, update the **same native task** to **+2 minutes**, and record the reschedule receipt.
+4. Only then may the current turn yield. A status update is not completion.
+
+If the user disabled scheduling, delete the exact pending native task and record its native host deletion receipt. Do not create another successor; remain in the current run, wait for bounded active work, finish verification, and close the goal.
 
 ## Scheduled wake
 
-1. Call `claim_scheduled_continuation` first. Do no workspace mutation before claim.
-2. `terminal_noop`: stop because the durable goal is terminal. Create no successor.
-3. `already_claimed`: another run already consumed this continuation. Do not mutate.
-4. `not_due`: do not create a replacement task and do not mutate merely because the wake was early.
-5. `receipt_required`: do no workspace work. Native task creation was never durably confirmed, so reconcile the exact host outcome first: record `created` with the real cloud native task ID if it exists, otherwise record `create_failed` / `create_uncertain` truthfully. Never invent a replacement task merely to escape this state.
-6. `reschedule_required`: do no workspace work. Update `taskUpdateRequest.nativeTaskId`, the **same native task**, to `taskUpdateRequest.dueAt` (**+2 minutes** from the collision), preserve one-time/cloud/current-chat settings, record the reschedule receipt, then end this wake. If the same task wakes into another collision, repeat **without a retry limit**.
-7. `acquired`, including `acquisition=orphan_recovered`: use the new lease token/generation as `goalLease`, create the next cloud successor due T+25 before long work, record its cloud receipt, then continue the durable goal.
+1. Call `claim_scheduled_continuation` first; do no workspace mutation beforehand. The runtime accepts a confirmed cloud wake up to 60 seconds early so minute-level host jitter cannot consume the only wake without a handoff.
+2. Handle the returned outcome exactly:
 
-## Collision and orphan rules
+   - `terminal_noop`: stop; create no successor.
+   - `already_claimed`: another run consumed it; do not mutate.
+   - `not_due`: do not mutate or create a replacement. Update the same host task to the returned/known due time when the host permits it.
+   - `receipt_required`: reconcile the exact native task first; record `created`, `create_failed`, or `create_uncertain` truthfully.
+   - `reschedule_required`: update `taskUpdateRequest.nativeTaskId`, the **same native task**, to its +2-minute due time, record the receipt, and end this wake. Repeat collisions **without a retry limit**.
+   - `acquired`, including `orphan_recovered`: use the new lease token/generation as `goalLease`, arm the next adaptive successor before long work, then continue from the durable checkpoint without waiting for user input.
 
-- Collision never calls `finish_goal`, never marks the goal or plan blocked, never creates a replacement continuation/task, and never changes `nativeTaskId`.
-- Do not treat elapsed time, unfinished work, MCP session equality, or stale historical `busy_blocked` text as proof that a worker exists.
-- Worker liveness comes from trusted runtime evidence: durable fenced-call rows plus managed task/process state.
-- If liveness is active, move the same task +2 and let the predecessor continue under its valid fence.
-- If liveness is unknown, **do not force-unlock**. Move the same task +2.
-- If a lease is unexpired but trusted evidence shows no worker, the first observation only starts an orphan probe and moves the same task +2. A takeover is allowed only after a second unchanged trustworthy probe at least 120 seconds later, with the same goal revision, lease generation, lease activity sequence, no live fenced call, and all active task IDs terminal/absent. Recovery uses CAS and increments lease generation.
-- A new lease generation invalidates every older token even when ChatGPT reuses the same MCP session.
-- There is no maximum collision count or arbitrary elapsed-time cutoff.
+## Collision and orphan safety
 
-## Receipt truth
+- Collision never calls `finish_goal`, marks the goal blocked, creates a replacement task, or changes `nativeTaskId`.
+- Live fenced calls and managed task/process states are worker-liveness evidence. MCP session equality and elapsed time are not.
+- Active or unknown liveness fails closed into the same-task +2-minute update.
+- Orphan takeover requires two unchanged trustworthy no-worker probes at least 120 seconds apart, the same revision/generation/activity sequence, no live fenced calls, and all tracked tasks terminal or absent. Recovery uses CAS and increments lease generation.
+- Full Bypass may skip application-level `goalLease` enforcement, but this workflow still requires claim and current proof as its cooperative ownership protocol.
 
-- `created` requires the native task ID and `runsOn: cloud`.
-- `rescheduled` must match the stored native task ID and exact pending due time.
-- `reschedule_failed` / `reschedule_uncertain` preserve the same task identity and active goal for reconciliation.
-- `cancelled` requires a native ChatGPT host deletion receipt with the exact stored native task ID and a `deleted` or `not_found` state. A model statement, local goal terminal state, app shutdown, or deletion request is not proof.
-- After recording cancellation, call `get_scheduled_continuation` and require `status: cancelled`. Never report cancellation as successful while native deletion is failed, uncertain, unverified, or still `cancel_required`.
-- Local/auto/unverified execution does not satisfy this workflow. Keep the goal active and report an infrastructure blocker rather than claiming cloud success.
+## Verified completion
 
-## Mutation fence
+1. Before deciding the work is done, wait for every active task ID to reach a terminal state and inspect its result. Clear stale task IDs in the final checkpoint.
+2. Re-run the acceptance evidence required by the goal. A generated artifact or passing subtest alone is not terminal proof unless it satisfies the goal.
+3. Call `finish_goal` with the current lease and revision even when no schedule exists or scheduling was disabled.
+4. Call `get_goal` and require `completed`, `failed`, or `blocked`. If it is still `active`, continue working; do not report completion.
+5. If `scheduledTaskCancellation.action` is `delete_native_task`, delete that exact task through the native ChatGPT host, record the native host deletion receipt, then require `get_scheduled_continuation.status: cancelled`.
+6. Never report cancellation as successful while deletion is failed, uncertain, unverified, or still required. Never create another successor after terminal state.
 
-Every rolling-mode file/Git/process/capability mutation uses:
+## Invocation on another machine
 
-```text
-goalLease.goalId
-goalLease.leaseToken
-goalLease.leaseGeneration
-```
-
-The registry validates the proof before handler dispatch, increments durable lease activity, records the live fenced call, refreshes the short internal call lease while the handler runs, and completes it in `finally`. The envelope is stripped before the existing handler executes. The internal heartbeat is lock safety only; it is not a Scheduled Task.
-
-### Full Bypass runtime exception
-
-When the active Full profile has Desktop or STDIO Full Bypass enabled, the registry intentionally skips application-level `goalLease` enforcement together with other lnwjud approval/scope gates. Do not claim that a missing lease will be blocked in that mode. This skill still requires scheduled wakes to claim ownership and attach the current proof as a cooperative collision-avoidance rule; Full Bypass does not make an unclaimed scheduled wake the durable goal owner. Direct unscheduled Full Bypass calls are outside this rolling workflow and do not require `goalLease`.
-
-## Timeline
+Use `$lnwjud-scheduled-continuation` when the client exposes the bundled skill by name. Otherwise call `skills_list`, select the source-qualified `lnwjud-scheduled-continuation`, call `skills_read`, and follow it. A typical request is:
 
 ```text
-claim acquired at T+00 -> successor due T+25
-goal terminal at T+12 -> cancel exact successor -> stop
-T+15 healthy unfinished worker -> keep T+25 unchanged
-T+15 handoff risk -> same task pulled forward to T+17
-T+25 collision -> same task due T+27
-T+27 unchanged trustworthy no-worker second probe -> orphan_recovered + higher lease generation
-claim acquired -> old task consumed -> new successor due T+25
-terminal goal -> cancel pending successor -> zero future tasks
+Use $lnwjud-scheduled-continuation in workspace <path>. Create or resume goalKey <stable-key>, do the requested work autonomously until get_goal is terminal, then cancel the exact remaining successor and report once.
 ```
 
-Do not expose raw lease tokens, credentials, private source text, or internal session IDs in user-visible status or native task prompts.
+Do not expose raw lease tokens, credentials, private source text, or internal session IDs in native task prompts or status reports.

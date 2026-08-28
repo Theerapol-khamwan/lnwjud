@@ -1,5 +1,9 @@
 import { z } from 'zod';
-import { SUCCESSOR_DELAY_MINUTES } from '@lnwjud/application';
+import {
+  DEFAULT_SUCCESSOR_DELAY_MINUTES,
+  MAX_SUCCESSOR_DELAY_MINUTES,
+  MIN_SUCCESSOR_DELAY_MINUTES,
+} from '@lnwjud/application';
 import { defineTool, missingService, type McpToolContext, type McpToolDefinition } from './tool-types.js';
 
 const continuationId = z.string().min(1).max(128);
@@ -37,7 +41,10 @@ const prepareSchema = z.object({
   blockers: z.array(z.string().min(1).max(512)).max(20),
   evidence: z.array(evidence).max(20),
   activeTaskIds: z.array(z.string().min(1).max(256)).max(50),
-  successorDelayMinutes: z.literal(SUCCESSOR_DELAY_MINUTES).default(SUCCESSOR_DELAY_MINUTES),
+  successorDelayMinutes: z.number().int()
+    .min(MIN_SUCCESSOR_DELAY_MINUTES)
+    .max(MAX_SUCCESSOR_DELAY_MINUTES)
+    .default(DEFAULT_SUCCESSOR_DELAY_MINUTES),
   executionPreference: z.literal('cloud').default('cloud'),
 }).strict();
 
@@ -90,7 +97,7 @@ export function scheduledContinuationTools(context: McpToolContext): McpToolDefi
   return [
     defineTool({
       name: 'prepare_scheduled_continuation',
-      description: 'Checkpoint and reserve exactly one current-chat successor due 25 minutes later. This workflow is one-time and cloud-only; it never creates or deletes the native task itself.',
+      description: 'Checkpoint and reserve exactly one current-chat cloud successor with an adaptive delay between 2 and 25 minutes. The 25-minute default is a maximum watchdog, while bounded final work may use a shorter delay. This workflow never creates or deletes the native task itself.',
       permission: 'WRITE',
       annotations: { readOnlyHint: false, destructiveHint: false },
       inputSchema: prepareSchema,
@@ -132,7 +139,7 @@ export function scheduledContinuationTools(context: McpToolContext): McpToolDefi
     }),
     defineTool({
       name: 'claim_scheduled_continuation',
-      description: 'Scheduled-wake entrypoint. Claim before workspace mutation. If native task creation was never confirmed, returns receipt_required instead of throwing so the host can reconcile created/create_failed/create_uncertain. On an active-worker collision, update the exact existing native one-time cloud task to now+2 minutes. Do not mutate the workspace, create a replacement task, mark the goal terminal, or stop the durable chain.',
+      description: 'Scheduled-wake entrypoint. Claim before workspace mutation; a confirmed cloud wake up to 60 seconds early is accepted so a one-time task is not consumed without handoff. If native task creation was never confirmed, returns receipt_required for reconciliation. On an active-worker collision, update the exact existing native one-time cloud task to now+2 minutes. Do not mutate the workspace, create a replacement task, mark the goal terminal, or stop the durable chain.',
       permission: 'WRITE',
       annotations: { readOnlyHint: false, destructiveHint: false },
       inputSchema: claimSchema,
@@ -140,7 +147,7 @@ export function scheduledContinuationTools(context: McpToolContext): McpToolDefi
     }),
     defineTool({
       name: 'get_scheduled_continuation',
-      description: 'Read one scheduled-continuation snapshot by continuation ID or the latest record for a goal. Healthy unfinished work does not move the existing T+25 task.',
+      description: 'Read one scheduled-continuation snapshot by continuation ID or the latest record for a goal. A healthy current run keeps its adaptive watchdog unless a real turn-yield signal requires same-task +2 handoff.',
       permission: 'READ',
       annotations: { readOnlyHint: true, destructiveHint: false },
       inputSchema: getSchema,
@@ -148,7 +155,7 @@ export function scheduledContinuationTools(context: McpToolContext): McpToolDefi
     }),
     defineTool({
       name: 'expedite_scheduled_continuation',
-      description: 'For an enumerated handoff-risk signal only, move the exact existing cloud one-time native task to now+2 minutes. Elapsed time or unfinished work alone is not a valid reason and no replacement task is created.',
+      description: 'For an enumerated handoff-risk signal, including a turn that is about to end while the goal is unfinished, move the exact existing cloud one-time native task to now+2 minutes. No replacement task is created.',
       permission: 'WRITE',
       annotations: { readOnlyHint: false, destructiveHint: false },
       inputSchema: expediteSchema,
