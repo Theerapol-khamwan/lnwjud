@@ -214,6 +214,9 @@ describe('ScheduledContinuationService', () => {
       expect(result.value.scheduleRequest.prompt).toContain('finish_goal');
       expect(result.value.scheduleRequest.prompt).toContain('Never report cancellation as successful');
       expect(result.value.scheduleRequest.prompt).toContain('native host deletion receipt');
+      expect(result.value.scheduleRequest.prompt).toContain('claim returns terminal_noop');
+      expect(result.value.scheduleRequest.prompt).toContain('do not delete, disable, pause, or reschedule the current host task');
+      expect(result.value.scheduleRequest.prompt).toContain('return naturally so the host can mark the one-time run completed');
       expect(result.value.scheduleRequest.prompt).toContain('Never use Windows Task Scheduler');
       expect(result.value.scheduleRequest.prompt).toContain(started.goalId);
       expect(result.value.scheduleRequest.prompt).toContain('workspace-1');

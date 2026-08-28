@@ -52,7 +52,7 @@ If the user asks to cancel the goal, call `cancel_goal` with the latest expected
 1. Call `claim_scheduled_continuation` first with the normal **600-second lease**; do not request a longer lease. Do no workspace mutation beforehand. The runtime accepts a confirmed cloud wake up to 60 seconds early so minute-level host jitter cannot consume the only wake without a handoff. While this run is genuinely active, checkpoint and fenced-mutation activity slide the lease forward, capped by the scheduled handoff deadline; inactivity does not renew it.
 2. Handle the returned outcome exactly:
 
-   - `terminal_noop`: stop; create no successor.
+   - `terminal_noop`: the durable goal is already terminal. Create no successor and let this already-firing one-time host task return naturally so the host can mark the run completed. Do **not** disable, pause, delete, or reschedule the current wake as a substitute for natural completion.
    - `already_claimed`: another run consumed it; do not mutate.
    - `not_due`: do not mutate or create a replacement. Update the same host task to the returned/known due time when the host permits it.
    - `receipt_required`: reconcile the exact native task first; record `created`, `create_failed`, or `create_uncertain` truthfully.
@@ -73,8 +73,9 @@ If the user asks to cancel the goal, call `cancel_goal` with the latest expected
 2. Re-run the acceptance evidence required by the goal. A generated artifact or passing subtest alone is not terminal proof unless it satisfies the goal.
 3. Call `finish_goal` with the current lease and revision even when no schedule exists or scheduling was disabled.
 4. Call `get_goal` and require `completed`, `failed`, or `blocked`. If it is still `active`, continue working; do not report completion.
-5. If `scheduledTaskCancellation.action` is `delete_native_task`, delete that exact task through the native ChatGPT host, record the native host deletion receipt, then require `get_scheduled_continuation.status: cancelled`.
-6. Never report cancellation as successful while deletion is failed, uncertain, unverified, or still required. Never create another successor after terminal state.
+5. If `scheduledTaskCancellation.action` is `delete_native_task`, it refers to a distinct still-pending successor. Delete that exact pending task through the native ChatGPT host, record the native host deletion receipt, then require `get_scheduled_continuation.status: cancelled`.
+6. If the current one-time wake already fired and claim returns `terminal_noop` (or cancellation metadata says `already_fired`), do not delete, disable, pause, or reschedule that current host task. End the wake naturally so the host can mark its one-time run completed. Never use pause/disable as fake deletion or completion proof.
+7. Never report cancellation as successful while deletion is failed, uncertain, unverified, or still required. Never create another successor after terminal state.
 
 ## Invocation on another machine
 

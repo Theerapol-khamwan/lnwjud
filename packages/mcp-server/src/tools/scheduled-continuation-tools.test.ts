@@ -76,6 +76,10 @@ describe('scheduled continuation MCP tools', () => {
     expect(byName.get('prepare_scheduled_continuation')?.description).toContain('adaptive');
     expect(byName.get('prepare_scheduled_continuation')?.description).toContain('2 and 25 minutes');
     expect(byName.get('claim_scheduled_continuation')?.description).toContain('60 seconds early');
+    expect(byName.get('claim_scheduled_continuation')?.description).toContain('terminal_noop');
+    expect(byName.get('claim_scheduled_continuation')?.description).toContain('do not delete, disable, pause, or reschedule');
+    expect(byName.get('cancel_scheduled_continuation')?.description).toContain('still-pending scheduled successor');
+    expect(byName.get('cancel_scheduled_continuation')?.description).toContain('pausing/disabling an already-fired current wake');
   });
 
   it('records continuation state without invoking process, capability, shell, or Windows scheduler backends', async () => {
