@@ -71,8 +71,9 @@ describe('public repository hygiene', () => {
     expect(readme).toContain(`apps/desktop/dist/installers/lnwjud-Portable-${version}.exe`);
     expect(readme).not.toContain('current source/release candidate is');
     expect(readme).not.toContain('pending publication');
-    expect(readme).toContain('229 configurable tools');
-    expect(readme).toContain('223 advertised by default');
+    expect(readme).toContain('229 total tool definitions');
+    expect(readme).toContain('217 advertised by default');
+    expect(readme).toContain('223 with Codex enabled');
     expect(readme).not.toContain(['Verify the ', '184-tool catalog'].join(''));
     expect(readme).not.toContain(['current v3.0.0 catalog contains ', '184 tools'].join(''));
     expect(readme).not.toContain('packaged v3.0.0 build');
@@ -111,8 +112,9 @@ describe('public repository hygiene', () => {
 
   it('does not retain stale permission examples in the detailed README guide', async () => {
     const readme = await readFile(path.join(repositoryRoot, 'README.md'), 'utf8');
-    expect(readme).not.toContain('| workspace_list | DANGEROUS |');
-    expect(readme).toContain('| workspace_list | EXECUTE |');
+    expect(readme).not.toMatch(/^\| (?:\d+ \| `)?workspace_list`? \| (?:EXECUTE|DANGEROUS) \|/m);
+    expect(readme).toMatch(/^\| 1 \| `workspace_list` \| READ \|/m);
+    expect(readme).toContain('| workspace_list | READ |');
   });
 
   it('keeps release documentation canonical instead of preserving stale candidate instructions', async () => {

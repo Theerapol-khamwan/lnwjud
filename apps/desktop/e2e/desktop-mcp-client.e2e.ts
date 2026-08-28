@@ -7,7 +7,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
 import { Client, StreamableHTTPClientTransport } from '@modelcontextprotocol/client';
-import { UPGRADE_TOOL_CATALOG } from '@lnwjud/mcp-server';
+import { isAdvertisedDeliveryState, UPGRADE_TOOL_CATALOG } from '@lnwjud/mcp-server';
 import { chromium, expect, test, type Page } from '@playwright/test';
 
 const execFileAsync = promisify(execFile);
@@ -99,10 +99,10 @@ test('desktop serves the real MCP client development workflow', async () => {
     const advertisedTools = tools.tools.map((tool) => tool.name);
     expect(advertisedTools).toEqual([
       ...expectedCoreTools,
-      ...UPGRADE_TOOL_CATALOG.map((entry) => entry.name),
+      ...UPGRADE_TOOL_CATALOG.filter((entry) => isAdvertisedDeliveryState(entry.deliveryState)).map((entry) => entry.name),
       'tool_batch',
     ]);
-    expect(advertisedTools).toHaveLength(223);
+    expect(advertisedTools).toHaveLength(217);
     expect(advertisedTools.some((name) => name.startsWith('codex_'))).toBe(false);
 
     if (process.platform === 'win32') {

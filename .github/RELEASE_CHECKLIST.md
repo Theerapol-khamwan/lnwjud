@@ -2,7 +2,7 @@
 
 Operational release sequencing is defined by [`docs/development/RELEASE_PROCESS.md`](../docs/development/RELEASE_PROCESS.md). This checklist records current-version acceptance evidence and does not override that sequence.
 
-**Current version:** `v4.28.0` - Windows installer `lnwjud-Setup-4.28.0.exe` and portable executable `lnwjud-Portable-4.28.0.exe`; MCP registry **229 configurable tools / 223 advertised by default**.
+**Current version:** `v4.28.0` - Windows installer `lnwjud-Setup-4.28.0.exe` and portable executable `lnwjud-Portable-4.28.0.exe`; MCP registry **229 total definitions / 217 advertised by default / 223 with Codex enabled**.
 
 Run the release verification from PowerShell at the repository root. The automated gate must fail fast on any non-zero stage and `git diff --check` must pass before packaging or publishing. Pull-request/non-main CI may pass `-SkipWindowsPackaging`; the exact `main` commit that will be tagged must run the full gate and produce the SHA-scoped release artifact.
 
@@ -16,13 +16,13 @@ For GitHub releases, the `main` CI workflow is the single authoritative build: a
 - OpenAI Secure Tunnel targets the Desktop loopback HTTP MCP (`sample_mcp_remote_no_auth`) rather than a separate headless stdio runtime, preserving the Desktop profile and Desktop Full Bypass state. Active Project scope/native approval remain enforced when Desktop Full Bypass is OFF.
 - Persistent-tunnel acceptance preserves one saved tunnel identity across managed-runtime loss, Desktop/local-MCP rebinding, update/reinstall startup, and detached-runtime handoff; transient retry is capped but unbounded in count, while auth/operator failures do not tight-loop.
 - The installed official tunnel client capability probe must show managed `runtimes connect/status/stop` plus health/readiness/control-plane-poll support. Strict zero-downtime may be claimed only if a ready-before-retire overlap primitive is actually proven; otherwise the product must display the capability limitation.
-- The 2026-07-28 MCP protocol catalog is compared before/after Desktop MCP listener restart: all 223 default descriptors and their canonical SHA-256 digest must remain identical, and a production tool call must work on both sides of the restart.
+- The 2026-07-28 MCP protocol catalog is compared before/after Desktop MCP listener restart: all 217 default advertised descriptors and their canonical SHA-256 digest must remain identical, and a production tool call must work on both sides of the restart.
 - Durable task/session resilience remains independent from one tunnel request; release evidence must not kill a user's live connector merely to manufacture a continuity result.
 - Durable Goal Continuation verification covers restart/session resume by stable client identity, single-winner leases with expiry takeover, revision compare-and-swap conflicts, append-only checkpoints, persisted active task IDs, terminal-state closure, corruption fail-closed behavior, and proof that raw lease tokens/sensitive checkpoint text are not persisted.
 - Distribution-aware updater verification proves Installer uses `latest.yml`/Setup while Portable uses `portable.yml`/Portable, with no channel crossover. Portable replacement must wait for exit, replace the exact outer EXE path, keep rollback backup, restart after success, and restore/restart the old EXE on replacement failure.
 - Multi-workspace and multi-session Desktop MCP acceptance passes with one listener, parallel A/B flows, scoped ownership, logs, and destructive boundaries.
 - Project lifecycle tests verify archive/restore/remove semantics: archived projects leave the active MCP trust boundary, removal preserves project files/history, duplicate paths restore the existing registration, and machine-root workspaces remain protected.
-- Tool catalog synchronization passes with 229 configurable tools and 223 advertised by default; the six `codex_*` delegation tools remain opt-in.
+- Tool catalog synchronization passes with 229 total definitions, 217 advertised by default, and 223 advertised with the six opt-in `codex_*` delegation tools enabled.
 - Desktop and direct STDIO Full Bypass toggles are independent, default OFF, appear only in the Full Access (Unrestricted) card, and are effective only with the matching Full profile. Header/audit evidence identifies the active transport mode.
 - Full Bypass integration tests prove always-confirm families and inner process/document/Sandbox/upgrade runtimes dispatch without chat/host/profile/command/scope/`goalLease` approval, including explicit absolute outside paths, while caller input is not rewritten to `userConfirmed: true`.
 - Standard mode remains fail-closed: Safe/Balanced/Custom/Full-OFF profile behavior, independent host approval, Active Project/Strict Roots, protected paths, command policy, and scheduled-continuation fence tests still pass.
