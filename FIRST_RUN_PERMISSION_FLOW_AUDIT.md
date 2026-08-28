@@ -2,9 +2,11 @@
 
 วันที่ตรวจครั้งแรก: 2026-08-28
 วันที่รีวิวหลังแก้: 2026-08-28
+วันที่รีวิว drive-registration regression: 2026-08-28
 Repository: `E:\lnwjud`
 Branch: `dev`
 Baseline ก่อนแก้: `5e77fadaa9e68b0fe03fe858dfe26e5b2fee09b8`
+Baseline ก่อนแก้ drive-registration: `266677e8dcb3be3ebebd8c53caf379ed40720c7d`
 ขอบเขต: current working tree ก่อน local commit; ไม่มีการ push
 
 ## Verdict
@@ -20,6 +22,8 @@ Baseline ก่อนแก้: `5e77fadaa9e68b0fe03fe858dfe26e5b2fee09b8`
 - ครอบคลุม execution, destructive/data-loss command, native host approval, Active Project, allowed/Strict Roots, protected path, explicit absolute path/cwd นอกโปรเจกต์ และ `goalLease`
 - การอนุมัติถูกส่งเป็น trusted out-of-band `InvocationAuthorization`; runtime ไม่ปลอม input ของผู้เรียกเป็น `userConfirmed: true`
 - first-run, Doctor, Add Project, STDIO policy และ recovery flow ที่พบใน audit เดิมได้รับการแก้และมี regression tests
+- ไม่มีการสแกน `A:`–`Z:` หรือลงทะเบียน drive root อัตโนมัติอีก จึงไม่แตะ mapped/network drive เช่น `Z:` ที่ชี้ไป DGX Spark ตอน startup
+- migration archive เฉพาะ legacy row ที่มีลายเซ็น `Local Disk X:` แบบกู้กลับได้ โดยไม่ลบ project/manual root หรือข้อมูลใน drive
 
 Full Bypass เป็นการข้าม policy ของ **lnwjud** ไม่ใช่การรับประกันว่า OS หรือบริการภายนอกจะทำสำเร็จทุกครั้ง: schema/input ที่ผิด, relative traversal, path ที่ไม่มีอยู่, task/process/worktree ownership, Windows ACL/UAC, executable/provider ที่ไม่มี และ authorization ของ remote/child service ยังสามารถทำให้คำสั่งล้มเหลวได้ แต่ lnwjud จะไม่ถาม approval เพิ่มในโหมดนี้
 
@@ -40,8 +44,9 @@ Full Bypass เป็นการข้าม policy ของ **lnwjud** ไม
 | F-11 | Add Project ล้าง path เมื่อเพิ่มไม่สำเร็จ | **Resolved** | input ถูกเก็บไว้เมื่อ IPC/repository ล้มเหลว; rejection ถูก catch และแสดงผล |
 | F-12 | “Later” ยังกลับมาเปิด wizard | **Resolved** | ปิด/ไว้ทีหลังบันทึก state = `dismissed` และไม่ relaunch อัตโนมัติ |
 | F-13 | polling เปิด modal/แย่ง focus ซ้ำ | **Resolved** | prerequisite signature ทำให้เปิด onboarding ต่อ state transition เพียงครั้งเดียว |
+| F-14 | startup ใช้ `existsSync(A:\…Z:\)` แล้วลง mapped/network drive เป็น Local Disk | **Resolved** | เลิก enumerate drive ทั้ง Desktop/STDIO/capability runtime, ใช้เฉพาะ project/path ที่ระบุ และ archive generated root เก่า |
 
-ผลรวมหลังแก้: **13/13 findings เดิมปิดใน implementation**
+ผลรวมหลังแก้: **14/14 findings ปิดใน implementation**
 
 ## First-run flow หลังแก้
 
@@ -53,6 +58,9 @@ Launch Desktop
   ├─ load dashboard and workspaces independently
   │    ├─ both success → normal shell
   │    └─ partial/failure → usable shell + precise error + Retry
+  ├─ migrate legacy workspace registrations
+  │    ├─ archive เฉพาะ generated `Local Disk X:` rows
+  │    └─ ไม่ probe drive, ไม่แตะ project/manual root และไม่ลบไฟล์จริง
   ├─ Startup Doctor
   │    ├─ workspace is optional on a clean first run
   │    ├─ configured MCP port must answer /_lnwjud/identity
@@ -64,6 +72,8 @@ Launch Desktop
        ├─ Full profile does not imply Full Bypass
        └─ Desktop and STDIO Full Bypass are independent, explicit, default OFF
 ```
+
+Direct STDIO ครั้งแรกต้องระบุ `--workspace <absolute-project-path>` หรือมี project ที่ลงทะเบียนไว้แล้ว; runtime จะไม่เดา system/home/current drive และ `workspace_register` ลง project จาก absolute path ได้โดยไม่ต้องสร้าง machine-root parent ก่อน
 
 ## Permission behavior ที่ยืนยันจาก implementation
 
@@ -152,6 +162,7 @@ Desktop/STDIO saved policy
 - ก่อนเปิดมี explicit acknowledgement
 - Header แสดง badge แยก `DESKTOP FULL BYPASS ON` และ `STDIO FULL BYPASS ON`
 - copy ไทย/อังกฤษบอกตรงกันว่า “ไม่ถาม approval/scope ของ lnwjud” และบอกข้อจำกัด OS/service
+- copy ระบุชัดว่า Unrestricted รองรับ absolute path ที่ระบุ แต่ไม่สแกนหรือลงทะเบียน drive letter อัตโนมัติ
 
 ## `AGENTS.md` และ scheduled continuation
 
@@ -170,17 +181,18 @@ Focused regression และ final verification ที่ผ่านแล้�
 - ToolRegistry/process/session/readiness/recovery: **60/60**
 - document/worktree outside-path behavior: **24/24**
 - first-run/Doctor/Projects/onboarding/Settings UI: **27/27**
+- drive/UNC sync + direct registration: **5/5**
+- storage migration suite: **43/43**
+- Desktop startup/persistence + Security copy: **14/14**
+- direct STDIO/CLI suite: **24/24**
+- MCP workspace schema/registry focused suite: **223/223**
 - lint และ TypeScript project typecheck: **ผ่าน**
-- full monorepo: **1,518/1,518 tests**
+- full monorepo: **1,523/1,523 tests**
 - acceptance: **28/28**
 - integration: **2/2**
-- packaging contract: **12/12**
-- release suite รวม hygiene/lock/source policy: **54/54**
-- Electron E2E: **5/5**
-- packaged `win-unpacked\lnwjud.exe` real MCP client flow: **1/1**
 - production build และ generated tool-catalog sync: **ผ่าน** (`229` configurable / `223` default)
-- Windows NSIS + Portable 4.28.0 build และ release-evidence verification: **ผ่าน**
-- visual review หน้า Security ที่ 1440×1000: การ์ด Full Access แยกจาก Custom และแสดง Desktop/STDIO toggle ครบ
+
+หลักฐาน packaging/release/E2E เดิมบน baseline Full Bypass ก่อน drive fix (`266677e…`) คือ packaging **12/12**, release suite **54/54**, Electron E2E **5/5**, packaged real MCP client **1/1**, Windows NSIS + Portable 4.28.0 และ visual review **ผ่าน** แต่ยังไม่ได้นับเป็น fresh evidence ของ commit drive fix รอบนี้
 
 สิ่งที่ test ยืนยันโดยตรง:
 
@@ -192,6 +204,10 @@ Focused regression และ final verification ที่ผ่านแล้�
 - standard mode ยังคง behavior เดิม
 - first-run error, Doctor identity/port, Add Project retry และ onboarding state ไม่กลับไปเป็น dead end
 - configured MCP port ชนแต่ Desktop fallback ไป listener ที่ identity ถูกต้องจะรายงาน `warn` และไม่ deadlock first-run; fallback ที่ identity ไม่ตรงยัง `fail`
+- Desktop unrestricted first run เริ่มด้วย workspace list ว่างและไม่สร้าง machine root
+- UNC/mapped path ไม่ fallback ไป `C:\` และ unrestricted sync ไม่ enumerate drive
+- migration archive generated `Local Disk C:`/`Local Disk Z:` แต่เก็บ project และ explicitly named root
+- `workspace_register` รับ explicit absolute project path ได้โดยไม่มี machine-root parent
 
 ## Release residuals
 
@@ -201,6 +217,7 @@ Focused regression และ final verification ที่ผ่านแล้�
 2. Portable launch และ antivirus/signing reputation ใน environment แจกจริง
 3. Secure Tunnel ต่อกับ ChatGPT workspace/account จริง
 4. OS/UAC/ACL และ remote service behavior บนเครื่องเป้าหมาย
+5. startup บน Windows account ที่มี mapped drive แบบ remote/disconnected (เช่น `Z:` ไป DGX Spark) ต้องไม่ probe/register drive และไม่ error
 
 ## Acceptance criteria
 
@@ -216,11 +233,16 @@ Focused regression และ final verification ที่ผ่านแล้�
 - [x] Add Project รักษา input เมื่อ fail
 - [x] STDIO launcher ใช้ saved profile/roots/bypass state
 - [x] docs/Thai copy/architecture contract อธิบาย behavior เดียวกัน
-- [x] final lint/full test/build/package/release gates ผ่านบน working tree ชุดสุดท้าย
+- [x] startup ทุก transport ไม่ enumerate/register `A:`–`Z:`
+- [x] mapped/UNC path ไม่ถูกตีความเป็น local drive root
+- [x] legacy generated drive roots ถูก archive แบบ reversible โดยรักษา project/manual root
+- [x] direct project registration ไม่ต้องพึ่ง auto machine root
+- [x] final lint/typecheck/full test/acceptance/integration/build/tool-catalog gates ผ่านบน working tree ชุดสุดท้าย
+- [ ] packaging/release/E2E gates รันใหม่บน commit drive fix ก่อนประกาศ customer-ready
 - [ ] clean-machine และ real-account smoke ผ่านก่อนประกาศ customer-ready
 
 ## สรุป
 
-การแก้ของ AI ใน working tree **ถูกทิศและครบตาม product decision ในระดับ implementation**; ไม่พบ flow bug เดิมที่ยังเปิดอยู่จาก F-01 ถึง F-13 และไม่พบ approval gate ภายใน lnwjud ที่ยังเรียก `userConfirmed` แบบ raw หลัง trusted Full Bypass ถูกสร้างแล้ว
+การแก้ของ AI ใน working tree **ถูกทิศและครบตาม product decision ในระดับ implementation**; ไม่พบ flow bug เดิมที่ยังเปิดอยู่จาก F-01 ถึง F-14, ไม่พบ approval gate ภายใน lnwjud ที่ยังเรียก `userConfirmed` แบบ raw หลัง trusted Full Bypass ถูกสร้างแล้ว และ startup ไม่ใช้ drive-letter discovery เป็น source of truth อีก
 
 repository gates ผ่านแล้ว แต่ยังไม่ควรสรุปว่า “release พร้อมส่งลูกค้า 100%” จนกว่าจะผ่าน clean-machine/Portable/real-account residuals ด้านบน ไม่ต้องย้อน design หรือเอา `AGENTS.md` ออกเพื่อให้ Full Bypass ทำงาน

@@ -11,6 +11,7 @@ import { SCHEDULED_CONTINUATION_MIGRATION_SQL } from './migrations/scheduled-con
 import { SCHEDULED_CONTINUATION_SESSION_FENCE_MIGRATION_SQL } from './migrations/scheduled-continuation-session-fence-migration.js';
 import { SCHEDULED_CONTINUATION_RESCHEDULE_MIGRATION_SQL } from './migrations/scheduled-continuation-reschedule-migration.js';
 import { WORKSPACE_ARCHIVE_MIGRATION_SQL } from './migrations/workspace-archive-migration.js';
+import { RETIRE_AUTO_MACHINE_ROOTS_MIGRATION_SQL } from './migrations/retire-auto-machine-roots-migration.js';
 
 export interface SqliteDatabaseOptions {
   readonly backupDirectory?: string;
@@ -59,6 +60,7 @@ export class SqliteDatabase {
     this.applyMigration({ id: '009_scheduled_continuation_same_task_reschedule', sql: SCHEDULED_CONTINUATION_RESCHEDULE_MIGRATION_SQL });
     this.applyMigration({ id: '010_goal_lease_repair', sql: GOAL_LEASE_REPAIR_MIGRATION_SQL });
     this.applyMigration({ id: '011_goal_live_continuation_lease_quarantine', sql: GOAL_LIVE_CONTINUATION_LEASE_QUARANTINE_MIGRATION_SQL });
+    this.applyMigration({ id: '012_retire_auto_machine_roots', sql: RETIRE_AUTO_MACHINE_ROOTS_MIGRATION_SQL });
   }
 
   public applyMigration(migration: Migration): void {

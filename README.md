@@ -55,6 +55,7 @@ capabilities are additive.
 - Makes Full Bypass complete and honest across the gateway and inner runtimes: always-confirm tools, host approval, profile policy, command policy, Active Project/allowed-root/protected-path checks, and `goalLease` enforcement are skipped without rewriting caller input as `userConfirmed: true`.
 - Propagates trusted per-invocation authorization through file/Git/process/Codex, shell/WSL/browser/native/Office/scheduler, DOCX/Sandbox, worktree, self-heal, incremental verification, and upgrade-runtime paths. Explicit absolute paths/cwds outside the active project can dispatch in Full Bypass; relative traversal remains invalid.
 - Repairs first-run recovery: Projects and Doctor remain reachable with zero workspaces, failed initial IPC loads show a retryable error, Add Project preserves failed input, Doctor probes the configured MCP identity endpoint, and partial bootstrap errors remain visible after the dashboard loads.
+- Stops automatic A:–Z: drive discovery and registration. Mapped/network drives such as a DGX share mounted at `Z:` are no longer mistaken for local disks during startup; generated legacy `Local Disk X:` rows are archived reversibly while projects and explicitly named roots are preserved.
 - Adds the loopback `/_lnwjud/identity` probe so Doctor can distinguish lnwjud from an unrelated listener on the configured port.
 - Expands and synchronizes the live registry to **229 configurable tools / 223 advertised by default**, bumps Desktop/CLI/packages and release artifacts to **v4.28.0**, and adds focused permission/first-run/runtime regression coverage.
 
@@ -98,13 +99,13 @@ Authoritative in-repository references:
 lnwjud is intentionally powerful. It is intended for a machine and workspace you
 trust, not as a sandbox for unknown code.
 
-- **Unrestricted mode is enabled by default for read/discovery compatibility.** Fixed local drives can be registered as machine roots and inspected by the local-agent runtime. With Full Bypass OFF, Unrestricted does not widen the host-selected Active Project mutation boundary or bypass command/approval policy. Full Bypass is a separate explicit control.
+- **Unrestricted mode is enabled by default for read/discovery compatibility, but it never scans or registers drive letters automatically.** It permits explicitly requested absolute paths. With Full Bypass OFF, Unrestricted does not widen the host-selected Active Project mutation boundary or bypass command/approval policy. Full Bypass is a separate explicit control.
 - Desktop MCP applies the selected permission profile (`safe`, `balanced`,
   `full`, or `custom`) to tool calls.
 - The packaged standalone/headless STDIO runtime supports selectable `safe`,
   `balanced`, `full`, or `custom` profiles. For backward compatibility the
-  default remains **full** with the existing machine-root behavior until Strict
-  Roots is enabled. Secure Tunnel does not use this headless profile; it uses the
+  default remains **full**, but a project must be passed explicitly or already be
+  registered; no drive root is inferred. Secure Tunnel does not use this headless profile; it uses the
   running Desktop MCP permission profile and the Desktop-selected Active Project.
 - **Strict Roots** is opt-in and limits standalone/headless STDIO workspace
   visibility to explicitly allowed roots. It is a filesystem/capability boundary,
@@ -442,13 +443,13 @@ Node installation or `PATH`.
 
 ### STDIO permission profiles and strict roots
 
-The packaged stdio launcher keeps the historical behavior by default: the permission profile is `full` and machine-drive roots are registered as before. You can opt into a narrower policy per launch:
+The packaged stdio launcher keeps `full` as its backward-compatible permission profile, but it no longer discovers or registers drive letters. Pass `--workspace` on first use; later launches may reuse an already registered project. You can opt into a narrower policy per launch:
 
 ```text
 lnwjud-mcp-stdio.cmd --workspace D:\\projects\\my-app --profile safe --strict-roots --allowed-root D:\\projects\\my-app
 ```
 
-Supported direct-stdio profiles are `safe`, `balanced`, `full`, and `custom`. Equivalent environment variables are `LNWJUD_STDIO_PROFILE`, `LNWJUD_STRICT_ROOTS`, and semicolon-separated `LNWJUD_ALLOWED_ROOTS`. OpenAI Secure MCP Tunnel does not use the headless stdio policy; it uses the running Desktop MCP permission profile, Active Project, and native host approval. With STDIO Full Bypass OFF, strict-root mode skips automatic whole-drive registration and rejects absolute paths outside explicitly allowed canonical roots. STDIO Full Bypass ON intentionally overrides that lnwjud application boundary for explicit absolute paths. Strict roots are not an OS sandbox: spawned programs still run under the Windows user token.
+Supported direct-stdio profiles are `safe`, `balanced`, `full`, and `custom`. Equivalent environment variables are `LNWJUD_STDIO_PROFILE`, `LNWJUD_STRICT_ROOTS`, and semicolon-separated `LNWJUD_ALLOWED_ROOTS`. OpenAI Secure MCP Tunnel does not use the headless stdio policy; it uses the running Desktop MCP permission profile, Active Project, and native host approval. No mode performs automatic whole-drive registration. With STDIO Full Bypass OFF, strict-root mode rejects absolute paths outside explicitly allowed canonical roots. STDIO Full Bypass ON intentionally overrides that lnwjud application boundary for explicit absolute paths. Strict roots are not an OS sandbox: spawned programs still run under the Windows user token.
 
 ### Full Access and Full Bypass
 
@@ -588,8 +589,8 @@ backward-compatible default, but accepts `safe`, `balanced`, `full`, or `custom`
 through the launcher/environment/Desktop STDIO policy settings; optional Strict
 Roots can further constrain visible roots. This policy is stored separately from
 the Desktop MCP profile. Unrestricted mode remains the compatibility default for
-read/discovery visibility when Strict Roots is not enabled (every fixed drive is
-a machine root). With Full Bypass OFF it does not broaden the host Active Project mutation boundary; Full Bypass ON is the explicit exception.
+explicit absolute-path read/discovery when Strict Roots is not enabled, but it
+does not enumerate or register drives. With Full Bypass OFF it does not broaden the host Active Project mutation boundary; Full Bypass ON is the explicit exception.
 The exact recoverable `delete_file` is the only mutation that can use scoped
 auto-approval. Destructive Git forms that would rewrite/discard/delete state are
 blocked when policy cannot prove a safe supported mutation; any allowed opaque
@@ -605,9 +606,9 @@ semicolon-separated environment variable LNWJUD_CAPABILITY_ROOTS:
 $env:LNWJUD_CAPABILITY_ROOTS = 'E:/work;E:/projects'
 ```
 
-In the default unrestricted mode, all fixed-drive roots are available to local
-capability read/discovery tools. `LNWJUD_CAPABILITY_ROOTS` is optional extra
-configuration; it is not a visibility ignore list. With Full Bypass OFF, core file
+Local capabilities use registered projects and explicitly configured roots; they
+never add A:–Z: automatically. `LNWJUD_CAPABILITY_ROOTS` is optional extra
+configuration. With Full Bypass OFF, core file
 tools still require a registered workspace and mutation-capable tools use the exact
 Active Project plus normal confirmation/host-approval boundaries. Full Bypass ON
 permits explicit absolute outside targets while retaining schema, existence, and OS checks.
@@ -879,8 +880,8 @@ This index is generated from the current `ToolRegistry`, not copied from an olde
 
 | # | Tool | Permission | Runtime description |
 | ---: | --- | --- | --- |
-| 1 | `workspace_list` | READ | List all registered workspaces/drive roots available to lnwjud. Call this first to discover workspace IDs. Entries include kind=machine_root\|project. |
-| 2 | `workspace_register` | WRITE | Register an existing project directory under a machine-root drive. parentWorkspaceId must be a machine root from workspace_list. Idempotent for the same path. |
+| 1 | `workspace_list` | READ | List registered project workspaces available to lnwjud. Legacy explicitly registered drive roots may also appear as kind=machine_root. |
+| 2 | `workspace_register` | WRITE | Register an existing project directory by absolute path. parentWorkspaceId is optional and retained only for legacy machine-root-relative registration. Idempotent for the same path. |
 | 3 | `workspace_info` | READ | Return the configured workspace summary. |
 | 4 | `workspace_tree` | READ | List a bounded workspace tree. Absolute path does not require workspaceId. |
 | 5 | `project_snapshot` | READ | Return a bounded project snapshot without source contents. |
@@ -1120,27 +1121,25 @@ This index is generated from the current `ToolRegistry`, not copied from an olde
 | workspace_tree | READ | Returns a bounded directory tree; hidden and heavy folders are included, with depth/entry bounds and truncation metadata |
 | project_snapshot | READ | Returns profile, Git counts, top-level tree, managed processes, and recent error summaries without source contents |
 
-### Optional machine-root discovery extension
+### Explicit workspace registration
 
-The current default is **Unrestricted mode**, which registers every available
-fixed drive (C:, D:, E:, …) as a machine root for read/discovery compatibility.
-If Unrestricted mode is explicitly disabled, the restricted machine-root contract
-selects the active/preferred Windows drive dynamically (falling back through the
-normal system, home, and current-working-directory drive discovery) and prunes
-other drive-root registrations. No fixed drive letter is required. Project folders
-may be registered below the active machine roots through MCP or the desktop UI.
-This visibility setting does not widen mutation authority beyond the host-selected
-Active Project.
+lnwjud never scans A:–Z: or registers drive roots during startup. Add a project
+folder explicitly through MCP or the Desktop Projects UI. `workspace_register`
+accepts an absolute project path directly; `parentWorkspaceId` remains optional
+only for compatibility with an explicitly registered legacy machine root. A
+mapped/network drive is therefore touched only when the user deliberately adds a
+project on it. Unrestricted visibility does not widen mutation authority beyond
+the host-selected Active Project while Full Bypass is OFF.
 
 | Tool | Permission | Input | What it does |
 | --- | --- | --- | --- |
-| workspace_list | EXECUTE | Empty object | Lists registered machine roots and project workspaces (`kind`: `machine_root` or `project`). Read-only discovery; Safe asks, Balanced/Full allow. |
-| workspace_register | WRITE | parentWorkspaceId, path, optional displayName | Registers an existing project directory below a machine root (idempotent; any drive root in unrestricted mode) |
+| workspace_list | READ | Empty object | Lists registered project workspaces and any explicitly retained legacy machine roots. Read-only discovery; Safe/Balanced/Full allow. |
+| workspace_register | WRITE | absolute path, optional displayName/parentWorkspaceId | Registers an existing project directory directly (idempotent); the parent is legacy-compatible and never auto-created |
 
-The extension still validates the parent ID, canonical path, and reparse points.
-**Secret and hidden files are intentionally readable in the default unrestricted
-mode** (including `.env`, keys, and credentials) on every fixed drive when read
-policy permits them. Image and other binary files are returned as base64 with no
+Registration still validates canonical paths and, when supplied, the parent ID and containment.
+**Secret and hidden files may be readable in the default unrestricted mode**
+(including `.env`, keys, and credentials) when their absolute path is explicitly
+requested and read policy permits it. Image and other binary files are returned as base64 with no
 application size cap. Mutation paths remain bound to the Active Project even
 when those read/discovery roots are broader.
 
@@ -1172,8 +1171,8 @@ from the desktop dashboard and use its workspace ID.
 | restore_checkpoint | WRITE | Restores a reviewed checkpoint after creating a rollback checkpoint for the current version |
 
 In the default unrestricted mode, `.env`, `.env.*`, `*.pem`, `*.key`, `id_rsa*`,
-`id_ed25519*`, `.ssh/**`, `.aws/**`, and `credentials.json` may be readable on
-registered fixed-drive roots when the active read policy permits them. This read
+`id_ed25519*`, `.ssh/**`, `.aws/**`, and `credentials.json` may be readable when
+their absolute path is explicitly requested and the active read policy permits it. This read
 visibility never grants mutation authority outside the Active Project.
 
 ### Git
@@ -1351,8 +1350,9 @@ higher-level APIs cannot operate; and window for native window management.
 
 ## Unrestricted full-access mode
 
-Unrestricted mode expands **read/discovery visibility and machine-root
-registration** for compatibility. It does **not** lift the host-selected Active
+Unrestricted mode expands **explicit absolute-path read/discovery visibility**
+for compatibility. It never scans or registers drive letters automatically and
+does **not** lift the host-selected Active
 Project mutation boundary, shared command/Git policy, independent host approval,
 or hard blocks. Enable the visibility mode either way:
 
@@ -1362,12 +1362,12 @@ or hard blocks. Enable the visibility mode either way:
 
 When enabled:
 
-- Every fixed drive (C:, D:, E:, …) can be registered as a machine root for
-  read/discovery and `workspace_register` can select a project under those roots.
+- `workspace_register` can add an explicitly chosen absolute project path without
+  first creating a drive root. Mapped/network drives are not probed on startup.
 - Secret files (.env, *.key, id_rsa, .ssh/**, .aws/**, credentials.json) may be
   readable on registered roots when the active read policy permits them; binary
   files are returned as base64 by the file reader.
-- Capability discovery can see the configured fixed-drive roots, but mutation-
+- Capability discovery uses registered projects and explicitly configured roots, but mutation-
   bearing cwd/targets are re-bound to the host Active Project before dispatch.
 - Approved processes still run as the Windows user and may receive the normal
   process environment; this is not a sandbox guarantee.

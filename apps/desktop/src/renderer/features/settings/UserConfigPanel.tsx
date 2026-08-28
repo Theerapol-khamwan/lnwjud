@@ -177,7 +177,7 @@ export function UserConfigPanel({ locale, permissionProfile, stdioPermissionProf
             <SettingSwitch
               checked={unrestricted}
               label="Unrestricted mode"
-              description={locale === 'th' ? 'เปิด machine roots สำหรับงานที่ต้องเข้าถึงทั้งเครื่อง โดยยังใช้กฎยืนยันตาม Profile ตามปกติ' : 'Enable machine roots while keeping the active profile approval rules in force.'}
+              description={locale === 'th' ? 'อนุญาต absolute path ที่ผู้ใช้หรือ AI ระบุ โดยไม่สแกนหรือลงทะเบียน drive letter อัตโนมัติ และยังใช้กฎยืนยันตาม Profile ตามปกติ' : 'Allow explicitly requested absolute paths without scanning or registering drive letters, while keeping the active profile approval rules in force.'}
               onChange={(enabled) => { void onUnrestrictedChange(enabled).then((restartRequired) => setUnrestrictedMessage(restartRequired ? (locale === 'th' ? 'ต้อง Restart MCP/Tunnel เพื่อใช้ค่าครบถ้วน' : 'Restart MCP/Tunnel to apply this everywhere.') : null)); }}
             />
             {unrestrictedMessage === null ? null : <div className="alert-box-warning" role="status">⚠️ {unrestrictedMessage}</div>}

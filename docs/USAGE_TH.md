@@ -181,6 +181,8 @@ v4.11.0 รองรับ Active Projects หลายรายการพร�
 
 อย่าเลือกทั้งไดรฟ์เป็น Active Project เพียงเพื่อความสะดวก ถ้างานจริงอยู่ใน project folder ที่เจาะจง
 
+lnwjud จะไม่สแกนหรือลงทะเบียน drive letter `A:`–`Z:` อัตโนมัติแล้ว รวมถึง mapped/network drive เช่น `Z:` ที่ชี้ไป DGX Spark. ให้เพิ่มเฉพาะโฟลเดอร์โปรเจกต์ที่ต้องใช้ผ่านหน้า Projects หรือระบุ `--workspace` สำหรับ STDIO. รายการเก่าแบบ `Local Disk X:` ที่ระบบเคยสร้างเองจะถูก archive แบบกู้กลับได้ โดยไม่ลบโฟลเดอร์หรือ project registration จริง
+
 ## 10. Permission และการลบไฟล์
 
 Profile หลัก:
@@ -258,6 +260,8 @@ Secure Tunnel สำหรับ ChatGPT web ใช้ **Desktop HTTP MCP** แ�
 ```text
 lnwjud-mcp-stdio.cmd --workspace E:\projects\my-app
 ```
+
+ครั้งแรกต้องระบุ `--workspace` (หรือเพิ่มโปรเจกต์ไว้ก่อน) ระบบจะไม่เดา drive เริ่มต้นจาก `C:`/home/current directory
 
 ตัว release bundle private Node.js 24 มาให้ launcher นี้แล้ว จึงไม่ต้องลง Node.js system-wide
 

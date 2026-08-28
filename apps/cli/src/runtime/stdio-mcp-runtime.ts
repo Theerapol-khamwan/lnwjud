@@ -56,7 +56,7 @@ import {
   SqliteSettingsRepository,
   SqliteWorkspaceRepository,
 } from '@lnwjud/storage';
-import { allFixedDriveRoots, machineRootPath, SecretPolicy, WorkspacePathGuard, WorkspaceService, type Workspace } from '@lnwjud/workspace';
+import { isDriveRoot, SecretPolicy, WorkspacePathGuard, WorkspaceService, type Workspace } from '@lnwjud/workspace';
 import { StrictWorkspaceRepository } from './strict-workspace-repository.js';
 
 export interface StdioMcpRuntime {
@@ -146,10 +146,12 @@ export function createStdioMcpRuntime(
     auditService,
     profileProvider,
   });
-  const capabilityRuntime = createStdioCapabilityService(dataPath, machineRootPath(workspace.realRootPath), async () => {
+  const capabilityRuntime = createStdioCapabilityService(dataPath, workspace.realRootPath, async () => {
     const listed = await workspaceRepository.list();
-    const roots = listed.map((entry) => entry.realRootPath);
-    if (roots.length === 0) return effectiveUnrestricted ? [...allFixedDriveRoots()] : [workspace.realRootPath];
+    const roots = listed
+      .filter((entry) => !isDriveRoot(entry.realRootPath) && !isDriveRoot(entry.rootPath))
+      .map((entry) => entry.realRootPath);
+    if (roots.length === 0) return [workspace.realRootPath];
     return roots;
   }, effectiveUnrestricted, options.strictAllowedRoots, () => parsePathList(settingsRepository.get(USER_SETTING_KEYS.capabilityRoots)),
   () => parseIntegerSetting(settingsRepository.get(USER_SETTING_KEYS.shellSynchronousWaitSeconds), DEFAULT_SHELL_SYNCHRONOUS_WAIT_SECONDS, MIN_CONFIGURABLE_WAIT_SECONDS, MAX_CONFIGURABLE_WAIT_SECONDS));
@@ -286,10 +288,10 @@ function createStdioCapabilityService(
     const workspaceRoots = await workspaceRootsProvider();
     if (strictAllowedRoots !== undefined) return workspaceRoots.length > 0 ? workspaceRoots : strictAllowedRoots;
     const configuredRoots = [...readCapabilityRoots(process.env.LNWJUD_CAPABILITY_ROOTS), ...configuredRootsProvider()];
-    const roots = [...workspaceRoots, ...configuredRoots, ...(unrestricted ? [...allFixedDriveRoots()] : [restrictedRoot])];
+    const roots = [...workspaceRoots, ...configuredRoots, restrictedRoot];
     return roots.length === 0 ? [dataPath] : roots;
   };
-  const initialCapabilityRoots = strictAllowedRoots ?? [dataPath, ...(unrestricted ? [...allFixedDriveRoots()] : [restrictedRoot])];
+  const initialCapabilityRoots = strictAllowedRoots ?? [dataPath, restrictedRoot];
   const shellBackend = new ShellCapabilityBackend({
     allowedRoots: initialCapabilityRoots,
     allowedRootsProvider: capabilityRootsProvider,

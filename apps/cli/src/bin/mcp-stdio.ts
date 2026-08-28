@@ -1,6 +1,5 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import { syncMachineRoots } from '@lnwjud/application';
 import { startMcpStdio } from '@lnwjud/mcp-server';
 import {
   STDIO_ALLOWED_ROOTS_SETTING_KEY,
@@ -15,9 +14,10 @@ import {
   resolveLnwjudDataPath,
 } from '@lnwjud/shared';
 import { applyPendingSqliteRestoreSync, SqliteBackupService, SqliteDatabase, SqliteSettingsRepository, SqliteWorkspaceRepository } from '@lnwjud/storage';
-import { machineRootPath, normalizeWorkspaceRoot, WorkspaceService, type Workspace } from '@lnwjud/workspace';
+import { isDriveRoot, normalizeWorkspaceRoot, WorkspaceService, type Workspace } from '@lnwjud/workspace';
 import { createStdioMcpRuntime } from '../runtime/stdio-mcp-runtime.js';
 import { StrictWorkspaceRepository, canonicalizeAllowedRoots, requestedPathInsideAllowedRoot } from '../runtime/strict-workspace-repository.js';
+import { resolveRequestedWorkspacePath } from '../runtime/workspace-selection.js';
 import { resetWorkspaceRegistrations } from '../runtime/workspace-reset.js';
 
 function readArg(flag: string): string | undefined {
@@ -111,11 +111,17 @@ async function main(): Promise<void> {
     : false);
 
   const requestedRaw = readArg('--workspace') ?? process.env.LNWJUD_WORKSPACE;
-  const requestedPath = path.resolve(
-    requestedRaw && requestedRaw.trim().length > 0
-      ? requestedRaw
-      : strictAllowedRoots?.[0] ?? machineRootPath(),
-  );
+  const registeredProjects = (await workspaceService.list())
+    .filter((entry) => !isDriveRoot(entry.realRootPath) && !isDriveRoot(entry.rootPath));
+  const requestedPath = resolveRequestedWorkspacePath({
+    ...(requestedRaw === undefined ? {} : { requestedPath: requestedRaw }),
+    ...(strictAllowedRoots === undefined ? {} : { strictAllowedRoots }),
+    registeredProjectPaths: registeredProjects.map((entry) => entry.realRootPath),
+  });
+  if (requestedPath === null) {
+    process.stderr.write('lnwjud MCP stdio: no project workspace is configured; pass --workspace <path>\n');
+    process.exit(2);
+  }
   if (!fs.existsSync(requestedPath)) {
     process.stderr.write(`lnwjud MCP stdio: workspace path does not exist: ${requestedPath}\n`);
     process.exit(2);
@@ -137,21 +143,18 @@ async function main(): Promise<void> {
     if (selected === undefined) throw new Error(`Strict allowed root was not registered: ${selectedAllowedRoot}`);
     workspace = selected;
   } else {
-    const restrictedRoot = machineRootPath(requestedPath);
     process.env.LNWJUD_CAPABILITY_ROOTS = process.env.LNWJUD_CAPABILITY_ROOTS?.trim()
-      || restrictedRoot.replace(/\\/g, '/');
-    const machineRoot = await syncMachineRoots(workspaceService, unrestricted, requestedPath);
-    if (machineRoot === null) throw new Error('Could not register machine root');
+      || requestedPath.replace(/\\/g, '/');
 
     const requestedNorm = normalizeWorkspaceRoot(requestedPath).toLowerCase();
     const workspaces = await workspaceService.list();
     let selected = workspaces.find((entry) => normalizeWorkspaceRoot(entry.realRootPath).toLowerCase() === requestedNorm);
-    if (selected === undefined && requestedNorm !== normalizeWorkspaceRoot(restrictedRoot).toLowerCase()) {
+    if (selected === undefined) {
       const added = await workspaceService.add(path.basename(requestedPath) || 'Workspace', requestedPath);
       if (!added.ok) throw new Error(`Could not register ${requestedPath}: ${added.error.message}`);
       selected = added.value;
     }
-    workspace = selected ?? machineRoot;
+    workspace = selected;
   }
 
   for (const entry of await workspaceService.list()) {

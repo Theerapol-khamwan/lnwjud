@@ -23,6 +23,17 @@ afterEach(async () => {
 });
 
 describe('DesktopRuntime persistence', () => {
+  it('starts with no automatically registered drive roots even when unrestricted mode is enabled', async () => {
+    const rawDataRoot = await mkdtemp(path.join(os.tmpdir(), 'lnwjud-runtime-no-auto-drives-'));
+    temporaryRoots.push(rawDataRoot);
+    const runtime = createDesktopRuntime(await realpath(rawDataRoot));
+    try {
+      await expect(runtime.services.listWorkspaces()).resolves.toEqual([]);
+    } finally {
+      await runtime.close();
+    }
+  });
+
   it('wires durable goals and scheduled continuation orchestration into desktop MCP services', async () => {
     const rawDataRoot = await mkdtemp(path.join(os.tmpdir(), 'lnwjud-runtime-continuation-data-'));
     temporaryRoots.push(rawDataRoot);
@@ -241,14 +252,7 @@ describe('DesktopRuntime persistence', () => {
       expect((await runtime.services.getDashboard()).selectedWorkspace?.id).toBeDefined();
       expect(workspaceB.id).not.toBe(workspaceA.id);
 
-      if (process.platform === 'win32') {
-        const machineRoot = (await runtime.services.listWorkspaces()).find((entry) => entry.kind === 'machine_root');
-        expect(machineRoot).toBeDefined();
-        if (machineRoot !== undefined) {
-          await expect(runtime.services.setWorkspaceArchived({ workspaceId: machineRoot.id, archived: true })).rejects.toThrow(/managed automatically/);
-          await expect(runtime.services.deleteWorkspace({ workspaceId: machineRoot.id, userConfirmed: true })).rejects.toThrow(/managed automatically/);
-        }
-      }
+      expect((await runtime.services.listWorkspaces()).some((entry) => entry.kind === 'machine_root')).toBe(false);
     } finally {
       await runtime.close();
     }

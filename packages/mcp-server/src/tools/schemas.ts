@@ -88,7 +88,7 @@ export const restoreCheckpointSchema = z.object({
 
 export const workspaceListSchema = z.object({}).strict();
 export const workspaceRegisterSchema = z.object({
-  parentWorkspaceId: workspaceIdSchema,
+  parentWorkspaceId: optionalWorkspaceIdSchema,
   path: pathSchema,
   displayName: z.string().trim().min(1).max(256).optional(),
 }).strict();

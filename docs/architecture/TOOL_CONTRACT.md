@@ -279,7 +279,7 @@ Run `pnpm docs:tools` after intentionally changing the registry; CI runs `pnpm d
 
 Desktop uses its configured local permission profile. Packaged stdio keeps `full` as the backward-compatible default but accepts `safe|balanced|full|custom` through the launcher, environment, or Desktop STDIO policy settings. Desktop HTTP/Secure Tunnel and direct STDIO have independent Full Bypass toggles under the Full Access (Unrestricted) group; both default OFF and are effective only with profile `full`.
 
-With Full Bypass OFF, optional strict-root mode suppresses automatic whole-drive registration and the normal ownership/path/Active Project/host approval/command-policy boundaries remain enforced. With Full Bypass ON, the gateway and inner runtimes skip every lnwjud application approval and scope check, including always-confirm tools, protected paths, explicit absolute outside paths, and `goalLease`. The authorization is carried separately from tool input and must never be forged as caller `userConfirmed: true`. Schema validation, relative-traversal rejection, exact task/process/worktree ownership, Windows ACL/UAC, provider availability, remote/child policy, and runtime errors remain.
+No mode scans or registers drive letters automatically. With Full Bypass OFF, optional strict-root mode constrains access to explicit canonical roots and the normal ownership/path/Active Project/host approval/command-policy boundaries remain enforced. With Full Bypass ON, the gateway and inner runtimes skip every lnwjud application approval and scope check, including always-confirm tools, protected paths, explicit absolute outside paths, and `goalLease`. The authorization is carried separately from tool input and must never be forged as caller `userConfirmed: true`. Schema validation, relative-traversal rejection, exact task/process/worktree ownership, Windows ACL/UAC, provider availability, remote/child policy, and runtime errors remain.
 
 Mutations still receive typed policy classification for audit/dispatch behavior. With Full Bypass OFF, the only configurable scoped auto-approval exception is exact recoverable `delete_file`; every other approval-required mutation needs independent trusted host exact-action approval and providerless runtimes fail closed. Full Bypass ON supersedes those lnwjud authorization checks for its transport. Arbitrary commands and project-owned scripts remain opaque execution, not an OS sandbox, and outside-project changes are not automatically recoverable through Recovery Trash.
 
@@ -298,7 +298,7 @@ source schema and the runtime `tools/list` response.
 ```ts
 workspace_list: {}
 workspace_register: {
-  parentWorkspaceId: string;
+  parentWorkspaceId?: string; // legacy explicit machine-root-relative registration
   path: string;
   displayName?: string;
 }

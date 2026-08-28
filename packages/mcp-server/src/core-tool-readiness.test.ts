@@ -16,7 +16,7 @@ const zeroUuid = '00000000-0000-0000-0000-000000000000';
  */
 const CORE_TOOL_SMOKE_INPUTS: Readonly<Record<string, Readonly<Record<string, unknown>>>> = {
   workspace_list: {},
-  workspace_register: { parentWorkspaceId: 'machine-root', path: 'E:\\project' },
+  workspace_register: { path: 'E:\\project' },
   workspace_info: { workspaceId },
   workspace_tree: {},
   project_snapshot: { workspaceId },

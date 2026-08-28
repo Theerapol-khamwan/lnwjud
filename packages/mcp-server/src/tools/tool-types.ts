@@ -30,7 +30,7 @@ export interface WorkspaceInfoPort {
   info(actor: FileActor, workspaceId: string): Promise<Result<unknown>>;
   list?(actor: FileActor): Promise<Result<unknown>>;
   register?(actor: FileActor, request: {
-    readonly parentWorkspaceId: string;
+    readonly parentWorkspaceId?: string;
     readonly path: string;
     readonly displayName?: string;
   }): Promise<Result<unknown>>;

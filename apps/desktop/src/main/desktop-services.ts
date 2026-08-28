@@ -15,7 +15,6 @@ import {
   SearchService,
   JsonWorkspaceIndexStore,
   WorkspaceIndexService,
-  syncMachineRoots,
   WorkspaceInfoService,
   WorkspaceQueryService,
   type FileActor,
@@ -89,7 +88,7 @@ import {
 import { AesGcmCheckpointCipher, SqliteAuditRepository, SqliteBackupService, SqliteCheckpointRepository, SqliteDatabase, SqliteSettingsRepository, SqliteWorkspaceRepository, type BackupReason, type BackupSummary } from '@lnwjud/storage';
 import { SqliteGoalRepository } from '@lnwjud/storage';
 import type { Workspace } from '@lnwjud/workspace';
-import { isDriveRoot, machineRootPath, SecretPolicy, WorkspacePathGuard, WorkspaceService } from '@lnwjud/workspace';
+import { isDriveRoot, SecretPolicy, WorkspacePathGuard, WorkspaceService } from '@lnwjud/workspace';
 import {
   type AddWorkspaceRequest,
   type BackupSummary as IpcBackupSummary,
@@ -263,7 +262,9 @@ export function createDesktopRuntime(dataPath: string, options: DesktopRuntimeOp
     profileProvider: activePermissionProfile,
   });
   const capabilityRuntime = createLocalCapabilityRuntime(dataPath, async (): Promise<readonly string[]> => (
-    (await workspaceRepository.list()).map((workspace) => workspace.realRootPath)
+    (await workspaceRepository.list())
+      .filter((workspace) => !isDriveRoot(workspace.realRootPath) && !isDriveRoot(workspace.rootPath))
+      .map((workspace) => workspace.realRootPath)
   ), unrestricted, () => readSettings().capabilityRoots, () => readSettings().shellSynchronousWaitSeconds);
   const goalMutationFence = new GoalMutationFenceService(goalRepository, {
     taskStateReader: new RuntimeGoalManagedTaskStateReader({
@@ -273,16 +274,6 @@ export function createDesktopRuntime(dataPath: string, options: DesktopRuntimeOp
     }),
   });
   const scheduledContinuationService = new ScheduledContinuationService(goalRepository, { workerLiveness: goalMutationFence });
-  const machineRootsReady = new Map<string, Promise<Workspace | null>>();
-  const ensureMachineRoots = (preferredPath?: string): Promise<Workspace | null> => {
-    const machineWideAccess = unrestricted || desktopFullBypassEnabled();
-    const key = machineWideAccess ? '*' : machineRootPath(preferredPath).toLowerCase();
-    const existing = machineRootsReady.get(key);
-    if (existing !== undefined) return existing;
-    const pending = syncMachineRoots(workspaceService, machineWideAccess, preferredPath);
-    machineRootsReady.set(key, pending);
-    return pending;
-  };
   const extensionsService: ExtensionsService = createLocalExtensionsService({
     settingsJson: settingsRepository.get(EXTENSIONS_SETTINGS_KEY),
     workspaceRootProvider: async (): Promise<string | undefined> => {
@@ -553,7 +544,6 @@ export function createDesktopRuntime(dataPath: string, options: DesktopRuntimeOp
   async function selectWorkspaceOnly(workspaceId: string): Promise<WorkspaceSummary> {
     const workspace = await resolveWorkspaceOrThrow(workspaceId);
     if (isDriveRoot(workspace.realRootPath) || isDriveRoot(workspace.rootPath)) throw new Error('Machine-root workspace cannot be the Primary Project');
-    await ensureMachineRoots(workspace.realRootPath);
     await activateWorkspace(workspaceId);
     settingsRepository.set(selectedWorkspaceSettingKey, workspaceId);
     await resolveActiveProjectWorkspaces();
@@ -562,11 +552,11 @@ export function createDesktopRuntime(dataPath: string, options: DesktopRuntimeOp
 
   const services: DesktopIpcServices = {
     listWorkspaces: async (): Promise<readonly WorkspaceSummary[]> => {
-      await ensureMachineRoots();
-      return (await workspaceRepository.listAll()).map(toWorkspaceSummary);
+      return (await workspaceRepository.listAll())
+        .filter((workspace) => !isGeneratedAutoMachineRoot(workspace))
+        .map(toWorkspaceSummary);
     },
     addWorkspace: async (request: AddWorkspaceRequest): Promise<WorkspaceSummary> => {
-      await ensureMachineRoots(request.rootPath);
       const requestedRoot = path.resolve(request.rootPath).toLowerCase();
       const existing = (await workspaceRepository.listAll()).find((entry) => path.resolve(entry.rootPath).toLowerCase() === requestedRoot);
       if (existing !== undefined) {
@@ -588,18 +578,15 @@ export function createDesktopRuntime(dataPath: string, options: DesktopRuntimeOp
       return toWorkspaceSummary(workspace);
     },
     selectWorkspace: async (request: SelectWorkspaceRequest): Promise<WorkspaceSummary> => {
-      await ensureMachineRoots();
       return selectWorkspaceOnly(request.workspaceId);
     },
     setWorkspaceActive: async (request): Promise<{ readonly workspace: WorkspaceSummary; readonly active: boolean }> => {
-      await ensureMachineRoots();
       if (request.active) await activateWorkspace(request.workspaceId);
       else await deactivateWorkspace(request.workspaceId);
       const workspace = await resolveManageableWorkspace(request.workspaceId);
       return { workspace: toWorkspaceSummary(workspace), active: request.active };
     },
     setWorkspaceArchived: async (request: SetWorkspaceArchivedRequest): Promise<WorkspaceSummary> => {
-      await ensureMachineRoots();
       const workspace = await resolveManageableWorkspace(request.workspaceId);
       if (request.archived) {
         if (workspace.archivedAt !== undefined && workspace.archivedAt !== null) return toWorkspaceSummary(workspace);
@@ -616,7 +603,6 @@ export function createDesktopRuntime(dataPath: string, options: DesktopRuntimeOp
     },
     deleteWorkspace: async (request: DeleteWorkspaceRequest): Promise<{ readonly deleted: boolean; readonly workspaceId: string; readonly rootPath: string; readonly backupId: string }> => {
       if (request.userConfirmed !== true) throw new Error('Deleting a workspace registration requires explicit confirmation');
-      await ensureMachineRoots();
       const workspace = await resolveManageableWorkspace(request.workspaceId);
       await assertWorkspaceIdle(workspace.id);
       await requireNativeAdministrativeApproval({
@@ -634,7 +620,6 @@ export function createDesktopRuntime(dataPath: string, options: DesktopRuntimeOp
       return { deleted: true, workspaceId: workspace.id, rootPath: workspace.realRootPath, backupId: backup.id };
     },
     getDashboard: async (): Promise<DashboardSnapshot> => {
-      await ensureMachineRoots();
       await sweepRecoveryRetention().catch((error: unknown) => {
         console.error(`Recovery retention sweep failed: ${error instanceof Error ? error.message : 'unknown error'}`);
       });
@@ -789,15 +774,11 @@ export function createDesktopRuntime(dataPath: string, options: DesktopRuntimeOp
       return { stopped: true };
     },
     startMcp: async (request: StartMcpRequest): Promise<McpConnectionStatus> => {
-      const workspace = await resolveWorkspaceOrThrow(request.workspaceId);
-      await ensureMachineRoots(workspace.realRootPath);
+      await resolveWorkspaceOrThrow(request.workspaceId);
       return mcpLifecycle.start();
     },
     stopMcp: (): Promise<McpConnectionStatus> => mcpLifecycle.stop(),
-    restartMcp: async (): Promise<McpConnectionStatus> => {
-      await ensureMachineRoots();
-      return mcpLifecycle.restart();
-    },
+    restartMcp: (): Promise<McpConnectionStatus> => mcpLifecycle.restart(),
     clearWorkLog: async (request: ClearWorkLogRequest = {}): Promise<{ readonly cleared: boolean }> => {
       workLogViewState.clear(request);
       return { cleared: true };
@@ -855,7 +836,6 @@ export function createDesktopRuntime(dataPath: string, options: DesktopRuntimeOp
       return toManagedBrowserStatus(unwrap(result, 'Managed Chrome could not be started'));
     },
     runDoctor: async (): Promise<DoctorReport> => {
-      await ensureMachineRoots();
       const base = await doctorService.run();
       const tunnel = await tunnelController.diagnosticStatus();
       recordPersistentTunnelStatus(tunnel);
@@ -865,7 +845,6 @@ export function createDesktopRuntime(dataPath: string, options: DesktopRuntimeOp
       return { checks, exitCode: checks.some((check) => check.required && check.status === 'fail') ? 1 : 0 };
     },
     getLogSnapshot: async (): Promise<LogSnapshot> => {
-      await ensureMachineRoots();
       const workLog = await buildWorkLog(auditRepository, workLogViewState);
       const inFlight = activityTracker.listInFlight().map(toInFlightItem);
       const processSummaries = await listTrackedProcesses(processService, trackedProcesses);
@@ -924,7 +903,6 @@ export function createDesktopRuntime(dataPath: string, options: DesktopRuntimeOp
     ),
     createBackup: (reason: BackupReason = 'manual'): Promise<BackupSummary> => backupService.create(reason),
     ensureDefaultWorkspace: async (rootPath: string): Promise<string> => {
-      await ensureMachineRoots(rootPath);
       const existing = await workspaceService.list();
       const resolvedRoot = path.resolve(rootPath);
       const matched = existing.find((workspace) => workspace.realRootPath.toLowerCase() === resolvedRoot.toLowerCase());
@@ -954,10 +932,8 @@ export function createDesktopRuntime(dataPath: string, options: DesktopRuntimeOp
       throw new Error('No project workspace is available');
     },
     autoStartMcp: async (): Promise<McpConnectionStatus> => {
-      await ensureMachineRoots();
       const envWorkspacePath = process.env.LNWJUD_WORKSPACE?.trim();
       if (envWorkspacePath !== undefined && envWorkspacePath.length > 0) {
-        await ensureMachineRoots(envWorkspacePath);
         const resolvedPath = path.resolve(envWorkspacePath);
         const existing = await workspaceService.list();
         const matched = existing.find((workspace) => workspace.realRootPath.toLowerCase() === resolvedPath.toLowerCase());
@@ -970,8 +946,8 @@ export function createDesktopRuntime(dataPath: string, options: DesktopRuntimeOp
       }
       const selected = await resolveSelectedWorkspace(workspaceService, settingsRepository);
       if (selected === null) {
-        // First run: machine-root workspaces are system scopes, not user projects.
-        // Start MCP without inventing a project from process.cwd(); the user can add a real project in the UI.
+        // First run: start MCP without scanning or registering drive letters.
+        // The user can add an explicit project in the UI when ready.
         return mcpLifecycle.start();
       }
       await activateWorkspace(selected.id);
@@ -1074,6 +1050,10 @@ function toWorkspaceSummary(workspace: Workspace): WorkspaceSummary {
     archivedAt: workspace.archivedAt ?? null,
     kind: isDriveRoot(workspace.realRootPath) || isDriveRoot(workspace.rootPath) ? 'machine_root' : 'project',
   };
+}
+
+function isGeneratedAutoMachineRoot(workspace: Workspace): boolean {
+  return isDriveRoot(workspace.rootPath) && /^Local Disk [A-Z]:$/i.test(workspace.displayName.trim());
 }
 
 async function buildGitSummary(
