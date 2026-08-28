@@ -29,6 +29,8 @@ import { filePageTools } from './tools/file-page-tools.js';
 import { workspaceIndexTools } from './tools/workspace-index-tools.js';
 import { upgradeTools } from './tools/upgrade-tools.js';
 import { ToolSchemaRegistry } from './tool-schema-registry.js';
+import { isAdvertisedDeliveryState } from './tool-delivery-contract.js';
+import { upgradeCatalogEntry } from './upgrade-catalog.js';
 import type { SetOfMarksObservationStore } from './set-of-marks-service.js';
 import { codexTools } from './tools/codex-tools.js';
 import { capabilityTools } from './tools/capability-tools.js';
@@ -103,6 +105,7 @@ type ApprovalPreparation =
   | { readonly ok: false; readonly response: McpToolResponse; readonly code: string; readonly message: string };
 
 export class ToolRegistry {
+  private readonly allTools: readonly McpToolDefinition[];
   private readonly tools: readonly McpToolDefinition[];
   private readonly services: McpApplicationServices;
   private readonly actor: FileActor;
@@ -147,14 +150,14 @@ export class ToolRegistry {
     const incrementalVerifier = options.incrementalVerifier ?? new IncrementalVerifier();
     const workspace = workspaceTools(context);
     const files = fileTools(context);
-    const baseTools: readonly McpToolDefinition[] = [
+    const allBaseTools: readonly McpToolDefinition[] = [
       ...workspace,
       ...files.slice(0, 2),
       ...searchTools(context),
       ...gitTools(context),
       ...files.slice(2),
       ...processTools(context),
-      ...(options.codexToolsEnabled === true ? codexTools(context) : []),
+      ...codexTools(context),
       ...capabilityTools(context, options.setOfMarksStore),
       ...skillTools(context),
       ...mcpBridgeTools(context),
@@ -166,20 +169,24 @@ export class ToolRegistry {
       ...scheduledContinuationTools(context),
       ...upgradeTools(context),
     ];
-    const exposedBaseTools = baseTools.map((tool) => withToolEnvelopes(tool));
+    const exposedAllBaseTools = allBaseTools.map((tool) => withToolEnvelopes(tool));
+    const exposedBaseTools = exposedAllBaseTools.filter((tool) => {
+      if (tool.name.startsWith('codex_') && options.codexToolsEnabled !== true) return false;
+      const catalogEntry = upgradeCatalogEntry(tool.name);
+      return catalogEntry === undefined || isAdvertisedDeliveryState(catalogEntry.deliveryState);
+    });
     const exposedBatchTools = batchTools({
       invoke: (name, input, signal) => this.invoke(name, input, undefined, signal),
       describe: (name) => exposedBaseTools.find((tool) => tool.name === name),
     }).map((tool) => withToolEnvelopes(tool));
-    this.tools = [
-      ...exposedBaseTools,
-      ...exposedBatchTools,
-    ];
+    this.allTools = [...exposedAllBaseTools, ...exposedBatchTools];
+    this.tools = [...exposedBaseTools, ...exposedBatchTools];
     this.schemaRegistry = new ToolSchemaRegistry();
     for (const tool of this.tools) this.schemaRegistry.register(tool);
   }
 
   public list(): readonly McpToolDefinition[] { return this.tools; }
+  public listAll(): readonly McpToolDefinition[] { return this.allTools; }
   public listInFlight(): ReturnType<ActivityTracker['listInFlight']> { return this.activity.listInFlight(); }
   public listSchemas(): ReturnType<ToolSchemaRegistry['list']> { return this.schemaRegistry.list(); }
   public describeSchema(name: string): ReturnType<ToolSchemaRegistry['describe']> { return this.schemaRegistry.describe(name); }

@@ -1,4 +1,5 @@
 import type { McpPermissionLevel } from './tools/tool-types.js';
+import type { ToolDeliveryState } from './tool-delivery-contract.js';
 
 export interface UpgradeToolCatalogEntry {
   readonly name: string;
@@ -6,6 +7,7 @@ export interface UpgradeToolCatalogEntry {
   readonly description: string;
   readonly permission: McpPermissionLevel;
   readonly tags: readonly string[];
+  readonly deliveryState: ToolDeliveryState;
   readonly streamable?: boolean;
   readonly parallelSafe?: boolean;
   readonly availability?: 'ready' | 'optional' | 'planned' | 'unavailable';
@@ -15,10 +17,38 @@ export interface UpgradeToolCatalogEntry {
   readonly auditTarget?: string;
 }
 
-const read = (name: string, phase: number, description: string, tags: readonly string[], options: Partial<UpgradeToolCatalogEntry> = {}): UpgradeToolCatalogEntry => ({ name, phase, description, permission: 'READ', tags, parallelSafe: true, ...options });
-const execute = (name: string, phase: number, description: string, tags: readonly string[], options: Partial<UpgradeToolCatalogEntry> = {}): UpgradeToolCatalogEntry => ({ name, phase, description, permission: 'EXECUTE', tags, parallelSafe: false, ...options });
-const write = (name: string, phase: number, description: string, tags: readonly string[], options: Partial<UpgradeToolCatalogEntry> = {}): UpgradeToolCatalogEntry => ({ name, phase, description, permission: 'WRITE', tags, parallelSafe: false, ...options });
-const dangerous = (name: string, phase: number, description: string, tags: readonly string[], options: Partial<UpgradeToolCatalogEntry> = {}): UpgradeToolCatalogEntry => ({ name, phase, description, permission: 'DANGEROUS', tags, parallelSafe: false, ...options });
+const read = (name: string, phase: number, description: string, tags: readonly string[], options: Partial<UpgradeToolCatalogEntry> = {}): UpgradeToolCatalogEntry => entry(name, phase, description, 'READ', tags, true, options);
+const execute = (name: string, phase: number, description: string, tags: readonly string[], options: Partial<UpgradeToolCatalogEntry> = {}): UpgradeToolCatalogEntry => entry(name, phase, description, 'EXECUTE', tags, false, options);
+const write = (name: string, phase: number, description: string, tags: readonly string[], options: Partial<UpgradeToolCatalogEntry> = {}): UpgradeToolCatalogEntry => entry(name, phase, description, 'WRITE', tags, false, options);
+const dangerous = (name: string, phase: number, description: string, tags: readonly string[], options: Partial<UpgradeToolCatalogEntry> = {}): UpgradeToolCatalogEntry => entry(name, phase, description, 'DANGEROUS', tags, false, options);
+
+function entry(
+  name: string,
+  phase: number,
+  description: string,
+  permission: McpPermissionLevel,
+  tags: readonly string[],
+  parallelSafe: boolean,
+  options: Partial<UpgradeToolCatalogEntry>,
+): UpgradeToolCatalogEntry {
+  return {
+    name,
+    phase,
+    description,
+    permission,
+    tags,
+    parallelSafe,
+    deliveryState: deliveryStateFor(options.availability),
+    ...options,
+  };
+}
+
+function deliveryStateFor(availability: UpgradeToolCatalogEntry['availability']): ToolDeliveryState {
+  if (availability === 'optional') return 'dependency_gated';
+  if (availability === 'planned') return 'planned';
+  if (availability === 'unavailable') return 'feature_disabled';
+  return 'operational';
+}
 
 export const UPGRADE_TOOL_CATALOG: readonly UpgradeToolCatalogEntry[] = [
   read('symbol_search', 5, 'Search indexed symbols across the workspace.', ['code', 'symbol', 'search']),
@@ -64,11 +94,11 @@ export const UPGRADE_TOOL_CATALOG: readonly UpgradeToolCatalogEntry[] = [
   write('hook_remove', 14, 'Remove a lifecycle hook descriptor.', ['hooks', 'lifecycle']),
   read('skill_match', 15, 'Match relevant local skills without loading all skill text.', ['skills', 'discovery']),
   read('skill_load', 15, 'Load a selected local skill by identifier.', ['skills']),
-  write('plugin_install', 16, 'Register a declared plugin descriptor after validation and permission evaluation.', ['plugin']),
-  read('plugin_list', 16, 'List installed and enabled plugins.', ['plugin']),
-  write('plugin_enable', 16, 'Enable an installed plugin.', ['plugin']),
-  write('plugin_disable', 16, 'Disable an installed plugin.', ['plugin']),
-  dangerous('plugin_remove', 16, 'Remove an installed plugin.', ['plugin']),
+  write('plugin_install', 16, 'Register a declared plugin descriptor after validation and permission evaluation.', ['plugin'], { availability: 'optional', requirements: ['configured persisted plugin descriptor registry'] }),
+  read('plugin_list', 16, 'List installed and enabled plugins.', ['plugin'], { availability: 'optional', requirements: ['configured persisted plugin descriptor registry'] }),
+  write('plugin_enable', 16, 'Enable an installed plugin.', ['plugin'], { availability: 'optional', requirements: ['configured persisted plugin descriptor registry'] }),
+  write('plugin_disable', 16, 'Disable an installed plugin.', ['plugin'], { availability: 'optional', requirements: ['configured persisted plugin descriptor registry'] }),
+  dangerous('plugin_remove', 16, 'Remove an installed plugin.', ['plugin'], { availability: 'optional', requirements: ['configured persisted plugin descriptor registry'] }),
   read('session_context', 17, 'Return persisted development-session context.', ['session', 'handoff']),
   write('session_checkpoint', 17, 'Persist a development-session checkpoint.', ['session']),
   read('session_resume', 17, 'Resume a persisted session context.', ['session']),

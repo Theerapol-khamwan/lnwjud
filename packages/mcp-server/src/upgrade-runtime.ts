@@ -21,6 +21,7 @@ import { DocumentRuntimeService } from './document-runtime.js';
 import { LspRuntimeService } from './lsp-runtime.js';
 import { withReplacementRecoveryDetails } from './replacement-recovery.js';
 import { SandboxRuntimeService } from './sandbox-runtime.js';
+import { truthfulUnavailable } from './tool-delivery-contract.js';
 import { UPGRADE_TOOL_CATALOG, type UpgradeToolCatalogEntry } from './upgrade-catalog.js';
 import { UpgradeRuntimeStateStore, type UpgradeRuntimeSessionState, type UpgradeRuntimeSharedState } from './upgrade-runtime-state-store.js';
 
@@ -44,6 +45,7 @@ interface CacheCounters {
   hits: number;
   misses: number;
   bytesSaved: number;
+  generation: number;
 }
 
 interface SearchCatalogEntry extends UpgradeToolCatalogEntry {
@@ -119,7 +121,7 @@ export class UpgradeRuntimeService {
   private readonly checkpoints: SessionCheckpoint[] = [];
   private readonly hooks = new Map<string, { readonly name: string; readonly event: string }>();
   private readonly plugins = new Map<string, { readonly name: string; enabled: boolean }>();
-  private readonly cache: CacheCounters = { hits: 0, misses: 0, bytesSaved: 0 };
+  private readonly cache: CacheCounters = { hits: 0, misses: 0, bytesSaved: 0, generation: 0 };
   private readonly session = new Map<string, unknown>();
   private readonly worktrees: WorktreeLedgerEntry[] = [];
   private readonly eventLog: EventLogCapabilityBackend;
@@ -189,11 +191,19 @@ export class UpgradeRuntimeService {
       case 'cache_stats':
         return ok({ ...this.cache, hitRate: hitRate(this.cache), entries: 0, invalidation: 'mtime/content-hash/filesystem-event', contextEconomy: this.contextEconomy.snapshot() });
       case 'cache_clear':
-      case 'cache_invalidate':
+      case 'cache_invalidate': {
+        const previousGeneration = this.cache.generation;
         this.cache.hits = 0;
         this.cache.misses = 0;
         this.cache.bytesSaved = 0;
-        return ok({ cleared: true, scope: name === 'cache_clear' ? 'all' : readString(input, 'path') ?? 'workspace' });
+        this.cache.generation += 1;
+        return ok({
+          cleared: true,
+          scope: name === 'cache_clear' ? 'all' : readString(input, 'path') ?? 'workspace',
+          previousGeneration,
+          generation: this.cache.generation,
+        });
+      }
       case 'hook_list':
         return ok({ hooks: [...this.hooks.values()], lifecycleEvents: lifecycleEvents() });
       case 'hook_register': {
@@ -213,7 +223,8 @@ export class UpgradeRuntimeService {
       case 'skill_load':
         return this.skillInsight(name, input);
       case 'plugin_list':
-        await this.refreshSharedState();
+        if (this.stateStore === undefined) return ok(truthfulUnavailable(name, 'needs_setup', ['configured persisted plugin descriptor registry']));
+        if (!await this.refreshSharedState()) return err(appError('INTERNAL_ERROR', 'Persisted plugin descriptor registry is unavailable', true));
         return ok({ plugins: [...this.plugins.values()] });
       case 'plugin_install':
       case 'plugin_enable':
@@ -256,7 +267,7 @@ export class UpgradeRuntimeService {
         return this.repositoryMap(readString(input, 'workspaceId'));
       case 'context_expand':
       case 'dependency_context':
-        return this.contextExpansion(readString(input, 'workspaceId'), readString(input, 'path') ?? readString(input, 'symbol'));
+        return this.contextExpansion(name, readString(input, 'workspaceId'), readString(input, 'path') ?? readString(input, 'symbol'));
       case 'symbol_search':
       case 'find_definition':
       case 'find_references':
@@ -442,22 +453,31 @@ export class UpgradeRuntimeService {
   }
 
   private async changePlugin(operation: string, name: string | undefined): Promise<Result<unknown>> {
+    if (this.stateStore === undefined) {
+      return ok(truthfulUnavailable(operation, 'needs_setup', ['configured persisted plugin descriptor registry']));
+    }
     if (name === undefined || name.trim().length === 0) return err(appError('INVALID_INPUT', 'Plugin name is required'));
     let changed = false;
     let exists = false;
     if (operation === 'plugin_remove') {
-      await this.mutateSharedState((plugins) => { changed = plugins.delete(name); });
+      const persisted = await this.mutateSharedState((plugins) => { changed = plugins.delete(name); }, true);
+      if (!persisted) return err(appError('INTERNAL_ERROR', 'Plugin removal could not be persisted', true));
       return ok({ changed, name });
     }
     const plugin = { name, enabled: operation !== 'plugin_disable' };
-    await this.mutateSharedState((plugins) => {
-      exists = plugins.has(name);
+    const persisted = await this.mutateSharedState((plugins) => {
+      const current = plugins.get(name);
+      exists = current !== undefined;
       if (operation === 'plugin_install') {
         if (!exists) { plugins.set(name, plugin); changed = true; }
         return;
       }
-      if (exists) { plugins.set(name, plugin); changed = true; }
-    });
+      if (current !== undefined && current.enabled !== plugin.enabled) {
+        plugins.set(name, plugin);
+        changed = true;
+      }
+    }, true);
+    if (!persisted) return err(appError('INTERNAL_ERROR', 'Plugin descriptor change could not be persisted', true));
     if (operation === 'plugin_install' && exists) {
       return err(appError('INVALID_INPUT', 'Plugin already exists; remove it explicitly before installing a replacement'));
     }
@@ -735,8 +755,9 @@ export class UpgradeRuntimeService {
     return ok({ workspaceId, indexed: status.value.indexed, traversable: true, counts: countKinds(entries), entries: entries.map((entry) => ({ path: entry.relativePath, kind: entry.kind, language: entry.language, isTest: entry.isTest })) });
   }
 
-  private async contextExpansion(workspaceId: string | undefined, query: string | undefined): Promise<Result<unknown>> {
-    if (workspaceId === undefined || this.services.workspaceIndex === undefined) return ok({ workspaceId: workspaceId ?? null, query: query ?? '', references: [], optional: true });
+  private async contextExpansion(name: string, workspaceId: string | undefined, query: string | undefined): Promise<Result<unknown>> {
+    if (workspaceId === undefined) return ok(truthfulUnavailable(name, 'needs_setup', ['registered workspace']));
+    if (this.services.workspaceIndex === undefined) return ok(truthfulUnavailable(name, 'needs_setup', ['workspace index service']));
     const status = await this.services.workspaceIndex.status(workspaceId);
     if (!status.ok) return status;
     const needle = (query ?? '').toLowerCase();
@@ -745,7 +766,8 @@ export class UpgradeRuntimeService {
   }
 
   private async indexQuery(name: string, workspaceId: string | undefined, query: string): Promise<Result<unknown>> {
-    if (workspaceId === undefined || this.services.workspaceIndex === undefined) return ok({ tool: name, query, indexed: false, matches: [], primitiveFallback: 'search_text' });
+    if (workspaceId === undefined) return ok(truthfulUnavailable(name, 'needs_setup', ['registered workspace']));
+    if (this.services.workspaceIndex === undefined) return ok(truthfulUnavailable(name, 'needs_setup', ['workspace index service']));
     const status = await this.services.workspaceIndex.status(workspaceId);
     if (!status.ok) return status;
     const needle = query.toLowerCase();
@@ -756,6 +778,12 @@ export class UpgradeRuntimeService {
 
   private async compoundContext(name: string, input: Record<string, unknown>): Promise<Result<unknown>> {
     const workspaceId = readString(input, 'workspaceId');
+    const requirements = [
+      ...(workspaceId === undefined ? ['registered workspace'] : []),
+      ...(this.services.search === undefined && this.services.workspaceIndex === undefined ? ['workspace search or index service'] : []),
+      ...(this.services.git === undefined ? ['configured Git service'] : []),
+    ];
+    if (requirements.length > 0) return ok(truthfulUnavailable(name, 'needs_setup', requirements));
     const query = readString(input, 'query') ?? readString(input, 'prompt') ?? name;
     const context = await this.contextEngine.collect({
       query,
@@ -779,7 +807,7 @@ export class UpgradeRuntimeService {
   private async skillInsight(name: string, input: Record<string, unknown>): Promise<Result<unknown>> {
     const extensions = this.services.extensions;
     if (extensions === undefined) {
-      return ok({ tool: name, status: 'optional', available: false, ready: false, executed: false, requirements: ['configured local skill catalog'] });
+      return ok(truthfulUnavailable(name, 'needs_setup', ['configured local skill catalog']));
     }
 
     if (name === 'skill_match') {
@@ -810,7 +838,7 @@ export class UpgradeRuntimeService {
     const workspaceId = readString(input, 'workspaceId');
     if (workspaceId === undefined) return err(appError('INVALID_INPUT', `${name} requires workspaceId`));
     const git = this.services.git;
-    if (git === undefined) return ok({ tool: name, status: 'optional', available: false, ready: false, executed: false, requirements: ['configured Git service'] });
+    if (git === undefined) return ok(truthfulUnavailable(name, 'needs_setup', ['configured Git service']));
 
     if (name === 'git_history_context') {
       const history = await git.log(this.actor, workspaceId, { maxCommits: boundedInteger(input.maxCommits, 25, 1, 100) }, signal);
@@ -858,16 +886,16 @@ export class UpgradeRuntimeService {
         const searched = await this.services.search.searchFiles(this.actor, workspaceId, { glob: '**/*{test,spec}*', maxResults: 500, discovery: 'explicit' }, signal);
         return searched.ok ? ok({ tool: name, status: 'ready', available: true, ready: true, executed: true, source: 'search-files', tests: searched.value }) : searched;
       }
-      return ok({ tool: name, status: 'optional', available: false, ready: false, executed: false, requirements: ['workspace index or search service'] });
+      return ok(truthfulUnavailable(name, 'needs_setup', ['workspace index or search service']));
     }
 
     if (name === 'coverage_context') {
-      if (this.services.search === undefined) return ok({ tool: name, status: 'optional', available: false, ready: false, executed: false, requirements: ['search service', 'project coverage artifacts'] });
+      if (this.services.search === undefined) return ok(truthfulUnavailable(name, 'needs_setup', ['search service', 'project coverage artifacts']));
       const coverage = await this.services.search.searchFiles(this.actor, workspaceId, { glob: '**/coverage*', maxResults: 200, discovery: 'explicit' }, signal);
       return coverage.ok ? ok({ tool: name, status: 'ready', available: true, ready: true, executed: true, artifacts: coverage.value }) : coverage;
     }
 
-    if (this.services.process === undefined) return ok({ tool: name, status: 'optional', available: false, ready: false, executed: false, requirements: ['managed process service'] });
+    if (this.services.process === undefined) return ok(truthfulUnavailable(name, 'needs_setup', ['managed process service']));
     const processes = await this.services.process.list(this.actor, workspaceId);
     if (!processes.ok) return processes;
     return ok({ tool: name, status: 'ready', available: true, ready: true, executed: true, processHistory: processes.value, interpretation: name === 'test_failures' ? 'Inspect non-zero completed project test processes and their logs.' : 'Managed project-process history.' });
@@ -877,7 +905,7 @@ export class UpgradeRuntimeService {
     const workspaceId = readString(input, 'workspaceId');
     if (workspaceId === undefined) return err(appError('INVALID_INPUT', 'run_affected_tests requires workspaceId'));
     const processService = this.services.process;
-    if (processService === undefined) return ok({ tool: 'run_affected_tests', status: 'optional', available: false, ready: false, started: false, requirements: ['managed process service', 'detected project test command'] });
+    if (processService === undefined) return ok(truthfulUnavailable('run_affected_tests', 'needs_setup', ['managed process service', 'detected project test command']));
     const preview = await processService.previewProjectCommand(workspaceId, 'test');
     if (!preview.ok) return preview;
     const dryRun = input.dryRun !== false && input.dry_run !== false;
@@ -1051,21 +1079,25 @@ export class UpgradeRuntimeService {
     for (const worktree of state.worktrees) if (isWorktreeLedgerEntry(worktree)) this.worktrees.push(worktree);
   }
 
-  private async refreshSharedState(): Promise<void> {
-    if (this.stateStore === undefined) return;
+  private async refreshSharedState(): Promise<boolean> {
+    if (this.stateStore === undefined) return false;
     try {
       this.replaceSharedState(await this.stateStore.readShared());
+      return true;
     } catch {
       // Keep the last known in-memory shared state when persistence is unavailable.
+      return false;
     }
   }
 
   private async mutateSharedState(
     mutate: (plugins: Map<string, { readonly name: string; enabled: boolean }>, worktrees: WorktreeLedgerEntry[]) => void,
-  ): Promise<void> {
+    failClosed = false,
+  ): Promise<boolean> {
     if (this.stateStore === undefined) {
+      if (failClosed) return false;
       mutate(this.plugins, this.worktrees);
-      return;
+      return true;
     }
     try {
       const next = await this.stateStore.updateShared((current) => {
@@ -1077,8 +1109,10 @@ export class UpgradeRuntimeService {
         return { plugins: [...plugins.values()], worktrees };
       });
       this.replaceSharedState(next);
+      return true;
     } catch {
-      mutate(this.plugins, this.worktrees);
+      if (!failClosed) mutate(this.plugins, this.worktrees);
+      return false;
     }
   }
 
@@ -1195,7 +1229,7 @@ function lifecycleEvents(): readonly string[] {
 }
 
 function primitiveEntry(name: string, description: string, permission: UpgradeToolCatalogEntry['permission'], tags: readonly string[]): SearchCatalogEntry {
-  return { name, phase: 0, description, permission, tags, parallelSafe: permission === 'READ', primitive: true };
+  return { name, phase: 0, description, permission, tags, deliveryState: 'operational', parallelSafe: permission === 'READ', primitive: true };
 }
 
 function capabilitySearchEntry(descriptor: CapabilityDescriptor): SearchCatalogEntry {
@@ -1205,6 +1239,7 @@ function capabilitySearchEntry(descriptor: CapabilityDescriptor): SearchCatalogE
     description: `${descriptor.name} local capability (${descriptor.auditTarget})`,
     permission: descriptor.permission,
     tags: [descriptor.name, descriptor.auditTarget, 'capability'],
+    deliveryState: 'operational',
     parallelSafe: descriptor.permission === 'READ',
     primitive: true,
     auditTarget: descriptor.auditTarget,

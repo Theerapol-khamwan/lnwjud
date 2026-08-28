@@ -2,121 +2,11 @@ import { describe, expect, it } from 'vitest';
 import { ok } from '@lnwjud/domain';
 import { UPGRADE_TOOL_CATALOG } from './upgrade-catalog.js';
 import { ToolRegistry } from './tool-registry.js';
+import { CORE_TOOL_SMOKE_INPUTS } from './tool-runtime-fixtures.js';
 import type { McpApplicationServices } from './tools/tool-types.js';
 
 const actor = { clientId: 'core-readiness-test', clientName: 'core-readiness-test' };
 const workspaceId = 'workspace-1';
-const zeroUuid = '00000000-0000-0000-0000-000000000000';
-
-/**
- * One parse-valid, non-production smoke request for every non-upgrade/core tool.
- * The exact-key assertion below makes a new core tool fail CI until its
- * representative contract is added here. Handler smoke runs without real
- * application services so every definition must fail closed rather than throw.
- */
-const CORE_TOOL_SMOKE_INPUTS: Readonly<Record<string, Readonly<Record<string, unknown>>>> = {
-  workspace_list: {},
-  workspace_register: { path: 'E:\\project' },
-  workspace_info: { workspaceId },
-  workspace_tree: {},
-  project_snapshot: { workspaceId },
-  read_file: { workspaceId, path: 'README.md' },
-  read_files: { workspaceId, files: [{ path: 'README.md' }] },
-  search_files: { workspaceId },
-  search_text: { workspaceId, query: 'needle' },
-  git_status: { workspaceId },
-  git_diff: { workspaceId },
-  git_log: { workspaceId },
-  git: { workspaceId, args: ['status', '--short'] },
-  write_file: { workspaceId, path: 'tmp-smoke.txt', content: 'smoke' },
-  apply_patch: { workspaceId, files: [{ path: 'tmp-smoke.txt', content: 'smoke' }] },
-  edit_file: { workspaceId, path: 'tmp-smoke.txt', oldText: 'before', newText: 'after' },
-  move_file: { workspaceId, sourcePath: 'from.txt', destinationPath: 'to.txt' },
-  copy_file: { workspaceId, sourcePath: 'from.txt', destinationPath: 'to.txt' },
-  delete_file: { workspaceId, path: 'tmp-smoke.txt', userConfirmed: true },
-  list_recovery_items: { workspaceId },
-  restore_deleted_file: { workspaceId, recoveryId: zeroUuid, userConfirmed: true },
-  list_checkpoints: { workspaceId },
-  restore_checkpoint: { workspaceId, checkpointId: zeroUuid, userConfirmed: true },
-  process_start: { workspaceId, executable: 'node.exe', args: ['--version'] },
-  process_list: { workspaceId },
-  process_status: { workspaceId, processId: 'process-1' },
-  process_logs: { workspaceId, processId: 'process-1' },
-  process_stop: { workspaceId, processId: 'process-1', userConfirmed: true },
-  project_dev: { workspaceId, userConfirmed: true },
-  project_test: { workspaceId, userConfirmed: true },
-  project_lint: { workspaceId, userConfirmed: true },
-  project_typecheck: { workspaceId, userConfirmed: true },
-  project_build: { workspaceId, userConfirmed: true },
-  codex_status: {},
-  codex_run: { workspaceId, instruction: 'read-only smoke', userConfirmed: true },
-  codex_task_list: { workspaceId },
-  codex_task_status: { workspaceId, codexTaskId: 'codex-1' },
-  codex_task_logs: { workspaceId, codexTaskId: 'codex-1' },
-  codex_stop: { workspaceId, codexTaskId: 'codex-1', userConfirmed: true },
-  shell: { workspaceId, operation: 'list' },
-  dom_cdp: { action: 'status' },
-  computer_use: { workspaceId, action: 'inspect' },
-  accessibility: { action: 'status' },
-  input_event: { operation: 'release_all', userConfirmed: true },
-  vision: { action: 'capture_display', dry_run: true },
-  vision_annotated_capture: { workspaceId, capture: 'display' },
-  ui_target_action: { workspaceId, observationId: 'observation-1', markId: 'm1', dry_run: true },
-  window: { operation: 'list' },
-  health: {},
-  system_info: {},
-  notification: { title: 'Smoke', message: 'Readiness check', dry_run: true },
-  file_dialog: { action: 'open', dry_run: true },
-  clipboard: { action: 'get_text' },
-  web_fetch: { url: 'https://example.com', method: 'GET', dry_run: true },
-  audio: { action: 'stop', dry_run: true },
-  screen_record: { action: 'status' },
-  office: { app: 'outlook', action: 'list_folders' },
-  scheduler: { action: 'list' },
-  wsl_exec: { workspaceId, operation: 'run', executable: 'printf', arguments: ['smoke'], dry_run: true },
-  wsl_fs: { operation: 'status' },
-  skills_list: {},
-  skills_read: { skillId: 'skill-1' },
-  mcp_list: {},
-  mcp_describe: { server: 'server-1' },
-  mcp_call: { server: 'server-1', tool: 'noop', arguments: {}, userConfirmed: true },
-  workspace_context: { workspaceId, query: 'smoke' },
-  workspace_context_continue: { continuationToken: 'context-token' },
-  workspace_full_scan: { workspaceId },
-  workspace_full_scan_continue: { continuationToken: 'scan-token' },
-  workspace_snapshot: { workspaceId },
-  search_all: { workspaceId, query: 'smoke' },
-  read_many_files: { workspaceId, files: [{ path: 'README.md' }] },
-  read_file_page: { workspaceId, path: 'README.md' },
-  read_file_page_continue: { continuationToken: 'page-token' },
-  workspace_index: { workspaceId },
-  workspace_index_status: { workspaceId },
-  workspace_index_watch: { workspaceId },
-  workspace_index_stop: { workspaceId },
-  session_handoff: { workspaceId },
-  verify_incremental: { workspaceId, userConfirmed: true },
-  run_goal: { workspaceId, goalKey: 'smoke-goal', objective: 'Smoke durable goal contract' },
-  get_goal: { goalId: 'goal-1' },
-  checkpoint_goal: {
-    goalId: 'goal-1', leaseToken: 'lease-token', expectedRevision: 0, currentPhase: 'smoke', summary: 'smoke',
-    stepUpdates: [], nextAction: '', blockers: [], evidence: [], activeTaskIds: [],
-  },
-  finish_goal: { goalId: 'goal-1', leaseToken: 'lease-token', expectedRevision: 0, status: 'completed', summary: 'smoke', evidence: [] },
-  list_goals: {},
-  prepare_scheduled_continuation: {
-    goalId: 'goal-1', leaseToken: 'lease-token', expectedRevision: 0, currentPhase: 'smoke', summary: 'smoke',
-    stepUpdates: [], nextAction: 'continue smoke', blockers: [], evidence: [], activeTaskIds: [], successorDelayMinutes: 25, executionPreference: 'cloud',
-  },
-  record_scheduled_continuation_receipt: { continuationId: 'continuation-1', expectedVersion: 0, outcome: 'create_failed' },
-  claim_scheduled_continuation: { continuationId: 'continuation-1' },
-  get_scheduled_continuation: { continuationId: 'continuation-1' },
-  expedite_scheduled_continuation: {
-    goalId: 'goal-1', continuationId: 'continuation-1', leaseToken: 'lease-token',
-    expectedLeaseGeneration: 1, expectedGoalRevision: 1, expectedContinuationVersion: 1,
-    reason: 'host_budget_warning',
-  },
-  tool_batch: { calls: [{ id: 'readiness-child', tool: 'workspace_list', arguments: {} }] },
-};
 
 const STATEFUL_CORE_SUCCESS_TOOLS = new Set([
   'workspace_context_continue',
@@ -279,13 +169,14 @@ async function executeParsed(registry: ToolRegistry, name: string, input: Readon
 
 function coreToolNames(registry: ToolRegistry): string[] {
   const upgrade = new Set(UPGRADE_TOOL_CATALOG.map((entry) => entry.name));
-  return registry.list().map((tool) => tool.name).filter((name) => !upgrade.has(name)).sort();
+  return registry.listAll().map((tool) => tool.name).filter((name) => !upgrade.has(name)).sort();
 }
 
 describe('core tool readiness', () => {
-  it('tracks one representative contract for every core tool in the live 229-tool registry', () => {
+  it('tracks one representative contract for every core tool in the complete 229-tool inventory', () => {
     const registry = coreRegistry();
-    expect(registry.list()).toHaveLength(229);
+    expect(registry.listAll()).toHaveLength(229);
+    expect(registry.list()).toHaveLength(228);
     expect(UPGRADE_TOOL_CATALOG).toHaveLength(138);
     expect(coreToolNames(registry)).toHaveLength(91);
     expect(Object.keys(CORE_TOOL_SMOKE_INPUTS).sort()).toEqual(coreToolNames(registry));

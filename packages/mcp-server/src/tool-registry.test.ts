@@ -11,6 +11,7 @@ import { DEFAULT_DESTRUCTIVE_AUTO_APPROVAL_POLICY, type DestructiveAutoApprovalP
 import type { ActivitySinkEvent } from './activity-tracker.js';
 import { ToolRegistry, type McpApplicationServices, type ToolRegistryOptions, type WorkspaceScope } from './tool-registry.js';
 import { CODEX_TOOL_NAMES } from './tools/codex-tools.js';
+import { isAdvertisedDeliveryState } from './tool-delivery-contract.js';
 import { UPGRADE_TOOL_CATALOG } from './upgrade-catalog.js';
 
 const actor = { clientId: 'client-1', clientName: 'test' };
@@ -40,7 +41,7 @@ describe('MCP tool registry', () => {
       'session_handoff', 'verify_incremental',
       'run_goal', 'get_goal', 'checkpoint_goal', 'finish_goal', 'list_goals',
       'prepare_scheduled_continuation', 'record_scheduled_continuation_receipt', 'claim_scheduled_continuation', 'get_scheduled_continuation', 'expedite_scheduled_continuation',
-      ...UPGRADE_TOOL_CATALOG.map((entry) => entry.name),
+      ...UPGRADE_TOOL_CATALOG.filter((entry) => isAdvertisedDeliveryState(entry.deliveryState)).map((entry) => entry.name),
       'tool_batch',
     ]);
   });

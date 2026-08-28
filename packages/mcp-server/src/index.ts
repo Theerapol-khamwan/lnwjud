@@ -10,6 +10,8 @@ export * from './server.js';
 export * from './shared-activity-snapshot.js';
 export * from './stdio.js';
 export * from './tool-registry.js';
+export * from './tool-delivery-contract.js';
+export * from './tool-runtime-fixtures.js';
 export * from './mutation-policy.js';
 export * from './plugin-sdk.js';
 export * from './tool-schema-registry.js';

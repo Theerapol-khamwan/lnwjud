@@ -106,7 +106,7 @@ describe('upgrade runtime', () => {
     expect(remove).toMatchObject({ ok: true, value: { decision: 'ask', contextAccess: 'unrestricted' } });
   });
 
-  it('keeps hook and plugin installation create-only instead of silently replacing existing state', async () => {
+  it('keeps hooks create-only and requires a persisted plugin registry for plugin changes', async () => {
     const runtime = new UpgradeRuntimeService({}, actor);
 
     await expect(runtime.execute('hook_register', { name: 'audit', event: 'beforeTool' }))
@@ -115,9 +115,34 @@ describe('upgrade runtime', () => {
       .resolves.toMatchObject({ ok: false, error: { code: 'INVALID_INPUT' } });
 
     await expect(runtime.execute('plugin_install', { name: 'safe-plugin' }))
+      .resolves.toMatchObject({ ok: true, value: { status: 'needs_setup', executed: false, requirements: expect.any(Array) } });
+
+    const directory = await mkdtemp(path.join(os.tmpdir(), 'lnwjud-plugin-registry-'));
+    const runtimeStatePath = path.join(directory, 'runtime.json');
+    const persisted = new UpgradeRuntimeService({ runtimeStatePath }, actor);
+    await expect(persisted.execute('plugin_install', { name: 'safe-plugin' }))
       .resolves.toMatchObject({ ok: true, value: { changed: true, name: 'safe-plugin' } });
-    await expect(runtime.execute('plugin_install', { name: 'safe-plugin' }))
+    await expect(persisted.execute('plugin_install', { name: 'safe-plugin' }))
       .resolves.toMatchObject({ ok: false, error: { code: 'INVALID_INPUT' } });
+
+    await expect(persisted.execute('plugin_disable', { name: 'safe-plugin' }))
+      .resolves.toMatchObject({ ok: true, value: { changed: true, name: 'safe-plugin', enabled: false } });
+    await expect(persisted.execute('plugin_disable', { name: 'safe-plugin' }))
+      .resolves.toMatchObject({ ok: true, value: { changed: false, name: 'safe-plugin', enabled: false } });
+
+    const reloaded = new UpgradeRuntimeService({ runtimeStatePath }, actor);
+    await expect(reloaded.execute('plugin_enable', { name: 'safe-plugin' }))
+      .resolves.toMatchObject({ ok: true, value: { changed: true, name: 'safe-plugin', enabled: true } });
+    await expect(reloaded.execute('plugin_enable', { name: 'safe-plugin' }))
+      .resolves.toMatchObject({ ok: true, value: { changed: false, name: 'safe-plugin', enabled: true } });
+
+    await expect(new UpgradeRuntimeService({ runtimeStatePath }, actor).execute('plugin_list', {}))
+      .resolves.toMatchObject({ ok: true, value: { plugins: [{ name: 'safe-plugin', enabled: true }] } });
+
+    await expect(persisted.execute('plugin_remove', { name: 'safe-plugin', userConfirmed: true }))
+      .resolves.toMatchObject({ ok: true, value: { changed: true, name: 'safe-plugin' } });
+    await expect(new UpgradeRuntimeService({ runtimeStatePath }, actor).execute('plugin_list', {}))
+      .resolves.toMatchObject({ ok: true, value: { plugins: [] } });
   });
 
   it('shares context economy telemetry between workspace context and the stats tool', async () => {
