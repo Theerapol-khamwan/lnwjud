@@ -110,6 +110,8 @@ export interface GoalSnapshot {
   readonly blockers: readonly string[];
   readonly activeTaskIds: readonly string[];
   readonly lastCheckpoint: GoalCheckpointRecord | null;
+  readonly leaseGeneration: number;
+  readonly leaseActivitySeq: number;
   readonly leaseExpiresAt?: string;
   readonly createdAt: string;
   readonly updatedAt: string;
@@ -330,15 +332,29 @@ function cancellationInstruction(continuation: ScheduledContinuationRecord | nul
   if (continuation === null || continuation.status === 'superseded') {
     return { action: 'none', reason: 'no_live_task' };
   }
-  if ((continuation.status === 'cancel_required' || continuation.status === 'cancel_failed') && continuation.nativeTaskId !== undefined) {
+  if (
+    (continuation.status === 'cancel_required' || continuation.status === 'cancel_failed' || continuation.status === 'cancel_uncertain')
+    && continuation.nativeTaskId !== undefined
+  ) {
     return {
       action: 'delete_native_task',
       continuationId: continuation.continuationId,
       nativeTaskId: continuation.nativeTaskId,
+      provider: 'chatgpt_scheduled_task',
+      expectedContinuationVersion: continuation.version,
+      receiptRequired: true,
       reason: 'live_task_confirmed',
     };
   }
-  if (continuation.status === 'claimed' || continuation.status === 'terminal_noop' || continuation.status === 'cancelled') {
+  if (continuation.status === 'cancelled') {
+    return {
+      action: 'none',
+      continuationId: continuation.continuationId,
+      ...(continuation.nativeTaskId === undefined ? {} : { nativeTaskId: continuation.nativeTaskId }),
+      reason: 'already_cancelled',
+    };
+  }
+  if (continuation.status === 'claimed' || continuation.status === 'terminal_noop') {
     return {
       action: 'none',
       continuationId: continuation.continuationId,
@@ -369,6 +385,8 @@ function toRunSnapshot(goal: GoalRecord): Omit<RunGoalResult, 'acquired' | 'leas
     blockers: snapshot.blockers,
     activeTaskIds: snapshot.activeTaskIds,
     lastCheckpoint: snapshot.lastCheckpoint,
+    leaseGeneration: snapshot.leaseGeneration,
+    leaseActivitySeq: snapshot.leaseActivitySeq,
     ...(snapshot.leaseExpiresAt === undefined ? {} : { leaseExpiresAt: snapshot.leaseExpiresAt }),
   };
 }
@@ -389,6 +407,8 @@ function toSnapshot(goal: GoalRecord): GoalSnapshot {
     blockers: goal.blockers,
     activeTaskIds: goal.activeTaskIds,
     lastCheckpoint: goal.checkpoints.at(-1) ?? null,
+    leaseGeneration: goal.leaseGeneration,
+    leaseActivitySeq: goal.leaseActivitySeq,
     ...(goal.leaseExpiresAt === undefined ? {} : { leaseExpiresAt: goal.leaseExpiresAt }),
     createdAt: goal.createdAt,
     updatedAt: goal.updatedAt,

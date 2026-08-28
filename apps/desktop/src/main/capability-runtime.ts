@@ -28,6 +28,7 @@ import { allFixedDriveRoots } from '@lnwjud/workspace';
 export interface LocalCapabilityRuntime {
   readonly service: LocalCapabilityService;
   readonly health: HealthCapabilityBackend;
+  readonly shell: ShellCapabilityBackend;
 }
 
 export function createLocalCapabilityRuntime(
@@ -121,7 +122,7 @@ export function createLocalCapabilityRuntime(
     wslExec: wslBackend,
     wslFs: wslFsBackend,
   });
-  return { service, health };
+  return { service, health, shell: shellBackend };
 }
 
 export async function buildCapabilitySummary(health: HealthCapabilityBackend): Promise<DashboardSnapshot['capabilities']> {

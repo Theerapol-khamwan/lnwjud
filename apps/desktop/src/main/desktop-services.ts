@@ -7,6 +7,7 @@ import {
   FileService,
   GitService,
   GoalContinuationService,
+  GoalMutationFenceService,
   ScheduledContinuationService,
   ProjectService,
   ProjectSnapshotService,
@@ -32,6 +33,8 @@ import {
 } from '@lnwjud/extensions';
 import {
   ActivityTracker,
+  LNWJUD_MCP_IDENTITY_PATH,
+  RuntimeGoalManagedTaskStateReader,
   composeActivitySinks,
   createFileActivitySink,
   mcpActivityLogPath,
@@ -193,7 +196,6 @@ export function createDesktopRuntime(dataPath: string, options: DesktopRuntimeOp
   const database = new SqliteDatabase(databaseFilename, { backupDirectory });
   const workspaceRepository = new SqliteWorkspaceRepository(database);
   const goalRepository = new SqliteGoalRepository(database);
-  const scheduledContinuationService = new ScheduledContinuationService(goalRepository);
   const goalService = new GoalContinuationService(workspaceRepository, goalRepository, { scheduledContinuations: goalRepository });
   const workspaceIndex = new WorkspaceIndexService(workspaceRepository, new JsonWorkspaceIndexStore(path.join(dataPath, 'workspace-index')));
   const settingsRepository = new SqliteSettingsRepository(database);
@@ -217,6 +219,7 @@ export function createDesktopRuntime(dataPath: string, options: DesktopRuntimeOp
   const activePermissionProfile = (): PermissionProfile => profileName === 'custom'
     ? customPermissionProfile(settingsRepository)
     : permissionProfiles[profileName];
+  const desktopFullBypassEnabled = (): boolean => profileName === 'full' && readSettings().desktopFullBypassAll;
   const unrestricted = isUnrestricted(process.env, settingsRepository.get(UNRESTRICTED_SETTING_KEY));
   const destructivePolicyProvider = (): DestructiveAutoApprovalPolicy => parseDestructiveAutoApprovalPolicy(
     settingsRepository.get(DESTRUCTIVE_AUTO_APPROVAL_SETTING_KEY),
@@ -229,6 +232,7 @@ export function createDesktopRuntime(dataPath: string, options: DesktopRuntimeOp
     profileProvider: activePermissionProfile,
     defaultTimeoutMsProvider: (): number => readSettings().processTimeoutMs,
     unrestricted,
+    authorizationBypassProvider: desktopFullBypassEnabled,
   });
   const checkpointService = new CheckpointService(workspaceRepository, checkpointRepository, {
     profileProvider: activePermissionProfile,
@@ -240,8 +244,8 @@ export function createDesktopRuntime(dataPath: string, options: DesktopRuntimeOp
     profileProvider: activePermissionProfile,
     unrestricted,
     trustedWorkspaceAccess: true,
-    allowDeleteWithoutConfirmation: allowAiDeleteProvider,
-    protectCriticalFiles: (): boolean => destructivePolicyProvider().protectCriticalFiles,
+    allowDeleteWithoutConfirmation: (): boolean => desktopFullBypassEnabled() || allowAiDeleteProvider(),
+    protectCriticalFiles: (): boolean => !desktopFullBypassEnabled() && destructivePolicyProvider().protectCriticalFiles,
     recoverableDelete: (): boolean => destructivePolicyProvider().recoverableDelete,
     recoveryTrashRoot,
   });
@@ -261,12 +265,21 @@ export function createDesktopRuntime(dataPath: string, options: DesktopRuntimeOp
   const capabilityRuntime = createLocalCapabilityRuntime(dataPath, async (): Promise<readonly string[]> => (
     (await workspaceRepository.list()).map((workspace) => workspace.realRootPath)
   ), unrestricted, () => readSettings().capabilityRoots, () => readSettings().shellSynchronousWaitSeconds);
+  const goalMutationFence = new GoalMutationFenceService(goalRepository, {
+    taskStateReader: new RuntimeGoalManagedTaskStateReader({
+      process: processService,
+      codex: codexService,
+      shell: capabilityRuntime.shell,
+    }),
+  });
+  const scheduledContinuationService = new ScheduledContinuationService(goalRepository, { workerLiveness: goalMutationFence });
   const machineRootsReady = new Map<string, Promise<Workspace | null>>();
   const ensureMachineRoots = (preferredPath?: string): Promise<Workspace | null> => {
-    const key = unrestricted ? '*' : machineRootPath(preferredPath).toLowerCase();
+    const machineWideAccess = unrestricted || desktopFullBypassEnabled();
+    const key = machineWideAccess ? '*' : machineRootPath(preferredPath).toLowerCase();
     const existing = machineRootsReady.get(key);
     if (existing !== undefined) return existing;
-    const pending = syncMachineRoots(workspaceService, unrestricted, preferredPath);
+    const pending = syncMachineRoots(workspaceService, machineWideAccess, preferredPath);
     machineRootsReady.set(key, pending);
     return pending;
   };
@@ -299,6 +312,7 @@ export function createDesktopRuntime(dataPath: string, options: DesktopRuntimeOp
     checkpoint: checkpointService,
     goals: goalService,
     scheduledContinuations: scheduledContinuationService,
+    goalMutationFence,
     search: searchService,
     workspaceIndex,
     git: gitService,
@@ -324,6 +338,7 @@ export function createDesktopRuntime(dataPath: string, options: DesktopRuntimeOp
           ...(event.resultMessage === undefined ? {} : { resultMessage: event.resultMessage }),
           ...(event.traceId === undefined ? {} : { traceId: event.traceId }),
           ...(event.traceParent === undefined ? {} : { traceParent: event.traceParent }),
+          ...(event.authorizationMode === undefined ? {} : { authorizationMode: event.authorizationMode }),
           durationMs: event.durationMs,
           timestamp: event.timestamp,
         });
@@ -344,6 +359,7 @@ export function createDesktopRuntime(dataPath: string, options: DesktopRuntimeOp
       actor: mcpActor,
       activityTracker,
       profileProvider: activePermissionProfile,
+      authorizationModeProvider: (): 'standard' | 'full_bypass' => desktopFullBypassEnabled() ? 'full_bypass' : 'standard',
       allowAiDeleteProvider,
       destructivePolicyProvider,
       activeWorkspaceScopeProvider: async (): Promise<WorkspaceScope | null> => {
@@ -518,8 +534,13 @@ export function createDesktopRuntime(dataPath: string, options: DesktopRuntimeOp
     database: async (): Promise<DoctorProbeResult> => ({ status: 'pass', message: 'SQLite database ready' }),
     git: async (): Promise<DoctorProbeResult> => checkExecutable(executableResolver, 'git', 'warn'),
     ripgrep: async (): Promise<DoctorProbeResult> => checkExecutable(executableResolver, 'rg', 'fail'),
-    workspaces: async (): Promise<DoctorProbeResult> => ({ status: 'pass', message: `${(await workspaceService.list()).length} workspace(s) registered` }),
-    mcpPort: checkLocalPort,
+    workspaces: async (): Promise<DoctorProbeResult> => {
+      const count = (await workspaceService.list()).filter((workspace) => !isDriveRoot(workspace.realRootPath) && !isDriveRoot(workspace.rootPath)).length;
+      return count > 0
+        ? { status: 'pass', message: `${count} workspace(s) registered` }
+        : { status: 'warn', message: 'No project workspace is registered yet; add a project from Projects' };
+    },
+    mcpPort: async (): Promise<DoctorProbeResult> => checkConfiguredMcpPort(mcpLifecycle.status(), mcpPort),
     codex: async (): Promise<DoctorProbeResult> => checkCodex(codexDiscovery),
   });
 
@@ -552,7 +573,7 @@ export function createDesktopRuntime(dataPath: string, options: DesktopRuntimeOp
         if (existing.archivedAt !== undefined && existing.archivedAt !== null) await workspaceRepository.restore(existing.id);
         settingsRepository.set(selectedWorkspaceSettingKey, existing.id);
         await activateWorkspace(existing.id);
-        if (!mcpLifecycle.status().running) await mcpLifecycle.start().catch(() => undefined);
+        if (!mcpLifecycle.status().running) await mcpLifecycle.start();
         const restored = await workspaceRepository.getAny(existing.id);
         if (restored === null) throw new Error('Workspace could not be restored');
         return toWorkspaceSummary(restored);
@@ -562,7 +583,7 @@ export function createDesktopRuntime(dataPath: string, options: DesktopRuntimeOp
       settingsRepository.set(selectedWorkspaceSettingKey, workspace.id);
       await activateWorkspace(workspace.id);
       if (!mcpLifecycle.status().running) {
-        await mcpLifecycle.start().catch(() => undefined);
+        await mcpLifecycle.start();
       }
       return toWorkspaceSummary(workspace);
     },
@@ -674,7 +695,14 @@ export function createDesktopRuntime(dataPath: string, options: DesktopRuntimeOp
         stdioAllowedRoots: parseAllowedRoots(settingsRepository.get(STDIO_ALLOWED_ROOTS_SETTING_KEY)),
         backups: backups.map(toIpcBackupSummary),
         recovery,
-        connectionModes: buildConnectionModes(mcp.url),
+        connectionModes: buildConnectionModes({
+          httpUrl: mcp.url,
+          ...(selectedWorkspace === null ? {} : { workspaceRoot: selectedWorkspace.realRootPath }),
+          profile: parseStdioPermissionProfile(settingsRepository.get(STDIO_PERMISSION_PROFILE_SETTING_KEY), 'full'),
+          strictRoots: parseBooleanSetting(settingsRepository.get(STDIO_STRICT_ROOTS_SETTING_KEY), false),
+          allowedRoots: parseAllowedRoots(settingsRepository.get(STDIO_ALLOWED_ROOTS_SETTING_KEY)),
+          fullBypassAll: readSettings().stdioFullBypassAll,
+        }),
         workLog,
         inFlight,
         tunnel,
@@ -1160,18 +1188,38 @@ function deriveAgentState(running: boolean, inFlightCount: number): AgentState {
   return inFlightCount > 0 ? 'busy' : 'idle';
 }
 
-function buildConnectionModes(httpUrl: string | null): ConnectionModes {
-  const packaged = process.env.LNWJUD_PACKAGED_EXECUTABLE?.trim();
-  const stdioCommand = packaged && packaged.length > 0
-    ? `${packaged} --mcp-stdio`
-    : 'lnwjud.exe --mcp-stdio';
-  return { httpUrl, stdioCommand };
+function buildConnectionModes(input: {
+  readonly httpUrl: string | null;
+  readonly workspaceRoot?: string;
+  readonly profile: PermissionProfileName;
+  readonly strictRoots: boolean;
+  readonly allowedRoots: readonly string[];
+  readonly fullBypassAll: boolean;
+}): ConnectionModes {
+  const launcher = path.win32.basename(process.execPath).toLowerCase() === 'lnwjud.exe'
+    ? path.join(path.dirname(process.execPath), 'lnwjud-mcp-stdio.cmd')
+    : 'lnwjud-mcp-stdio.cmd';
+  const args = [quoteCommandArgument(launcher)];
+  if (input.workspaceRoot !== undefined) args.push('--workspace', quoteCommandArgument(input.workspaceRoot));
+  args.push('--profile', input.profile);
+  if (input.fullBypassAll && input.profile === 'full') args.push('--full-bypass-all');
+  if (input.strictRoots && !(input.fullBypassAll && input.profile === 'full')) {
+    args.push('--strict-roots');
+    for (const root of input.allowedRoots) args.push('--allowed-root', quoteCommandArgument(root));
+  }
+  return { httpUrl: input.httpUrl, stdioCommand: args.join(' ') };
+}
+
+function quoteCommandArgument(value: string): string {
+  return /[\s&()[\]{}^=;!'+,`~]/.test(value) ? `"${value.replace(/"/g, '""')}"` : value;
 }
 
 function readUserSettings(settingsRepository: SqliteSettingsRepository, env: NodeJS.ProcessEnv): UserSettings {
   const extensions = parseExtensionsSettings(settingsRepository.get(EXTENSIONS_SETTINGS_KEY));
   return {
     customPermission: parseCustomPermissionSettings(settingsRepository.get(USER_SETTING_KEYS.customPermissionProfile)),
+    desktopFullBypassAll: parseBooleanSetting(settingsRepository.get(USER_SETTING_KEYS.desktopFullBypassAll), false),
+    stdioFullBypassAll: parseBooleanSetting(settingsRepository.get(USER_SETTING_KEYS.stdioFullBypassAll), false),
     mcpCallTimeoutMs: parseIntegerSetting(settingsRepository.get(USER_SETTING_KEYS.mcpCallTimeoutMs), DEFAULT_MCP_CALL_TIMEOUT_MS, 1_000, 60 * 60_000),
     mcpIdleTimeoutMs: parseIntegerSetting(settingsRepository.get(USER_SETTING_KEYS.mcpIdleTimeoutMs), DEFAULT_MCP_IDLE_TIMEOUT_MS, 30_000, 24 * 60 * 60_000),
     processTimeoutMs: parseIntegerSetting(settingsRepository.get(USER_SETTING_KEYS.processTimeoutMs), DEFAULT_PROCESS_TIMEOUT_MS, 1_000, 4 * 60 * 60_000),
@@ -1198,6 +1246,8 @@ function readUserSettings(settingsRepository: SqliteSettingsRepository, env: Nod
 
 function persistUserSettings(settingsRepository: SqliteSettingsRepository, settings: UserSettings): void {
   settingsRepository.set(USER_SETTING_KEYS.customPermissionProfile, serializeCustomPermissionSettings(settings.customPermission));
+  settingsRepository.set(USER_SETTING_KEYS.desktopFullBypassAll, settings.desktopFullBypassAll ? 'true' : 'false');
+  settingsRepository.set(USER_SETTING_KEYS.stdioFullBypassAll, settings.stdioFullBypassAll ? 'true' : 'false');
   settingsRepository.set(USER_SETTING_KEYS.mcpCallTimeoutMs, String(settings.mcpCallTimeoutMs));
   settingsRepository.set(USER_SETTING_KEYS.mcpIdleTimeoutMs, String(settings.mcpIdleTimeoutMs));
   settingsRepository.set(USER_SETTING_KEYS.processTimeoutMs, String(settings.processTimeoutMs));
@@ -1263,7 +1313,9 @@ function customPermissionProfile(settingsRepository: SqliteSettingsRepository): 
 }
 
 function runtimeRestartRequired(previous: UserSettings, next: UserSettings): boolean {
-  return previous.mcpCallTimeoutMs !== next.mcpCallTimeoutMs
+  return previous.desktopFullBypassAll !== next.desktopFullBypassAll
+    || previous.stdioFullBypassAll !== next.stdioFullBypassAll
+    || previous.mcpCallTimeoutMs !== next.mcpCallTimeoutMs
     || previous.mcpIdleTimeoutMs !== next.mcpIdleTimeoutMs
     || previous.mcpHttpPort !== next.mcpHttpPort
     || previous.codexToolsEnabled !== next.codexToolsEnabled
@@ -1274,7 +1326,7 @@ function runtimeRestartRequired(previous: UserSettings, next: UserSettings): boo
 }
 
 function readPermissionProfile(value: string | null): PermissionProfileName {
-  return value === 'safe' || value === 'balanced' || value === 'full' || value === 'custom' ? value : 'full';
+  return value === 'safe' || value === 'balanced' || value === 'full' || value === 'custom' ? value : 'balanced';
 }
 
 function readLocale(settingsRepository: SqliteSettingsRepository): UiLocale {
@@ -1364,18 +1416,78 @@ async function checkCodex(discovery: CodexDiscovery): Promise<{ readonly status:
   return result.value.status.installed ? { status: 'pass', message: `Codex ${result.value.status.version ?? 'installed'}` } : { status: 'warn', message: 'Codex is not installed' };
 }
 
-async function checkLocalPort(): Promise<{ readonly status: 'pass' | 'fail'; readonly message: string }> {
+export type McpIdentityProbe = (endpoint: URL) => Promise<boolean>;
+
+export async function checkConfiguredMcpPort(
+  status: McpConnectionStatus,
+  configuredPort: number,
+  identityProbe: McpIdentityProbe = probeLnwjudMcpIdentity,
+): Promise<DoctorProbeResult> {
+  if (status.running && status.url !== null) {
+    try {
+      const endpoint = new URL(status.url);
+      const livePort = Number(endpoint.port);
+      if (!(await identityProbe(endpoint))) {
+        return { status: 'fail', message: `Desktop MCP endpoint failed the lnwjud identity check at ${endpoint.origin}` };
+      }
+      if (configuredPort === 0 || livePort === configuredPort) {
+        return { status: 'pass', message: `lnwjud Desktop MCP identity verified at ${endpoint.origin}${endpoint.pathname}` };
+      }
+      return {
+        status: 'warn',
+        message: `lnwjud Desktop MCP identity verified at fallback port ${livePort}; configured port ${configuredPort} was unavailable`,
+      };
+    } catch {
+      return { status: 'fail', message: `Desktop MCP reported an invalid endpoint: ${status.url}` };
+    }
+  }
+  if (status.lastStartError !== null && status.lastStartError !== undefined) {
+    return { status: 'fail', message: `Desktop MCP failed to start on configured port ${configuredPort}: ${status.lastStartError}` };
+  }
+
   const server = createServer();
+  let listening = false;
   try {
     await new Promise<void>((resolve, reject) => {
       server.once('error', reject);
-      server.listen({ host: '127.0.0.1', port: 0 }, () => resolve());
+      server.listen({ host: '127.0.0.1', port: configuredPort }, () => {
+        listening = true;
+        resolve();
+      });
     });
-    return { status: 'pass', message: '127.0.0.1 is available' };
-  } catch {
-    return { status: 'fail', message: '127.0.0.1 is unavailable' };
+    return { status: 'fail', message: `Desktop MCP is not running; configured port ${configuredPort} is available` };
+  } catch (error: unknown) {
+    const code = typeof error === 'object' && error !== null && 'code' in error ? String(error.code) : 'unknown';
+    const endpoint = new URL(`http://127.0.0.1:${configuredPort}/mcp`);
+    const isLnwjud = await identityProbe(endpoint);
+    return isLnwjud
+      ? { status: 'fail', message: `Configured MCP port ${configuredPort} is owned by an lnwjud listener that this Desktop instance is not managing (${code})` }
+      : { status: 'fail', message: `Configured MCP port ${configuredPort} is occupied by a listener that is not an lnwjud Desktop MCP (${code})` };
   } finally {
-    await new Promise<void>((resolve) => server.close(() => resolve()));
+    if (listening) await new Promise<void>((resolve) => server.close(() => resolve()));
+  }
+}
+
+async function probeLnwjudMcpIdentity(endpoint: URL): Promise<boolean> {
+  const identityUrl = new URL(LNWJUD_MCP_IDENTITY_PATH, endpoint.origin);
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 750);
+  try {
+    const response = await fetch(identityUrl, {
+      method: 'GET',
+      cache: 'no-store',
+      signal: controller.signal,
+    });
+    if (!response.ok || response.headers.get('x-lnwjud-service') !== 'desktop-mcp') return false;
+    const body: unknown = await response.json();
+    return typeof body === 'object' && body !== null
+      && 'product' in body && body.product === 'lnwjud'
+      && 'service' in body && body.service === 'desktop-mcp'
+      && 'protocol' in body && body.protocol === 1;
+  } catch {
+    return false;
+  } finally {
+    clearTimeout(timer);
   }
 }
 

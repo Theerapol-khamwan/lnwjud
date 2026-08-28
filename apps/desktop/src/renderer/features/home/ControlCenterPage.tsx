@@ -1,6 +1,7 @@
 import { useEffect, useState, type ReactElement } from 'react';
 import type { DashboardSnapshot, IncidentClassification, UiLocale, WorkspaceSummary } from '@lnwjud/ipc-contracts';
 import { createTranslator } from '../../i18n/index.js';
+import { settleWorkspaceAdd, type AddWorkspaceAction } from '../workspaces/workspace-add.js';
 
 interface ControlCenterPageProps {
   readonly dashboard: DashboardSnapshot;
@@ -13,7 +14,7 @@ interface ControlCenterPageProps {
   readonly onRestartMcp: () => Promise<void>;
   readonly onSelectWorkspace: (workspaceId: string) => Promise<void>;
   readonly onSetWorkspaceActive: (workspaceId: string, active: boolean) => Promise<void>;
-  readonly onAddWorkspace: (rootPath: string) => Promise<void>;
+  readonly onAddWorkspace: AddWorkspaceAction;
   readonly onStartTunnel: () => Promise<void>;
   readonly onStopTunnel: () => Promise<void>;
   readonly onOpenTunnelSetup: () => void;
@@ -54,8 +55,10 @@ export function ControlCenterPage(props: ControlCenterPageProps): ReactElement {
         ? t('tunnel.error')
         : t('tunnel.stopped');
 
+  const desktopBypassOn = dashboard.permissionProfile === 'full' && dashboard.settings?.desktopFullBypassAll === true;
+  const stdioBypassOn = dashboard.stdioPermissionProfile === 'full' && dashboard.settings?.stdioFullBypassAll === true;
   const stdioBroad = dashboard.stdioPermissionProfile === 'full' && !dashboard.stdioStrictRoots;
-  const broadAccess = dashboard.unrestricted || dashboard.allowAiDelete || stdioBroad;
+  const broadAccess = dashboard.unrestricted || dashboard.allowAiDelete || stdioBroad || desktopBypassOn || stdioBypassOn;
   const onOff = (enabled: boolean): string => enabled ? t('security.enabled') : t('security.disabled');
   const workspaceScope = dashboard.stdioStrictRoots
     ? `${dashboard.stdioAllowedRoots.length} ${t('security.allowedRoots')}`
@@ -73,6 +76,10 @@ export function ControlCenterPage(props: ControlCenterPageProps): ReactElement {
     } finally {
       setProjectBusyId(null);
     }
+  }
+
+  async function addCurrentProject(): Promise<void> {
+    setProjectPath(await settleWorkspaceAdd(projectPath, props.onAddWorkspace));
   }
 
   return (
@@ -118,7 +125,9 @@ export function ControlCenterPage(props: ControlCenterPageProps): ReactElement {
         </div>
         <div className="security-overview-grid">
           <SecurityMetric label={t('security.desktopProfile')} value={dashboard.permissionProfile.toUpperCase()} />
+          <SecurityMetric label="Desktop Full Bypass" value={desktopBypassOn ? 'FULL BYPASS ON' : 'OFF'} state={desktopBypassOn ? 'warn' : 'safe'} />
           <SecurityMetric label={t('security.stdioProfile')} value={dashboard.stdioPermissionProfile.toUpperCase()} />
+          <SecurityMetric label="STDIO Full Bypass" value={stdioBypassOn ? 'FULL BYPASS ON' : 'OFF'} state={stdioBypassOn ? 'warn' : 'safe'} />
           <SecurityMetric label={t('security.strictRoots')} value={onOff(dashboard.stdioStrictRoots)} state={dashboard.stdioStrictRoots ? 'safe' : 'warn'} />
           <SecurityMetric label={t('security.aiDelete')} value={onOff(dashboard.allowAiDelete)} state={dashboard.allowAiDelete ? 'warn' : 'safe'} />
           <SecurityMetric label={t('security.unrestricted')} value={onOff(dashboard.unrestricted)} state={dashboard.unrestricted ? 'warn' : 'safe'} />
@@ -135,6 +144,7 @@ export function ControlCenterPage(props: ControlCenterPageProps): ReactElement {
           <code data-testid="mcp-endpoint" className="endpoint">
             {dashboard.connectionModes.httpUrl ?? '—'}
           </code>
+          {dashboard.mcp.lastStartError === null || dashboard.mcp.lastStartError === undefined ? null : <p className="hint error-text" role="alert">MCP start error: {dashboard.mcp.lastStartError}</p>}
           <div className="inline-actions">
             <button
               type="button"
@@ -264,9 +274,7 @@ export function ControlCenterPage(props: ControlCenterPageProps): ReactElement {
               <button
                 type="button"
                 disabled={projectPath.trim().length === 0}
-                onClick={() => {
-                  void props.onAddWorkspace(projectPath).then(() => setProjectPath(''));
-                }}
+                onClick={() => { void addCurrentProject(); }}
               >
                 {t('project.add')}
               </button>

@@ -120,7 +120,7 @@ export function goalTools(context: McpToolContext): McpToolDefinition[] {
     }),
     defineTool({
       name: 'finish_goal',
-      description: 'Finish a durable goal as completed, failed, or blocked using lease/revision compare-and-swap.',
+      description: 'Finish the local durable goal using lease/revision compare-and-swap. If scheduledTaskCancellation requests delete_native_task, the chain is not fully cancelled yet: delete that exact task through the native ChatGPT Scheduled Task host, record its native deletion receipt, and verify status=cancelled before reporting cancellation success.',
       permission: 'WRITE',
       annotations: { readOnlyHint: false, destructiveHint: false },
       inputSchema: finishGoalSchema,

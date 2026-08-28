@@ -3,6 +3,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { ok, type CommandSpec, type Result } from '@lnwjud/domain';
+import { permissionProfiles } from '@lnwjud/permissions';
 import type { ManagedProcess, ManagedProcessStart, ProcessLogResult } from '@lnwjud/process';
 import type { Workspace, WorkspaceRepository } from '@lnwjud/workspace';
 import { ProcessService, type ProcessServiceDependencies, type ProjectCommandSource } from './process-service.js';
@@ -48,6 +49,13 @@ function processHandle(id = 'process-1'): ManagedProcess {
 }
 
 describe('ProcessService', () => {
+  const fullBypassAuthorization = {
+    mode: 'full_bypass',
+    applicationApproved: true,
+    bypassApplicationAuthorization: true,
+    source: 'full_bypass',
+  } as const;
+
   it('allows a detected pnpm project command under Balanced and starts it in the guarded root', async () => {
     const workspace = await createWorkspace();
     const calls: ManagedProcessStart[] = [];
@@ -161,6 +169,29 @@ describe('ProcessService', () => {
     expect(calls).toHaveLength(1);
   });
 
+  it('accepts trusted Full Bypass for a risky command outside the workspace without caller confirmation', async () => {
+    const workspace = await createWorkspace();
+    const outsideRaw = await mkdtemp(path.join(os.tmpdir(), 'lnwjud-process-full-bypass-'));
+    temporaryRoots.push(outsideRaw);
+    const outside = await realpath(outsideRaw);
+    const calls: ManagedProcessStart[] = [];
+    const service = new ProcessService(repository(workspace), {
+      processManager: fakeManager(calls),
+      profile: permissionProfiles.safe,
+    });
+
+    const result = await service.start(
+      { clientId: 'client-1', clientName: 'test' },
+      workspace.id,
+      { executable: 'powershell.exe', args: ['-Command', 'Remove-Item target'], cwd: outside },
+      undefined,
+      fullBypassAuthorization,
+    );
+
+    expect(result).toMatchObject({ ok: true, value: { processId: 'process-1' } });
+    expect(calls).toEqual([{ executable: 'powershell.exe', args: ['-Command', 'Remove-Item target'], cwd: outside }]);
+  });
+
   it('enforces process ownership for status, logs, and stop handles', async () => {
     const workspace = await createWorkspace();
     const service = new ProcessService(repository(workspace), { processManager: fakeManager([]) });
@@ -267,6 +298,8 @@ describe('ProcessService', () => {
     await expect(service.stop(otherSession, workspace.id, started.value.processId)).resolves.toMatchObject({ ok: false, error: { code: 'PERMISSION_DENIED' } });
     await expect(service.list(otherSession, workspace.id)).resolves.toMatchObject({ ok: true, value: [] });
     await expect(service.status(owner, workspace.id, started.value.processId)).resolves.toMatchObject({ ok: true });
+    expect(service.statusForGoalLiveness(workspace.id, started.value.processId)).toMatchObject({ ok: true, value: { state: 'running' } });
+    expect(service.statusForGoalLiveness('another-workspace', started.value.processId)).toMatchObject({ ok: false, error: { code: 'PERMISSION_DENIED' } });
   });
 });
 

@@ -49,7 +49,6 @@ export function SettingsPage(props: SettingsPageProps): ReactElement {
   const [tunnelBusy, setTunnelBusy] = useState(false);
   const [tunnelMessage, setTunnelMessage] = useState<string | null>(null);
   const [savedMessage, setSavedMessage] = useState<string | null>(null);
-  const [unrestrictedMessage, setUnrestrictedMessage] = useState<string | null>(null);
   const [stdioProfile, setStdioProfile] = useState<PermissionProfileName>(props.dashboard.stdioPermissionProfile);
   const [strictRoots, setStrictRoots] = useState(props.dashboard.stdioStrictRoots);
   const [allowedRootsText, setAllowedRootsText] = useState(props.dashboard.stdioAllowedRoots.join('\n'));
@@ -333,11 +332,16 @@ export function SettingsPage(props: SettingsPageProps): ReactElement {
                 </div>
               </section>
 
-              <section className="panel settings-card settings-card-polished" aria-label={t('settings.unrestricted')}>
-                <SettingsCardHeading icon="⚡" title={t('settings.unrestricted')} subtitle={props.locale === 'th' ? 'ปลดข้อจำกัด machine roots สำหรับงานที่ต้องการสิทธิ์เต็ม' : 'Remove machine-root restrictions for full-power workflows'} badge={props.dashboard.unrestricted ? 'ON' : 'OFF'} />
-                <SettingSwitch checked={props.dashboard.unrestricted} label={props.locale === 'th' ? 'Unrestricted mode' : 'Unrestricted mode'} description={t('settings.unrestrictedHint')} onChange={(enabled) => { void props.onUnrestrictedChange(enabled).then((restartRequired) => setUnrestrictedMessage(restartRequired ? t('settings.restartRequired') : null)); }} />
-                {unrestrictedMessage === null ? null : <div className="alert-box-warning" role="status">⚠️ {unrestrictedMessage}</div>}
-              </section>
+              <UserConfigPanel
+                locale={props.locale}
+                permissionProfile={props.dashboard.permissionProfile}
+                stdioPermissionProfile={props.dashboard.stdioPermissionProfile}
+                settings={props.dashboard.settings}
+                section="security"
+                unrestricted={props.dashboard.unrestricted}
+                onUnrestrictedChange={props.onUnrestrictedChange}
+                onSave={props.onUserSettingsChange}
+              />
 
               <section className="panel settings-card settings-card-polished" aria-label="AI destructive action policy">
                 <SettingsCardHeading
@@ -348,8 +352,8 @@ export function SettingsPage(props: SettingsPageProps): ReactElement {
                 />
                 <div className="alert-box-warning" role="note">
                   ⚠️ {props.locale === 'th'
-                    ? 'Full Access ไม่ถามงานปกติ การเปิด auto-approval ด้านล่างมีผลเฉพาะคำสั่งลบ/ทำข้อมูลหายที่แยก target ได้ชัดและอยู่ใน Active Project เท่านั้น; root, critical path, wildcard, recursive/broad และคำสั่งที่วิเคราะห์ไม่ได้ยังถาม ส่วนคำสั่งระดับเครื่องอันตรายยังถูกบล็อก'
-                    : 'Full Access does not prompt for ordinary work. Auto-approval below applies only to destructive actions with an exact target proven inside the Active Project; roots, critical paths, wildcards, recursive/broad or unparseable actions still ask, and dangerous machine-level commands remain blocked.'}
+                    ? 'เมื่อ Full Bypass ปิด Full Access จะไม่ถามงานปกติ และ auto-approval ด้านล่างมีผลเฉพาะงานลบ/ทำข้อมูลหายที่พิสูจน์ target ได้ชัดใน Active Project; เมื่อเปิด Full Bypass จะข้ามการอนุมัติและขอบเขตระดับแอปทั้งหมด'
+                    : 'With Full Bypass OFF, Full Access does not prompt for ordinary work and the auto-approval controls below remain narrowly scoped to exact targets in the Active Project. With Full Bypass ON, all lnwjud application approvals and scope checks are skipped.'}
                 </div>
                 <div className="setting-grid two-col align-center">
                   <SettingSwitch checked disabled label={props.locale === 'th' ? 'Protected Critical Files — บังคับเปิด' : 'Protected Critical Files — always on'} description={props.locale === 'th' ? 'critical path และ workspace root ไม่ถูก auto-approve แม้เปิด destructive family นั้นไว้' : 'Critical paths and workspace roots are never auto-approved even when a destructive family is enabled'} onChange={() => undefined} />
@@ -404,7 +408,18 @@ export function SettingsPage(props: SettingsPageProps): ReactElement {
             </>
           ) : null}
 
-          <UserConfigPanel locale={props.locale} settings={props.dashboard.settings} section={userConfigSection} onSave={props.onUserSettingsChange} />
+          {userConfigSection === 'security' ? null : (
+            <UserConfigPanel
+              locale={props.locale}
+              permissionProfile={props.dashboard.permissionProfile}
+              stdioPermissionProfile={props.dashboard.stdioPermissionProfile}
+              settings={props.dashboard.settings}
+              section={userConfigSection}
+              unrestricted={props.dashboard.unrestricted}
+              onUnrestrictedChange={props.onUnrestrictedChange}
+              onSave={props.onUserSettingsChange}
+            />
+          )}
 
           {activeSection === 'tunnel' ? (
             <>
@@ -552,8 +567,8 @@ function splitList(value: string): readonly string[] {
 }
 
 function profileHint(locale: UiLocale, profile: PermissionProfileName): string {
-  const th = { safe: 'ปลอดภัยสูงสุด: งานเขียนและรันคำสั่งต้องขออนุญาต', balanced: 'สมดุล: งานทั่วไปใน workspace ทำได้คล่องขึ้น', full: 'เต็มสิทธิ์ตาม policy ที่ยังคงบล็อก operation อันตรายระดับระบบ', custom: 'ใช้กฎ READ / WRITE / EXECUTE / DANGEROUS และ executable ที่กำหนดเอง' } as const;
-  const en = { safe: 'Maximum safety: writes and execution require approval.', balanced: 'Balanced: common workspace work is less restrictive.', full: 'Full access within policy; machine-destructive operations remain blocked.', custom: 'Uses your READ / WRITE / EXECUTE / DANGEROUS rules and custom executables.' } as const;
+  const th = { safe: 'ปลอดภัยสูงสุด: งานเขียนและรันคำสั่งต้องขออนุญาต', balanced: 'สมดุล: งานทั่วไปใน workspace ทำได้คล่องขึ้น', full: 'เต็มสิทธิ์สำหรับงานปกติ; เปิด Full Bypass แยกต่างหากหากต้องการข้ามทุก approval/scope ของ lnwjud', custom: 'ใช้กฎ READ / WRITE / EXECUTE / DANGEROUS และ executable ที่กำหนดเอง' } as const;
+  const en = { safe: 'Maximum safety: writes and execution require approval.', balanced: 'Balanced: common workspace work is less restrictive.', full: 'Full access for ordinary work; enable Full Bypass separately to skip every lnwjud approval and scope check.', custom: 'Uses your READ / WRITE / EXECUTE / DANGEROUS rules and custom executables.' } as const;
   return (locale === 'th' ? th : en)[profile];
 }
 

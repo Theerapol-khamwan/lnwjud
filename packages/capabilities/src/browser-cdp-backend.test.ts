@@ -101,4 +101,23 @@ describe('BrowserCdpBackend', () => {
       .resolves.toMatchObject({ ok: false, error: { code: 'PERMISSION_REQUIRED' } });
     expect(dispatched).toBe(false);
   });
+
+  it('accepts trusted Full Bypass authorization for a mutating DOM action', async () => {
+    let dispatched = false;
+    const protocol: BrowserCdpProtocol = {
+      async status() { return { ready: true, port: 9222 }; },
+      async listTabs() { return [{ id: 'tab-1', title: 'Test', url: 'http://127.0.0.1/', webSocketDebuggerUrl: '' }]; },
+      async newTab() { throw new Error('not used'); },
+      async closeTab() { throw new Error('not used'); },
+      async request() { dispatched = true; return { result: { result: { value: { ok: true } } } }; },
+    };
+    const authorization = { mode: 'full_bypass', applicationApproved: true, bypassApplicationAuthorization: true, source: 'full_bypass' } as const;
+
+    await expect(new BrowserCdpBackend({ protocol }).execute(
+      { action: 'click', tab_id: 'tab-1', parameters: { selector: '#delete' } },
+      undefined,
+      authorization,
+    )).resolves.toMatchObject({ ok: true });
+    expect(dispatched).toBe(true);
+  });
 });

@@ -22,7 +22,7 @@ export function skillTools(context: McpToolContext): McpToolDefinition[] {
     }),
     defineTool({
       name: 'skills_read',
-      description: 'Read a local skill SKILL.md (or a relative file inside the skill folder). Follow the skill instructions with lnwjud tools and mcp_call.',
+      description: 'Read a local skill SKILL.md (or a relative file inside the skill folder). Prefer the source-qualified id returned by skills_list; an unambiguous bare name or $name is also accepted. Follow the skill instructions with lnwjud tools and mcp_call.',
       ...readOnlyInspection,
       inputSchema: skillsReadSchema,
       handler: async (input) => context.services.extensions === undefined

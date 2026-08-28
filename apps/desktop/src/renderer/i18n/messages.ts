@@ -177,6 +177,7 @@ export type MessageKey =
   | 'guidedTunnel.configured'
   | 'guidedTunnel.stepStartTitle'
   | 'guidedTunnel.stepStartBody'
+  | 'guidedTunnel.persistentRestartNotice'
   | 'guidedTunnel.startTunnel'
   | 'guidedTunnel.starting'
   | 'guidedTunnel.running'
@@ -263,7 +264,8 @@ export const th: Messages = {
   'guidedTunnel.configuring': 'กำลังสร้างโปรไฟล์และตรวจสอบ…',
   'guidedTunnel.configured': 'โปรไฟล์ Tunnel พร้อมใช้งาน',
   'guidedTunnel.stepStartTitle': '4. เริ่ม Tunnel',
-  'guidedTunnel.stepStartBody': 'ตรวจสอบข้อมูลด้านล่าง แล้วกด Start Tunnel เมื่อสถานะเป็น Running โปรแกรมจะ reconnect Tunnel ID เดิมให้อัตโนมัติ',
+  'guidedTunnel.stepStartBody': 'ตรวจสอบข้อมูลด้านล่างแล้วกด Start Tunnel หาก Runtime API key หรือ Tunnel ID เปลี่ยน lnwjud จะหยุด Persistent Tunnel Runtime เดิมอย่างปลอดภัยก่อน แล้วเชื่อมต่อใหม่ด้วยค่าที่บันทึกไว้',
+  'guidedTunnel.persistentRestartNotice': 'ค่าที่บันทึกไว้ต่างจาก Persistent Tunnel Runtime ที่กำลังใช้งาน กด Start Tunnel เพื่อให้ lnwjud หยุด Runtime เดิมอย่างปลอดภัย แล้วเชื่อมต่อใหม่ด้วย Tunnel ID และคีย์ล่าสุด',
   'guidedTunnel.startTunnel': 'Start Tunnel',
   'guidedTunnel.starting': 'กำลังเริ่ม Tunnel…',
   'guidedTunnel.running': 'Tunnel กำลังทำงาน',
@@ -462,7 +464,8 @@ export const en: Messages = {
   'guidedTunnel.configuring': 'Creating the profile and checking it…',
   'guidedTunnel.configured': 'Tunnel profile is ready.',
   'guidedTunnel.stepStartTitle': '4. Start the Tunnel',
-  'guidedTunnel.stepStartBody': 'Review the details below, then select Start Tunnel. Once it is Running, the app will reconnect the same Tunnel ID automatically.',
+  'guidedTunnel.stepStartBody': 'Review the details below, then select Start Tunnel. If the Runtime API key or Tunnel ID changed, lnwjud safely stops the previous Persistent Tunnel Runtime before reconnecting with the saved configuration.',
+  'guidedTunnel.persistentRestartNotice': 'The saved configuration differs from the active Persistent Tunnel Runtime. Select Start Tunnel to safely stop the previous runtime and reconnect with the latest Tunnel ID and key.',
   'guidedTunnel.startTunnel': 'Start Tunnel',
   'guidedTunnel.starting': 'Starting Tunnel…',
   'guidedTunnel.running': 'Tunnel is running',

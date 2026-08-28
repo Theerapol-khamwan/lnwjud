@@ -25,6 +25,12 @@ export interface GoalEvidence {
   readonly value: string;
 }
 
+export interface GoalLeaseProof {
+  readonly goalId: string;
+  readonly leaseToken: string;
+  readonly leaseGeneration: number;
+}
+
 export interface GoalCheckpointRecord {
   readonly id: string;
   readonly goalId: string;
@@ -57,6 +63,8 @@ export interface GoalRecord {
   readonly leaseOwnerSessionId?: string;
   readonly leaseTokenHash?: string;
   readonly leaseDurationSeconds?: number;
+  readonly leaseGeneration: number;
+  readonly leaseActivitySeq: number;
   readonly leaseHeartbeatAt?: string;
   readonly leaseExpiresAt?: string;
   readonly createdAt: string;
@@ -144,7 +152,10 @@ export interface ScheduledTaskCancellationInstruction {
   readonly action: 'delete_native_task' | 'none';
   readonly continuationId?: string;
   readonly nativeTaskId?: string;
-  readonly reason: 'live_task_confirmed' | 'no_live_task' | 'already_fired' | 'native_task_unverified';
+  readonly provider?: 'chatgpt_scheduled_task';
+  readonly expectedContinuationVersion?: number;
+  readonly receiptRequired?: true;
+  readonly reason: 'live_task_confirmed' | 'no_live_task' | 'already_fired' | 'already_cancelled' | 'native_task_unverified';
 }
 
 export interface GoalRepository {

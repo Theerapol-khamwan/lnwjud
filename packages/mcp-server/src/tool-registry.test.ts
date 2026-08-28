@@ -1,7 +1,12 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { z } from 'zod';
+import { mkdtemp, realpath, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
 import path from 'node:path';
+import { DatabaseSync } from 'node:sqlite';
 import { appError, err, ok } from '@lnwjud/domain';
-import { permissionProfiles } from '@lnwjud/permissions';
+import { LocalCapabilityService, ShellCapabilityBackend } from '@lnwjud/capabilities';
+import { permissionProfiles, type PermissionProfile } from '@lnwjud/permissions';
 import { DEFAULT_DESTRUCTIVE_AUTO_APPROVAL_POLICY, type DestructiveAutoApprovalPolicy } from '@lnwjud/shared';
 import type { ActivitySinkEvent } from './activity-tracker.js';
 import { ToolRegistry, type McpApplicationServices, type ToolRegistryOptions, type WorkspaceScope } from './tool-registry.js';
@@ -34,10 +39,29 @@ describe('MCP tool registry', () => {
       'workspace_index', 'workspace_index_status', 'workspace_index_watch', 'workspace_index_stop',
       'session_handoff', 'verify_incremental',
       'run_goal', 'get_goal', 'checkpoint_goal', 'finish_goal', 'list_goals',
-      'prepare_scheduled_continuation', 'record_scheduled_continuation_receipt', 'claim_scheduled_continuation', 'get_scheduled_continuation',
+      'prepare_scheduled_continuation', 'record_scheduled_continuation_receipt', 'claim_scheduled_continuation', 'get_scheduled_continuation', 'expedite_scheduled_continuation',
       ...UPGRADE_TOOL_CATALOG.map((entry) => entry.name),
       'tool_batch',
     ]);
+  });
+
+  it('adds a registry-level confirmation envelope to every advertised tool schema', () => {
+    const registry = new ToolRegistry({}, actor);
+    for (const tool of registry.list()) {
+      if (tool.inputSchema instanceof z.ZodObject) {
+        expect(tool.inputSchema.shape, tool.name).toHaveProperty('userConfirmed');
+        continue;
+      }
+      expect(tool.inputSchema, tool.name).toBeInstanceOf(z.ZodUnion);
+      if (tool.inputSchema instanceof z.ZodUnion) {
+        for (const option of tool.inputSchema.options) {
+          expect(option, tool.name).toBeInstanceOf(z.ZodObject);
+          if (option instanceof z.ZodObject) {
+            expect(option.shape, tool.name).toHaveProperty('userConfirmed');
+          }
+        }
+      }
+    }
   });
 
   it('hides Codex delegation tools by default and exposes them only when explicitly enabled', () => {
@@ -93,7 +117,7 @@ describe('MCP tool registry', () => {
     expect(byName.get('input_event')?.parse({ operation: 'click', parameters: { x: 1, y: 2 } })).toMatchObject({ ok: true });
     expect(byName.get('vision')?.parse({ action: 'capture_display' })).toMatchObject({ ok: true });
     expect(byName.get('window')?.parse({ operation: 'list' })).toMatchObject({ ok: true });
-    expect(byName.get('window')?.parse({ operation: 'set_window_frame', parameters: { x: 0, y: 0, width: 800, height: 600 } })).toMatchObject({ ok: true });
+    expect(byName.get('window')?.parse({ operation: 'set_window_frame', parameters: { title: 'Editor', x: 0, y: 0, width: 800, height: 600 } })).toMatchObject({ ok: true });
     expect(byName.get('health')?.parse({ operation: 'check_all' })).toMatchObject({ ok: true });
     expect(byName.get('wsl_exec')?.parse({ workspaceId: 'workspace-1', executable: 'node', arguments: ['--version'] })).toMatchObject({ ok: true });
     expect(byName.get('wsl_fs')?.parse({ operation: 'translate', workspaceId: 'workspace-1', direction: 'windows_to_wsl', path: 'C:\\workspace' })).toMatchObject({ ok: true });
@@ -152,7 +176,7 @@ describe('MCP tool registry', () => {
       profileProvider: (): typeof permissionProfiles.safe => permissionProfiles.safe,
     });
     const response = await registry.invoke('dom_cdp', { action: 'type', parameters: { selector: 'input', text: 'unsafe' } });
-    expect(response).toMatchObject({ isError: true, structuredContent: { error: { code: 'PERMISSION_REQUIRED' } } });
+    expect(response).toMatchObject({ isError: true, structuredContent: { error: { code: 'PERMISSION_DENIED' } } });
     expect(executed).toBe(false);
   });
 
@@ -405,9 +429,10 @@ describe('MCP tool registry', () => {
 
   it('auto-approves enabled exact scoped destructive command families but keeps broad or escaped forms interactive', async () => {
     const capabilityInputs: unknown[] = [];
+    const capabilityAuthorizations: unknown[] = [];
     let gitRuns = 0;
     const registry = new ToolRegistry({
-      capabilities: { async execute(_tool, input): Promise<ReturnType<typeof ok>> { capabilityInputs.push(input); return ok({ ok: true }); } },
+      capabilities: { async execute(_tool, input, _signal, authorization): Promise<ReturnType<typeof ok>> { capabilityInputs.push(input); capabilityAuthorizations.push(authorization); return ok({ ok: true }); } },
       git: { async run(): Promise<ReturnType<typeof ok>> { gitRuns += 1; return ok({ exitCode: 0, stdout: '', stderr: '' }); } } as McpApplicationServices['git'],
     }, actor, {
       destructivePolicyProvider: (): DestructiveAutoApprovalPolicy => ({ ...DEFAULT_DESTRUCTIVE_AUTO_APPROVAL_POLICY, approvals: { ...DEFAULT_DESTRUCTIVE_AUTO_APPROVAL_POLICY.approvals, git_rm: true, shell_rm_unlink: true } }),
@@ -418,7 +443,8 @@ describe('MCP tool registry', () => {
     await expect(registry.invoke('shell', { workspaceId: 'workspace-1', operation: 'run', executable: 'rm', arguments: ['src/old.tmp'] })).resolves.not.toMatchObject({ isError: true });
     expect(gitRuns).toBe(1);
     expect(capabilityInputs).toHaveLength(1);
-    expect(capabilityInputs[0]).toMatchObject({ userConfirmed: true });
+    expect(capabilityInputs[0]).not.toMatchObject({ userConfirmed: true });
+    expect(capabilityAuthorizations[0]).toMatchObject({ applicationApproved: true, source: 'scoped_policy' });
 
     await expect(registry.invoke('shell', { workspaceId: 'workspace-1', operation: 'run', executable: 'rm', arguments: ['..\\outside.tmp'] })).resolves.toMatchObject({ isError: true, structuredContent: { error: { code: 'PERMISSION_REQUIRED' } } });
     await expect(registry.invoke('shell', { workspaceId: 'workspace-1', operation: 'run', executable: 'rm', arguments: ['-rf', 'src'] })).resolves.toMatchObject({ isError: true, structuredContent: { error: { code: 'PERMISSION_REQUIRED' } } });
@@ -445,6 +471,79 @@ describe('MCP tool registry', () => {
     await expect(registry.invoke('project_test', { workspaceId: 'workspace-b', userConfirmed: true })).resolves.toMatchObject({ isError: true, structuredContent: { error: { code: 'PERMISSION_DENIED' } } });
     expect(deletes).toBe(1);
     expect(projectStarts).toBe(0);
+  });
+
+  it('routes absolute file, database, and command targets to any matching member of the active workspace set', async () => {
+    const rootA = await mkdtemp(path.join(tmpdir(), 'lnwjud-active-a-'));
+    const rootB = await mkdtemp(path.join(tmpdir(), 'lnwjud-active-b-'));
+    try {
+      const databasePath = path.join(rootB, 'state.sqlite');
+      const database = new DatabaseSync(databasePath);
+      database.exec("CREATE TABLE probe (value TEXT NOT NULL); INSERT INTO probe (value) VALUES ('ok');");
+      database.close();
+
+      const fileWrites: Array<{ workspaceId: string | undefined; path: string }> = [];
+      const capabilityCalls: Array<{ tool: string; input: Record<string, unknown> }> = [];
+      const services = {
+        workspaceInfo: {
+          info: async (_actor: unknown, workspaceId: string) => {
+            if (workspaceId === 'workspace-a') return ok({ id: workspaceId, realRootPath: rootA, rootPath: rootA });
+            if (workspaceId === 'workspace-b') return ok({ id: workspaceId, realRootPath: rootB, rootPath: rootB });
+            return err(appError('WORKSPACE_NOT_FOUND', 'missing workspace'));
+          },
+        },
+        file: {
+          async writeFile(_actor: unknown, workspaceId: string | undefined, request: { path: string }): Promise<ReturnType<typeof ok>> {
+            fileWrites.push({ workspaceId, path: request.path });
+            return ok({ path: request.path, bytesWritten: 1 });
+          },
+        } as McpApplicationServices['file'],
+        capabilities: {
+          async execute(tool: string, input: unknown): Promise<ReturnType<typeof ok>> {
+            capabilityCalls.push({ tool, input: input as Record<string, unknown> });
+            return ok({ accepted: true });
+          },
+        },
+      } as unknown as McpApplicationServices;
+      const registry = new ToolRegistry(services, actor, {
+        activeWorkspaceScopesProvider: async (): Promise<readonly WorkspaceScope[]> => [
+          { workspaceId: 'workspace-a', rootPath: rootA },
+          { workspaceId: 'workspace-b', rootPath: rootB },
+        ],
+        hostMutationApprovalProvider: approveMutation,
+      });
+
+      const absoluteFile = path.join(rootB, 'note.txt');
+      const write = await registry.invoke('write_file', { workspaceId: 'workspace-a', path: absoluteFile, content: 'x' });
+      expect(write.isError).not.toBe(true);
+      expect(fileWrites).toEqual([{ workspaceId: 'workspace-b', path: absoluteFile }]);
+
+      const queried = await registry.invoke('db_query', {
+        workspaceId: 'workspace-a',
+        target: databasePath,
+        sql: 'SELECT value FROM probe',
+      });
+      expect(queried).toMatchObject({ structuredContent: { result: [{ value: 'ok' }] } });
+
+      const command = await registry.invoke('shell', {
+        workspaceId: 'workspace-a',
+        operation: 'run',
+        executable: 'node.exe',
+        arguments: ['--version'],
+        cwd: rootB,
+      });
+      expect(command.isError).not.toBe(true);
+      expect(capabilityCalls.at(-1)).toMatchObject({
+        tool: 'shell',
+        input: {
+          workspaceId: 'workspace-b',
+          cwd: rootB,
+          metadata: { 'lnwjud.activeWorkspaceRoot.v1': rootB },
+        },
+      });
+    } finally {
+      await Promise.all([rm(rootA, { recursive: true, force: true }), rm(rootB, { recursive: true, force: true })]);
+    }
   });
 
   it('allows explicitly absolute Shell and WSL working directories outside the host active workspace root after approval', async () => {
@@ -568,13 +667,13 @@ describe('MCP tool registry', () => {
     expect(calls).toEqual(['wsl_exec', 'shell']);
   });
 
-  it('allows Full profile non-destructive mutations without confirmation while delete still prompts', async () => {
+  it('allows Full profile ordinary mutations without forging caller confirmation while always-confirm families still prompt', async () => {
     const calls: string[] = [];
-    const fileInputs: unknown[] = [];
+    const fileCalls: Array<{ readonly tool: string; readonly input: unknown; readonly authorization: unknown }> = [];
     const registry = new ToolRegistry({
       file: {
-        async writeFile(_actor, _workspaceId, input): Promise<ReturnType<typeof ok>> { fileInputs.push({ tool: 'write_file', input }); return ok({ path: 'a.txt', bytesWritten: 1 }); },
-        async applyPatch(_actor, _workspaceId, input): Promise<ReturnType<typeof ok>> { fileInputs.push({ tool: 'apply_patch', input }); return ok({ paths: ['a.txt'] }); },
+        async writeFile(_actor, _workspaceId, input, _signal, authorization): Promise<ReturnType<typeof ok>> { fileCalls.push({ tool: 'write_file', input, authorization }); return ok({ path: 'a.txt', bytesWritten: 1 }); },
+        async applyPatch(_actor, _workspaceId, input, _signal, authorization): Promise<ReturnType<typeof ok>> { fileCalls.push({ tool: 'apply_patch', input, authorization }); return ok({ paths: ['a.txt'] }); },
         async deleteFile(): Promise<ReturnType<typeof ok>> { calls.push('delete_file'); return ok({ path: 'a.txt', recoverable: true }); },
       } as McpApplicationServices['file'],
       git: { async run(): Promise<ReturnType<typeof ok>> { calls.push('git'); return ok({ exitCode: 0, stdout: '', stderr: '' }); } } as McpApplicationServices['git'],
@@ -589,11 +688,37 @@ describe('MCP tool registry', () => {
     await expect(registry.invoke('shell', { workspaceId: 'workspace-1', operation: 'run', executable: 'node.exe', arguments: ['-e', 'console.log(1)'] })).resolves.not.toMatchObject({ isError: true });
     await expect(registry.invoke('delete_file', { workspaceId: 'workspace-1', path: 'a.txt' })).resolves.toMatchObject({ isError: true, structuredContent: { error: { code: 'PERMISSION_REQUIRED' } } });
     await expect(registry.invoke('mcp_call', { server: 'child', tool: 'delete_file', arguments: { path: 'a.txt' } })).resolves.toMatchObject({ isError: true, structuredContent: { error: { code: 'PERMISSION_REQUIRED' } } });
-    expect(fileInputs).toEqual([
-      { tool: 'write_file', input: expect.objectContaining({ userConfirmed: true }) },
-      { tool: 'apply_patch', input: expect.objectContaining({ userConfirmed: true }) },
+    await expect(registry.invoke('web_fetch', { url: 'https://example.com/item/1', method: 'POST' })).resolves.toMatchObject({ isError: true, structuredContent: { error: { code: 'PERMISSION_REQUIRED' } } });
+    await expect(registry.invoke('scheduler', { action: 'run', task_name: 'Task' })).resolves.toMatchObject({ isError: true, structuredContent: { error: { code: 'PERMISSION_REQUIRED' } } });
+    expect(fileCalls).toEqual([
+      { tool: 'write_file', input: expect.not.objectContaining({ userConfirmed: true }), authorization: expect.objectContaining({ mode: 'standard', applicationApproved: true, source: 'profile' }) },
+      { tool: 'apply_patch', input: expect.not.objectContaining({ userConfirmed: true }), authorization: expect.objectContaining({ mode: 'standard', applicationApproved: true, source: 'profile' }) },
     ]);
     expect(calls).toEqual(['git', 'process_start', 'shell']);
+  });
+
+  it('honors Custom ALLOW for ordinary replacement and opaque operations instead of silently converting it to ASK', async () => {
+    const customAllow: PermissionProfile = {
+      name: 'custom',
+      defaults: { READ: 'ALLOW', WRITE: 'ALLOW', EXECUTE: 'ALLOW', DANGEROUS: 'ALLOW' },
+      allowedProjectExecutables: permissionProfiles.custom.allowedProjectExecutables,
+    };
+    const hostApproval = vi.fn(async () => true);
+    const applyPatch = vi.fn(async () => ok({ paths: ['a.txt'] }));
+    const capabilityExecute = vi.fn(async () => ok({ shown: true }));
+    const registry = new ToolRegistry({
+      file: { applyPatch } as unknown as McpApplicationServices['file'],
+      capabilities: { execute: capabilityExecute },
+    }, actor, {
+      profileProvider: (): PermissionProfile => customAllow,
+      hostMutationApprovalProvider: hostApproval,
+    });
+
+    await expect(registry.invoke('apply_patch', { workspaceId: 'workspace-1', files: [{ path: 'a.txt', content: 'next' }] })).resolves.not.toMatchObject({ isError: true });
+    await expect(registry.invoke('notification', { title: 'Done', message: 'Finished' })).resolves.not.toMatchObject({ isError: true });
+    expect(applyPatch).toHaveBeenCalledTimes(1);
+    expect(capabilityExecute).toHaveBeenCalledTimes(1);
+    expect(hostApproval).not.toHaveBeenCalled();
   });
 
   it('allows non-destructive git commands without confirmation', async () => {
@@ -620,6 +745,76 @@ describe('MCP tool registry', () => {
     expect((await registry.invoke('shell', { operation: 'run', executable: 'npm.cmd', arguments: ['run', 'cleanup'], userConfirmed: true })).isError).not.toBe(true);
     expect((await registry.invoke('mcp_call', { server: 'child', tool: 'delete_file', arguments: { path: 'x' }, userConfirmed: true })).isError).not.toBe(true);
     expect(calls).toEqual(['shell', 'web_fetch', 'shell', 'mcp_call']);
+  });
+
+  it('marks Full Bypass calls in activity and bypasses special confirmation and application command scope gates', async () => {
+    const events: ActivitySinkEvent[] = [];
+    const calls: string[] = [];
+    const authorizations: unknown[] = [];
+    const capabilityInputs: unknown[] = [];
+    const registry = new ToolRegistry({
+      capabilities: { async execute(tool, input, _signal, authorization): Promise<ReturnType<typeof ok>> { calls.push(tool); capabilityInputs.push(input); authorizations.push(authorization); return ok({ ok: true }); } },
+      extensions: { async callMcpTool(): Promise<ReturnType<typeof ok>> { calls.push('mcp_call'); return ok({ ok: true }); } } as McpApplicationServices['extensions'],
+    }, actor, {
+      profileProvider: (): PermissionProfile => permissionProfiles.full,
+      authorizationModeProvider: (): 'full_bypass' => 'full_bypass',
+      activeWorkspaceScopeProvider: async (): Promise<WorkspaceScope | null> => ({ workspaceId: 'workspace-a', rootPath: 'E:\\project-a' }),
+      activity: { async record(event: ActivitySinkEvent): Promise<void> { events.push(event); } },
+    });
+
+    await expect(registry.invoke('mcp_call', { server: 'child', tool: 'delete_file', arguments: { path: 'x' } })).resolves.not.toMatchObject({ isError: true });
+    await expect(registry.invoke('shell', { workspaceId: 'workspace-a', operation: 'run', executable: 'shutdown.exe', arguments: ['/s'], cwd: 'C:\\Windows' })).resolves.not.toMatchObject({ isError: true });
+    await expect(registry.invoke('hook_register', { name: 'audit', event: 'beforeTool' })).resolves.not.toMatchObject({ isError: true });
+    await expect(registry.invoke('hook_remove', { name: 'audit' })).resolves.toMatchObject({ structuredContent: { removed: true } });
+    expect(calls).toEqual(['mcp_call', 'shell']);
+    expect(capabilityInputs).toEqual([expect.not.objectContaining({ userConfirmed: true })]);
+    expect(authorizations).toEqual([expect.objectContaining({ mode: 'full_bypass', applicationApproved: true, bypassApplicationAuthorization: true, source: 'full_bypass' })]);
+    expect(events.filter((event) => event.phase === 'started')).toEqual(expect.arrayContaining([
+      expect.objectContaining({ toolName: 'mcp_call', authorizationMode: 'full_bypass' }),
+      expect.objectContaining({ toolName: 'shell', authorizationMode: 'full_bypass' }),
+    ]));
+    expect(events.filter((event) => event.phase === 'completed')).toEqual(expect.arrayContaining([
+      expect.objectContaining({ toolName: 'mcp_call', resultCode: 'SUCCESS', authorizationMode: 'full_bypass' }),
+      expect.objectContaining({ toolName: 'shell', resultCode: 'SUCCESS', authorizationMode: 'full_bypass' }),
+    ]));
+  });
+
+  it('propagates Full Bypass through the real local capability dispatcher and shell backend', async () => {
+    const activeRoot = await mkdtemp(path.join(tmpdir(), 'lnwjud-registry-active-'));
+    const outsideRoot = await mkdtemp(path.join(tmpdir(), 'lnwjud-registry-outside-'));
+    try {
+      const noopBackend = { async execute(): Promise<ReturnType<typeof ok>> { return ok({}); } };
+      const capabilities = new LocalCapabilityService({
+        shell: new ShellCapabilityBackend({ allowedRoots: [activeRoot] }),
+        domCdp: noopBackend,
+        accessibility: noopBackend,
+        inputEvent: noopBackend,
+        vision: noopBackend,
+        window: noopBackend,
+        health: noopBackend,
+      });
+      const registry = new ToolRegistry({ capabilities }, actor, {
+        profileProvider: (): PermissionProfile => permissionProfiles.full,
+        authorizationModeProvider: (): 'full_bypass' => 'full_bypass',
+        activeWorkspaceScopeProvider: async (): Promise<WorkspaceScope | null> => ({ workspaceId: 'workspace-a', rootPath: activeRoot }),
+      });
+
+      await expect(registry.invoke('shell', {
+        workspaceId: 'workspace-a',
+        operation: 'run',
+        executable: 'missing-command',
+        arguments: [],
+        cwd: outsideRoot,
+        dry_run: true,
+      })).resolves.toMatchObject({
+        structuredContent: { dry_run: true, cwd: await realpath(outsideRoot) },
+      });
+    } finally {
+      await Promise.all([
+        rm(activeRoot, { recursive: true, force: true }),
+        rm(outsideRoot, { recursive: true, force: true }),
+      ]);
+    }
   });
 
   it('guards opaque execution and UI side-effect boundaries', async () => {

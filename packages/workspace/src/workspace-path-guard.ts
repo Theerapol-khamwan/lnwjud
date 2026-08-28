@@ -1,6 +1,6 @@
 import { lstat, realpath, stat } from 'node:fs/promises';
 import path from 'node:path';
-import { appError, err, ok, type Result } from '@lnwjud/domain';
+import { appError, err, isFullBypassAuthorization, ok, type InvocationAuthorization, type Result } from '@lnwjud/domain';
 import { isWithin } from './path-containment.js';
 import { SecretPolicy } from './secret-policy.js';
 import type { ResolvedWorkspacePath, Workspace } from './workspace-types.js';
@@ -23,14 +23,21 @@ export class WorkspacePathGuard {
     private readonly options: WorkspacePathGuardOptions = {},
   ) {}
 
-  public async resolveForRead(workspace: Workspace, inputPath: string): Promise<Result<ResolvedWorkspacePath>> {
+  public async resolveForRead(
+    workspace: Workspace,
+    inputPath: string,
+    authorization?: InvocationAuthorization,
+  ): Promise<Result<ResolvedWorkspacePath>> {
     const inputValidation = this.validateInput(inputPath);
     if (!inputValidation.ok) return inputValidation;
 
     const rootResult = await this.resolveRoot(workspace);
     if (!rootResult.ok) return rootResult;
-    const absolutePath = path.resolve(rootResult.value, inputPath);
-    if (!isWithin(rootResult.value, absolutePath)) {
+    const explicitAbsolutePath = isAbsoluteFsPath(inputPath);
+    const absolutePath = explicitAbsolutePath ? path.resolve(inputPath) : path.resolve(rootResult.value, inputPath);
+    const allowOutside = explicitAbsolutePath && isFullBypassAuthorization(authorization);
+    const outsideWorkspace = !isWithin(rootResult.value, absolutePath);
+    if (outsideWorkspace && !allowOutside) {
       return err(appError('PATH_OUTSIDE_WORKSPACE', 'Path is outside the workspace'));
     }
 
@@ -41,18 +48,19 @@ export class WorkspacePathGuard {
       const ancestorResult = await this.findExistingAncestor(absolutePath);
       if (ancestorResult.ok) {
         const ancestorRealPath = await realpath(ancestorResult.value.path);
-        if (!isWithin(rootResult.value, ancestorRealPath)) {
+        if (!isWithin(rootResult.value, ancestorRealPath) && !allowOutside) {
           return err(appError('PATH_OUTSIDE_WORKSPACE', 'Path is outside the workspace'));
         }
       }
       return err(appError('FILE_NOT_FOUND', 'File was not found'));
     }
-    if (!isWithin(rootResult.value, realTarget)) {
+    const realTargetOutsideWorkspace = !isWithin(rootResult.value, realTarget);
+    if (realTargetOutsideWorkspace && !allowOutside) {
       return err(appError('PATH_OUTSIDE_WORKSPACE', 'Path is outside the workspace'));
     }
 
     const relativePath = path.relative(rootResult.value, realTarget);
-    const secretResult = this.assertSecretReadable(workspace, relativePath);
+    const secretResult = this.assertSecretReadable(workspace, relativePath, authorization);
     if (!secretResult.ok) return secretResult;
 
     try {
@@ -66,24 +74,32 @@ export class WorkspacePathGuard {
       absolutePath,
       realPath: realTarget,
       exists: true,
+      ...(!outsideWorkspace && !realTargetOutsideWorkspace ? {} : { outsideWorkspace: true }),
     });
   }
 
-  public async resolveForWrite(workspace: Workspace, inputPath: string): Promise<Result<ResolvedWorkspacePath>> {
+  public async resolveForWrite(
+    workspace: Workspace,
+    inputPath: string,
+    authorization?: InvocationAuthorization,
+  ): Promise<Result<ResolvedWorkspacePath>> {
     const inputValidation = this.validateInput(inputPath);
     if (!inputValidation.ok) return inputValidation;
 
     const rootResult = await this.resolveRoot(workspace);
     if (!rootResult.ok) return rootResult;
-    const absolutePath = path.resolve(rootResult.value, inputPath);
-    if (!isWithin(rootResult.value, absolutePath)) {
+    const explicitAbsolutePath = isAbsoluteFsPath(inputPath);
+    const absolutePath = explicitAbsolutePath ? path.resolve(inputPath) : path.resolve(rootResult.value, inputPath);
+    const allowOutside = explicitAbsolutePath && isFullBypassAuthorization(authorization);
+    const outsideWorkspace = !isWithin(rootResult.value, absolutePath);
+    if (outsideWorkspace && !allowOutside) {
       return err(appError('PATH_OUTSIDE_WORKSPACE', 'Path is outside the workspace'));
     }
 
     const ancestorResult = await this.findExistingAncestor(absolutePath);
     if (!ancestorResult.ok) return ancestorResult;
     const ancestorRealPath = await realpath(ancestorResult.value.path);
-    if (!isWithin(rootResult.value, ancestorRealPath)) {
+    if (!isWithin(rootResult.value, ancestorRealPath) && !allowOutside) {
       return err(appError('PATH_OUTSIDE_WORKSPACE', 'Path is outside the workspace'));
     }
 
@@ -95,14 +111,15 @@ export class WorkspacePathGuard {
     } catch {
       exists = false;
     }
-    if (realTarget !== undefined && !isWithin(rootResult.value, realTarget)) {
+    const realTargetOutsideWorkspace = realTarget !== undefined && !isWithin(rootResult.value, realTarget);
+    if (realTargetOutsideWorkspace && !allowOutside) {
       return err(appError('PATH_OUTSIDE_WORKSPACE', 'Path is outside the workspace'));
     }
 
     const relativePath = realTarget === undefined
       ? path.relative(rootResult.value, absolutePath)
       : path.relative(rootResult.value, realTarget);
-    const secretResult = this.assertSecretReadable(workspace, relativePath);
+    const secretResult = this.assertSecretReadable(workspace, relativePath, authorization);
     if (!secretResult.ok) return secretResult;
 
     return ok({
@@ -111,12 +128,13 @@ export class WorkspacePathGuard {
       absolutePath,
       ...(realTarget === undefined ? {} : { realPath: realTarget }),
       exists,
+      ...(!outsideWorkspace && !realTargetOutsideWorkspace ? {} : { outsideWorkspace: true }),
     });
   }
 
-  private assertSecretReadable(workspace: Workspace, relativePath: string): Result<void> {
+  private assertSecretReadable(workspace: Workspace, relativePath: string, authorization?: InvocationAuthorization): Result<void> {
     void workspace;
-    if (this.options.unrestricted === true || this.options.trustedWorkspaceAccess === true) {
+    if (isFullBypassAuthorization(authorization) || this.options.unrestricted === true || this.options.trustedWorkspaceAccess === true) {
       return ok(undefined);
     }
     return this.secretPolicy.assertReadable(relativePath);
@@ -154,4 +172,8 @@ export class WorkspacePathGuard {
       }
     }
   }
+}
+
+function isAbsoluteFsPath(inputPath: string): boolean {
+  return path.isAbsolute(inputPath) || path.win32.isAbsolute(inputPath) || path.posix.isAbsolute(inputPath);
 }

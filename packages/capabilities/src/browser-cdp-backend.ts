@@ -1,4 +1,4 @@
-import { appError, err, ok, type Result } from '@lnwjud/domain';
+import { appError, err, isApplicationAuthorized, ok, type InvocationAuthorization, type Result } from '@lnwjud/domain';
 import type { CapabilityBackend } from './local-capability-service.js';
 import { NodeBrowserCdpProtocol } from './browser-cdp-protocol.js';
 
@@ -47,29 +47,29 @@ export class BrowserCdpBackend implements CapabilityBackend {
     this.launcher = options.launcher;
   }
 
-  public async execute(input: unknown, signal?: AbortSignal): Promise<Result<unknown>> {
+  public async execute(input: unknown, signal?: AbortSignal, authorization?: InvocationAuthorization): Promise<Result<unknown>> {
     const aborted = cancellationResult(signal);
     if (aborted !== null) return aborted;
     const parsed = parseBrowserRequest(input);
     if (!parsed.ok) return parsed;
     try {
       const result = parsed.value.steps !== undefined
-        ? await this.executeSteps(parsed.value, signal)
+        ? await this.executeSteps(parsed.value, signal, authorization)
         : parsed.value.action === undefined
           ? err(appError('INVALID_INPUT', 'DOM action is required'))
-          : await this.executeAction(parsed.value, parsed.value.action, parsed.value.parameters, signal);
+          : await this.executeAction(parsed.value, parsed.value.action, parsed.value.parameters, signal, authorization);
       return cancellationResult(signal) ?? result;
     } catch {
       return cancellationResult(signal) ?? err(appError('INTERNAL_ERROR', 'Browser CDP operation failed', true));
     }
   }
 
-  private async executeSteps(request: BrowserRequest, signal?: AbortSignal): Promise<Result<unknown>> {
+  private async executeSteps(request: BrowserRequest, signal?: AbortSignal, authorization?: InvocationAuthorization): Promise<Result<unknown>> {
     const values: unknown[] = [];
     for (const step of request.steps ?? []) {
       const aborted = cancellationResult(signal);
       if (aborted !== null) return aborted;
-      const result = await this.executeAction(request, step.action, step.parameters, signal);
+      const result = await this.executeAction(request, step.action, step.parameters, signal, authorization);
       if (!result.ok) return result;
       const abortedAfterStep = cancellationResult(signal);
       if (abortedAfterStep !== null) return abortedAfterStep;
@@ -78,11 +78,17 @@ export class BrowserCdpBackend implements CapabilityBackend {
     return ok({ steps: values });
   }
 
-  private async executeAction(request: BrowserRequest, action: BrowserAction, parameters: Record<string, unknown>, signal?: AbortSignal): Promise<Result<unknown>> {
+  private async executeAction(
+    request: BrowserRequest,
+    action: BrowserAction,
+    parameters: Record<string, unknown>,
+    signal?: AbortSignal,
+    authorization?: InvocationAuthorization,
+  ): Promise<Result<unknown>> {
     const aborted = cancellationResult(signal);
     if (aborted !== null) return aborted;
     if (request.dryRun) return ok({ dry_run: true, action, parameters });
-    if (!isReadOnlyBrowserAction(action) && request.userConfirmed !== true) {
+    if (!isReadOnlyBrowserAction(action) && !isApplicationAuthorized(authorization, request.userConfirmed)) {
       return err(appError('PERMISSION_REQUIRED', 'Browser actions that can change local or remote state require explicit user confirmation'));
     }
     switch (action) {

@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { appError, err, ok, type Result } from '@lnwjud/domain';
+import { appError, err, isApplicationAuthorized, ok, type InvocationAuthorization, type Result } from '@lnwjud/domain';
 import { CodexAdapter, type CodexStatus } from '@lnwjud/codex';
 import type { CodexRunAuditInput } from '@lnwjud/audit';
 import { DefaultPermissionEngine, permissionProfiles, type PermissionEngine, type PermissionProfile } from '@lnwjud/permissions';
@@ -80,7 +80,14 @@ export class CodexService {
     return this.adapter.status();
   }
 
-  public async run(actor: FileActor, workspaceId: string, instruction: string, signal?: AbortSignal, userConfirmed = false): Promise<Result<CodexRunResult>> {
+  public async run(
+    actor: FileActor,
+    workspaceId: string,
+    instruction: string,
+    signal?: AbortSignal,
+    userConfirmed = false,
+    authorization?: InvocationAuthorization,
+  ): Promise<Result<CodexRunResult>> {
     if (typeof instruction !== 'string' || instruction.trim().length === 0) return err(appError('INVALID_INPUT', 'Codex instruction is required'));
     if (Buffer.byteLength(instruction, 'utf8') > MAX_CODEX_INSTRUCTION_BYTES) return err(appError('FILE_TOO_LARGE', 'Codex instruction is too large'));
     if (isAborted(signal)) return cancelledCodexRun();
@@ -90,9 +97,11 @@ export class CodexService {
     const root = await this.guard.resolveForRead(workspace.value, '.');
     if (isAborted(signal)) return cancelledCodexRun();
     if (!root.ok) return root;
-    if (!userConfirmed) return err(appError('PERMISSION_REQUIRED', 'Starting Codex requires explicit user confirmation'));
-    const permission = this.permissionEngine.decide(this.profileProvider(), { action: 'codex_run', level: 'EXECUTE', workspaceId, target: '.', destructive: false });
-    if (permission === 'DENY') return err(appError('PERMISSION_DENIED', 'Codex execution is denied'));
+    if (!isApplicationAuthorized(authorization, userConfirmed)) return err(appError('PERMISSION_REQUIRED', 'Starting Codex requires explicit user confirmation'));
+    if (authorization?.applicationApproved !== true) {
+      const permission = this.permissionEngine.decide(this.profileProvider(), { action: 'codex_run', level: 'EXECUTE', workspaceId, target: '.', destructive: false });
+      if (permission === 'DENY') return err(appError('PERMISSION_DENIED', 'Codex execution is denied'));
+    }
 
     if (isAborted(signal)) return cancelledCodexRun();
     const codexTaskId = this.taskIdFactory();
@@ -116,6 +125,14 @@ export class CodexService {
     return this.adapter.statusProcess(owner.value.processId);
   }
 
+  /** Trusted read-only host probe used only by durable-goal orphan detection. */
+  public statusForGoalLiveness(workspaceId: string, codexTaskId: string): Result<ManagedProcess> {
+    const owner = this.owners.get(codexTaskId);
+    if (owner === undefined) return err(appError('PROCESS_NOT_FOUND', 'Codex task was not found'));
+    if (owner.workspaceId !== workspaceId) return err(appError('PERMISSION_DENIED', 'Codex task belongs to another workspace'));
+    return this.adapter.statusProcess(owner.processId);
+  }
+
   public async list(actor: FileActor, workspaceId: string): Promise<Result<readonly CodexTaskListItem[]>> {
     const workspace = await this.getWorkspace(workspaceId);
     if (!workspace.ok) return workspace;
@@ -134,10 +151,16 @@ export class CodexService {
     return this.adapter.logs(owner.value.processId, query);
   }
 
-  public async stop(actor: FileActor, workspaceId: string, codexTaskId: string, userConfirmed = false): Promise<Result<void>> {
+  public async stop(
+    actor: FileActor,
+    workspaceId: string,
+    codexTaskId: string,
+    userConfirmed = false,
+    authorization?: InvocationAuthorization,
+  ): Promise<Result<void>> {
     const owner = this.authorize(actor, workspaceId, codexTaskId);
     if (!owner.ok) return owner;
-    if (!userConfirmed) return err(appError('PERMISSION_REQUIRED', 'Stopping Codex requires explicit user confirmation'));
+    if (!isApplicationAuthorized(authorization, userConfirmed)) return err(appError('PERMISSION_REQUIRED', 'Stopping Codex requires explicit user confirmation'));
     return this.adapter.stop(owner.value.processId);
   }
 

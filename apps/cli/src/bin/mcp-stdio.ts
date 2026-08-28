@@ -7,6 +7,7 @@ import {
   STDIO_PERMISSION_PROFILE_SETTING_KEY,
   STDIO_STRICT_ROOTS_SETTING_KEY,
   UNRESTRICTED_SETTING_KEY,
+  USER_SETTING_KEYS,
   isUnrestricted,
   parseAllowedRoots,
   parseBooleanSetting,
@@ -61,10 +62,16 @@ async function main(): Promise<void> {
       ?? settingsRepository.get(STDIO_PERMISSION_PROFILE_SETTING_KEY),
     'full',
   );
-  const strictRootsEnabled = hasFlag('--strict-roots')
+  const stdioFullBypassAll = profileName === 'full' && (
+    hasFlag('--full-bypass-all')
+    || (process.env.LNWJUD_STDIO_FULL_BYPASS_ALL !== undefined
+      ? parseBooleanSetting(process.env.LNWJUD_STDIO_FULL_BYPASS_ALL, false)
+      : parseBooleanSetting(settingsRepository.get(USER_SETTING_KEYS.stdioFullBypassAll), false))
+  );
+  const strictRootsEnabled = !stdioFullBypassAll && (hasFlag('--strict-roots')
     || (process.env.LNWJUD_STRICT_ROOTS !== undefined
       ? parseBooleanSetting(process.env.LNWJUD_STRICT_ROOTS, false)
-      : parseBooleanSetting(settingsRepository.get(STDIO_STRICT_ROOTS_SETTING_KEY), false));
+      : parseBooleanSetting(settingsRepository.get(STDIO_STRICT_ROOTS_SETTING_KEY), false)));
   const cliAllowedRoots = readArgs('--allowed-root');
   const envAllowedRoots = parseAllowedRoots(process.env.LNWJUD_ALLOWED_ROOTS);
   const storedAllowedRoots = parseAllowedRoots(settingsRepository.get(STDIO_ALLOWED_ROOTS_SETTING_KEY));
@@ -99,9 +106,9 @@ async function main(): Promise<void> {
     ? rawWorkspaceRepository
     : new StrictWorkspaceRepository(rawWorkspaceRepository, strictAllowedRoots);
   const workspaceService = new WorkspaceService(workspaceRepository);
-  const unrestricted = strictAllowedRoots === undefined
+  const unrestricted = stdioFullBypassAll || (strictAllowedRoots === undefined
     ? isUnrestricted(process.env, settingsRepository.get(UNRESTRICTED_SETTING_KEY))
-    : false;
+    : false);
 
   const requestedRaw = readArg('--workspace') ?? process.env.LNWJUD_WORKSPACE;
   const requestedPath = path.resolve(
@@ -154,12 +161,13 @@ async function main(): Promise<void> {
 
   const runtime = createStdioMcpRuntime(dataPath, workspace, unrestricted, {
     permissionProfile: profileName,
+    fullBypassAll: stdioFullBypassAll,
     ...(strictAllowedRoots === undefined ? {} : { strictAllowedRoots }),
   });
   await runtime.activityReady;
   process.stderr.write(
     `lnwjud MCP stdio ready primary=${workspace.id} root=${workspace.realRootPath} profile=${profileName}`
-      + `${unrestricted ? ' unrestricted=1' : ''}${strictAllowedRoots === undefined ? '' : ` strict_roots=${strictAllowedRoots.length}`}\n`,
+      + `${stdioFullBypassAll ? ' full_bypass=1' : ''}${unrestricted ? ' unrestricted=1' : ''}${strictAllowedRoots === undefined ? '' : ` strict_roots=${strictAllowedRoots.length}`}\n`,
   );
 
   let shuttingDown = false;
@@ -177,6 +185,7 @@ async function main(): Promise<void> {
     activityTracker: runtime.activityTracker,
     codexToolsEnabled: runtime.codexToolsEnabled,
     profileProvider: runtime.profileProvider,
+    authorizationModeProvider: (): 'standard' | 'full_bypass' => stdioFullBypassAll ? 'full_bypass' : 'standard',
     allowAiDeleteProvider: runtime.allowAiDeleteProvider,
     destructivePolicyProvider: runtime.destructivePolicyProvider,
     activeWorkspaceScopeProvider: runtime.activeWorkspaceScopeProvider,

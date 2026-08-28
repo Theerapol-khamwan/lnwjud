@@ -20,8 +20,9 @@ The phase-by-phase implementation checklist is
    facades reduce round trips; they never replace `read_file`, search, Git,
    process, shell, browser, Windows, logs, tests, or workspace primitives.
 3. **Authorization is independent from ranking.** Context ordering is an
-   optimization. Path guards, command policy, permission profiles, ownership,
-   and hard blocks remain authoritative.
+   optimization. In standard mode path guards, command policy, permission
+   profiles, ownership, and hard blocks remain authoritative. Explicit trusted
+   Full Bypass skips lnwjud application authorization but ranking never enables it.
 4. **Deterministic work stays local.** Search, file enumeration, Git parsing,
    symbol extraction, cache lookup, routing, policy checks, and test discovery
    must not require an LLM call.
@@ -41,7 +42,7 @@ MCP clients (ChatGPT / Codex / Claude / other agents)
              MCP stdio or loopback Streamable HTTP
                          |
                          v
-                  ToolRegistry (228 configurable tools; 222 advertised by default)
+                  ToolRegistry (229 configurable tools; 223 advertised by default)
                          |
        +-----------------+------------------+
        |                 |                  |
@@ -109,8 +110,8 @@ builds the high-impact slices on top of it:
 Long-running operations use the existing task handles where a concrete backend
 exists. Activity events now carry bounded `traceId`/`traceParent` values into
 NDJSON and SQLite audit metadata. The 184-tool snapshot remains a historical
-compatibility baseline. Current transports support 228 configurable tools and
-advertise 222 by default because the six Codex delegation tools are opt-in;
+compatibility baseline. Current transports support 229 configurable tools and
+advertise 223 by default because the six Codex delegation tools are opt-in;
 registry additions remain append-only.
 
 ## Request and side-effect pipeline
@@ -120,7 +121,8 @@ MCP/IPC input
   -> Zod/schema validation
   -> normalized workspace/path/command resolution
   -> workspace and ownership checks
-  -> permission profile + hard-block decision
+  -> trusted invocation authorization (standard or full_bypass)
+  -> permission profile + hard-block decision when Full Bypass is OFF
   -> application service
   -> guarded adapter (shell:false / argument arrays where applicable)
   -> sanitized result + bounded transport metadata
@@ -139,8 +141,9 @@ continuation rather than lowering an existing limit silently.
 - MCP protocol is the only stdout payload; diagnostics go to stderr.
 - The packaged direct-node `lnwjud-mcp-stdio.cmd` launcher remains available
   for direct local stdio hosts such as Codex CLI. Secure Tunnel does **not** use
-  this headless runtime; it forwards to the Desktop loopback HTTP MCP so host
-  Active Project and native approval remain authoritative.
+  this headless runtime; it forwards to the Desktop loopback HTTP MCP and uses
+  Desktop profile/Full Bypass state. Active Project and native approval remain
+  authoritative only while Desktop Full Bypass is OFF.
 - Closing the peer is a normal shutdown; owned runtime resources are closed once.
 
 ### loopback Streamable HTTP
@@ -159,8 +162,9 @@ The desktop owns the `tunnel-client` child it starts, ensures its loopback HTTP
 MCP is running, and rewrites the tunnel profile to `mcp.server_urls` using the
 current Desktop `/mcp` endpoint. The tunnel therefore shares the same dynamic
 Active Project provider, permission profile, activity tracker, and native
-exact-action approval provider as local Desktop MCP. Standalone/headless stdio
-still fails closed for mutations requiring host approval. The controller records
+exact-action approval provider and Desktop Full Bypass state as local Desktop MCP.
+Standalone/headless stdio fails closed for mutations requiring host approval when
+its independent STDIO Full Bypass is OFF. The controller records
 the persistent tunnel log, distinguishes owned from externally started clients,
 and surfaces unexpected exits/reconnect state.
 
@@ -172,12 +176,20 @@ and surfaces unexpected exits/reconnect state.
 - Permission profiles are `safe`, `balanced`, `full`, and `custom`. Desktop MCP
   uses the selected profile; packaged stdio keeps `full` as the backward-compatible
   default and can use a separately configured profile plus optional Strict Roots.
-  A caller still cannot bypass hard blocks or path/ownership checks.
+- Desktop HTTP/Secure Tunnel and direct STDIO expose separate Full Bypass toggles
+  under Full Access (Unrestricted). They default OFF, require profile `full`, and
+  are never inferred merely from selecting Full.
+- Trusted Full Bypass skips all lnwjud application prompts/denials, including
+  always-confirm tools, host approval, command policy, Active Project/allowed
+  roots/protected paths, explicit absolute outside targets, and `goalLease`. The
+  authorization travels out-of-band and never rewrites caller `userConfirmed`.
 - `READ` is non-mutating, `WRITE` changes workspace data, `EXECUTE` starts or
   controls processes/commands, and `DANGEROUS` covers destructive, interactive,
   external, or full-access meta operations.
-- Disk format, shutdown, unowned process termination, workspace-root deletion,
-  and other hard-blocked actions remain denied regardless of profile.
+- With Full Bypass OFF, disk format, shutdown, workspace-root deletion, and other
+  hard-blocked actions remain denied regardless of profile. Full Bypass skips those
+  application policies, while schema validation, exact owned-handle/worktree checks,
+  Windows ACL/UAC, provider availability, and external policy still apply.
 - Child MCP servers reached through `mcp_call` retain their own side-effect
   contract; the bridge does not flatten or silently reclassify them.
 

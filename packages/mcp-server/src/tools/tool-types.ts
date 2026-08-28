@@ -1,4 +1,4 @@
-import { err, ok, type Result } from '@lnwjud/domain';
+import { err, ok, type InvocationAuthorization, type Result } from '@lnwjud/domain';
 import type { CapabilityService } from '@lnwjud/capabilities';
 import type { ExtensionsService } from '@lnwjud/extensions';
 import type {
@@ -11,6 +11,7 @@ import type {
   FileService,
   GitService,
   GoalContinuationService,
+  GoalMutationFenceService,
   MoveFileRequest,
   ProcessService,
   ProjectService,
@@ -56,7 +57,8 @@ export interface McpApplicationServices {
   readonly file?: Pick<FileService, 'readFile' | 'readFiles' | 'writeFile' | 'applyPatch' | 'editFile' | 'moveFile' | 'copyFile' | 'deleteFile' | 'listRecoveryItems' | 'restoreDeletedFile' | 'prepareExternalFileMutation'>;
   readonly checkpoint?: Pick<CheckpointService, 'list' | 'restore'>;
   readonly goals?: Pick<GoalContinuationService, 'runGoal' | 'getGoal' | 'checkpointGoal' | 'finishGoal' | 'listGoals'>;
-  readonly scheduledContinuations?: Pick<ScheduledContinuationService, 'prepareScheduledContinuation' | 'recordScheduledContinuationReceipt' | 'claimScheduledContinuation' | 'getScheduledContinuation' | 'authorizeWorkspaceMutation'>;
+  readonly scheduledContinuations?: Pick<ScheduledContinuationService, 'prepareScheduledContinuation' | 'recordScheduledContinuationReceipt' | 'claimScheduledContinuation' | 'getScheduledContinuation' | 'expediteScheduledContinuation'>;
+  readonly goalMutationFence?: Pick<GoalMutationFenceService, 'inspectWorkspaceFence' | 'begin' | 'heartbeat' | 'end' | 'observe'>;
   readonly search?: Pick<SearchService, 'searchFiles' | 'searchText'>;
   readonly workspaceIndex?: Pick<WorkspaceIndexService, 'indexWorkspace' | 'status' | 'startWatch' | 'stopWatch'>;
   readonly git?: Pick<GitService, 'status' | 'diff' | 'log' | 'run'>;
@@ -78,7 +80,7 @@ export interface McpToolDefinition {
   readonly annotations: McpToolAnnotations;
   readonly inputSchema: z.ZodType;
   parse(input: unknown): Result<unknown>;
-  execute(input: unknown, signal: AbortSignal): Promise<Result<unknown>>;
+  execute(input: unknown, signal: AbortSignal, authorization?: InvocationAuthorization): Promise<Result<unknown>>;
 }
 
 export interface McpToolContext {
@@ -93,7 +95,7 @@ export interface ToolConfig<T extends z.ZodType> {
   readonly permission: McpPermissionLevel;
   readonly annotations: McpToolAnnotations;
   readonly inputSchema: T;
-  handler(input: z.infer<T>, signal: AbortSignal): Promise<Result<unknown>>;
+  handler(input: z.infer<T>, signal: AbortSignal, authorization?: InvocationAuthorization): Promise<Result<unknown>>;
 }
 
 export function defineTool<T extends z.ZodType>(config: ToolConfig<T>): McpToolDefinition {
@@ -107,8 +109,8 @@ export function defineTool<T extends z.ZodType>(config: ToolConfig<T>): McpToolD
       const parsed = config.inputSchema.safeParse(input);
       return parsed.success ? ok(parsed.data) : err({ code: 'INVALID_INPUT', message: 'Tool input is invalid', recoverable: false });
     },
-    execute(input: unknown, signal: AbortSignal): Promise<Result<unknown>> {
-      return config.handler(input as z.infer<T>, signal);
+    execute(input: unknown, signal: AbortSignal, authorization?: InvocationAuthorization): Promise<Result<unknown>> {
+      return config.handler(input as z.infer<T>, signal, authorization);
     },
   };
 }

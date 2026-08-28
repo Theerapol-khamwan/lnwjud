@@ -94,7 +94,7 @@ test('desktop serves the real MCP client development workflow', async () => {
       'workspace_index', 'workspace_index_status', 'workspace_index_watch', 'workspace_index_stop',
       'session_handoff', 'verify_incremental',
       'run_goal', 'get_goal', 'checkpoint_goal', 'finish_goal', 'list_goals',
-      'prepare_scheduled_continuation', 'record_scheduled_continuation_receipt', 'claim_scheduled_continuation', 'get_scheduled_continuation',
+      'prepare_scheduled_continuation', 'record_scheduled_continuation_receipt', 'claim_scheduled_continuation', 'get_scheduled_continuation', 'expedite_scheduled_continuation',
     ];
     const advertisedTools = tools.tools.map((tool) => tool.name);
     expect(advertisedTools).toEqual([
@@ -102,7 +102,7 @@ test('desktop serves the real MCP client development workflow', async () => {
       ...UPGRADE_TOOL_CATALOG.map((entry) => entry.name),
       'tool_batch',
     ]);
-    expect(advertisedTools).toHaveLength(222);
+    expect(advertisedTools).toHaveLength(223);
     expect(advertisedTools.some((name) => name.startsWith('codex_'))).toBe(false);
 
     if (process.platform === 'win32') {

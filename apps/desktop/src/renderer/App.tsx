@@ -35,7 +35,7 @@ import {
   writeGuidedTunnelSetupState,
 } from './features/onboarding/guided-tunnel-setup-state.js';
 import { createTranslator } from './i18n/index.js';
-import { markStartupDoctorPassed, startupDoctorCorePassed, startupDoctorRequired } from './features/onboarding/startup-doctor-state.js';
+import { markStartupDoctorPassed, startupDoctorCorePassed, startupDoctorNavigationTarget, startupDoctorRequired } from './features/onboarding/startup-doctor-state.js';
 
 const MAX_CLIENT_LOG_LINES = 30_000;
 
@@ -45,6 +45,7 @@ export function App(): ReactElement {
   const [workspaces, setWorkspaces] = useState<readonly WorkspaceSummary[]>([]);
   const [doctor, setDoctor] = useState<DoctorReport | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [bootError, setBootError] = useState<string | null>(null);
   const [mcpBusy, setMcpBusy] = useState(false);
   const [tunnelBusy, setTunnelBusy] = useState(false);
   const [locale, setLocale] = useState<UiLocale>('th');
@@ -181,18 +182,23 @@ export function App(): ReactElement {
   }
 
   const refresh = useCallback(async (): Promise<void> => {
-    try {
-      const [nextDashboard, nextWorkspaces] = await Promise.all([
-        window.lnwjud.getDashboard(),
-        window.lnwjud.listWorkspaces(),
-      ]);
-      setDashboard(nextDashboard);
-      setWorkspaces(nextWorkspaces);
-      setLocale(nextDashboard.locale);
-
-    } catch (cause: unknown) {
-      setError(cause instanceof Error ? cause.message : createTranslator(locale)('error.desktopService'));
+    const [dashboardResult, workspacesResult] = await Promise.allSettled([
+      window.lnwjud.getDashboard(),
+      window.lnwjud.listWorkspaces(),
+    ]);
+    const failures: string[] = [];
+    if (dashboardResult.status === 'fulfilled') {
+      setDashboard(dashboardResult.value);
+      setLocale(dashboardResult.value.locale);
+    } else {
+      failures.push(errorMessage(dashboardResult.reason, createTranslator(locale)('error.desktopService')));
     }
+    if (workspacesResult.status === 'fulfilled') {
+      setWorkspaces(workspacesResult.value);
+    } else {
+      failures.push(errorMessage(workspacesResult.reason, createTranslator(locale)('error.desktopService')));
+    }
+    setBootError(failures.length === 0 ? null : failures.join(' · '));
   }, [locale]);
 
   useEffect(() => {
@@ -243,6 +249,7 @@ export function App(): ReactElement {
       setGuidedTunnelSetupOpen(false);
       setScreen('doctor');
     }).catch((cause: unknown) => {
+      setStartupDoctorReady(false);
       setError(errorMessage(cause, createTranslator(locale)('error.doctorRun')));
       setFirstRunTunnelTipOpen(false);
       setGuidedTunnelSetupOpen(false);
@@ -268,6 +275,9 @@ export function App(): ReactElement {
 
   function changeGuidedTunnelSetupOpen(open: boolean): void {
     if (!open) {
+      if (dashboard === null || !isTunnelRunning(dashboard.tunnel)) {
+        try { writeGuidedTunnelSetupState(window.localStorage, 'dismissed'); } catch { /* Closing still dismisses for this session. */ }
+      }
       setGuidedTunnelSetupOpen(false);
       return;
     }
@@ -295,13 +305,16 @@ export function App(): ReactElement {
     }
   }
 
-  async function addWorkspace(rootPath: string): Promise<void> {
+  async function addWorkspace(rootPath: string): Promise<boolean> {
     setError(null);
     try {
       await window.lnwjud.addWorkspace({ rootPath });
       await refresh();
+      await runDoctor();
+      return true;
     } catch (cause: unknown) {
       setError(errorMessage(cause, t('error.workspaceAdd')));
+      return false;
     }
   }
 
@@ -541,7 +554,20 @@ export function App(): ReactElement {
   }
 
   if (dashboard === null) {
-    return <div className="boot-screen">{t('app.loading')}</div>;
+    return (
+      <div className="boot-screen">
+        {bootError === null ? t('app.loading') : (
+          <div className="boot-recovery" role="alert">
+            <strong>{locale === 'th' ? 'เปิด lnwjud ไม่สำเร็จ' : 'lnwjud could not finish starting'}</strong>
+            <p>{bootError}</p>
+            <div className="inline-actions">
+              <button type="button" onClick={() => { void refresh(); }}>{locale === 'th' ? 'ลองใหม่' : 'Retry'}</button>
+              <button type="button" onClick={() => { void popOutLogViewer(); }}>{locale === 'th' ? 'เปิดบันทึกการทำงาน' : 'Open Logs'}</button>
+            </div>
+          </div>
+        )}
+      </div>
+    );
   }
 
   return (
@@ -549,19 +575,23 @@ export function App(): ReactElement {
       locale={locale}
       appVersion={dashboard.appVersion}
       mcpRunning={dashboard.mcp.running}
+      desktopFullBypassOn={dashboard.permissionProfile === 'full' && dashboard.settings?.desktopFullBypassAll === true}
+      stdioFullBypassOn={dashboard.stdioPermissionProfile === 'full' && dashboard.settings?.stdioFullBypassAll === true}
       updateStatus={updateStatus}
       screen={screen}
       onNavigate={(nextScreen) => {
         setError(null);
-        if (!startupDoctorReady && doctor?.exitCode === 1 && nextScreen !== 'doctor') {
-          setScreen('doctor');
-          return;
-        }
-        setScreen(nextScreen);
+        setScreen(startupDoctorNavigationTarget(startupDoctorReady, nextScreen));
       }}
       onLocaleChange={(next) => { void changeLocale(next); }}
       onUpdateAction={() => { void handleUpdateAction(); }}
     >
+      {bootError === null ? null : (
+        <div className="error-banner boot-partial-error" role="alert">
+          <span>{bootError}</span>
+          <button type="button" onClick={() => { void refresh(); }}>{locale === 'th' ? 'ลองใหม่' : 'Retry'}</button>
+        </div>
+      )}
       {error === null ? null : <div className="error-banner" role="alert">{error}</div>}
       {screen === 'home' ? (
         <ControlCenterPage
@@ -661,12 +691,14 @@ export function App(): ReactElement {
       {screen === 'doctor' ? (
         <div className="page-content">
           <h1>{t('doctor.title')}</h1>
-          <DoctorPanel locale={locale} report={doctor} onRunDoctor={runDoctor} />
+          <DoctorPanel locale={locale} report={doctor} onRunDoctor={runDoctor} onOpenProjects={() => setScreen('projects')} />
         </div>
       ) : null}
       {firstRunTunnelTipOpen ? (
         <FirstRunTunnelTip
           locale={locale}
+          permissionProfile={dashboard.permissionProfile}
+          onPermissionProfileChange={(profile) => { void setPermissionProfile(profile); }}
           onStart={() => openGuidedTunnelSettings(true)}
           onLater={() => {
             try { writeGuidedTunnelSetupState(window.localStorage, 'dismissed'); } catch { /* Dismiss for this session even if storage is unavailable. */ }

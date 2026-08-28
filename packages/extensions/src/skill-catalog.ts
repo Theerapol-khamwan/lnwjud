@@ -17,21 +17,31 @@ export class SkillCatalog {
 
   public async list(input: { readonly query?: string; readonly source?: string } = {}): Promise<Result<{ readonly skills: readonly SkillSummary[] }>> {
     const skills = await this.discover();
-    const query = input.query?.trim().toLowerCase();
+    const query = input.query === undefined ? undefined : normalizeSearchText(input.query);
     const source = input.source?.trim().toLowerCase();
     const filtered = skills.filter((skill) => {
       if (source !== undefined && source.length > 0 && skill.source.toLowerCase() !== source) return false;
       if (query === undefined || query.length === 0) return true;
-      return skill.name.toLowerCase().includes(query)
-        || skill.description.toLowerCase().includes(query)
-        || skill.id.toLowerCase().includes(query);
+      return normalizeSearchText(skill.name).includes(query)
+        || normalizeSearchText(skill.description).includes(query)
+        || normalizeSearchText(skill.id).includes(query);
     });
     return ok({ skills: filtered });
   }
 
   public async read(input: { readonly skillId: string; readonly relativePath?: string }): Promise<Result<SkillContent>> {
     const skills = await this.discover();
-    const skill = skills.find((entry) => entry.id === input.skillId);
+    const requestedSkillId = input.skillId.trim();
+    const normalizedSkillId = requestedSkillId.startsWith('$') ? requestedSkillId.slice(1) : requestedSkillId;
+    const exact = skills.find((entry) => entry.id === normalizedSkillId);
+    const named = exact === undefined ? skills.filter((entry) => entry.name === normalizedSkillId) : [];
+    if (named.length > 1) {
+      return err(appError(
+        'INVALID_INPUT',
+        `Skill name is ambiguous: ${input.skillId}. Use one of: ${named.map((entry) => entry.id).join(', ')}`,
+      ));
+    }
+    const skill = exact ?? named[0];
     if (skill === undefined) return err(appError('FILE_NOT_FOUND', `Skill not found: ${input.skillId}`));
 
     const relativePath = input.relativePath?.trim() || 'SKILL.md';
@@ -103,6 +113,7 @@ export class SkillCatalog {
       defaults.push(
         { source: 'workspace-cursor-skills', path: path.join(workspaceRoot, '.cursor', 'skills') },
         { source: 'workspace-claude-skills', path: path.join(workspaceRoot, '.claude', 'skills') },
+        { source: 'workspace-agents-skills', path: path.join(workspaceRoot, '.agents', 'skills') },
       );
     }
     for (const extra of [...this.options.settings.extraSkillRoots, ...(this.options.extraRoots ?? [])]) {
@@ -240,4 +251,8 @@ function dedupeById(skills: readonly SkillSummary[]): readonly SkillSummary[] {
     result.push(skill);
   }
   return result;
+}
+
+function normalizeSearchText(value: string): string {
+  return value.trim().toLowerCase().replace(/[^\p{L}\p{N}]+/gu, ' ').replace(/\s+/g, ' ');
 }

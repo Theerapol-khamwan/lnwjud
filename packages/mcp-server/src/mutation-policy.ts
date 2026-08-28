@@ -125,6 +125,7 @@ export function inspectMutationOperation(
     case 'process_start':
       return inspectDirectExecution(value, toolName);
     case 'process_stop':
+      return execute('process_stop interrupts only an exact process handle owned by the current client/session/workspace');
     case 'codex_run':
     case 'codex_stop':
     case 'sandbox_exec':

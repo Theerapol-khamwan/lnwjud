@@ -10,6 +10,12 @@ import { ToolRegistry } from './tool-registry.js';
 import type { McpApplicationServices } from './tools/tool-types.js';
 
 const actor: FileActor = { clientId: 'test', clientName: 'test' };
+const fullBypassAuthorization = {
+  mode: 'full_bypass',
+  applicationApproved: true,
+  bypassApplicationAuthorization: true,
+  source: 'full_bypass',
+} as const;
 
 describe('upgrade runtime', () => {
   it('has deterministic coverage for the roadmap tool catalog', () => {
@@ -168,6 +174,23 @@ describe('upgrade runtime', () => {
     await expect(runtime.execute('git_worktree_remove', { workspaceId: 'ws-1', worktreePath: '.worktrees/agent-1', dryRun: false, userConfirmed: true })).resolves.toMatchObject({ ok: true, value: { status: 'completed' } });
     expect(calls.at(-1)).toMatchObject({ args: ['worktree', 'remove', '.worktrees/agent-1'] });
     await expect(runtime.execute('git_worktree_remove', { workspaceId: 'ws-1', worktreePath: '.worktrees/agent-1', dryRun: false, userConfirmed: true })).resolves.toMatchObject({ ok: false, error: { code: 'PROCESS_NOT_FOUND' } });
+
+    await expect(runtime.execute('git_worktree_spawn', {
+      workspaceId: 'ws-1', worktreePath: 'E:\\outside\\agent-1', ref: 'main', dryRun: false,
+    }, undefined, fullBypassAuthorization)).resolves.toMatchObject({ ok: true, value: { status: 'completed', worktreePath: 'E:/outside/agent-1' } });
+    expect(calls.at(-1)).toMatchObject({ args: ['worktree', 'add', '--detach', 'E:/outside/agent-1', 'main'] });
+  });
+
+  it('uses trusted Full Bypass for inner always-confirm upgrade mutations', async () => {
+    const runtime = new UpgradeRuntimeService({}, actor);
+    await runtime.execute('hook_register', { name: 'audit', event: 'beforeTool' });
+
+    await expect(runtime.execute('hook_remove', { name: 'audit' }, undefined, fullBypassAuthorization))
+      .resolves.toMatchObject({ ok: true, value: { removed: true } });
+    await expect(runtime.execute('permission_check', { action: 'filesystem.delete' }, undefined, fullBypassAuthorization))
+      .resolves.toMatchObject({ ok: true, value: { decision: 'allow', standardDecision: 'ask', authorizationMode: 'full_bypass' } });
+    await expect(runtime.execute('permission_profile', {}, undefined, fullBypassAuthorization))
+      .resolves.toMatchObject({ ok: true, value: { dangerousActions: 'application-approval-bypassed', hardBlocksRemain: false, operatingSystemAndRemotePolicyRemain: true } });
   });
 
   it('routes PowerPoint and Outlook upgrade tools into the Office capability', async () => {

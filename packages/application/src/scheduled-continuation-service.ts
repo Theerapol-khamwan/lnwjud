@@ -10,17 +10,18 @@ import {
   type GoalStepUpdate,
   type Result,
   type ScheduledContinuationExecutionPreference,
+  type ScheduledContinuationExpediteReason,
+  type ScheduledContinuationNativeCancellationReceipt,
   type ScheduledContinuationReceiptOutcome,
   type ScheduledContinuationRepository,
-  type ScheduledContinuationRunsOn,
   type ScheduledContinuationSnapshot,
+  type ScheduledContinuationWorkerLivenessPort,
 } from '@lnwjud/domain';
 import type { FileActor } from './file-service.js';
 import type { GoalSnapshot, RunGoalResult } from './goal-continuation-service.js';
 
-export const DEFAULT_CONTINUATION_DELAY_MINUTES = 2;
-export const MIN_CONTINUATION_DELAY_MINUTES = 2;
-export const MAX_CONTINUATION_DELAY_MINUTES = 5;
+export const SUCCESSOR_DELAY_MINUTES = 25;
+export const COLLISION_RESCHEDULE_MINUTES = 2;
 
 const MAX_ID = 128;
 const MAX_TEXT = 2_048;
@@ -38,8 +39,8 @@ export interface PrepareScheduledContinuationRequest {
   readonly blockers: readonly string[];
   readonly evidence: readonly GoalEvidence[];
   readonly activeTaskIds: readonly string[];
-  readonly delayMinutes?: 2 | 3 | 4 | 5;
-  readonly executionPreference?: ScheduledContinuationExecutionPreference;
+  readonly successorDelayMinutes?: 25;
+  readonly executionPreference?: 'cloud';
 }
 
 export interface ScheduledContinuationRequest {
@@ -49,6 +50,20 @@ export interface ScheduledContinuationRequest {
   readonly destination: 'current_chat';
   readonly executionPreference: ScheduledContinuationExecutionPreference;
   readonly continuationId: string;
+  readonly name: string;
+  readonly prompt: string;
+}
+
+export interface ScheduledContinuationTaskUpdateRequest {
+  readonly provider: 'chatgpt_scheduled_task';
+  readonly operation: 'update';
+  readonly occurrence: 'once';
+  readonly dueAt: string;
+  readonly destination: 'current_chat';
+  readonly executionPreference: 'cloud';
+  readonly continuationId: string;
+  readonly nativeTaskId: string;
+  readonly expectedContinuationVersion: number;
   readonly name: string;
   readonly prompt: string;
 }
@@ -67,7 +82,9 @@ export interface RecordScheduledContinuationReceiptRequest {
   readonly expectedVersion: number;
   readonly outcome: ScheduledContinuationReceiptOutcome;
   readonly nativeTaskId?: string;
-  readonly runsOn?: ScheduledContinuationRunsOn;
+  readonly dueAt?: string;
+  readonly runsOn?: 'cloud';
+  readonly nativeCancellationReceipt?: ScheduledContinuationNativeCancellationReceipt;
   readonly detail?: string;
 }
 
@@ -82,6 +99,21 @@ export type ClaimScheduledContinuationResult =
       readonly continuation: ScheduledContinuationSnapshot;
       readonly goal: Omit<RunGoalResult, 'leaseToken'>;
       readonly leaseToken: string;
+      readonly leaseGeneration: number;
+      readonly acquisition: 'normal' | 'expired_lease' | 'orphan_recovered';
+    }
+  | {
+      readonly outcome: 'reschedule_required';
+      readonly continuation: ScheduledContinuationSnapshot;
+      readonly goal: GoalSnapshot;
+      readonly retryAfterSeconds: 120;
+      readonly taskUpdateRequest: ScheduledContinuationTaskUpdateRequest;
+    }
+  | {
+      readonly outcome: 'receipt_required';
+      readonly reason: 'native_task_unconfirmed';
+      readonly continuation: ScheduledContinuationSnapshot;
+      readonly goal: GoalSnapshot;
     }
   | {
       readonly outcome: 'already_claimed' | 'terminal_noop';
@@ -89,15 +121,9 @@ export type ClaimScheduledContinuationResult =
       readonly goal: GoalSnapshot;
     }
   | {
-      readonly outcome: 'retry_prepared';
+      readonly outcome: 'not_due';
       readonly continuation: ScheduledContinuationSnapshot;
-      readonly previousContinuationId: string;
-      readonly retryAfterSeconds: number;
-      readonly scheduleRequest: ScheduledContinuationRequest;
-    }
-  | {
-      readonly outcome: 'busy_blocked';
-      readonly continuation: ScheduledContinuationSnapshot;
+      readonly goal: GoalSnapshot;
       readonly retryAfterSeconds: number;
     };
 
@@ -105,12 +131,37 @@ export type GetScheduledContinuationRequest =
   | { readonly continuationId: string }
   | { readonly goalId: string; readonly latest: true };
 
+export interface ExpediteScheduledContinuationRequest {
+  readonly goalId: string;
+  readonly continuationId: string;
+  readonly leaseToken: string;
+  readonly expectedLeaseGeneration: number;
+  readonly expectedGoalRevision: number;
+  readonly expectedContinuationVersion: number;
+  readonly reason: ScheduledContinuationExpediteReason;
+}
+
+export type ExpediteScheduledContinuationResult =
+  | {
+      readonly outcome: 'update_required';
+      readonly continuation: ScheduledContinuationSnapshot;
+      readonly handoffDeadlineAt: string;
+      readonly taskUpdateRequest: ScheduledContinuationTaskUpdateRequest;
+    }
+  | {
+      readonly outcome: 'unchanged';
+      readonly reason: 'already_due_within_two_minutes';
+      readonly continuation: ScheduledContinuationSnapshot;
+    };
+
 export interface ScheduledContinuationServiceOptions {
   readonly now?: () => Date;
+  readonly workerLiveness?: ScheduledContinuationWorkerLivenessPort;
 }
 
 export class ScheduledContinuationService {
   private readonly now: () => Date;
+  private readonly workerLiveness: ScheduledContinuationWorkerLivenessPort;
 
   public constructor(
     private readonly goals: ScheduledContinuationRepository & {
@@ -119,6 +170,19 @@ export class ScheduledContinuationService {
     options: ScheduledContinuationServiceOptions = {},
   ) {
     this.now = options.now ?? ((): Date => new Date());
+    this.workerLiveness = options.workerLiveness ?? {
+      observe: async (goalId, activeTaskIds): ReturnType<ScheduledContinuationWorkerLivenessPort['observe']> => {
+        const goal = await this.goals.getById(goalId);
+        return {
+          trustworthy: false,
+          observedAt: this.now().toISOString(),
+          leaseGeneration: goal?.leaseGeneration ?? 0,
+          leaseActivitySeq: goal?.leaseActivitySeq ?? 0,
+          liveFencedCallCount: 0,
+          activeTaskStates: activeTaskIds.map((taskId) => ({ taskId, state: 'unknown' as const })),
+        };
+      },
+    };
   }
 
   public async prepareScheduledContinuation(
@@ -131,7 +195,7 @@ export class ScheduledContinuationService {
       const current = await this.requireOwnedGoal(actor, goalId);
       if (current.status !== 'active') return err(appError('CONFLICT', 'Goal is already terminal'));
       if (!Number.isInteger(request.expectedRevision) || request.expectedRevision < 0) throw new Error('expectedRevision is invalid');
-      const delayMinutes = normalizeDelay(request.delayMinutes);
+      const successorDelayMinutes = normalizeSuccessorDelay(request.successorDelayMinutes);
       const nextAction = safeText(request.nextAction, 1_024, 'nextAction');
       const currentPhase = safeText(request.currentPhase, 256, 'currentPhase');
       const summary = safeText(request.summary, MAX_TEXT, 'summary');
@@ -140,11 +204,11 @@ export class ScheduledContinuationService {
       const blockers = normalizeStrings(request.blockers, 20, 512, 'blockers');
       const evidence = normalizeEvidence(request.evidence);
       const activeTaskIds = normalizeStrings(request.activeTaskIds, 50, 256, 'activeTaskIds');
-      const executionPreference = request.executionPreference ?? 'auto';
-      if (executionPreference !== 'auto' && executionPreference !== 'cloud' && executionPreference !== 'local') throw new Error('executionPreference is invalid');
+      const executionPreference = request.executionPreference ?? 'cloud';
+      if (executionPreference !== 'cloud') throw new Error('Scheduled continuation requires cloud execution');
       const now = this.now();
       const nowIso = now.toISOString();
-      const dueAt = new Date(now.getTime() + delayMinutes * 60_000).toISOString();
+      const dueAt = new Date(now.getTime() + successorDelayMinutes * 60_000).toISOString();
       const requestFingerprint = createHash('sha256').update(JSON.stringify({
         goalId,
         expectedRevision: request.expectedRevision,
@@ -155,7 +219,7 @@ export class ScheduledContinuationService {
         blockers,
         evidence,
         activeTaskIds,
-        delayMinutes,
+        successorDelayMinutes,
         executionPreference,
       })).digest('hex');
       const prepared = await this.goals.prepareScheduledContinuation({
@@ -201,7 +265,24 @@ export class ScheduledContinuationService {
     try {
       const continuationId = required(request.continuationId, 'continuationId', MAX_ID);
       if (!Number.isInteger(request.expectedVersion) || request.expectedVersion < 0) throw new Error('expectedVersion is invalid');
-      const nativeTaskId = request.nativeTaskId === undefined ? undefined : required(request.nativeTaskId, 'nativeTaskId', MAX_NATIVE_TASK_ID);
+      const suppliedNativeTaskId = request.nativeTaskId === undefined ? undefined : required(request.nativeTaskId, 'nativeTaskId', MAX_NATIVE_TASK_ID);
+      const nativeCancellationReceipt = request.nativeCancellationReceipt === undefined
+        ? undefined
+        : normalizeNativeCancellationReceipt(request.nativeCancellationReceipt);
+      if (request.outcome === 'cancelled' && nativeCancellationReceipt === undefined) {
+        throw new Error('cancelled requires a native host deletion receipt');
+      }
+      if (request.outcome !== 'cancelled' && nativeCancellationReceipt !== undefined) {
+        throw new Error('nativeCancellationReceipt is only valid for cancelled');
+      }
+      if (
+        suppliedNativeTaskId !== undefined
+        && nativeCancellationReceipt !== undefined
+        && suppliedNativeTaskId !== nativeCancellationReceipt.nativeTaskId
+      ) {
+        throw new Error('native cancellation receipt task ID does not match nativeTaskId');
+      }
+      const nativeTaskId = nativeCancellationReceipt?.nativeTaskId ?? suppliedNativeTaskId;
       const detail = request.detail === undefined ? undefined : safeText(request.detail, MAX_RECEIPT_DETAIL, 'detail', true);
       const record = await this.goals.recordScheduledContinuationReceipt({
         continuationId,
@@ -209,7 +290,9 @@ export class ScheduledContinuationService {
         expectedVersion: request.expectedVersion,
         outcome: request.outcome,
         ...(nativeTaskId === undefined ? {} : { nativeTaskId }),
+        ...(request.dueAt === undefined ? {} : { dueAt: requiredIso(request.dueAt, 'dueAt') }),
         ...(request.runsOn === undefined ? {} : { runsOn: request.runsOn }),
+        ...(nativeCancellationReceipt === undefined ? {} : { nativeCancellationReceipt }),
         ...(detail === undefined ? {} : { detail }),
         now: this.now().toISOString(),
       });
@@ -227,42 +310,106 @@ export class ScheduledContinuationService {
       const continuationId = required(request.continuationId, 'continuationId', MAX_ID);
       const leaseSeconds = request.leaseSeconds ?? 600;
       if (!Number.isInteger(leaseSeconds) || leaseSeconds < 30 || leaseSeconds > 3_600) throw new Error('leaseSeconds is out of range');
+      const currentContinuation = await this.goals.getScheduledContinuation({ continuationId });
+      if (currentContinuation === null) throw new GoalStateError('not_found', 'Scheduled continuation was not found');
+      const currentGoal = await this.requireOwnedGoal(actor, currentContinuation.goalId);
+      const now = this.now().toISOString();
+      const liveness = await this.workerLiveness.observe(currentGoal.id, currentGoal.activeTaskIds);
       const leaseToken = randomBytes(32).toString('base64url');
       const claimed = await this.goals.claimScheduledContinuation({
         continuationId,
-        recoveryContinuationId: randomUUID(),
         ownerClientId: owner(actor),
         ownerSessionId: ownerSession(actor),
         leaseTokenHash: hashLeaseToken(leaseToken),
         leaseSeconds,
-        now: this.now().toISOString(),
+        liveness,
+        now,
       });
       const continuation = toPublicContinuation(claimed.continuation);
+      const goal = toGoalSnapshot(claimed.goal);
       if (claimed.outcome === 'acquired') {
-        const goal = toGoalSnapshot(claimed.goal);
         return ok({
           outcome: 'acquired',
           continuation,
           goal: { ...toRunSnapshot(goal), acquired: true },
           leaseToken,
+          leaseGeneration: claimed.goal.leaseGeneration,
+          acquisition: claimed.acquisition,
+        });
+      }
+      if (claimed.outcome === 'reschedule_required') {
+        return ok({
+          outcome: 'reschedule_required',
+          continuation,
+          goal,
+          retryAfterSeconds: 120,
+          taskUpdateRequest: buildTaskUpdateRequest(continuation, claimed.goal.workspaceId),
+        });
+      }
+      if (claimed.outcome === 'receipt_required') {
+        return ok({
+          outcome: 'receipt_required',
+          reason: claimed.reason,
+          continuation,
+          goal,
         });
       }
       if (claimed.outcome === 'already_claimed' || claimed.outcome === 'terminal_noop') {
-        return ok({ outcome: claimed.outcome, continuation, goal: toGoalSnapshot(claimed.goal) });
+        return ok({ outcome: claimed.outcome, continuation, goal });
       }
-      if (claimed.outcome === 'retry_prepared') {
-        return ok({
-          outcome: 'retry_prepared',
-          continuation,
-          previousContinuationId: claimed.previousContinuationId,
-          retryAfterSeconds: claimed.retryAfterSeconds,
-          scheduleRequest: buildScheduleRequest(continuation, claimed.goal.workspaceId),
-        });
+      if (claimed.outcome !== 'not_due') throw new GoalStateError('corrupt', 'Unexpected scheduled continuation claim outcome');
+      return ok({
+        outcome: 'not_due',
+        continuation,
+        goal,
+        retryAfterSeconds: claimed.retryAfterSeconds,
+      });
+    } catch (error: unknown) {
+      return mapError(error);
+    }
+  }
+
+  public async expediteScheduledContinuation(
+    actor: FileActor,
+    request: ExpediteScheduledContinuationRequest,
+  ): Promise<Result<ExpediteScheduledContinuationResult>> {
+    try {
+      const goalId = required(request.goalId, 'goalId', MAX_ID);
+      const continuationId = required(request.continuationId, 'continuationId', MAX_ID);
+      if (!Number.isInteger(request.expectedLeaseGeneration) || request.expectedLeaseGeneration < 0) throw new Error('expectedLeaseGeneration is invalid');
+      if (!Number.isInteger(request.expectedGoalRevision) || request.expectedGoalRevision < 0) throw new Error('expectedGoalRevision is invalid');
+      if (!Number.isInteger(request.expectedContinuationVersion) || request.expectedContinuationVersion < 0) throw new Error('expectedContinuationVersion is invalid');
+      const reasons: readonly ScheduledContinuationExpediteReason[] = [
+        'host_deadline_warning',
+        'host_budget_warning',
+        'tool_access_degradation',
+        'turn_yield_signal',
+      ];
+      if (!reasons.includes(request.reason)) throw new Error('reason is invalid');
+      const now = this.now();
+      const candidateDueAt = new Date(now.getTime() + COLLISION_RESCHEDULE_MINUTES * 60_000).toISOString();
+      const expedited = await this.goals.expediteScheduledContinuation({
+        goalId,
+        continuationId,
+        ownerClientId: owner(actor),
+        ownerSessionId: ownerSession(actor),
+        leaseTokenHash: hashLeaseToken(required(request.leaseToken, 'leaseToken', 256)),
+        expectedLeaseGeneration: request.expectedLeaseGeneration,
+        expectedGoalRevision: request.expectedGoalRevision,
+        expectedContinuationVersion: request.expectedContinuationVersion,
+        reason: request.reason,
+        dueAt: candidateDueAt,
+        now: now.toISOString(),
+      });
+      const continuation = toPublicContinuation(expedited.continuation);
+      if (expedited.outcome === 'unchanged') {
+        return ok({ outcome: 'unchanged', reason: expedited.reason, continuation });
       }
       return ok({
-        outcome: 'busy_blocked',
+        outcome: 'update_required',
         continuation,
-        retryAfterSeconds: claimed.retryAfterSeconds ?? 1,
+        handoffDeadlineAt: continuation.pendingDueAt ?? continuation.dueAt,
+        taskUpdateRequest: buildTaskUpdateRequest(continuation, expedited.goal.workspaceId),
       });
     } catch (error: unknown) {
       return mapError(error);
@@ -334,7 +481,7 @@ export class ScheduledContinuationService {
 }
 
 function buildScheduleRequest(continuation: ScheduledContinuationSnapshot, workspaceId: string): ScheduledContinuationRequest {
-  const prompt = `Call claim_scheduled_continuation for continuation ${continuation.continuationId}, goal ${continuation.goalId}, workspace ${workspaceId}. If acquired, continue the durable goal until complete. Work continuously; two minutes was only the predecessor lead time. Near your own yield, prepare exactly one successor. If terminal, stop and do not schedule again. Never use Windows Task Scheduler.`;
+  const prompt = `Call claim_scheduled_continuation for continuation ${continuation.continuationId}, goal ${continuation.goalId}, workspace ${workspaceId}. If acquired, immediately arm exactly one cloud successor due 25 minutes later, record its receipt, then continue the durable goal until complete. If a real worker collision is confirmed, update the same native task to now+2 minutes; if liveness is uncertain, fail closed and update the same task to now+2 minutes. When work finishes, call finish_goal first, delete the exact successor through the native ChatGPT Scheduled Task host, record cancelled only with the native host deletion receipt, then read the continuation back and require status cancelled. Never report cancellation as successful while deletion is failed, uncertain, or unverified. If the goal is terminal, stop and do not schedule again. Never use Windows Task Scheduler.`;
   return {
     provider: 'chatgpt_scheduled_task',
     occurrence: 'once',
@@ -344,6 +491,28 @@ function buildScheduleRequest(continuation: ScheduledContinuationSnapshot, works
     continuationId: continuation.continuationId,
     name: `Continue lnwjud goal ${continuation.goalId}`.slice(0, 120),
     prompt,
+  };
+}
+
+function buildTaskUpdateRequest(
+  continuation: ScheduledContinuationSnapshot,
+  workspaceId: string,
+): ScheduledContinuationTaskUpdateRequest {
+  if (continuation.nativeTaskId === undefined || continuation.pendingDueAt === undefined || continuation.confirmedRunsOn !== 'cloud') {
+    throw new GoalStateError('conflict', 'Same-task update requires a confirmed cloud native task ID and pending due time');
+  }
+  return {
+    provider: 'chatgpt_scheduled_task',
+    operation: 'update',
+    occurrence: 'once',
+    dueAt: continuation.pendingDueAt,
+    destination: 'current_chat',
+    executionPreference: 'cloud',
+    continuationId: continuation.continuationId,
+    nativeTaskId: continuation.nativeTaskId,
+    expectedContinuationVersion: continuation.version,
+    name: `Continue lnwjud goal ${continuation.goalId}`.slice(0, 120),
+    prompt: `Wake the current chat for continuation ${continuation.continuationId}, goal ${continuation.goalId}, workspace ${workspaceId}. Call claim_scheduled_continuation first. On another collision, update this same native task again by the returned taskUpdateRequest; never create a replacement task.`,
   };
 }
 
@@ -359,7 +528,16 @@ function toPublicContinuation(record: ScheduledContinuationSnapshot): ScheduledC
     executionPreference: record.executionPreference,
     ...(record.confirmedRunsOn === undefined ? {} : { confirmedRunsOn: record.confirmedRunsOn }),
     dueAt: record.dueAt,
+    ...(record.pendingDueAt === undefined ? {} : { pendingDueAt: record.pendingDueAt }),
     ...(record.nativeTaskId === undefined ? {} : { nativeTaskId: record.nativeTaskId }),
+    ...(record.rescheduleReason === undefined ? {} : { rescheduleReason: record.rescheduleReason }),
+    rescheduleCount: record.rescheduleCount,
+    ...(record.lastCollisionAt === undefined ? {} : { lastCollisionAt: record.lastCollisionAt }),
+    ...(record.lastRescheduledAt === undefined ? {} : { lastRescheduledAt: record.lastRescheduledAt }),
+    ...(record.orphanProbeStartedAt === undefined ? {} : { orphanProbeStartedAt: record.orphanProbeStartedAt }),
+    ...(record.orphanProbeLeaseGeneration === undefined ? {} : { orphanProbeLeaseGeneration: record.orphanProbeLeaseGeneration }),
+    ...(record.orphanProbeActivitySeq === undefined ? {} : { orphanProbeActivitySeq: record.orphanProbeActivitySeq }),
+    orphanRecoveryCount: record.orphanRecoveryCount,
     version: record.version,
     createdAt: record.createdAt,
     updatedAt: record.updatedAt,
@@ -382,6 +560,8 @@ function toGoalSnapshot(goal: GoalRecord): GoalSnapshot {
     blockers: goal.blockers,
     activeTaskIds: goal.activeTaskIds,
     lastCheckpoint: goal.checkpoints.at(-1) ?? null,
+    leaseGeneration: goal.leaseGeneration,
+    leaseActivitySeq: goal.leaseActivitySeq,
     ...(goal.leaseExpiresAt === undefined ? {} : { leaseExpiresAt: goal.leaseExpiresAt }),
     createdAt: goal.createdAt,
     updatedAt: goal.updatedAt,
@@ -405,14 +585,16 @@ function toRunSnapshot(goal: GoalSnapshot): Omit<RunGoalResult, 'leaseToken' | '
     blockers: goal.blockers,
     activeTaskIds: goal.activeTaskIds,
     lastCheckpoint: goal.lastCheckpoint,
+    leaseGeneration: goal.leaseGeneration,
+    leaseActivitySeq: goal.leaseActivitySeq,
     ...(goal.leaseExpiresAt === undefined ? {} : { leaseExpiresAt: goal.leaseExpiresAt }),
   };
 }
 
-function normalizeDelay(value: number | undefined): 2 | 3 | 4 | 5 {
-  const delay = value ?? DEFAULT_CONTINUATION_DELAY_MINUTES;
-  if (!Number.isInteger(delay) || delay < MIN_CONTINUATION_DELAY_MINUTES || delay > MAX_CONTINUATION_DELAY_MINUTES) throw new Error('delayMinutes must be between 2 and 5');
-  return delay as 2 | 3 | 4 | 5;
+function normalizeSuccessorDelay(value: number | undefined): 25 {
+  const delay = value ?? SUCCESSOR_DELAY_MINUTES;
+  if (delay !== SUCCESSOR_DELAY_MINUTES) throw new Error('successorDelayMinutes must be 25');
+  return SUCCESSOR_DELAY_MINUTES;
 }
 
 function normalizeStepUpdates(updates: readonly GoalStepUpdate[], plan: GoalPlan): readonly GoalStepUpdate[] {
@@ -474,6 +656,29 @@ function redact(value: string): string {
     .replace(/(\bauthorization\s*:\s*bearer\s+)[^\s]+/gi, '$1[REDACTED]')
     .replace(/\bsk-[A-Za-z0-9_-]{8,}\b/g, '[REDACTED]')
     .replace(/\b(token|secret|password|api[_-]?key|private[_-]?key|credential)\s*[:=]\s*[^\s]+/gi, '$1=[REDACTED]');
+}
+function requiredIso(value: string, label: string): string {
+  const bounded = required(value, label, 64);
+  if (Number.isNaN(Date.parse(bounded))) throw new Error(`${label} is invalid`);
+  return bounded;
+}
+
+function normalizeNativeCancellationReceipt(
+  receipt: ScheduledContinuationNativeCancellationReceipt,
+): ScheduledContinuationNativeCancellationReceipt {
+  if (receipt.provider !== 'chatgpt_scheduled_task' || receipt.operation !== 'delete') {
+    throw new Error('native cancellation receipt provider or operation is invalid');
+  }
+  if (receipt.state !== 'deleted' && receipt.state !== 'not_found') {
+    throw new Error('native cancellation receipt state is invalid');
+  }
+  return {
+    provider: 'chatgpt_scheduled_task',
+    operation: 'delete',
+    nativeTaskId: required(receipt.nativeTaskId, 'native cancellation receipt task ID', MAX_NATIVE_TASK_ID),
+    state: receipt.state,
+    observedAt: requiredIso(receipt.observedAt, 'native cancellation receipt observedAt'),
+  };
 }
 function hashLeaseToken(token: string): string { return createHash('sha256').update(token).digest('hex'); }
 

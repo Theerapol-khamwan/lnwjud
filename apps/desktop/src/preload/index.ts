@@ -230,6 +230,8 @@ function userSettings(value: unknown): UserSettings {
   if (!Array.isArray(extensions.extraMcpServers)) throw new Error('Invalid IPC response');
   return {
     customPermission: { read, write, execute, dangerous, allowedExecutables: stringList(custom.allowedExecutables) },
+    desktopFullBypassAll: booleanField(value, 'desktopFullBypassAll'),
+    stdioFullBypassAll: booleanField(value, 'stdioFullBypassAll'),
     mcpCallTimeoutMs: integerField(value, 'mcpCallTimeoutMs'),
     mcpIdleTimeoutMs: integerField(value, 'mcpIdleTimeoutMs'),
     processTimeoutMs: integerField(value, 'processTimeoutMs'),
@@ -408,6 +410,7 @@ function mcpStatus(value: unknown): McpConnectionStatus {
   return {
     running: booleanField(value, 'running'),
     url: nullableString(value.url),
+    lastStartError: value.lastStartError === undefined ? null : nullableString(value.lastStartError),
     workspaceId: nullableString(value.workspaceId),
   };
 }

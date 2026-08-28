@@ -6,10 +6,12 @@ interface DoctorPanelProps {
   readonly locale?: UiLocale;
   readonly report: DoctorReport | null;
   readonly onRunDoctor: () => Promise<void>;
+  readonly onOpenProjects: () => void;
 }
 
-export function DoctorPanel({ locale = 'th', report, onRunDoctor }: DoctorPanelProps): ReactElement {
+export function DoctorPanel({ locale = 'th', report, onRunDoctor, onOpenProjects }: DoctorPanelProps): ReactElement {
   const t = createTranslator(locale);
+  const projectSetupRequired = report?.checks.some((check) => check.id === 'workspaces' && check.status !== 'pass') === true;
   return (
     <section className="panel doctor-panel">
       <div className="section-heading">
@@ -32,6 +34,12 @@ export function DoctorPanel({ locale = 'th', report, onRunDoctor }: DoctorPanelP
           ))}
         </div>
       )}
+      {projectSetupRequired ? (
+        <div className="doctor-recovery-actions">
+          <p>{locale === 'th' ? 'เพิ่มโปรเจกต์แรกเพื่อเริ่มทำงาน แล้วกลับมาตรวจอีกครั้ง' : 'Add your first project to begin, then run Doctor again.'}</p>
+          <button type="button" onClick={onOpenProjects}>{locale === 'th' ? 'เพิ่มโปรเจกต์' : 'Add Project'}</button>
+        </div>
+      ) : null}
     </section>
   );
 }

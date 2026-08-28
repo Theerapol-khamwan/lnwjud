@@ -89,6 +89,8 @@ export class TunnelController {
   private runtimeSupervisor: TunnelRuntimeSupervisor | null = null;
   private runtimeSnapshot: TunnelRuntimeSnapshot | null = null;
   private runtimeMode: 'native-managed' | 'profile-child' | null = null;
+  /** Saved credentials/profile/client changed; apply them on the next explicit Start without disrupting edits in progress. */
+  private runtimeConfigurationDirty = false;
 
   public constructor(private readonly options: TunnelControllerOptions) {}
 
@@ -132,6 +134,7 @@ export class TunnelController {
     const encrypted = await encryptWithDpapi(trimmed);
     await writeFile(this.secretPath(), encrypted, 'utf8');
     this.lastApiKey = trimmed;
+    this.runtimeConfigurationDirty = true;
     if (this.runtimeMode === 'native-managed') this.disposeRuntimeSupervisor();
   }
 
@@ -160,6 +163,7 @@ export class TunnelController {
     await this.repairDesktopTunnelProfile();
     await runTunnelDoctor(clientPath, apiKey, this.profileDirectory());
     this.options.setTunnelId?.(normalizedTunnelId);
+    this.runtimeConfigurationDirty = true;
     this.disposeRuntimeSupervisor();
     return this.profilePath();
   }
@@ -168,12 +172,14 @@ export class TunnelController {
     const trimmed = clientPath.trim();
     if (trimmed.length === 0) {
       this.options.setClientPath('');
+      this.runtimeConfigurationDirty = true;
       if (this.runtimeMode === 'native-managed') this.disposeRuntimeSupervisor();
       return '';
     }
     const resolved = path.resolve(trimmed);
     if (!existsSync(resolved)) throw new Error('tunnel-client.exe was not found');
     this.options.setClientPath(resolved);
+    this.runtimeConfigurationDirty = true;
     if (this.runtimeMode === 'native-managed') this.disposeRuntimeSupervisor();
     return resolved;
   }
@@ -297,13 +303,17 @@ export class TunnelController {
 
   public startAutomatically(): Promise<TunnelStatus> {
     if (this.intentionalStop) return this.status();
-    return this.start();
+    return this.startWithIntent(false);
   }
 
   public start(): Promise<TunnelStatus> {
+    return this.startWithIntent(true);
+  }
+
+  private startWithIntent(allowPersistentConfigurationReplacement: boolean): Promise<TunnelStatus> {
     if (this.startInFlight !== null && this.startAbortController?.signal.aborted !== true) return this.startInFlight;
     const controller = new AbortController();
-    const operation = this.enqueueLifecycle(() => this.startOnce(controller.signal));
+    const operation = this.enqueueLifecycle(() => this.startOnce(controller.signal, allowPersistentConfigurationReplacement));
     const tracked = operation.finally(() => {
       if (this.startInFlight === tracked) this.startInFlight = null;
       if (this.startAbortController === controller) this.startAbortController = null;
@@ -313,7 +323,7 @@ export class TunnelController {
     return tracked;
   }
 
-  private async startOnce(signal: AbortSignal): Promise<TunnelStatus> {
+  private async startOnce(signal: AbortSignal, allowPersistentConfigurationReplacement: boolean): Promise<TunnelStatus> {
     this.intentionalStop = false;
     this.clearRestartTimer();
     this.clearStableTimer();
@@ -338,7 +348,7 @@ export class TunnelController {
       if (this.child !== null && this.child.exitCode === null) return this.status();
       const externalProbe = this.tunnelLock === null ? await this.probeExternalRunning(true) : 'gone';
       throwIfStartCancelled(signal);
-      const managedStatus = await this.tryStartNativeManagedRuntime(externalProbe, signal);
+      const managedStatus = await this.tryStartNativeManagedRuntime(externalProbe, signal, allowPersistentConfigurationReplacement);
       if (managedStatus !== null) return managedStatus;
       if (externalProbe === 'live') {
         this.state = 'running';
@@ -382,6 +392,7 @@ export class TunnelController {
       this.runtimeMode = 'profile-child';
       this.spawnRun(clientPath, apiKey);
       this.state = 'running';
+      this.runtimeConfigurationDirty = false;
       this.scheduleStableReset();
       return this.status();
     } catch (error: unknown) {
@@ -781,7 +792,11 @@ export class TunnelController {
     return this.options.createRuntimeAdapter?.(options) ?? new TunnelRuntimeAdapter(options);
   }
 
-  private async tryStartNativeManagedRuntime(externalProbe: ExternalTunnelProbe, signal: AbortSignal): Promise<TunnelStatus | null> {
+  private async tryStartNativeManagedRuntime(
+    externalProbe: ExternalTunnelProbe,
+    signal: AbortSignal,
+    allowPersistentConfigurationReplacement: boolean,
+  ): Promise<TunnelStatus | null> {
     // Native supervision is opt-in at the composition boundary. Legacy/test
     // controllers without persistent identity storage keep the v4.10 fallback.
     if (this.options.getTunnelId === undefined || this.options.setTunnelId === undefined) return null;
@@ -815,6 +830,26 @@ export class TunnelController {
       return this.status();
     }
     throwIfStartCancelled(signal);
+    const tunnelIdMismatch = nativeStatus.exists && nativeStatus.tunnelId !== null && nativeStatus.tunnelId !== desiredTunnelId;
+    const restartPersistentRuntime = allowPersistentConfigurationReplacement
+      && nativeStatus.exists
+      && (tunnelIdMismatch || this.runtimeConfigurationDirty);
+    if (restartPersistentRuntime) {
+      this.state = 'starting';
+      this.message = tunnelIdMismatch
+        ? 'Tunnel configuration changed; stopping the previous Persistent Tunnel Runtime before applying the new Tunnel ID.'
+        : 'Tunnel credentials or runtime configuration changed; restarting the Persistent Tunnel Runtime before reconnecting.';
+      try {
+        if (nativeStatus.running) nativeStatus = await adapter.stop();
+      } catch (error: unknown) {
+        const detail = error instanceof Error ? error.message : 'runtime stop failed';
+        this.state = 'error';
+        this.message = `Could not stop Persistent Tunnel Runtime before applying the saved configuration. Stop the existing runtime and retry Start Tunnel. ${detail}`;
+        return this.status();
+      }
+      throwIfStartCancelled(signal);
+      this.invalidateExternalProbeCache();
+    }
     // A legacy/profile process may already be running outside native alias
     // supervision. Never create a second tunnel-client in that case.
     if (!nativeStatus.exists && externalProbe === 'live') return null;
@@ -832,6 +867,7 @@ export class TunnelController {
         tunnelId: desiredTunnelId,
         mcpServerUrl: await this.requireMcpServerUrl(),
       }),
+      allowStoppedTunnelIdReplacement: allowPersistentConfigurationReplacement,
     });
     const supervisor = new TunnelRuntimeSupervisor({
       reconciler,
@@ -856,6 +892,9 @@ export class TunnelController {
     }
     this.runtimeSnapshot = supervisor.snapshot() ?? result.snapshot;
     this.applyRuntimeSnapshot(this.runtimeSnapshot);
+    if (this.runtimeSnapshot.state === 'running' && (allowPersistentConfigurationReplacement || !this.runtimeConfigurationDirty)) {
+      this.runtimeConfigurationDirty = false;
+    }
     return this.statusFromRuntimeSnapshot(this.runtimeSnapshot, clientPath);
   }
 

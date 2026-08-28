@@ -10,6 +10,9 @@ export type ScheduledContinuationStatus =
   | 'scheduled'
   | 'create_failed'
   | 'create_uncertain'
+  | 'reschedule_required'
+  | 'reschedule_failed'
+  | 'reschedule_uncertain'
   | 'claimed'
   | 'terminal_noop'
   | 'superseded'
@@ -22,19 +25,43 @@ export type LiveScheduledContinuationStatus =
   | 'prepared'
   | 'scheduled'
   | 'create_uncertain'
+  | 'reschedule_required'
+  | 'reschedule_failed'
+  | 'reschedule_uncertain'
   | 'cancel_required'
   | 'cancel_failed'
   | 'cancel_uncertain';
 
+/** Historical rows may contain auto/local from pre-v4.27 databases. New preparation is cloud-only. */
 export type ScheduledContinuationExecutionPreference = 'auto' | 'cloud' | 'local';
 export type ScheduledContinuationRunsOn = 'cloud' | 'local' | 'unverified';
+export type ScheduledContinuationExpediteReason =
+  | 'host_deadline_warning'
+  | 'host_budget_warning'
+  | 'tool_access_degradation'
+  | 'turn_yield_signal';
+export type ScheduledContinuationRescheduleReason =
+  | 'collision'
+  | `expedite:${ScheduledContinuationExpediteReason}`;
+
 export type ScheduledContinuationReceiptOutcome =
   | 'created'
   | 'create_failed'
   | 'create_uncertain'
+  | 'rescheduled'
+  | 'reschedule_failed'
+  | 'reschedule_uncertain'
   | 'cancelled'
   | 'cancel_failed'
   | 'cancel_uncertain';
+
+export interface ScheduledContinuationNativeCancellationReceipt {
+  readonly provider: 'chatgpt_scheduled_task';
+  readonly operation: 'delete';
+  readonly nativeTaskId: string;
+  readonly state: 'deleted' | 'not_found';
+  readonly observedAt: string;
+}
 
 export interface ScheduledContinuationSnapshot {
   readonly continuationId: string;
@@ -47,14 +74,23 @@ export interface ScheduledContinuationSnapshot {
   readonly executionPreference: ScheduledContinuationExecutionPreference;
   readonly confirmedRunsOn?: ScheduledContinuationRunsOn;
   readonly dueAt: string;
+  readonly pendingDueAt?: string;
   readonly nativeTaskId?: string;
+  readonly rescheduleReason?: ScheduledContinuationRescheduleReason;
+  readonly rescheduleCount: number;
+  readonly lastCollisionAt?: string;
+  readonly lastRescheduledAt?: string;
+  readonly orphanProbeStartedAt?: string;
+  readonly orphanProbeLeaseGeneration?: number;
+  readonly orphanProbeActivitySeq?: number;
+  readonly orphanRecoveryCount: number;
   readonly version: number;
   readonly createdAt: string;
   readonly updatedAt: string;
 }
 
 export interface ScheduledContinuationRecord extends ScheduledContinuationSnapshot {
-  /** Internal trusted session identity of the predecessor run; never exposed in public snapshots/prompts. */
+  /** Audit-only predecessor transport identity. It is never mutation authority. */
   readonly sourceSessionId: string;
   readonly requestFingerprint: string;
   readonly lastDetail?: string;
@@ -79,7 +115,7 @@ export interface PrepareScheduledContinuationRecordRequest {
   readonly evidence: readonly GoalEvidence[];
   readonly activeTaskIds: readonly string[];
   readonly dueAt: string;
-  readonly executionPreference: ScheduledContinuationExecutionPreference;
+  readonly executionPreference: 'cloud';
   readonly requestFingerprint: string;
   readonly now: string;
 }
@@ -96,39 +132,97 @@ export interface RecordScheduledContinuationReceiptRecordRequest {
   readonly expectedVersion: number;
   readonly outcome: ScheduledContinuationReceiptOutcome;
   readonly nativeTaskId?: string;
+  readonly dueAt?: string;
   readonly runsOn?: ScheduledContinuationRunsOn;
+  readonly nativeCancellationReceipt?: ScheduledContinuationNativeCancellationReceipt;
   readonly detail?: string;
   readonly now: string;
 }
 
+export interface ScheduledContinuationWorkerLiveness {
+  readonly trustworthy: boolean;
+  readonly observedAt: string;
+  readonly leaseGeneration: number;
+  readonly leaseActivitySeq: number;
+  readonly liveFencedCallCount: number;
+  readonly activeTaskStates: readonly {
+    readonly taskId: string;
+    readonly state: 'running' | 'terminal' | 'absent' | 'unknown';
+  }[];
+}
+
+export interface ScheduledContinuationWorkerLivenessPort {
+  observe(goalId: string, activeTaskIds: readonly string[]): Promise<ScheduledContinuationWorkerLiveness>;
+}
+
 export interface ClaimScheduledContinuationRecordRequest {
   readonly continuationId: string;
-  readonly recoveryContinuationId: string;
   readonly ownerClientId: string;
   readonly ownerSessionId: string;
   readonly leaseTokenHash: string;
   readonly leaseSeconds: number;
+  readonly liveness: ScheduledContinuationWorkerLiveness;
   readonly now: string;
 }
+
+export type ScheduledContinuationAcquisition = 'normal' | 'expired_lease' | 'orphan_recovered';
 
 export type ClaimScheduledContinuationRecordResult =
   | {
       readonly outcome: 'acquired';
+      readonly acquisition: ScheduledContinuationAcquisition;
       readonly goal: GoalRecord;
       readonly continuation: ScheduledContinuationRecord;
     }
   | {
-      readonly outcome: 'already_claimed' | 'terminal_noop' | 'busy';
+      readonly outcome: 'reschedule_required';
       readonly goal: GoalRecord;
       readonly continuation: ScheduledContinuationRecord;
-      readonly retryAfterSeconds?: number;
+      readonly retryAfterSeconds: 120;
     }
   | {
-      readonly outcome: 'retry_prepared';
+      readonly outcome: 'receipt_required';
+      readonly reason: 'native_task_unconfirmed';
       readonly goal: GoalRecord;
       readonly continuation: ScheduledContinuationRecord;
-      readonly previousContinuationId: string;
+    }
+  | {
+      readonly outcome: 'already_claimed' | 'terminal_noop';
+      readonly goal: GoalRecord;
+      readonly continuation: ScheduledContinuationRecord;
+    }
+  | {
+      readonly outcome: 'not_due';
+      readonly goal: GoalRecord;
+      readonly continuation: ScheduledContinuationRecord;
       readonly retryAfterSeconds: number;
+    };
+
+export interface ExpediteScheduledContinuationRecordRequest {
+  readonly goalId: string;
+  readonly continuationId: string;
+  readonly ownerClientId: string;
+  readonly ownerSessionId: string;
+  readonly leaseTokenHash: string;
+  readonly expectedLeaseGeneration: number;
+  readonly expectedGoalRevision: number;
+  readonly expectedContinuationVersion: number;
+  readonly reason: ScheduledContinuationExpediteReason;
+  readonly dueAt: string;
+  readonly now: string;
+}
+
+export type ExpediteScheduledContinuationRecordResult =
+  | {
+      readonly outcome: 'update_required';
+      readonly goal: GoalRecord;
+      readonly continuation: ScheduledContinuationRecord;
+    }
+  | {
+      readonly outcome: 'unchanged';
+      readonly reason: 'already_due_within_two_minutes';
+      readonly goal: GoalRecord;
+      readonly continuation: ScheduledContinuationRecord;
     };
 
 export type GetScheduledContinuationRecordRequest =
@@ -144,12 +238,40 @@ export interface ScheduledContinuationMutationFence {
   readonly continuation: ScheduledContinuationRecord;
 }
 
+export interface BeginGoalFencedMutationRequest {
+  readonly callId: string;
+  readonly goalId: string;
+  readonly workspaceId: string;
+  readonly ownerClientId: string;
+  readonly leaseTokenHash: string;
+  readonly leaseGeneration: number;
+  readonly startedAt: string;
+  readonly expiresAt: string;
+}
+
+export interface GoalFencedMutationAdmission {
+  readonly goalId: string;
+  readonly leaseGeneration: number;
+}
+
+export interface GoalFencedMutationObservation {
+  readonly workspaceId: string;
+  readonly leaseGeneration: number;
+  readonly leaseActivitySeq: number;
+  readonly liveFencedCallCount: number;
+}
+
 export interface ScheduledContinuationRepository {
   prepareScheduledContinuation(request: PrepareScheduledContinuationRecordRequest): Promise<PrepareScheduledContinuationRecordResult>;
   recordScheduledContinuationReceipt(request: RecordScheduledContinuationReceiptRecordRequest): Promise<ScheduledContinuationRecord>;
   claimScheduledContinuation(request: ClaimScheduledContinuationRecordRequest): Promise<ClaimScheduledContinuationRecordResult>;
+  expediteScheduledContinuation(request: ExpediteScheduledContinuationRecordRequest): Promise<ExpediteScheduledContinuationRecordResult>;
   getScheduledContinuation(request: GetScheduledContinuationRecordRequest): Promise<ScheduledContinuationRecord | null>;
   getLiveScheduledContinuation(goalId: string): Promise<ScheduledContinuationRecord | null>;
   getWorkspaceMutationFence(workspaceId: string): Promise<ScheduledContinuationMutationFence | null>;
+  beginGoalFencedMutation(request: BeginGoalFencedMutationRequest): Promise<GoalFencedMutationAdmission>;
+  heartbeatGoalFencedMutation(callId: string, leaseGeneration: number, heartbeatAt: string, expiresAt: string): Promise<void>;
+  endGoalFencedMutation(callId: string, completedAt: string): Promise<void>;
+  observeGoalFencedMutations(goalId: string, now: string): Promise<GoalFencedMutationObservation>;
   markGoalFinishedForScheduledContinuation(goalId: string, now: string): Promise<GoalScheduledContinuationFinishResult>;
 }

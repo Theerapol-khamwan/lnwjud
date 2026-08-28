@@ -42,6 +42,23 @@ describe('CodexService', () => {
     expect(audit.calls).toBe(0);
   });
 
+  it('accepts trusted Full Bypass authorization without rewriting caller confirmation', async () => {
+    const workspace = await createWorkspace();
+    const adapter = fakeAdapter();
+    const service = new CodexService(repository(workspace), { adapter, profile: permissionProfiles.safe });
+    const authorization = { mode: 'full_bypass', applicationApproved: true, bypassApplicationAuthorization: true, source: 'full_bypass' } as const;
+
+    await expect(service.run(
+      { clientId: 'client-1', clientName: 'test' },
+      workspace.id,
+      'review this workspace',
+      undefined,
+      false,
+      authorization,
+    )).resolves.toMatchObject({ ok: true, value: { processId: 'process-1' } });
+    expect(adapter.starts).toEqual([{ cwd: workspace.realRootPath, instruction: 'review this workspace' }]);
+  });
+
   it('reads the current permission profile for later Codex tasks', async () => {
     const workspace = await createWorkspace();
     const adapter = fakeAdapter();
@@ -146,6 +163,8 @@ describe('CodexService', () => {
     await expect(service.taskStatus(otherSession, workspace.id, started.value.codexTaskId)).resolves.toMatchObject({ ok: false, error: { code: 'PERMISSION_DENIED' } });
     await expect(service.list(otherSession, workspace.id)).resolves.toMatchObject({ ok: true, value: [] });
     await expect(service.taskStatus(owner, workspace.id, started.value.codexTaskId)).resolves.toMatchObject({ ok: true });
+    expect(service.statusForGoalLiveness(workspace.id, started.value.codexTaskId)).toMatchObject({ ok: true, value: { state: 'running' } });
+    expect(service.statusForGoalLiveness('another-workspace', started.value.codexTaskId)).toMatchObject({ ok: false, error: { code: 'PERMISSION_DENIED' } });
   });
 });
 

@@ -86,6 +86,9 @@ describe('durable goal MCP tools', () => {
                 action: 'delete_native_task',
                 continuationId: 'continuation-c',
                 nativeTaskId: 'native-task-c',
+                provider: 'chatgpt_scheduled_task',
+                expectedContinuationVersion: 4,
+                receiptRequired: true,
                 reason: 'live_task_confirmed',
               },
             });
@@ -110,6 +113,9 @@ describe('durable goal MCP tools', () => {
           action: 'delete_native_task',
           continuationId: 'continuation-c',
           nativeTaskId: 'native-task-c',
+          provider: 'chatgpt_scheduled_task',
+          expectedContinuationVersion: 4,
+          receiptRequired: true,
         },
       },
     });

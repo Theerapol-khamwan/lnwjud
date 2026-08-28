@@ -3,6 +3,8 @@ export * from './checkpoint-repository.js';
 export * from './database.js';
 export * from './goal-repository.js';
 export * from './migrations/scheduled-continuation-migration.js';
+export * from './migrations/goal-lease-repair-migration.js';
+export * from './migrations/goal-live-continuation-lease-quarantine-migration.js';
 export * from './settings-repository.js';
 export * from './workspace-repository.js';
 export * from './checkpoint-cipher.js';

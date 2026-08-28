@@ -183,6 +183,17 @@ export class DurableShellTaskStore {
     return ok(await this.snapshotFromMetadata(reconciled, tailLines));
   }
 
+  /** Trusted read-only host probe scoped to the durable goal's workspace. */
+  public async snapshotForGoalLiveness(taskId: string, workspaceId: string): Promise<Result<Record<string, unknown>>> {
+    const metadata = await this.readMetadata(taskId);
+    if (!metadata.ok) return metadata;
+    if (metadataOwner(metadata.value).workspaceId !== workspaceId) {
+      return err(appError('PERMISSION_DENIED', 'Task belongs to another or unknown workspace'));
+    }
+    const reconciled = await this.reconcile(metadata.value);
+    return ok(await this.snapshotFromMetadata(reconciled));
+  }
+
   public async wait(taskId: string, seconds: number, tailLines?: number, owner?: CapabilityTaskOwner): Promise<Result<Record<string, unknown>>> {
     const deadline = Date.now() + Math.max(0, seconds) * 1000;
     let snapshot = await this.snapshot(taskId, tailLines, owner);

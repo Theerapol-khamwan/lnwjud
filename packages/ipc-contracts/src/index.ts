@@ -1,5 +1,5 @@
 export const APP_NAME = 'lnwjud';
-export const APP_VERSION = '4.27.0';
+export const APP_VERSION = '4.28.0';
 
 export const ipcChannels = {
   listWorkspaces: 'lnwjud:list-workspaces',
@@ -108,6 +108,10 @@ export interface ExtraMcpServerSettings {
 
 export interface UserSettings {
   readonly customPermission: CustomPermissionSettings;
+  /** Full profile only. Explicitly bypasses lnwjud application authorization on Desktop HTTP/Secure Tunnel. */
+  readonly desktopFullBypassAll: boolean;
+  /** Full profile only. Explicitly bypasses lnwjud application authorization for direct STDIO. */
+  readonly stdioFullBypassAll: boolean;
   readonly mcpCallTimeoutMs: number;
   readonly mcpIdleTimeoutMs: number;
   readonly processTimeoutMs: number;
@@ -385,6 +389,7 @@ export interface DashboardSnapshot {
   readonly mcp: {
     readonly running: boolean;
     readonly url: string | null;
+    readonly lastStartError?: string | null;
     readonly workspaceId: string | null;
   };
   readonly codex: {
@@ -553,6 +558,7 @@ export interface OpenExternalSetupPageRequest {
 export interface McpConnectionStatus {
   readonly running: boolean;
   readonly url: string | null;
+  readonly lastStartError?: string | null;
   readonly workspaceId: string | null;
 }
 
