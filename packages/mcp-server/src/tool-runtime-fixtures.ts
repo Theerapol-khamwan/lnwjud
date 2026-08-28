@@ -7,7 +7,8 @@ export type ToolRuntimePreparation =
   | 'vision_annotated_capture'
   | 'cache_seed'
   | 'hook_register'
-  | 'session_checkpoint';
+  | 'session_checkpoint'
+  | 'git_worktree_spawn';
 
 export interface ToolRuntimeFixture {
   readonly input: Readonly<Record<string, unknown>>;
@@ -47,7 +48,7 @@ const unavailable = (
 ): ToolRuntimeFixture => ({ input, evidence: { kind: 'truthful_unavailable', unavailableStatus } });
 
 /**
- * Safe parse-valid inputs and expected delivery evidence for the 91 core tools.
+ * Safe parse-valid inputs and expected delivery evidence for the 93 core tools.
  * These are non-production fixtures: they use controlled workspace IDs, dry-run
  * inputs where available, and never point at a real user path.
  */
@@ -240,9 +241,114 @@ export const PHASE_5_TO_18_TOOL_RUNTIME_FIXTURES = {
   }),
 } as const satisfies Readonly<Record<string, ToolRuntimeFixture>>;
 
+const windowsRuntime = (
+  name: string,
+  input: Readonly<Record<string, unknown>>,
+  serviceCall?: string,
+): ToolRuntimeFixture => process.platform === 'win32'
+  ? serviceCall === undefined
+    ? deterministic(input, { expected: { tool: name, status: 'ready', available: true, ready: true, executed: true } })
+    : service(input, serviceCall)
+  : unavailable(input, 'unsupported');
+
+/** Runtime fixtures for the exact 46 upgrade definitions delivered in phases 19-33. */
+export const PHASE_19_TO_33_TOOL_RUNTIME_FIXTURES = {
+  inspect_web_app: service({}, 'capabilities.dom_cdp'),
+  debug_ui: service({}, 'capabilities.dom_cdp'),
+  capture_ui_state: service({}, 'capabilities.dom_cdp'),
+  form_context: service({}, 'capabilities.dom_cdp'),
+  network_context: unavailable({}, 'needs_setup'),
+  console_context: unavailable({}, 'needs_setup'),
+  browser_debug_context: service({}, 'capabilities.dom_cdp'),
+  windows_environment: windowsRuntime('windows_environment', {}, 'capabilities.system_info'),
+  service_context: windowsRuntime('service_context', { service: 'EventLog' }),
+  process_context: windowsRuntime('process_context', {}, 'capabilities.system_info'),
+  port_context: windowsRuntime('port_context', {}),
+  registry_context: windowsRuntime('registry_context', { key: 'HKLM\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion' }),
+  event_log_context: windowsRuntime('event_log_context', { log_name: 'Application', max_events: 1 }),
+  installed_runtime_context: windowsRuntime('installed_runtime_context', {}),
+  path_context: windowsRuntime('path_context', {}),
+  startup_context: windowsRuntime('startup_context', {}),
+  mcp_discover: service({}, 'extensions.listMcpServers'),
+  mcp_health: service({}, 'extensions.listMcpServers'),
+  mcp_resources: service({ server: 'server-1' }, 'extensions.listMcpResources'),
+  task_create: unavailable({ instruction: 'smoke task' }, 'disabled'),
+  task_status: unavailable({ taskId: 'task-1' }, 'disabled'),
+  task_cancel: unavailable({ taskId: 'task-1' }, 'disabled'),
+  task_result: unavailable({ taskId: 'task-1' }, 'disabled'),
+  task_list: unavailable({}, 'disabled'),
+  delegate: unavailable({ instruction: 'smoke delegate' }, 'disabled'),
+  delegate_status: unavailable({ delegateId: 'delegate-1' }, 'disabled'),
+  delegate_cancel: unavailable({ delegateId: 'delegate-1' }, 'disabled'),
+  delegate_result: unavailable({ delegateId: 'delegate-1' }, 'disabled'),
+  parallel_delegate: unavailable({ tasks: [{ instruction: 'inspect smoke' }] }, 'disabled'),
+  permission_check: deterministic({ action: 'filesystem.read' }, { expected: { decision: 'allow', class: 'read-or-safe', contextAccess: 'unrestricted' } }),
+  permission_profile: deterministic({}, { expected: { profile: 'full', authorizationMode: 'standard', dangerousActions: 'policy-gated', hardBlocksRemain: true } }),
+  live_logs_query: unavailable({}, 'needs_setup'),
+  live_logs_status: unavailable({}, 'needs_setup'),
+  telemetry_dashboard: unavailable({}, 'needs_setup'),
+  execution_plan: deterministic({ prompt: 'test smoke' }, { expected: { route: 'test', operations: ['workspace_context', 'discover_tests', 'test_context'], reason: 'deterministic rule plan; telemetry can refine cost estimates' } }),
+  repo_map: service({ workspaceId }, 'workspaceIndex.status'),
+  context_expand: service({ workspaceId, path: 'src/smoke.ts' }, 'workspaceIndex.status'),
+  recovery_status: deterministic({}, { expected: { reconnect: 'enabled-at-transport-boundary', safeReadRetry: true, destructiveRetry: false, workerIsolation: true } }),
+  tool_schema_list: deterministic({}, { expected: {}, requiredKeys: ['schemas'] }),
+  tool_schema_register: unavailable({ name: 'smoke-schema' }, 'disabled'),
+  capabilities: deterministic({}, { expected: { primitiveToolsRemainAvailable: true }, requiredKeys: ['categories', 'totalUpgradeTools'] }),
+  tool_search: deterministic({ query: 'workspace search' }, { expected: { selectedModel: 'deterministic', primitiveToolsRemainAvailable: true, authorizationUnchanged: true }, requiredKeys: ['matches', 'rankedCandidates'] }),
+  tool_dynamic_filter: deterministic({ query: 'workspace search', limit: 10 }, { expected: { selectedModel: 'deterministic', primitiveToolsRemainAvailable: true, authorizationUnchanged: true }, requiredKeys: ['rankedCandidates'] }),
+  tool_describe: deterministic({ name: 'tool_search' }, { expected: { found: true, name: 'tool_search', authorizationUnchanged: true } }),
+  tool_categories: deterministic({}, { expected: {}, requiredKeys: ['categories'] }),
+  tool_aliases: deterministic({}, { expected: { primitiveToolsRemainAvailable: true }, requiredKeys: ['aliases'] }),
+} as const satisfies Readonly<Record<string, ToolRuntimeFixture>>;
+
+/** Runtime fixtures for the exact 39 upgrade definitions delivered in phases 34-46. */
+export const PHASE_34_TO_46_TOOL_RUNTIME_FIXTURES = {
+  context_economy_stats: deterministic({}, { expected: { policy: { automaticDiscovery: 'filtered-and-progressive', explicitAccess: 'full-and-unrestricted-by-economy', ledger: 'bounded-in-memory' } } }),
+  tool_function_find: deterministic({ prompt: 'replace exact text in a TypeScript source file without a shell script', limit: 10 }, { expected: { selectedModel: 'deterministic', primitiveToolsRemainAvailable: true, authorizationUnchanged: true }, requiredKeys: ['rankedCandidates'] }),
+  mcp_hub: service({}, 'extensions.listMcpServers'),
+  dev_context: service({ workspaceId, query: 'smoke development context' }, 'git.status'),
+  recipe_catalog: deterministic({}, { expected: {}, requiredKeys: ['recipes'] }),
+  capture_screenshot: service({}, 'capabilities.dom_cdp'),
+  compare_screenshot: deterministic({ baseline_base64: 'same', actual_base64: 'same' }, { expected: { executed: true, equal: true }, requiredKeys: ['baseline', 'actual'] }),
+  dom_snapshot: service({}, 'capabilities.dom_cdp'),
+  layout_metadata: service({}, 'capabilities.dom_cdp'),
+  visual_context: service({}, 'capabilities.dom_cdp'),
+  inspect_workbook: service({ workspaceId, file_path: 'package.json' }, 'capabilities.office'),
+  compare_workbook_layout: unavailable({}, 'disabled'),
+  render_excel_preview: unavailable({}, 'disabled'),
+  inspect_pdf: unavailable({ workspaceId, file_path: 'package.json' }, 'needs_setup'),
+  compare_pdf_pages: unavailable({}, 'disabled'),
+  project_profile_get: unavailable({}, 'disabled'),
+  project_profile_set: unavailable({}, 'disabled'),
+  handoff_context: service({ workspaceId, query: 'handoff smoke' }, 'git.status'),
+  benchmark_run: unavailable({}, 'disabled'),
+  regression_report: unavailable({}, 'disabled'),
+  sandbox_exec: unavailable({}, process.platform === 'win32' ? 'needs_setup' : 'unsupported'),
+  event_watch: deterministic({ log_name: 'Application', max_events: 1 }, { expected: { status: process.platform === 'win32' ? 'ready' : 'optional' }, requiredKeys: ['available'] }),
+  crash_trace: deterministic({ hours: 1, max_events: 1 }, { expected: { status: process.platform === 'win32' ? 'ready' : 'optional' }, requiredKeys: ['available'] }),
+  lsp_diagnostics: unavailable({ workspaceId, files: ['src/upgrade-runtime.ts'] }, 'needs_setup'),
+  lsp_rename: unavailable({ workspaceId, file: 'src/upgrade-runtime.ts', newName: 'smokeRenamed' }, 'needs_setup'),
+  debug_attach: unavailable({}, 'disabled'),
+  debug_step: unavailable({}, 'disabled'),
+  git_worktree_spawn: deterministic({ workspaceId, worktreePath: '.worktrees/runtime-contract', ref: 'HEAD' }, { expected: { dryRun: true, sideEffectsStarted: false, mutationPolicy: 'explicit-confirmation-and-dry-run' } }),
+  git_worktree_remove: deterministic({ workspaceId, worktreePath: '.worktrees/runtime-contract' }, { expected: { dryRun: true, mutationPolicy: 'explicit-confirmation-and-dry-run' } }, 'git_worktree_spawn'),
+  db_inspect: unavailable({}, 'needs_setup'),
+  db_query: unavailable({}, 'needs_setup'),
+  office_ppt: service({ action: 'read', file_path: 'package.json' }, 'capabilities.office'),
+  office_outlook: service({ action: 'list_folders' }, 'capabilities.office'),
+  pdf_extract_tables: unavailable({ workspaceId, file_path: 'package.json' }, 'needs_setup'),
+  docx_merge: service({ workspaceId, file_path: 'package.json', merge_paths: ['tsconfig.json'], target_path: 'runtime-contract-output.docx' }, 'workspaceInfo.info'),
+  self_heal_plan: service({}, 'capabilities.shell'),
+  self_heal_apply: service({}, 'capabilities.shell'),
+  skills_import: unavailable({}, 'disabled'),
+  agent_swarm_run: unavailable({}, 'disabled'),
+} as const satisfies Readonly<Record<string, ToolRuntimeFixture>>;
+
 export const TOOL_RUNTIME_FIXTURES: Readonly<Record<string, ToolRuntimeFixture>> = Object.freeze({
   ...CORE_TOOL_RUNTIME_FIXTURES,
   ...PHASE_5_TO_18_TOOL_RUNTIME_FIXTURES,
+  ...PHASE_19_TO_33_TOOL_RUNTIME_FIXTURES,
+  ...PHASE_34_TO_46_TOOL_RUNTIME_FIXTURES,
 });
 
 export const CORE_TOOL_SMOKE_INPUTS: Readonly<Record<string, Readonly<Record<string, unknown>>>> = Object.freeze(

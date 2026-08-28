@@ -23,7 +23,7 @@ describe('startup Doctor state', () => {
         { id: 'os', required: true, status: 'pass', message: 'ok' },
         { id: 'database', required: true, status: 'pass', message: 'ok' },
         { id: 'git', required: false, status: 'warn', message: 'optional' },
-        { id: 'ripgrep', required: true, status: 'pass', message: 'ok' },
+        { id: 'executable_ripgrep', required: true, status: 'pass', message: 'ok' },
         { id: 'workspaces', required: true, status: 'pass', message: 'ok' },
         { id: 'mcp-port', required: true, status: 'pass', message: 'ok' },
         { id: 'codex', required: false, status: 'warn', message: 'optional' },
@@ -37,12 +37,20 @@ describe('startup Doctor state', () => {
       checks: [
         { id: 'os', required: true, status: 'pass', message: 'ok' },
         { id: 'database', required: true, status: 'pass', message: 'ok' },
-        { id: 'ripgrep', required: true, status: 'fail', message: 'missing' },
+        { id: 'executable_ripgrep', required: true, status: 'fail', message: 'missing' },
         { id: 'workspaces', required: true, status: 'pass', message: 'ok' },
         { id: 'mcp-port', required: true, status: 'pass', message: 'ok' },
       ],
     })).toBe(false);
     expect(startupDoctorCorePassed({ checks: [] })).toBe(false);
+    expect(startupDoctorCorePassed({
+      checks: [
+        { id: 'os', required: true, status: 'pass', message: 'ok' },
+        { id: 'database', required: true, status: 'pass', message: 'ok' },
+        { id: 'executable_ripgrep', required: true, status: 'unknown', message: 'probe timed out' },
+        { id: 'mcp-port', required: true, status: 'pass', message: 'ok' },
+      ],
+    })).toBe(false);
   });
 
   it('does not deadlock a clean profile on the optional workspace check', () => {
@@ -50,7 +58,7 @@ describe('startup Doctor state', () => {
       checks: [
         { id: 'os', required: true, status: 'pass', message: 'ok' },
         { id: 'database', required: true, status: 'pass', message: 'ok' },
-        { id: 'ripgrep', required: true, status: 'pass', message: 'ok' },
+        { id: 'executable_ripgrep', required: true, status: 'pass', message: 'ok' },
         { id: 'workspaces', required: false, status: 'warn', message: 'add a project' },
         { id: 'mcp-port', required: true, status: 'pass', message: 'ok' },
       ],
@@ -62,7 +70,7 @@ describe('startup Doctor state', () => {
       checks: [
         { id: 'os', required: true, status: 'pass', message: 'ok' },
         { id: 'database', required: true, status: 'pass', message: 'ok' },
-        { id: 'ripgrep', required: true, status: 'pass', message: 'ok' },
+        { id: 'executable_ripgrep', required: true, status: 'pass', message: 'ok' },
         { id: 'mcp-port', required: true, status: 'warn', message: 'identity-verified fallback port' },
       ],
     })).toBe(true);

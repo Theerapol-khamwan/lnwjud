@@ -57,6 +57,7 @@ describe('LocalExtensionsService MCP bridge', () => {
     const calls: string[] = [];
     const session: McpClientSession = {
       listTools: async () => [{ name: 'ping', description: 'Ping tool', inputSchema: { type: 'object' } }],
+      listResources: async () => [{ uri: 'file:///docs/readme.md', name: 'README', description: 'Project docs', mimeType: 'text/markdown' }],
       callTool: async (name, args) => {
         calls.push(`${name}:${JSON.stringify(args)}`);
         return { content: [{ type: 'text', text: 'pong' }] };
@@ -83,6 +84,12 @@ describe('LocalExtensionsService MCP bridge', () => {
         server: 'mock',
         tools: [{ name: 'ping', description: 'Ping tool' }],
       },
+    });
+
+    const resources = await service.listMcpResources({ server: 'mock' });
+    expect(resources).toMatchObject({
+      ok: true,
+      value: { server: 'mock', connected: true, resources: [{ uri: 'file:///docs/readme.md', name: 'README', mimeType: 'text/markdown' }] },
     });
 
     const called = await service.callMcpTool({ server: 'mock', tool: 'ping', arguments: { n: 1 } });
@@ -125,6 +132,7 @@ describe('LocalExtensionsService MCP bridge', () => {
     let closes = 0;
     const session: McpClientSession = {
       listTools: async () => [{ name: 'ping', description: 'Ping tool' }],
+      listResources: async () => [],
       callTool: async (_name, _args, signal) => {
         observedSignal = signal;
         releaseStarted();

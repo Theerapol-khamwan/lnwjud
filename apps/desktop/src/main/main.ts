@@ -1,4 +1,4 @@
-import { app, BrowserWindow, dialog, ipcMain, Menu, nativeImage, shell, Tray, type IpcMainInvokeEvent } from 'electron';
+import { app, BrowserWindow, clipboard, dialog, ipcMain, Menu, nativeImage, shell, Tray, type IpcMainInvokeEvent } from 'electron';
 import path from 'node:path';
 import os from 'node:os';
 import { access } from 'node:fs/promises';
@@ -17,6 +17,11 @@ import {
   type DashboardSnapshot,
   type DestructiveDeletePolicy,
   type DoctorReport,
+  type ToolCatalogSnapshot,
+  type GetToolCatalogRequest,
+  type RecheckToolCatalogRequest,
+  type OpenToolSetupTargetRequest,
+  type CopyToolCommandRequest,
   type ExportLogsRequest,
   type ExportWorkLogRequest,
   type IpcResponseMap,
@@ -73,6 +78,7 @@ import { localizedUpdateStatusMessage, nativeMessages } from './native-i18n.js';
 import { CrashDiagnosticsRecorder, RendererRecoveryPolicy } from './crash-recovery.js';
 import { isMutationApprovalResponse, mutationApprovalDialogOptions } from './mutation-approval.js';
 import { prependBundledRuntimeToolsToPath } from './runtime-tools.js';
+import { COPY_COMMANDS, OFFICIAL_URL_TARGETS } from './tool-catalog/remediation-registry.js';
 
 export interface DesktopIpcServices {
   listWorkspaces(): Promise<IpcResponseMap[typeof ipcChannels.listWorkspaces]>;
@@ -107,6 +113,10 @@ export interface DesktopIpcServices {
   configureTunnelProfile(request: ConfigureTunnelProfileRequest): Promise<{ readonly configured: boolean; readonly profilePath: string }>;
   launchManagedBrowser(): Promise<ManagedBrowserStatus>;
   runDoctor(): Promise<DoctorReport>;
+  getToolCatalog(request: GetToolCatalogRequest): Promise<ToolCatalogSnapshot>;
+  recheckToolCatalog(request: RecheckToolCatalogRequest): Promise<{ readonly catalog: ToolCatalogSnapshot; readonly doctor: DoctorReport }>;
+  openToolSetupTarget(request: OpenToolSetupTargetRequest): Promise<{ readonly opened: true }>;
+  copyToolCommand(request: CopyToolCommandRequest): Promise<{ readonly copied: true }>;
   getLogSnapshot(): Promise<LogSnapshot>;
   clearLogBuffer(request: ClearLogBufferRequest): Promise<{ readonly cleared: boolean }>;
   captureIncident(updaterEvents?: readonly string[]): Promise<IncidentReport>;
@@ -247,9 +257,16 @@ const defaultDesktopServices: DesktopIpcServices = {
   configureTunnelProfile: async (): Promise<{ readonly configured: boolean; readonly profilePath: string }> => ({ configured: false, profilePath: '' }),
   launchManagedBrowser: async (): Promise<ManagedBrowserStatus> => ({ ready: false, port: 9222, launched: false }),
   runDoctor: async (): Promise<DoctorReport> => ({
-    checks: [{ id: 'desktop', required: true, status: 'fail', message: 'Desktop services are not configured' }],
+    checks: [{ id: 'desktop', required: true, status: 'fail', title: 'Desktop services', summary: 'Desktop services are not configured', affectedToolNames: [], checkedAt: new Date(0).toISOString(), durationMs: 0, message: 'Desktop services are not configured' }],
     exitCode: 1,
   }),
+  getToolCatalog: async (request): Promise<ToolCatalogSnapshot> => ({ generatedAt: new Date(0).toISOString(), locale: request.locale, items: [], remediations: [] }),
+  recheckToolCatalog: async (request): Promise<{ readonly catalog: ToolCatalogSnapshot; readonly doctor: DoctorReport }> => ({
+    catalog: { generatedAt: new Date(0).toISOString(), locale: request.locale, items: [], remediations: [] },
+    doctor: { checks: [], exitCode: 1 },
+  }),
+  openToolSetupTarget: async (): Promise<{ readonly opened: true }> => ({ opened: true }),
+  copyToolCommand: async (): Promise<{ readonly copied: true }> => ({ copied: true }),
   getLogSnapshot: async (): Promise<LogSnapshot> => ({
     lines: [],
     tunnelLogPath: null,
@@ -449,6 +466,30 @@ export function registerIpcHandlers(
     assertTrustedSender(event, getMainWindow());
     assertNoPayload(payload);
     return services.runDoctor();
+  });
+  ipcMain.handle(ipcChannels.getToolCatalog, async (event, payload: unknown) => {
+    assertTrustedSender(event, getMainWindow());
+    return services.getToolCatalog(parseGetToolCatalogRequest(payload));
+  });
+  ipcMain.handle(ipcChannels.recheckToolCatalog, async (event, payload: unknown) => {
+    assertTrustedSender(event, getMainWindow());
+    return services.recheckToolCatalog(parseRecheckToolCatalogRequest(payload));
+  });
+  ipcMain.handle(ipcChannels.openToolSetupTarget, async (event, payload: unknown) => {
+    assertTrustedSender(event, getMainWindow());
+    const request = parseOpenToolSetupTargetRequest(payload);
+    const url = OFFICIAL_URL_TARGETS[request.target as keyof typeof OFFICIAL_URL_TARGETS];
+    if (url === undefined) throw new Error('Unknown tool setup target');
+    await shell.openExternal(url);
+    return { opened: true as const };
+  });
+  ipcMain.handle(ipcChannels.copyToolCommand, async (event, payload: unknown) => {
+    assertTrustedSender(event, getMainWindow());
+    const request = parseCopyToolCommandRequest(payload);
+    const command = COPY_COMMANDS[request.commandId as keyof typeof COPY_COMMANDS];
+    if (command === undefined) throw new Error('Unknown tool command id');
+    clipboard.writeText(command);
+    return { copied: true as const };
   });
   ipcMain.handle(ipcChannels.getLogSnapshot, async (event, payload: unknown) => {
     assertTrustedSender(event, getMainWindow());
@@ -742,6 +783,23 @@ function parseSaveTunnelApiKeyRequest(payload: unknown): SaveTunnelApiKeyRequest
 function parseSetTunnelClientPathRequest(payload: unknown): SetTunnelClientPathRequest {
   if (!isRecord(payload)) throw new Error('Invalid IPC payload');
   return { clientPath: nonEmptyString(payload.clientPath, 'clientPath') };
+}
+
+function parseGetToolCatalogRequest(payload: unknown): GetToolCatalogRequest {
+  if (!isRecord(payload) || Object.keys(payload).some((key) => key !== 'locale') || (payload.locale !== 'th' && payload.locale !== 'en')) throw new Error('Invalid tool catalog request');
+  return { locale: payload.locale };
+}
+function parseRecheckToolCatalogRequest(payload: unknown): RecheckToolCatalogRequest {
+  if (!isRecord(payload) || Object.keys(payload).some((key) => key !== 'locale' && key !== 'requirementIds') || (payload.locale !== 'th' && payload.locale !== 'en') || !Array.isArray(payload.requirementIds) || payload.requirementIds.length > 128 || payload.requirementIds.some((id: unknown) => typeof id !== 'string' || id.length === 0 || id.length > 128)) throw new Error('Invalid tool catalog recheck request');
+  return { locale: payload.locale, requirementIds: payload.requirementIds as string[] };
+}
+function parseOpenToolSetupTargetRequest(payload: unknown): OpenToolSetupTargetRequest {
+  if (!isRecord(payload) || Object.keys(payload).some((key) => key !== 'target') || typeof payload.target !== 'string' || payload.target.length === 0 || payload.target.length > 128) throw new Error('Invalid tool setup target request');
+  return { target: payload.target };
+}
+function parseCopyToolCommandRequest(payload: unknown): CopyToolCommandRequest {
+  if (!isRecord(payload) || Object.keys(payload).some((key) => key !== 'commandId') || typeof payload.commandId !== 'string' || payload.commandId.length === 0 || payload.commandId.length > 128) throw new Error('Invalid tool command request');
+  return { commandId: payload.commandId };
 }
 
 function parseSetLocaleRequest(payload: unknown): SetLocaleRequest {

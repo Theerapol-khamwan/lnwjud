@@ -62,7 +62,7 @@ const receiptSchema = z.discriminatedUnion('outcome', [
 
 const claimSchema = z.object({
   continuationId,
-  leaseSeconds: z.number().int().min(30).max(3600).default(600),
+  leaseSeconds: z.number().int().min(30).max(600).default(600),
 }).strict();
 
 const getSchema = z.union([

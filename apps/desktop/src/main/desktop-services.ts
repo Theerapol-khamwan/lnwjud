@@ -1,7 +1,6 @@
 import { createServer } from 'node:net';
 import path from 'node:path';
 import {
-  DoctorService,
   CheckpointService,
   CodexService,
   FileService,
@@ -104,6 +103,11 @@ import {
   type DashboardSnapshot,
   type DoctorCheck,
   type DoctorReport,
+  type ToolCatalogSnapshot,
+  type GetToolCatalogRequest,
+  type RecheckToolCatalogRequest,
+  type ToolCatalogItem,
+  type ToolProfileDecision,
   type InFlightWorkItem,
   type LogSnapshot,
   type ManagedBrowserStatus,
@@ -134,6 +138,10 @@ import {
 } from '@lnwjud/ipc-contracts';
 import type { DesktopIpcServices } from './main.js';
 import { buildCapabilitySummary, createLocalCapabilityRuntime } from './capability-runtime.js';
+import { RequirementRegistry, type RequirementDefinition, type RequirementProbeResult } from './tool-catalog/requirement-registry.js';
+import { RemediationRegistry } from './tool-catalog/remediation-registry.js';
+import { ToolCatalogService, type ToolCatalogServiceOptions } from './tool-catalog/tool-catalog-service.js';
+import { projectExternalMcpTools } from './tool-catalog/external-tool-catalog-adapter.js';
 import { LogHub, classifyMcpWorkLogKind } from './log-hub.js';
 import { buildIncidentReport, collectRelevantListeners, collectRelevantProcessTree, type IncidentReport } from './incident-report.js';
 import { DesktopMcpLifecycle } from './mcp-lifecycle.js';
@@ -533,20 +541,49 @@ export function createDesktopRuntime(dataPath: string, options: DesktopRuntimeOp
     if (!approved) throw new Error('Native host approval was denied for this administrative mutation');
   }
 
-  const doctorService = new DoctorService({
-    os: async (): Promise<DoctorProbeResult> => ({ status: process.platform === 'win32' && process.arch === 'x64' ? 'pass' : 'fail', message: `${process.platform} ${process.arch}` }),
-    database: async (): Promise<DoctorProbeResult> => ({ status: 'pass', message: 'SQLite database ready' }),
-    git: async (): Promise<DoctorProbeResult> => checkExecutable(executableResolver, 'git', 'warn'),
-    ripgrep: async (): Promise<DoctorProbeResult> => checkExecutable(executableResolver, 'rg', 'fail'),
-    workspaces: async (): Promise<DoctorProbeResult> => {
-      const count = (await workspaceService.list()).filter((workspace) => !isDriveRoot(workspace.realRootPath) && !isDriveRoot(workspace.rootPath)).length;
-      return count > 0
-        ? { status: 'pass', message: `${count} workspace(s) registered` }
-        : { status: 'warn', message: 'No project workspace is registered yet; add a project from Projects' };
-    },
-    mcpPort: async (): Promise<DoctorProbeResult> => checkConfiguredMcpPort(mcpLifecycle.status(), mcpPort),
-    codex: async (): Promise<DoctorProbeResult> => checkCodex(codexDiscovery),
-  });
+  const requirementProbeFromDoctor = async (probe: () => Promise<DoctorProbeResult>): Promise<RequirementProbeResult> => {
+    const result = await probe();
+    return { status: result.status, detail: result.message };
+  };
+  const capabilityRequirement = async (name: string): Promise<RequirementProbeResult> => {
+    const capabilities = await buildCapabilitySummary(capabilityRuntime.health);
+    const capability = capabilities.find((entry) => entry.name === name);
+    if (capability === undefined) return { status: 'unknown', detail: `${name} capability was not reported` };
+    if (capability.ready) return { status: 'pass', detail: `${name} is ready` };
+    return { status: capability.available ? 'fail' : 'unknown', detail: capability.available ? `${name} needs setup` : `${name} is unavailable` };
+  };
+  const requirementDefinitions: readonly RequirementDefinition[] = [
+    { id: 'os', required: true, summaryKey: 'requirement.os', probe: async () => ({ status: process.platform === 'win32' && process.arch === 'x64' ? 'pass' : 'fail', detail: `${process.platform} ${process.arch}` }) },
+    { id: 'database', required: true, summaryKey: 'requirement.database', probe: async () => ({ status: 'pass', detail: 'SQLite database ready' }) },
+    { id: 'mcp-port', required: true, summaryKey: 'requirement.mcp_port', probe: () => requirementProbeFromDoctor(() => checkConfiguredMcpPort(mcpLifecycle.status(), mcpPort)) },
+    { id: 'platform_windows', required: false, summaryKey: 'requirement.platform_windows', probe: async () => ({ status: process.platform === 'win32' ? 'pass' : 'fail', detail: `${process.platform} ${process.arch}` }) },
+    { id: 'registered_workspace', required: false, summaryKey: 'requirement.registered_workspace', remediationId: 'add_project', probe: async () => ({ status: (await workspaceService.list()).some((workspace) => !isDriveRoot(workspace.realRootPath) && !isDriveRoot(workspace.rootPath)) ? 'pass' : 'fail' }) },
+    { id: 'active_project', required: false, summaryKey: 'requirement.active_project', remediationId: 'add_project', probe: async () => ({ status: (await resolveActiveProjectWorkspaces()).length > 0 ? 'pass' : 'fail' }) },
+    { id: 'executable_git', required: false, summaryKey: 'requirement.executable_git', remediationId: 'install_git', probe: () => requirementProbeFromDoctor(() => checkExecutable(executableResolver, 'git', 'warn')) },
+    { id: 'executable_ripgrep', required: true, summaryKey: 'requirement.executable_ripgrep', remediationId: 'install_ripgrep', probe: () => requirementProbeFromDoctor(() => checkExecutable(executableResolver, 'rg', 'fail')) },
+    { id: 'codex_runtime', required: false, summaryKey: 'requirement.codex_runtime', remediationId: 'configure_codex', probe: () => requirementProbeFromDoctor(() => checkCodex(codexDiscovery)) },
+    { id: 'wsl_runtime', required: false, summaryKey: 'requirement.wsl_runtime', probe: () => capabilityRequirement('wsl_exec') },
+    { id: 'local_mcp_listener', required: true, summaryKey: 'requirement.local_mcp_listener', probe: async () => ({ status: mcpLifecycle.status().running ? 'pass' : 'fail', detail: mcpLifecycle.status().url ?? 'Desktop MCP listener is stopped' }) },
+    { id: 'browser_cdp', required: false, summaryKey: 'requirement.browser_cdp', probe: () => capabilityRequirement('dom_cdp') },
+    { id: 'windows_ui_automation', required: false, summaryKey: 'requirement.windows_ui_automation', probe: () => capabilityRequirement('accessibility') },
+    { id: 'windows_input', required: false, summaryKey: 'requirement.windows_input', probe: () => capabilityRequirement('input_event') },
+    { id: 'windows_window', required: false, summaryKey: 'requirement.windows_window', probe: () => capabilityRequirement('window') },
+    { id: 'windows_ocr', required: false, summaryKey: 'requirement.windows_ocr', probe: () => capabilityRequirement('vision') },
+    { id: 'office_desktop', required: false, summaryKey: 'requirement.office_desktop', probe: () => capabilityRequirement('office') },
+    { id: 'network_access', required: false, summaryKey: 'requirement.network_access', probe: () => capabilityRequirement('web_fetch') },
+    { id: 'scheduler_runtime', required: false, summaryKey: 'requirement.scheduler_runtime', probe: () => capabilityRequirement('scheduler') },
+    { id: 'tunnel_runtime', required: false, summaryKey: 'requirement.tunnel_runtime', remediationId: 'configure_tunnel', probe: async (): Promise<{ status: 'pass' | 'fail'; detail: string }> => { const status = await tunnelController.diagnosticStatus(); return { status: status.state === 'running' ? 'pass' : 'fail', detail: status.message ?? `Tunnel is ${status.state}` }; } },
+    { id: 'external_mcp_connection', required: false, summaryKey: 'requirement.external_mcp_connection', remediationId: 'connect_external_mcp', probe: async (): Promise<{ status: 'pass' | 'warn' | 'unknown'; detail: string }> => { const listed = await extensionsService.listMcpServers(); return !listed.ok ? { status: 'unknown', detail: listed.error.message } : { status: listed.value.servers.some((server) => server.enabled && server.connected) ? 'pass' : 'warn', detail: `${listed.value.servers.length} external MCP server(s) discovered` }; } },
+    { id: 'feature_delivery', required: false, summaryKey: 'requirement.feature_delivery', probe: async () => ({ status: 'pass', detail: 'Delivery state comes from the canonical upgrade catalog' }) },
+  ];
+  const requirementRegistry = new RequirementRegistry(requirementDefinitions, { ttlMs: 30_000, timeoutMs: 2_000 });
+  const remediationRegistry = new RemediationRegistry();
+  const toolCatalogOptions: ToolCatalogServiceOptions = {
+    profileDecision: (permission): ToolProfileDecision => permission === 'UNKNOWN' ? 'UNKNOWN' : activePermissionProfile().defaults[permission],
+    codexEnabled: (): boolean => readSettings().codexToolsEnabled,
+    externalItems: (locale): Promise<readonly ToolCatalogItem[]> => projectExternalMcpTools(extensionsService, locale),
+  };
+  const toolCatalogService = new ToolCatalogService(requirementRegistry, remediationRegistry, toolCatalogOptions);
 
   async function resolveWorkspaceOrThrow(workspaceId: string): Promise<Workspace> {
     const workspace = await workspaceRepository.get(workspaceId);
@@ -849,14 +886,18 @@ export function createDesktopRuntime(dataPath: string, options: DesktopRuntimeOp
       return toManagedBrowserStatus(unwrap(result, 'Managed Chrome could not be started'));
     },
     runDoctor: async (): Promise<DoctorReport> => {
-      const base = await doctorService.run();
+      const base = await toolCatalogService.runDoctor(undefined, readLocale(settingsRepository));
       const tunnel = await tunnelController.diagnosticStatus();
       recordPersistentTunnelStatus(tunnel);
       const mcp = mcpLifecycle.status();
       const tunnelHealth = await tunnelController.incidentHealth();
       const checks = [...base.checks, ...buildPersistentTunnelDoctorChecks({ tunnel, mcp, tunnelHealth, persistentEnabled: readSettings().tunnelAutoReconnect })];
-      return { checks, exitCode: checks.some((check) => check.required && check.status === 'fail') ? 1 : 0 };
+      return { checks, exitCode: checks.some((check) => check.required && (check.status === 'fail' || check.status === 'unknown')) ? 1 : 0 };
     },
+    getToolCatalog: async (request: GetToolCatalogRequest): Promise<ToolCatalogSnapshot> => toolCatalogService.getSnapshot(request.locale),
+    recheckToolCatalog: async (request: RecheckToolCatalogRequest): Promise<{ readonly catalog: ToolCatalogSnapshot; readonly doctor: DoctorReport }> => toolCatalogService.recheck(request.requirementIds, request.locale),
+    openToolSetupTarget: async (): Promise<{ readonly opened: true }> => ({ opened: true }),
+    copyToolCommand: async (): Promise<{ readonly copied: true }> => ({ copied: true }),
     getLogSnapshot: async (): Promise<LogSnapshot> => {
       const workLog = await buildWorkLog(auditRepository, workLogViewState);
       const inFlight = activityTracker.listInFlight().map(toInFlightItem);
@@ -1359,6 +1400,20 @@ function triStateLabel(value: boolean | null): string {
   return value === null ? 'unknown' : value ? 'ok' : 'failed';
 }
 
+function toStructuredDoctorCheck(id: string, required: boolean, status: DoctorCheck['status'], message: string): DoctorCheck {
+  return {
+    id,
+    required,
+    status,
+    title: id.replaceAll('_', ' ').replaceAll('-', ' '),
+    summary: message,
+    affectedToolNames: [],
+    checkedAt: new Date().toISOString(),
+    durationMs: 0,
+    message,
+  };
+}
+
 export function buildPersistentTunnelDoctorChecks(input: {
   readonly tunnel: TunnelStatus;
   readonly mcp: McpConnectionStatus;
@@ -1377,7 +1432,7 @@ export function buildPersistentTunnelDoctorChecks(input: {
   const health = persistent?.healthy ?? (input.tunnelHealth.state === 'live' ? true : input.tunnelHealth.state === 'unhealthy' ? false : null);
   const ready = persistent?.ready ?? null;
 
-  const check = (id: string, status: DoctorCheck['status'], message: string, isRequired = required): DoctorCheck => ({ id, required: isRequired, status, message });
+  const check = (id: string, status: DoctorCheck['status'], message: string, isRequired = required): DoctorCheck => toStructuredDoctorCheck(id, isRequired, status, message);
   return [
     check('persistent_tunnel_identity', identityPresent ? 'pass' : required ? 'fail' : 'warn', identityPresent ? 'Saved tunnel identity is configured' : 'TUNNEL_ID_MISMATCH: persistent tunnel identity is not configured'),
     check('runtime_alias_state', nativeRuntime ? 'pass' : persistent === null ? 'warn' : 'warn', nativeRuntime ? 'Native runtime alias lnwjud is active' : 'TUNNEL_RUNTIME_DOWN: native runtime alias is not active', false),

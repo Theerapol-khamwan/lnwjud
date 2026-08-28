@@ -161,7 +161,7 @@ describe('upgrade runtime', () => {
     expect(stats).toMatchObject({ structuredContent: { filesDiscovered: 1, filesDelivered: 1 } });
   });
 
-  it('persists redacted session/task state outside the repository', async () => {
+  it('persists redacted session state and reports task execution unavailable truthfully', async () => {
     const directory = await mkdtemp(path.join(os.tmpdir(), 'lnwjud-runtime-'));
     const statePath = path.join(directory, 'runtime.json');
     const first = new UpgradeRuntimeService({ runtimeStatePath: statePath }, actor);
@@ -170,7 +170,12 @@ describe('upgrade runtime', () => {
     const resumed = await second.execute('session_context', {});
     expect(resumed).toMatchObject({ ok: true, value: { checkpoints: [{ summary: 'inspect logs' }] } });
     const task = await second.execute('task_create', { instruction: 'run tests' });
-    expect(task).toMatchObject({ ok: true, value: { inputDigest: expect.any(String) } });
+    expect(task).toMatchObject({
+      ok: true,
+      value: {
+        tool: 'task_create', status: 'disabled', available: false, ready: false, executed: false,
+        requirements: ['managed task execution adapter'],
+      },
     });
   });
 
@@ -354,4 +359,5 @@ describe('self-healing (Wave 8)', () => {
     const plan = await runtime.execute('self_heal_plan', {});
     expect(plan).toMatchObject({ ok: true, value: { safeReversibleFixes: [], mutationRequired: false } });
   });
+});
 });

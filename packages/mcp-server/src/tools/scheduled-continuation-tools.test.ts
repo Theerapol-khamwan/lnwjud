@@ -63,6 +63,10 @@ describe('scheduled continuation MCP tools', () => {
       },
     })).toMatchObject({ ok: true });
     expect(byName.get('expedite_scheduled_continuation')?.parse({ goalId: 'g-1', continuationId: 'c-1', leaseToken: 'lease', expectedLeaseGeneration: 2, expectedGoalRevision: 3, expectedContinuationVersion: 4, reason: 'host_budget_warning' })).toMatchObject({ ok: true });
+    expect(byName.get('claim_scheduled_continuation')?.parse({ continuationId: 'c-1' })).toMatchObject({ ok: true, value: { leaseSeconds: 600 } });
+    expect(byName.get('claim_scheduled_continuation')?.parse({ continuationId: 'c-1', leaseSeconds: 600 })).toMatchObject({ ok: true });
+    expect(byName.get('claim_scheduled_continuation')?.parse({ continuationId: 'c-1', leaseSeconds: 601 })).toMatchObject({ ok: false });
+    expect(byName.get('claim_scheduled_continuation')?.parse({ continuationId: 'c-1', leaseSeconds: 3_600 })).toMatchObject({ ok: false });
     expect(byName.get('get_scheduled_continuation')?.parse({})).toMatchObject({ ok: false });
     expect(byName.get('get_scheduled_continuation')?.parse({ continuationId: 'c-1', goalId: 'g-1', latest: true })).toMatchObject({ ok: false });
     expect(byName.get('get_scheduled_continuation')?.parse({ goalId: 'g-1', latest: true })).toMatchObject({ ok: true });

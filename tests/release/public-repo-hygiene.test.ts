@@ -2,6 +2,7 @@ import { execFile } from 'node:child_process';
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { promisify } from 'node:util';
+import { ToolRegistry } from '@lnwjud/mcp-server';
 import { describe, expect, it } from 'vitest';
 
 const execFileAsync = promisify(execFile);
@@ -71,9 +72,15 @@ describe('public repository hygiene', () => {
     expect(readme).toContain(`apps/desktop/dist/installers/lnwjud-Portable-${version}.exe`);
     expect(readme).not.toContain('current source/release candidate is');
     expect(readme).not.toContain('pending publication');
-    expect(readme).toContain('229 total tool definitions');
-    expect(readme).toContain('217 advertised by default');
-    expect(readme).toContain('223 with Codex enabled');
+    const actor = { clientId: 'public-repo-hygiene', clientName: 'public-repo-hygiene' };
+    const defaultRegistry = new ToolRegistry({}, actor);
+    const codexRegistry = new ToolRegistry({}, actor, { codexToolsEnabled: true });
+    const totalDefinitions = codexRegistry.listAll().length;
+    const defaultAdvertised = defaultRegistry.list().length;
+    const codexAdvertised = codexRegistry.list().length;
+    expect(readme).toContain(`${totalDefinitions} total tool definitions`);
+    expect(readme).toContain(`${defaultAdvertised} advertised by default`);
+    expect(readme).toContain(`${codexAdvertised} with Codex enabled`);
     expect(readme).not.toContain(['Verify the ', '184-tool catalog'].join(''));
     expect(readme).not.toContain(['current v3.0.0 catalog contains ', '184 tools'].join(''));
     expect(readme).not.toContain('packaged v3.0.0 build');

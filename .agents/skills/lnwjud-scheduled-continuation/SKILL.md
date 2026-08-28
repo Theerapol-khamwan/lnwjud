@@ -18,7 +18,7 @@ One user request starts one durable chain: acquire the goal, arm one cloud succe
 
 ## Start or resume
 
-1. Call `run_goal` with a stable workspace and goal key. Keep the returned lease token and generation private.
+1. Call `run_goal` with a stable workspace and goal key using the normal **600-second (10-minute) lease**. Never override this workflow to an hour-long lease. Keep the returned lease token and generation private. The lease is a short crash-recovery window, not the expected work duration; real checkpoint/fenced-mutation activity renews it while work is actually alive.
 2. Read the durable checkpoint and do the next useful work. Record real milestones with `checkpoint_goal`; do not checkpoint merely because time elapsed.
 3. After the first checkpoint, call `prepare_scheduled_continuation` and create exactly one native one-time task from its `scheduleRequest`. Record `created` with the real native task ID and `runsOn: cloud` before relying on it.
 4. Choose `successorDelayMinutes` adaptively within **2–25 minutes**:
@@ -49,7 +49,7 @@ If the user asks to cancel the goal, call `cancel_goal` with the latest expected
 
 ## Scheduled wake
 
-1. Call `claim_scheduled_continuation` first; do no workspace mutation beforehand. The runtime accepts a confirmed cloud wake up to 60 seconds early so minute-level host jitter cannot consume the only wake without a handoff.
+1. Call `claim_scheduled_continuation` first with the normal **600-second lease**; do not request a longer lease. Do no workspace mutation beforehand. The runtime accepts a confirmed cloud wake up to 60 seconds early so minute-level host jitter cannot consume the only wake without a handoff. While this run is genuinely active, checkpoint and fenced-mutation activity slide the lease forward, capped by the scheduled handoff deadline; inactivity does not renew it.
 2. Handle the returned outcome exactly:
 
    - `terminal_noop`: stop; create no successor.

@@ -154,7 +154,7 @@ export class SandboxRuntimeService {
 
   private unavailable(reason: string): Record<string, unknown> {
     return {
-      tool: 'sandbox_exec', status: 'optional', available: false, ready: false, executed: false,
+      tool: 'sandbox_exec', status: this.platform === 'win32' ? 'needs_setup' : 'unsupported', available: false, ready: false, executed: false,
       reason, requirements: ['Windows Sandbox feature', 'interactive user session', 'artifact output directory'],
       primitiveFallbacks: ['read_file', 'search_text', 'workspace_tree'],
     };

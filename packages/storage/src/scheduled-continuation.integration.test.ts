@@ -1138,6 +1138,62 @@ describe('scheduled continuation repository state machine', () => {
     }
   });
 
+  it('slides a 10-minute goal lease only on real fenced activity and never beyond the handoff deadline', async () => {
+    const database = await openDatabase();
+    const repository = new SqliteGoalRepository(database);
+    try {
+      const acquired = await repository.acquire({
+        goalId: 'unused-new-goal-id',
+        workspaceId: 'workspace-1',
+        goalKey: 'scheduled-continuation-fixture',
+        ownerClientId: 'chatgpt-web-client',
+        ownerSessionId: 'session-a',
+        leaseTokenHash: 'lease-hash-a',
+        leaseSeconds: 600,
+        now: '2026-08-27T00:00:00.000Z',
+      });
+      expect(acquired.acquired).toBe(true);
+      const prepared = await repository.prepareScheduledContinuation(prepareRequest(
+        '2026-08-27T00:00:00.000Z',
+        '2026-08-27T00:25:00.000Z',
+        0,
+        'sliding-lease-fp',
+        'continuation-sliding-lease',
+      ));
+      expect(prepared.goal.leaseExpiresAt).toBe('2026-08-27T00:10:00.000Z');
+
+      await repository.beginGoalFencedMutation({
+        callId: 'sliding-call',
+        goalId: 'goal-1',
+        workspaceId: 'workspace-1',
+        ownerClientId: 'chatgpt-web-client',
+        leaseTokenHash: 'lease-hash-a',
+        leaseGeneration: prepared.goal.leaseGeneration,
+        startedAt: '2026-08-27T00:05:00.000Z',
+        expiresAt: '2026-08-27T00:06:00.000Z',
+      });
+      expect((await repository.getById('goal-1'))?.leaseExpiresAt).toBe('2026-08-27T00:15:00.000Z');
+
+      await repository.heartbeatGoalFencedMutation(
+        'sliding-call',
+        prepared.goal.leaseGeneration,
+        '2026-08-27T00:09:00.000Z',
+        '2026-08-27T00:10:00.000Z',
+      );
+      expect((await repository.getById('goal-1'))?.leaseExpiresAt).toBe('2026-08-27T00:19:00.000Z');
+
+      await repository.heartbeatGoalFencedMutation(
+        'sliding-call',
+        prepared.goal.leaseGeneration,
+        '2026-08-27T00:16:00.000Z',
+        '2026-08-27T00:17:00.000Z',
+      );
+      expect((await repository.getById('goal-1'))?.leaseExpiresAt).toBe('2026-08-27T00:25:00.000Z');
+    } finally {
+      database.close();
+    }
+  });
+
   it('turns a scheduled wake into terminal_noop after the goal finishes', async () => {
     const database = await openDatabase();
     const repository = new SqliteGoalRepository(database);

@@ -13,6 +13,14 @@ import {
   type DestructiveDeletePolicy,
   type DoctorCheck,
   type DoctorReport,
+  type ToolCatalogSnapshot,
+  type ToolCatalogItem,
+  type RequirementResult,
+  type ResolvedRemediation,
+  type GetToolCatalogRequest,
+  type RecheckToolCatalogRequest,
+  type OpenToolSetupTargetRequest,
+  type CopyToolCommandRequest,
   type ExportLogsRequest,
   type ExportWorkLogRequest,
   type IncidentExportResult,
@@ -490,15 +498,124 @@ function doctorReport(value: unknown): DoctorReport {
   const checks: readonly DoctorCheck[] = value.checks.map((check) => {
     if (!isRecord(check) || typeof check.required !== 'boolean') throw new Error('Invalid IPC response');
     const status = check.status;
-    if (status !== 'pass' && status !== 'warn' && status !== 'fail') throw new Error('Invalid IPC response');
+    if (status !== 'pass' && status !== 'warn' && status !== 'fail' && status !== 'unknown') throw new Error('Invalid IPC response');
     return {
       id: stringField(check, 'id'),
       required: check.required,
       status,
-      message: stringField(check, 'message'),
+      title: stringField(check, 'title'),
+      summary: stringField(check, 'summary'),
+      affectedToolNames: stringList(check.affectedToolNames),
+      checkedAt: stringField(check, 'checkedAt'),
+      durationMs: numberField(check, 'durationMs'),
+      ...(check.detail === undefined ? {} : { detail: stringField(check, 'detail') }),
+      ...(check.remediationId === undefined ? {} : { remediationId: stringField(check, 'remediationId') }),
+      ...(check.message === undefined ? {} : { message: stringField(check, 'message') }),
     };
   });
   return { checks, exitCode: value.exitCode };
+}
+
+function toolCatalogSnapshot(value: unknown): ToolCatalogSnapshot {
+  if (!isRecord(value) || !Array.isArray(value.items) || !Array.isArray(value.remediations)) throw new Error('Invalid IPC response');
+  const locale = uiLocale(value.locale);
+  const items = value.items.map(toolCatalogItem);
+  const remediations = value.remediations.map(resolvedRemediation);
+  return { generatedAt: stringField(value, 'generatedAt'), locale, items, remediations };
+}
+
+function toolCatalogItem(value: unknown): ToolCatalogItem {
+  if (!isRecord(value) || !Array.isArray(value.requirements) || !Array.isArray(value.remediationIds) || !Array.isArray(value.searchText)) throw new Error('Invalid IPC response');
+  const origin = value.origin;
+  const category = value.category;
+  const declaredPermission = value.declaredPermission;
+  const profileDecision = value.profileDecision;
+  const riskMode = value.riskMode;
+  const readiness = value.readiness;
+  if (origin !== 'lnwjud' && origin !== 'external_mcp') throw new Error('Invalid IPC response');
+  if (!['workspace','files','search_context','git','process','browser_desktop','system','office_media','automation','agent_goals','extensions'].includes(String(category))) throw new Error('Invalid IPC response');
+  if (!['READ','WRITE','EXECUTE','DANGEROUS','UNKNOWN'].includes(String(declaredPermission))) throw new Error('Invalid IPC response');
+  if (!['ALLOW','ASK','DENY','UNKNOWN'].includes(String(profileDecision))) throw new Error('Invalid IPC response');
+  if (!['fixed','input_dependent','external_unknown'].includes(String(riskMode))) throw new Error('Invalid IPC response');
+  if (!['ready','needs_setup','blocked','disabled','unsupported','unknown'].includes(String(readiness))) throw new Error('Invalid IPC response');
+  const supportsCancel = value.supportsCancel;
+  const supportsDryRun = value.supportsDryRun;
+  if (supportsCancel !== null && typeof supportsCancel !== 'boolean') throw new Error('Invalid IPC response');
+  if (supportsDryRun !== null && typeof supportsDryRun !== 'boolean') throw new Error('Invalid IPC response');
+  const inputSchema = value.inputSchema;
+  if (inputSchema !== null && !isRecord(inputSchema)) throw new Error('Invalid IPC response');
+  return {
+    name: stringField(value, 'name'),
+    origin: origin as ToolCatalogItem['origin'],
+    ...(value.serverName === undefined ? {} : { serverName: stringField(value, 'serverName') }),
+    category: category as ToolCatalogItem['category'],
+    title: stringField(value, 'title'),
+    shortDescription: stringField(value, 'shortDescription'),
+    longDescription: stringField(value, 'longDescription'),
+    declaredPermission: declaredPermission as ToolCatalogItem['declaredPermission'],
+    profileDecision: profileDecision as ToolCatalogItem['profileDecision'],
+    riskMode: riskMode as ToolCatalogItem['riskMode'],
+    readiness: readiness as ToolCatalogItem['readiness'],
+    stale: booleanField(value, 'stale'),
+    checkedAt: nullableString(value.checkedAt),
+    supportsCancel,
+    supportsDryRun,
+    requirements: value.requirements.map(requirementResult),
+    remediationIds: stringList(value.remediationIds),
+    inputSchema,
+    searchText: stringList(value.searchText),
+  };
+}
+
+function requirementResult(value: unknown): RequirementResult {
+  if (!isRecord(value) || typeof value.required !== 'boolean') throw new Error('Invalid IPC response');
+  const status = value.status;
+  if (status !== 'pass' && status !== 'warn' && status !== 'fail' && status !== 'unknown') throw new Error('Invalid IPC response');
+  return {
+    id: stringField(value, 'id'), status, required: value.required,
+    checkedAt: stringField(value, 'checkedAt'), summaryKey: stringField(value, 'summaryKey'),
+    ...(value.detail === undefined ? {} : { detail: stringField(value, 'detail') }),
+    ...(value.remediationId === undefined ? {} : { remediationId: stringField(value, 'remediationId') }),
+  };
+}
+
+function resolvedRemediation(value: unknown): ResolvedRemediation {
+  if (!isRecord(value) || !Array.isArray(value.steps) || !Array.isArray(value.actions)) throw new Error('Invalid IPC response');
+  const actions = value.actions.map((action) => {
+    if (!isRecord(action)) throw new Error('Invalid IPC response');
+    if (action.kind === 'open_settings' && typeof action.target === 'string') return { kind: 'open_settings' as const, target: action.target };
+    if (action.kind === 'open_official_url' && typeof action.target === 'string') return { kind: 'open_official_url' as const, target: action.target };
+    if (action.kind === 'copy_command' && typeof action.commandId === 'string') return { kind: 'copy_command' as const, commandId: action.commandId };
+    if (action.kind === 'recheck' && Array.isArray(action.requirementIds) && action.requirementIds.every((entry) => typeof entry === 'string')) return { kind: 'recheck' as const, requirementIds: action.requirementIds as string[] };
+    throw new Error('Invalid IPC response');
+  });
+  return { id: stringField(value, 'id'), title: stringField(value, 'title'), explanation: stringField(value, 'explanation'), steps: stringList(value.steps), actions };
+}
+
+function getToolCatalog(request: GetToolCatalogRequest): Promise<ToolCatalogSnapshot> {
+  if (!isRecord(request) || (request.locale !== 'th' && request.locale !== 'en')) return Promise.reject(new Error('Invalid IPC request'));
+  return invoke(ipcChannels.getToolCatalog, { locale: request.locale }).then(toolCatalogSnapshot);
+}
+function recheckToolCatalog(request: RecheckToolCatalogRequest): Promise<{ readonly catalog: ToolCatalogSnapshot; readonly doctor: DoctorReport }> {
+  if (!isRecord(request) || (request.locale !== 'th' && request.locale !== 'en') || !Array.isArray(request.requirementIds) || request.requirementIds.some((id) => typeof id !== 'string')) return Promise.reject(new Error('Invalid IPC request'));
+  return invoke(ipcChannels.recheckToolCatalog, { locale: request.locale, requirementIds: [...request.requirementIds] }).then((value: unknown) => {
+    if (!isRecord(value)) throw new Error('Invalid IPC response');
+    return { catalog: toolCatalogSnapshot(value.catalog), doctor: doctorReport(value.doctor) };
+  });
+}
+function openToolSetupTarget(request: OpenToolSetupTargetRequest): Promise<{ readonly opened: true }> {
+  if (!isRecord(request) || typeof request.target !== 'string' || request.target.length === 0 || request.target.length > 128) return Promise.reject(new Error('Invalid IPC request'));
+  return invoke(ipcChannels.openToolSetupTarget, { target: request.target }).then((value: unknown) => {
+    if (!isRecord(value) || value.opened !== true) throw new Error('Invalid IPC response');
+    return { opened: true };
+  });
+}
+function copyToolCommand(request: CopyToolCommandRequest): Promise<{ readonly copied: true }> {
+  if (!isRecord(request) || typeof request.commandId !== 'string' || request.commandId.length === 0 || request.commandId.length > 128) return Promise.reject(new Error('Invalid IPC request'));
+  return invoke(ipcChannels.copyToolCommand, { commandId: request.commandId }).then((value: unknown) => {
+    if (!isRecord(value) || value.copied !== true) throw new Error('Invalid IPC response');
+    return { copied: true };
+  });
 }
 
 function addWorkspace(request: AddWorkspaceRequest): Promise<WorkspaceSummary> {
@@ -898,6 +1015,10 @@ const api: LnwjudApi = {
   openExternalSetupPage,
   launchManagedBrowser,
   runDoctor: () => invoke(ipcChannels.runDoctor).then(doctorReport),
+  getToolCatalog,
+  recheckToolCatalog,
+  openToolSetupTarget,
+  copyToolCommand,
   getLogSnapshot: () => invoke(ipcChannels.getLogSnapshot).then(logSnapshot),
   clearLogBuffer,
   exportLogs,

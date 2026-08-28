@@ -78,13 +78,25 @@ export class DocumentRuntimeService {
       const payload = result as { error?: { message?: string } };
       if (result.error?.code === 'INVALID_INPUT' || result.error?.code === 'PATH_OUTSIDE_WORKSPACE' || result.error?.code === 'FILE_NOT_FOUND') return result;
       return ok({
-        tool: 'inspect_pdf', status: 'optional', available: false, executed: false,
+        tool: 'inspect_pdf', status: 'needs_setup', available: false, ready: false, executed: false,
         reason: payload.error?.message ?? 'PDF provider unavailable',
         requirements: ['local PDF provider'],
         primitiveFallbacks: ['read_file', 'search_text'],
       });
     }
-    const value = result.value as { workspaceId: string; file: string; text: string; truncated: boolean };
+    const raw = result.value as { workspaceId?: unknown; file?: unknown; text?: unknown; truncated?: unknown; available?: unknown; status?: unknown; requirements?: unknown; reason?: unknown };
+    if (raw.available === false) {
+      return ok({
+        tool: 'inspect_pdf', status: raw.status === 'unsupported' ? 'unsupported' : 'needs_setup', available: false, ready: false, executed: false,
+        reason: typeof raw.reason === 'string' ? raw.reason : 'PDF provider unavailable',
+        requirements: Array.isArray(raw.requirements) ? raw.requirements : ['local PDF provider'],
+        primitiveFallbacks: ['read_file', 'search_text'],
+      });
+    }
+    if (typeof raw.workspaceId !== 'string' || typeof raw.file !== 'string' || typeof raw.text !== 'string') {
+      return err(appError('INTERNAL_ERROR', 'PDF provider returned an unexpected success shape', true));
+    }
+    const value = { workspaceId: raw.workspaceId, file: raw.file, text: raw.text, truncated: raw.truncated === true };
     const pages = Math.max(1, (value.text.match(/\f/g) ?? []).length);
     return ok({
       tool: 'inspect_pdf', status: 'ready', available: true,
@@ -309,7 +321,7 @@ function runPdfProvider(provider: string, args: readonly string[], signal?: Abor
 
 function unavailable(tool: string, reason: string, requirements: readonly string[]): Result<unknown> {
   return ok({
-    tool, status: 'optional', available: false, ready: false, executed: false,
+    tool, status: 'needs_setup', available: false, ready: false, executed: false,
     reason, requirements,
     primitiveFallbacks: ['read_file', 'search_text', 'workspace_tree'],
   });

@@ -128,7 +128,7 @@ describe('upgrade runtime readiness facades', () => {
     for (const tool of ['network_context', 'console_context'] as const) {
       await expect(runtime.execute(tool, {})).resolves.toMatchObject({
         ok: true,
-        value: { status: 'optional', available: false, ready: false, executed: true, requirements: expect.any(Array) },
+        value: { status: 'needs_setup', available: false, ready: false, executed: false, requirements: expect.any(Array) },
       });
     }
   });

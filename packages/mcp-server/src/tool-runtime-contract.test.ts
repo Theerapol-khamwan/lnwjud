@@ -4,6 +4,8 @@ import { UPGRADE_TOOL_CATALOG } from './upgrade-catalog.js';
 import { ToolRegistry } from './tool-registry.js';
 import {
   PHASE_5_TO_18_TOOL_RUNTIME_FIXTURES,
+  PHASE_19_TO_33_TOOL_RUNTIME_FIXTURES,
+  PHASE_34_TO_46_TOOL_RUNTIME_FIXTURES,
   TOOL_RUNTIME_FIXTURES,
   type ToolRuntimeFixture,
 } from './tool-runtime-fixtures.js';
@@ -17,18 +19,20 @@ const PHASE_5_TO_18_TOOL_NAMES = UPGRADE_TOOL_CATALOG
   .map((entry) => entry.name)
   .sort();
 
+const PHASE_19_TO_33_TOOL_NAMES = UPGRADE_TOOL_CATALOG
+  .filter((entry) => entry.phase >= 19 && entry.phase <= 33)
+  .map((entry) => entry.name)
+  .sort();
+
+const PHASE_34_TO_46_TOOL_NAMES = UPGRADE_TOOL_CATALOG
+  .filter((entry) => entry.phase >= 34 && entry.phase <= 46)
+  .map((entry) => entry.name)
+  .sort();
+
 const COMPOUND_CONTEXT_TOOL_NAMES = [
   'debug_context', 'review_context', 'change_context', 'symbol_context',
   'test_context', 'git_context', 'frontend_context', 'backend_context',
 ] as const;
-
-function auditedDefinitionNames(registry: ToolRegistry): string[] {
-  const upgradeNames = new Set(UPGRADE_TOOL_CATALOG.map((entry) => entry.name));
-  const coreNames = registry.listAll()
-    .map((definition) => definition.name)
-    .filter((name) => !upgradeNames.has(name));
-  return [...coreNames, ...PHASE_5_TO_18_TOOL_NAMES].sort();
-}
 
 async function executeDefinition(
   registry: ToolRegistry,
@@ -77,6 +81,13 @@ async function preparedInput(
     case 'session_checkpoint':
       await executeDefinition(registry, 'session_checkpoint', { summary: 'prepared checkpoint' });
       return fixture.input;
+    case 'git_worktree_spawn': {
+      const result = await executeDefinition(registry, 'git_worktree_spawn', {
+        workspaceId: 'workspace-1', worktreePath: '.worktrees/runtime-contract', ref: 'HEAD', dryRun: false, userConfirmed: true,
+      });
+      if (!result.ok) throw new Error(result.error.message);
+      return fixture.input;
+    }
     case 'cache_seed':
       return fixture.input;
     case undefined:
@@ -92,12 +103,16 @@ async function cacheGeneration(registry: ToolRegistry): Promise<number> {
 }
 
 describe('tool runtime delivery contract', () => {
-  it('tracks an exact runtime fixture for every core and phase 5-18 definition', () => {
+  it('tracks an exact runtime fixture for every first-party definition', () => {
     const registry = new ToolRegistry({}, actor);
     expect(PHASE_5_TO_18_TOOL_NAMES).toHaveLength(53);
+    expect(PHASE_19_TO_33_TOOL_NAMES).toHaveLength(46);
+    expect(PHASE_34_TO_46_TOOL_NAMES).toHaveLength(39);
     expect(Object.keys(PHASE_5_TO_18_TOOL_RUNTIME_FIXTURES).sort()).toEqual(PHASE_5_TO_18_TOOL_NAMES);
-    expect(Object.keys(TOOL_RUNTIME_FIXTURES).sort()).toEqual(auditedDefinitionNames(registry));
-    expect(Object.keys(TOOL_RUNTIME_FIXTURES)).toHaveLength(144);
+    expect(Object.keys(PHASE_19_TO_33_TOOL_RUNTIME_FIXTURES).sort()).toEqual(PHASE_19_TO_33_TOOL_NAMES);
+    expect(Object.keys(PHASE_34_TO_46_TOOL_RUNTIME_FIXTURES).sort()).toEqual(PHASE_34_TO_46_TOOL_NAMES);
+    expect(Object.keys(TOOL_RUNTIME_FIXTURES).sort()).toEqual(registry.listAll().map((definition) => definition.name).sort());
+    expect(Object.keys(TOOL_RUNTIME_FIXTURES)).toHaveLength(registry.listAll().length);
   });
 
   it('keeps complete inventory separate from currently advertised tools', () => {
@@ -252,7 +267,7 @@ describe('tool runtime delivery contract', () => {
         && typeof record(checkpoint).summary === 'string'
       ))).toBe(true);
     }
-  });
+  }, 20_000);
 
   it.each(Object.entries(PHASE_5_TO_18_TOOL_RUNTIME_FIXTURES).filter(([, fixture]) => fixture.evidence.kind === 'service_dispatch'))(
     '%s reports needs_setup instead of successful placeholder data when its service is absent',

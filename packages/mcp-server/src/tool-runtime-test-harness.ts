@@ -30,8 +30,8 @@ export function createRuntimeSuccessServices(calls: string[]): McpApplicationSer
 
   return {
     workspaceInfo: serviceProxy('workspaceInfo', calls, (method) => method === 'list'
-      ? [{ id: 'workspace-1', path: 'E:\\project' }]
-      : { id: 'workspace-1', path: 'E:\\project' }),
+      ? [{ id: 'workspace-1', path: process.cwd(), realRootPath: process.cwd() }]
+      : { id: 'workspace-1', path: process.cwd(), realRootPath: process.cwd() }),
     workspaceQuery: serviceProxy('workspaceQuery', calls, () => ({ entries: [] })),
     projectSnapshot: serviceProxy('projectSnapshot', calls, () => ({ workspaceId: 'workspace-1', files: 1 })),
     project: serviceProxy('project', calls, () => ({ kind: 'node', packageManager: 'pnpm' })),
@@ -86,8 +86,10 @@ export function createRuntimeSuccessServices(calls: string[]): McpApplicationSer
       if (method === 'readSkill') return { id: 'skill-1', name: 'Smoke', description: 'Smoke', source: 'workspace', path: 'SKILL.md', content: '# Smoke' };
       if (method === 'listMcpServers') return { servers: [{ name: 'server-1' }] };
       if (method === 'describeMcpServer') return { server: 'server-1', enabled: true, connected: true, tools: [] };
+      if (method === 'listMcpResources') return { server: 'server-1', enabled: true, connected: true, resources: [{ uri: 'file:///resource.txt', name: 'resource' }] };
       return { called: true };
     }),
+    localProviders: () => ({ pdfProvider: '__lnwjud_missing_pdf_provider__.exe' }),
     capabilities: {
       async execute(tool: string, input: unknown) {
         calls.push(`capabilities.${tool}`);
@@ -99,6 +101,8 @@ export function createRuntimeSuccessServices(calls: string[]): McpApplicationSer
         }
         if (tool === 'vision') return ok(png);
         if (tool === 'shell' && request.operation === 'list') return ok({ tasks: [] });
+        if (tool === 'office' && request.app === 'excel' && request.action === 'sheets') return ok({ sheets: ['Sheet1'] });
+        if (tool === 'office' && request.app === 'excel' && request.action === 'read') return ok({ values: [['smoke']] });
         return ok({ executed: true });
       },
     } as NonNullable<McpApplicationServices['capabilities']>,

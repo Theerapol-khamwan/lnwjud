@@ -242,22 +242,18 @@ export class UpgradeRuntimeService {
       case 'session_history':
         return ok({ checkpoints: this.checkpoints });
       case 'task_create':
-      case 'delegate': {
-        const task = await this.createTask(name === 'delegate' ? 'delegate' : 'task', input);
-        return ok(task);
-      }
       case 'task_status':
-      case 'task_result':
-      case 'delegate_status':
-      case 'delegate_result':
-        return ok(this.taskView(readString(input, 'taskId') ?? readString(input, 'delegateId') ?? readString(input, 'id')));
-      case 'task_list':
-        return ok({ tasks: [...this.tasks.values()].map(publicTask) });
       case 'task_cancel':
+      case 'task_result':
+      case 'task_list':
+        return ok(truthfulUnavailable(name, 'disabled', ['managed task execution adapter']));
+      case 'delegate':
+      case 'delegate_status':
       case 'delegate_cancel':
-        return ok(await this.cancelTask(readString(input, 'taskId') ?? readString(input, 'delegateId') ?? readString(input, 'id')));
+      case 'delegate_result':
+        return ok(truthfulUnavailable(name, 'disabled', ['subagent provider']));
       case 'parallel_delegate':
-        return ok(parallelDelegatePlan(input));
+        return ok(truthfulUnavailable(name, 'disabled', ['subagent provider', 'ownership/collision adapter']));
       case 'repo_map':
         return this.repositoryMap(readString(input, 'workspaceId'));
       case 'context_expand':
@@ -278,11 +274,10 @@ export class UpgradeRuntimeService {
       case 'workspace_index':
         return ok({});
       case 'live_logs_status':
-        return ok({ healthy: true, sources: ['mcp', 'tunnel', 'process'], correlationIds: true, redaction: 'secrets-not-retained' });
       case 'live_logs_query':
-        return ok({ entries: [], source: readString(input, 'source') ?? 'all', continuation: null, queryApplied: true });
+        return ok(truthfulUnavailable(name, 'needs_setup', ['structured live-log provider']));
       case 'telemetry_dashboard':
-        return ok({ mcpCalls: 0, internalOperations: 0, averageLatencyMs: 0, p95LatencyMs: 0, cacheHitRate: hitRate(this.cache), contextBytes: this.contextEconomy.snapshot().contextSentBytes, streamedBytes: 0, filesScanned: this.contextEconomy.snapshot().filesDiscovered, filesDelivered: this.contextEconomy.snapshot().filesDelivered, errors: 0, retries: 0, contextEconomy: this.contextEconomy.snapshot() });
+        return ok(truthfulUnavailable(name, 'needs_setup', ['runtime telemetry provider']));
       case 'context_economy_stats':
         return ok({ ...this.contextEconomy.snapshot(), policy: { automaticDiscovery: 'filtered-and-progressive', explicitAccess: 'full-and-unrestricted-by-economy', ledger: 'bounded-in-memory' } });
       case 'execution_plan':
@@ -292,13 +287,14 @@ export class UpgradeRuntimeService {
       case 'tool_schema_list':
         return ok({ schemas: UPGRADE_TOOL_CATALOG.map((entry) => ({ id: entry.name, version: '1.0.0', permissions: [entry.permission], streamable: entry.streamable === true, parallelSafe: entry.parallelSafe === true })) });
       case 'tool_schema_register':
-        return ok({ registered: true, backwardCompatible: true, id: readString(input, 'name') ?? null });
+        return ok(truthfulUnavailable(name, 'disabled', ['versioned schema registry']));
       case 'mcp_discover':
       case 'mcp_health':
+        return this.externalMcpInsight(name);
       case 'mcp_resources':
-        return ok({ servers: this.services.extensions === undefined ? [] : 'available', nativeToolsRemainVisible: true, connectionPooling: true, timeoutIsolation: true });
+        return this.externalMcpResources(input);
       case 'mcp_hub':
-        return ok({ tool: name, status: 'optional', available: this.services.extensions !== undefined, flattenChildTools: false, credentialsStoredInRepository: false, statelessTransport: true, tasksExtension: true, cacheMetadata: true, tracePropagation: true, authorizationUnchanged: true });
+        return this.externalMcpHub();
       case 'self_heal_plan':
         return this.selfHealPlan(input, authorization);
       case 'self_heal_apply':
@@ -311,8 +307,14 @@ export class UpgradeRuntimeService {
       case 'sandbox_exec':
         return this.sandbox.execute(input, signal, authorization);
       case 'db_inspect':
+        if (readString(input, 'workspaceId') === undefined || (readString(input, 'target') ?? readString(input, 'path') ?? readString(input, 'database')) === undefined) {
+          return ok(truthfulUnavailable(name, 'needs_setup', ['registered workspace', 'SQLite target file']));
+        }
         return this.database.inspect(input);
       case 'db_query':
+        if (readString(input, 'workspaceId') === undefined || (readString(input, 'target') ?? readString(input, 'path') ?? readString(input, 'database')) === undefined) {
+          return ok(truthfulUnavailable(name, 'needs_setup', ['registered workspace', 'SQLite target file']));
+        }
         return this.database.query(input);
       case 'lsp_diagnostics':
         return this.lsp.diagnostics(input);
@@ -333,15 +335,28 @@ export class UpgradeRuntimeService {
       case 'office_outlook':
         return this.officeOutlook(input, authorization);
       case 'handoff_context':
-        return ok({ goal: summarize(readString(input, 'prompt') ?? readString(input, 'goal') ?? ''), workspaceId: readString(input, 'workspaceId') ?? null, branch: null, filesChanged: [], filesInspected: [], tests: [], failures: [], decisions: [], openQuestions: [], recommendedNextActions: ['inspect current status', 'continue with primitive tools'] });
+        return this.compoundContext(name, input);
       case 'benchmark_run':
-        return ok({ started: false, preview: true, command: 'corepack pnpm@10.15.0 run benchmark:baseline -- --runs 3', scenario: readString(input, 'scenario') ?? 'all' });
+        return ok(truthfulUnavailable(name, 'disabled', ['managed benchmark execution adapter']));
       case 'regression_report':
-        return ok({ status: 'available', scenarios: ['small repository', 'large generated source tree', 'concurrent tool calls', 'tunnel connection', 'local stdio connection'], regressions: [] });
+        return ok(truthfulUnavailable(name, 'disabled', ['persisted benchmark result store']));
       case 'project_profile_get':
-        return ok({ profile: null, source: '.lnwjud/project.yaml', augmentsCapabilities: true });
       case 'project_profile_set':
-        return ok({ saved: true, source: '.lnwjud/project.yaml', accessRestrictionsChanged: false });
+        return ok(truthfulUnavailable(name, 'disabled', ['validated project-profile persistence adapter']));
+      case 'compare_workbook_layout':
+        return ok(truthfulUnavailable(name, 'disabled', ['spreadsheet layout plugin adapter']));
+      case 'render_excel_preview':
+        return ok(truthfulUnavailable(name, 'disabled', ['Excel preview renderer adapter']));
+      case 'compare_pdf_pages':
+        return ok(truthfulUnavailable(name, 'disabled', ['PDF page renderer adapter']));
+      case 'debug_attach':
+        return ok(truthfulUnavailable(name, 'disabled', ['owned DAP execution adapter', 'registered workspace']));
+      case 'debug_step':
+        return ok(truthfulUnavailable(name, 'disabled', ['owned DAP execution adapter', 'owned debug session']));
+      case 'skills_import':
+        return ok(truthfulUnavailable(name, 'disabled', ['validated skill import adapter', 'validated local skill source']));
+      case 'agent_swarm_run':
+        return ok(truthfulUnavailable(name, 'disabled', ['subagent provider', 'ownership ledger', 'mutation policy']));
       case 'debug_context':
       case 'review_context':
       case 'change_context':
@@ -390,7 +405,7 @@ export class UpgradeRuntimeService {
       case 'context_ranking':
         return ok({ signals: { exactSymbol: 100, exactFilename: 80, recentChange: 60, sameModule: 50, dependency: 40, test: 30, text: 20, proximity: 10 }, lowerRankedResultsRemainAvailable: true });
       case 'dev_context':
-        return ok({ prompt: summarize(readString(input, 'prompt') ?? ''), route: routeIntent(readString(input, 'prompt') ?? '').route, executed: ['route_intent', 'workspace_context', 'git_context', 'test_context'], continuationPaths: true, primitiveToolsRemainAvailable: true });
+        return this.compoundContext(name, input);
       default:
         return ok(contractStatus(name, input));
     }
@@ -465,6 +480,82 @@ export class UpgradeRuntimeService {
     task.state = 'cancelled';
     await this.persistState();
     return { cancelled: true, id };
+  }
+
+  private async externalMcpInsight(name: 'mcp_discover' | 'mcp_health'): Promise<Result<unknown>> {
+    const extensions = this.services.extensions;
+    if (extensions === undefined) return ok(truthfulUnavailable(name, 'needs_setup', ['configured external MCP catalog']));
+    const listed = await extensions.listMcpServers();
+    if (!listed.ok) return listed;
+    if (name === 'mcp_discover') {
+      return ok({
+        tool: name,
+        status: 'ready',
+        available: true,
+        ready: true,
+        executed: true,
+        servers: listed.value.servers,
+        nativeToolsRemainVisible: true,
+        flattenChildTools: false,
+      });
+    }
+    const servers = listed.value.servers.map((server) => ({
+      name: server.name,
+      enabled: server.enabled,
+      connected: server.connected,
+      excluded: server.excluded,
+      ...(server.exclusionReason === undefined ? {} : { exclusionReason: server.exclusionReason }),
+    }));
+    return ok({
+      tool: name,
+      status: 'ready',
+      available: true,
+      ready: true,
+      executed: true,
+      servers,
+      connected: servers.filter((server) => server.connected).length,
+      enabled: servers.filter((server) => server.enabled).length,
+    });
+  }
+
+  private async externalMcpHub(): Promise<Result<unknown>> {
+    const extensions = this.services.extensions;
+    if (extensions === undefined) return ok(truthfulUnavailable('mcp_hub', 'needs_setup', ['configured external MCP catalog']));
+    const listed = await extensions.listMcpServers();
+    if (!listed.ok) return listed;
+    const servers = listed.value.servers.map((server) => ({
+      name: server.name,
+      enabled: server.enabled,
+      connected: server.connected,
+      excluded: server.excluded,
+    }));
+    return ok({
+      tool: 'mcp_hub', status: 'ready', available: true, ready: true, executed: true,
+      servers, connected: servers.filter((server) => server.connected).length,
+      flattenChildTools: false, credentialsStoredInRepository: false, authorizationUnchanged: true,
+    });
+  }
+
+  private async externalMcpResources(input: Record<string, unknown>): Promise<Result<unknown>> {
+    const extensions = this.services.extensions;
+    if (extensions === undefined) return ok(truthfulUnavailable('mcp_resources', 'needs_setup', ['configured external MCP server with resources capability']));
+    const server = readString(input, 'server');
+    if (server !== undefined) {
+      const listed = await extensions.listMcpResources({ server });
+      if (!listed.ok) return listed;
+      return ok({ tool: 'mcp_resources', status: 'ready', available: true, ready: true, executed: true, ...listed.value });
+    }
+    const discovered = await extensions.listMcpServers();
+    if (!discovered.ok) return discovered;
+    const candidates = discovered.value.servers.filter((entry) => entry.enabled && !entry.excluded);
+    if (candidates.length === 0) return ok(truthfulUnavailable('mcp_resources', 'needs_setup', ['configured external MCP server with resources capability']));
+    const servers: Record<string, unknown>[] = [];
+    for (const candidate of candidates) {
+      const listed = await extensions.listMcpResources({ server: candidate.name });
+      if (listed.ok) servers.push({ server: candidate.name, connected: listed.value.connected, resources: listed.value.resources });
+      else servers.push({ server: candidate.name, connected: candidate.connected, status: 'unknown', error: summarize(listed.error.message) });
+    }
+    return ok({ tool: 'mcp_resources', status: 'ready', available: true, ready: true, executed: true, servers });
   }
 
   private async selfHealPlan(input: Record<string, unknown>, authorization?: InvocationAuthorization): Promise<Result<unknown>> {
@@ -877,24 +968,13 @@ export class UpgradeRuntimeService {
 
   private async browserInsight(name: string, input: Record<string, unknown>, signal?: AbortSignal, authorization?: InvocationAuthorization): Promise<Result<unknown>> {
     const capabilities = this.services.capabilities;
-    if (capabilities === undefined) return ok({ tool: name, status: 'optional', available: false, ready: false, executed: false, requirements: ['DOM/CDP capability'] });
+    if (name === 'network_context') return ok(truthfulUnavailable(name, 'needs_setup', ['CDP network event subscription and retained event stream']));
+    if (name === 'console_context') return ok(truthfulUnavailable(name, 'needs_setup', ['CDP Runtime/Log event subscription and retained event stream']));
+    if (capabilities === undefined) return ok(truthfulUnavailable(name, 'needs_setup', ['DOM/CDP capability']));
     const tabId = readString(input, 'tab_id') ?? readString(input, 'tabId');
     const invoke = (action: string, parameters: Record<string, unknown> = {}): Promise<Result<unknown>> => capabilities.execute('dom_cdp', { action, parameters, ...(tabId === undefined ? {} : { tab_id: tabId }) }, signal, authorization);
     const status = await invoke('status');
     if (!status.ok) return status;
-
-    if (name === 'network_context' || name === 'console_context') {
-      return ok({
-        tool: name,
-        status: 'optional',
-        available: false,
-        ready: false,
-        executed: true,
-        backendStatus: status.value,
-        requirements: [name === 'network_context' ? 'CDP network event subscription' : 'CDP Runtime/Log event subscription'],
-        reason: 'The current browser backend has no retained event stream; returning fake history is intentionally forbidden.',
-      });
-    }
 
     if (name === 'form_context') {
       const selector = readString(input, 'selector') ?? 'form, input, select, textarea, button';
@@ -942,7 +1022,7 @@ export class UpgradeRuntimeService {
   }
 
   private async windowsInsight(name: string, input: Record<string, unknown>, signal?: AbortSignal, authorization?: InvocationAuthorization): Promise<Result<unknown>> {
-    if (process.platform !== 'win32') return ok({ tool: name, status: 'optional', available: false, ready: false, executed: false, requirements: ['Windows host'] });
+    if (process.platform !== 'win32') return ok(truthfulUnavailable(name, 'unsupported', ['Windows host']));
 
     if (name === 'windows_environment') {
       let systemInfo: unknown = null;
@@ -983,7 +1063,7 @@ export class UpgradeRuntimeService {
     }
     if (name === 'installed_runtime_context') {
       const checks: readonly [string, string, readonly string[]][] = [
-        ['node', 'node.exe', ['--version']], ['npm', 'npm.cmd', ['--version']], ['corepack', 'corepack.cmd', ['--version']],
+        ['node', 'node.exe', ['--version']], ['npm', 'cmd.exe', ['/d', '/s', '/c', 'npm.cmd --version']], ['corepack', 'cmd.exe', ['/d', '/s', '/c', 'corepack.cmd --version']],
         ['git', 'git.exe', ['--version']], ['python', 'python.exe', ['--version']], ['pwsh', 'pwsh.exe', ['--version']],
       ];
       const runtimes: Record<string, unknown>[] = [];
@@ -1118,7 +1198,13 @@ function runBoundedProcess(
     let settled = false;
     let stdout = '';
     let stderr = '';
-    const child = spawn(executable, [...args], { windowsHide: true, shell: false });
+    let child: ReturnType<typeof spawn>;
+    try {
+      child = spawn(executable, [...args], { windowsHide: true, shell: false });
+    } catch {
+      resolve(err(appError('PROCESS_NOT_FOUND', `${executable} could not be started`, true)));
+      return;
+    }
     const finish = (result: Result<{ readonly exitCode: number; readonly stdout: string; readonly stderr: string }>): void => {
       if (settled) return;
       settled = true;
@@ -1344,12 +1430,6 @@ function permissionDecision(action: string): { readonly action: string; readonly
   const normalized = action.toLowerCase();
   const dangerousAction = /(delete|destructive|admin|system\.admin|shell\.destructive|git\.destructive)/.test(normalized);
   return { action, decision: dangerousAction ? 'ask' : 'allow', class: dangerousAction ? 'dangerous' : 'read-or-safe', contextAccess: 'unrestricted' };
-}
-
-function parallelDelegatePlan(input: Record<string, unknown>): unknown {
-  const tasks = Array.isArray(input.tasks) ? input.tasks : [];
-  const writesRequested = tasks.some((task) => typeof task === 'object' && task !== null && JSON.stringify(task).toLowerCase().includes('write'));
-  return { tasks: tasks.map((task, index) => ({ id: `delegate-${index + 1}`, mode: writesRequested ? 'serialized-mutation' : 'read-only-parallel', inputDigest: digest(task) })), collisionDetected: writesRequested, mutationPolicy: 'one-writer-at-a-time', cancellationSupported: true };
 }
 
 function actorSessionId(actor: FileActor): string {

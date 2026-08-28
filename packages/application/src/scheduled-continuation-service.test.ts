@@ -68,7 +68,7 @@ async function startGoal(goals: GoalContinuationService, objective = 'Finish the
     goalKey: 'scheduled-application-test',
     objective,
     plan: { steps: [{ id: 'implement', title: 'Implement the continuation path' }] },
-    leaseSeconds: 3_600,
+    leaseSeconds: 600,
   });
   expect(result.ok).toBe(true);
   if (!result.ok || result.value.leaseToken === undefined) throw new Error('failed to start goal');
@@ -112,7 +112,7 @@ describe('ScheduledContinuationService', () => {
             dueAt: '2026-08-27T10:25:00.000Z',
             executionPreference: 'cloud',
           },
-          goal: { revision: 1, leaseExpiresAt: '2026-08-27T10:25:00.000Z' },
+          goal: { revision: 1, leaseExpiresAt: '2026-08-27T10:10:00.000Z' },
         },
       });
     } finally {
@@ -258,6 +258,22 @@ describe('ScheduledContinuationService', () => {
           },
         },
       });
+    } finally {
+      database.close();
+    }
+  });
+
+  it('rejects scheduled-wake lease requests above the 10-minute maximum', async () => {
+    const { database, scheduled } = await fixture();
+    try {
+      await expect(scheduled.claimScheduledContinuation(actor, {
+        continuationId: 'any-continuation',
+        leaseSeconds: 601,
+      })).resolves.toMatchObject({ ok: false, error: { code: 'INVALID_INPUT' } });
+      await expect(scheduled.claimScheduledContinuation(actor, {
+        continuationId: 'any-continuation',
+        leaseSeconds: 3_600,
+      })).resolves.toMatchObject({ ok: false, error: { code: 'INVALID_INPUT' } });
     } finally {
       database.close();
     }

@@ -42,7 +42,7 @@ MCP clients (ChatGPT / Codex / Claude / other agents)
              MCP stdio or loopback Streamable HTTP
                          |
                          v
-                  ToolRegistry (229 total definitions; 217 default; 223 with Codex)
+                  ToolRegistry (231 total definitions; 195 default; 201 with Codex)
                          |
        +-----------------+------------------+
        |                 |                  |
@@ -105,15 +105,18 @@ builds the high-impact slices on top of it:
 | WinRT OCR | `VisionCapabilityBackend` routes only `action: ocr` to `WindowsOcrCapabilityBackend` and the packaged C# helper | no package identity/helper/language returns `available: false` |
 | Router | deterministic token/tag scorer with primitive visibility, reason codes, permission metadata, and local-rerank fallback | ranking never grants permission and local data never leaves the machine |
 | Durable Goal Continuation | `GoalContinuationService` + SQLite `goals`/append-only `goal_checkpoints`; stable client ownership, expiring hashed-token leases, revision CAS, active task IDs | corrupt state, stale revisions, wrong owner/lease, or terminal mutations fail closed; a resumed turn inspects persisted state instead of repeating work |
+| Tool Catalog + Doctor | live `ToolRegistry` metadata + cached main-process requirement registry + typed remediation registry feed both renderer surfaces | safe probe failure is `unknown`/`needs_setup`, permission deny is `blocked`, and renderer/external MCP text cannot manufacture trusted commands, URLs, or permission claims |
 | Later Windows/dev/productivity waves | catalog descriptors include requirements, availability, cancellation, dry-run, and audit target; Sandbox has an artifact-only WSB plan | missing optional runtime is `optional`/`planned`, never a fake successful execution |
 
 Long-running operations use the existing task handles where a concrete backend
 exists. Activity events now carry bounded `traceId`/`traceParent` values into
 NDJSON and SQLite audit metadata. The 184-tool snapshot remains a historical
-compatibility baseline. The complete inventory contains 229 tool definitions.
-Current transports advertise 217 by default or 223 when the six Codex delegation
+compatibility baseline. The complete inventory contains 231 tool definitions.
+Current transports advertise 195 by default or 201 when the six Codex delegation
 tools are enabled; planned and feature-disabled definitions remain inventory-only,
 and registry additions remain append-only.
+
+Tool readiness is deliberately not an execution probe. Main process checks only owned/read-only dependency and status surfaces with bounded timeouts, caches the result, and projects one snapshot into both the Tools page and Doctor. A selected recheck refreshes the affected requirement and recomputes both surfaces atomically. Required Doctor `fail`/`unknown` blocks the startup gate; optional failures do not. Setup and Portable consume the same compiled main/preload/renderer catalog and Doctor code paths.
 
 ## Request and side-effect pipeline
 

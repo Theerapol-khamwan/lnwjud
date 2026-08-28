@@ -352,7 +352,7 @@ export class ScheduledContinuationService {
     try {
       const continuationId = required(request.continuationId, 'continuationId', MAX_ID);
       const leaseSeconds = request.leaseSeconds ?? 600;
-      if (!Number.isInteger(leaseSeconds) || leaseSeconds < 30 || leaseSeconds > 3_600) throw new Error('leaseSeconds is out of range');
+      if (!Number.isInteger(leaseSeconds) || leaseSeconds < 30 || leaseSeconds > 600) throw new Error('leaseSeconds is out of range');
       const currentContinuation = await this.goals.getScheduledContinuation({ continuationId });
       if (currentContinuation === null) throw new GoalStateError('not_found', 'Scheduled continuation was not found');
       const currentGoal = await this.requireOwnedGoal(actor, currentContinuation.goalId);

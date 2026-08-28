@@ -31,7 +31,7 @@ import type { GoalRequestCancellationPort, GoalRequestCancellationResult } from 
 
 export const DEFAULT_GOAL_LEASE_SECONDS = 600;
 export const MIN_GOAL_LEASE_SECONDS = 30;
-export const MAX_GOAL_LEASE_SECONDS = 3_600;
+export const MAX_GOAL_LEASE_SECONDS = 600;
 
 const MAX_OWNER_CLIENT_ID = 128;
 const MAX_GOAL_KEY = 128;

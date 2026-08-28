@@ -31,6 +31,9 @@ describe('durable goal MCP tools', () => {
 
     expect(byName.get('run_goal')?.parse({ workspaceId: 'workspace-1', goalKey: 'stable-key' })).toMatchObject({ ok: true });
     expect(byName.get('run_goal')?.parse({ workspaceId: 'workspace-1', goalKey: 'stable-key', leaseSeconds: 5 })).toMatchObject({ ok: false });
+    expect(byName.get('run_goal')?.parse({ workspaceId: 'workspace-1', goalKey: 'stable-key', leaseSeconds: 600 })).toMatchObject({ ok: true });
+    expect(byName.get('run_goal')?.parse({ workspaceId: 'workspace-1', goalKey: 'stable-key', leaseSeconds: 601 })).toMatchObject({ ok: false });
+    expect(byName.get('run_goal')?.parse({ workspaceId: 'workspace-1', goalKey: 'stable-key', leaseSeconds: 3_600 })).toMatchObject({ ok: false });
     expect(byName.get('checkpoint_goal')?.parse({ goalId: 'goal-1' })).toMatchObject({ ok: false });
     expect(byName.get('cancel_goal')?.parse({ goalId: 'goal-1', expectedRevision: 1, summary: 'stop', evidence: [] })).toMatchObject({ ok: true });
     expect(byName.get('cancel_goal')?.parse({ goalId: 'goal-1', leaseToken: 'old-token', expectedRevision: 1, summary: 'stop', evidence: [] })).toMatchObject({ ok: false });

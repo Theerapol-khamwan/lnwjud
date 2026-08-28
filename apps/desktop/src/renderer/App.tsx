@@ -4,6 +4,8 @@ import type {
   DashboardSnapshot,
   DestructiveDeletePolicy,
   DoctorReport,
+  ToolCatalogSnapshot,
+  ResolvedRemediation,
   LogLine,
   LogSource,
   PermissionProfileName,
@@ -25,6 +27,7 @@ import type { LogScopeSelection } from './features/live/LogStreamPanel.js';
 import { applyLogSnapshot } from './features/live/log-buffer.js';
 import { SettingsPage, type SettingsSection } from './features/settings/SettingsPage.js';
 import { DoctorPanel } from './features/doctor/DoctorPanel.js';
+import { ToolsPage } from './features/tools/ToolsPage.js';
 import { FirstRunTunnelTip } from './features/onboarding/FirstRunTunnelTip.js';
 import {
   guidedTunnelLaunchDecision,
@@ -44,6 +47,8 @@ export function App(): ReactElement {
   const [dashboard, setDashboard] = useState<DashboardSnapshot | null>(null);
   const [workspaces, setWorkspaces] = useState<readonly WorkspaceSummary[]>([]);
   const [doctor, setDoctor] = useState<DoctorReport | null>(null);
+  const [toolCatalog, setToolCatalog] = useState<ToolCatalogSnapshot | null>(null);
+  const [toolCatalogLoading, setToolCatalogLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [bootError, setBootError] = useState<string | null>(null);
   const [mcpBusy, setMcpBusy] = useState(false);
@@ -537,6 +542,31 @@ export function App(): ReactElement {
     return result.profilePath;
   }
 
+  async function loadToolCatalog(forceRequirementIds?: readonly string[]): Promise<void> {
+    setToolCatalogLoading(true);
+    try {
+      if (forceRequirementIds === undefined) {
+        setToolCatalog(await window.lnwjud.getToolCatalog({ locale }));
+      } else {
+        const result = await window.lnwjud.recheckToolCatalog({ locale, requirementIds: forceRequirementIds });
+        setToolCatalog(result.catalog);
+        setDoctor(result.doctor);
+      }
+    } catch (cause: unknown) {
+      setError(errorMessage(cause, propsText(locale, 'ไม่สามารถโหลดรายการเครื่องมือได้', 'Could not load the tool catalog')));
+    } finally {
+      setToolCatalogLoading(false);
+    }
+  }
+
+  async function handleToolRemediation(action: ResolvedRemediation['actions'][number]): Promise<void> {
+    if (action.kind === 'recheck') { await loadToolCatalog(action.requirementIds); return; }
+    if (action.kind === 'open_official_url') { await window.lnwjud.openToolSetupTarget({ target: action.target }); return; }
+    if (action.kind === 'copy_command') { await window.lnwjud.copyToolCommand({ commandId: action.commandId }); return; }
+    if (action.target === 'projects') { setScreen('projects'); return; }
+    setScreen('settings');
+  }
+
   async function runDoctor(): Promise<void> {
     try {
       const report = await window.lnwjud.runDoctor();
@@ -581,7 +611,9 @@ export function App(): ReactElement {
       screen={screen}
       onNavigate={(nextScreen) => {
         setError(null);
-        setScreen(startupDoctorNavigationTarget(startupDoctorReady, nextScreen));
+        const target = startupDoctorNavigationTarget(startupDoctorReady, nextScreen);
+        setScreen(target);
+        if (target === 'tools') void loadToolCatalog();
       }}
       onLocaleChange={(next) => { void changeLocale(next); }}
       onUpdateAction={() => { void handleUpdateAction(); }}
@@ -627,6 +659,15 @@ export function App(): ReactElement {
           onAddWorkspace={addWorkspace}
           onSetWorkspaceArchived={setWorkspaceArchived}
           onDeleteWorkspace={deleteWorkspace}
+        />
+      ) : null}
+      {screen === 'tools' ? (
+        <ToolsPage
+          locale={locale}
+          snapshot={toolCatalog}
+          loading={toolCatalogLoading}
+          onRefresh={() => loadToolCatalog()}
+          onRemediation={handleToolRemediation}
         />
       ) : null}
       {screen === 'git' ? (
@@ -691,7 +732,15 @@ export function App(): ReactElement {
       {screen === 'doctor' ? (
         <div className="page-content">
           <h1>{t('doctor.title')}</h1>
-          <DoctorPanel locale={locale} report={doctor} onRunDoctor={runDoctor} onOpenProjects={() => setScreen('projects')} />
+          <DoctorPanel
+            locale={locale}
+            report={doctor}
+            remediations={toolCatalog?.remediations ?? []}
+            onRunDoctor={runDoctor}
+            onRecheck={(requirementIds) => loadToolCatalog(requirementIds)}
+            onRemediation={handleToolRemediation}
+            onOpenProjects={() => setScreen('projects')}
+          />
         </div>
       ) : null}
       {firstRunTunnelTipOpen ? (

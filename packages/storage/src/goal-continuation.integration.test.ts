@@ -417,7 +417,7 @@ describe('durable goal continuation persistence', () => {
     let now = new Date('2026-08-26T00:00:00.000Z');
     const runtime = await open(filename, workspace, () => now);
     try {
-      const created = await runtime.service.runGoal(actor('session-a'), { ...createRequest, leaseSeconds: 3_600 });
+      const created = await runtime.service.runGoal(actor('session-a'), { ...createRequest, leaseSeconds: 600 });
       if (!created.ok || created.value.leaseToken === undefined) throw new Error('goal create failed');
       const prepared = await runtime.scheduledService.prepareScheduledContinuation(actor('session-a'), {
         goalId: created.value.goalId,

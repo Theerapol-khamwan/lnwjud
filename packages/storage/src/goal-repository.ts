@@ -447,6 +447,7 @@ export class SqliteGoalRepository implements GoalRepository, ScheduledContinuati
       if (leaseDurationSeconds === undefined) throw corrupt('Active goal lease duration is missing');
 
       const revision = current.revision + 1;
+      const leaseExpiresAt = minIso(addSeconds(request.now, leaseDurationSeconds), request.dueAt);
       const changed = this.database.connection.prepare(`
         UPDATE goals
         SET plan_json = ?, revision = ?, current_phase = ?, next_action = ?, blockers_json = ?, active_task_ids_json = ?,
@@ -465,7 +466,7 @@ export class SqliteGoalRepository implements GoalRepository, ScheduledContinuati
         request.leaseTokenHash,
         leaseDurationSeconds,
         request.now,
-        request.dueAt,
+        leaseExpiresAt,
         request.now,
         request.goalId,
         request.expectedRevision,
@@ -1031,13 +1032,17 @@ export class SqliteGoalRepository implements GoalRepository, ScheduledContinuati
       if (parseIso(effectiveDueAt, 'scheduled continuation handoff') <= parseIso(request.startedAt, 'mutation start')) {
         throw new GoalStateError('lease_invalid', 'Goal handoff deadline has passed');
       }
+      const leaseDurationSeconds = goal.leaseDurationSeconds;
+      if (leaseDurationSeconds === undefined) throw corrupt('Active goal lease duration is missing');
+      const renewedLeaseExpiresAt = minIso(addSeconds(request.startedAt, leaseDurationSeconds), effectiveDueAt);
 
       const changed = this.database.connection.prepare(`
         UPDATE goals
-        SET lease_activity_seq = lease_activity_seq + 1, lease_heartbeat_at = ?, updated_at = ?
+        SET lease_activity_seq = lease_activity_seq + 1, lease_heartbeat_at = ?, lease_expires_at = ?, updated_at = ?
         WHERE id = ? AND status = 'active' AND lease_token_hash = ? AND lease_generation = ? AND lease_activity_seq = ?
       `).run(
         request.startedAt,
+        renewedLeaseExpiresAt,
         request.startedAt,
         goal.id,
         request.leaseTokenHash,
@@ -1069,12 +1074,50 @@ export class SqliteGoalRepository implements GoalRepository, ScheduledContinuati
     expiresAt: string,
   ): Promise<void> {
     this.transaction(() => {
+      const call = this.database.connection.prepare(`
+        SELECT goal_id FROM goal_fenced_mutation_calls
+        WHERE call_id = ? AND lease_generation = ? AND completed_at IS NULL
+      `).get(callId, leaseGeneration);
+      if (!isRecord(call) || typeof call.goal_id !== 'string') {
+        throw new GoalStateError('conflict', 'Fenced mutation heartbeat no longer owns a live call');
+      }
+      const goal = this.requireById(call.goal_id);
+      if (goal.status !== 'active' || goal.leaseGeneration !== leaseGeneration) {
+        throw new GoalStateError('lease_invalid', 'Goal lease generation is no longer active');
+      }
+      if (goal.leaseExpiresAt === undefined || parseIso(goal.leaseExpiresAt, 'lease expiry') <= parseIso(heartbeatAt, 'mutation heartbeat')) {
+        throw new GoalStateError('lease_invalid', 'Goal lease has expired');
+      }
+      const leaseDurationSeconds = goal.leaseDurationSeconds;
+      if (leaseDurationSeconds === undefined) throw corrupt('Active goal lease duration is missing');
+      const fence = this.selectLiveScheduledContinuation(goal.id);
+      if (fence === undefined) throw new GoalStateError('conflict', 'Goal has no live scheduled-continuation fence');
+      const effectiveDueAt = fence.pending_due_at ?? fence.due_at;
+      if (parseIso(effectiveDueAt, 'scheduled continuation handoff') <= parseIso(heartbeatAt, 'mutation heartbeat')) {
+        throw new GoalStateError('lease_invalid', 'Goal handoff deadline has passed');
+      }
+      const renewedLeaseExpiresAt = minIso(addSeconds(heartbeatAt, leaseDurationSeconds), effectiveDueAt);
+
       const changed = this.database.connection.prepare(`
         UPDATE goal_fenced_mutation_calls
         SET heartbeat_at = ?, expires_at = ?
         WHERE call_id = ? AND lease_generation = ? AND completed_at IS NULL
       `).run(heartbeatAt, expiresAt, callId, leaseGeneration);
       if (Number(changed.changes) !== 1) throw new GoalStateError('conflict', 'Fenced mutation heartbeat no longer owns a live call');
+
+      const renewed = this.database.connection.prepare(`
+        UPDATE goals
+        SET lease_activity_seq = lease_activity_seq + 1, lease_heartbeat_at = ?, lease_expires_at = ?, updated_at = ?
+        WHERE id = ? AND status = 'active' AND lease_generation = ? AND lease_activity_seq = ?
+      `).run(
+        heartbeatAt,
+        renewedLeaseExpiresAt,
+        heartbeatAt,
+        goal.id,
+        leaseGeneration,
+        goal.leaseActivitySeq,
+      );
+      if (Number(renewed.changes) !== 1) throw new GoalStateError('conflict', 'Goal heartbeat lost the lease CAS race');
     });
   }
 

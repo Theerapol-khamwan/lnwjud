@@ -2,7 +2,10 @@ import { Client, StreamableHTTPClientTransport } from '@modelcontextprotocol/cli
 import { ok } from '@lnwjud/domain';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { ActivityTracker } from './activity-tracker.js';
+import { ToolRegistry } from './tool-registry.js';
 import { LNWJUD_MCP_IDENTITY_PATH, startMcpHttp, type McpHttpServerHandle } from './http.js';
+
+const expectedAdvertisedToolCount = new ToolRegistry({}, { clientId: 'count-test', clientName: 'count-test' }).list().length;
 
 describe('MCP localhost HTTP transport', () => {
   let handle: McpHttpServerHandle;
@@ -50,7 +53,7 @@ describe('MCP localhost HTTP transport', () => {
       const first = await client.listTools();
       const second = await client.listTools();
 
-      expect(first.tools.map((tool) => tool.name)).toHaveLength(219);
+      expect(first.tools.map((tool) => tool.name)).toHaveLength(expectedAdvertisedToolCount);
       expect(first.tools.some((tool) => tool.name.startsWith('codex_'))).toBe(false);
       expect(second.tools.map((tool) => tool.name)).toEqual(first.tools.map((tool) => tool.name));
     } finally {
@@ -83,7 +86,7 @@ describe('MCP localhost HTTP transport', () => {
 
       expect(transport.sessionId).toEqual(expect.any(String));
       const tools = await client.listTools();
-      expect(tools.tools.map((tool) => tool.name)).toHaveLength(219);
+      expect(tools.tools.map((tool) => tool.name)).toHaveLength(expectedAdvertisedToolCount);
       expect(tools.tools.some((tool) => tool.name.startsWith('codex_'))).toBe(false);
 
       const first = await client.callTool({ name: 'workspace_list', arguments: {} });

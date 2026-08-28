@@ -2,6 +2,7 @@ export type MessageKey =
   | 'brand'
   | 'nav.home'
   | 'nav.projects'
+  | 'nav.tools'
   | 'nav.git'
   | 'nav.workLog'
   | 'nav.live'
@@ -203,6 +204,7 @@ export const th: Messages = {
   brand: 'lnwjud',
   'nav.home': 'หน้าหลัก',
   'nav.projects': 'โปรเจกต์',
+  'nav.tools': 'เครื่องมือ',
   'nav.git': 'Git',
   'nav.workLog': 'บันทึกการทำงาน',
   'nav.live': 'Live Logs',
@@ -403,6 +405,7 @@ export const en: Messages = {
   brand: 'lnwjud',
   'nav.home': 'Home',
   'nav.projects': 'Projects',
+  'nav.tools': 'Tools',
   'nav.git': 'Git',
   'nav.workLog': 'Work Log',
   'nav.live': 'Live Logs',

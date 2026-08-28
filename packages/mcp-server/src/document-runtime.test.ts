@@ -73,7 +73,7 @@ describe('DocumentRuntimeService', () => {
       const runtime = new DocumentRuntimeService(servicesWithOffice(root, {}), actor, { environment: { PATH: '' }, pdfProvider: 'Z:\\missing\\pdftotext.exe' });
       const result = await runtime.extractTables({ workspaceId: 'ws-1', file_path: file });
       expect(result).toMatchObject({ ok: true, value: {
-        tool: 'pdf_extract_tables', available: false, status: 'optional',
+        tool: 'pdf_extract_tables', available: false, status: 'needs_setup',
         requirements: ['local PDF provider', 'bounded document size'],
       } });
     });
