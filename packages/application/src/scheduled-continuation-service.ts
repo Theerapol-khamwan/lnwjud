@@ -10,12 +10,14 @@ import {
   type GoalStepUpdate,
   type Result,
   type ScheduledContinuationExecutionPreference,
+  type ScheduledContinuationCancellationOutcome,
   type ScheduledContinuationExpediteReason,
   type ScheduledContinuationNativeCancellationReceipt,
   type ScheduledContinuationReceiptOutcome,
   type ScheduledContinuationRepository,
   type ScheduledContinuationSnapshot,
   type ScheduledContinuationWorkerLivenessPort,
+  type ScheduledTaskCancellationInstruction,
 } from '@lnwjud/domain';
 import type { FileActor } from './file-service.js';
 import type { GoalSnapshot, RunGoalResult } from './goal-continuation-service.js';
@@ -91,6 +93,16 @@ export interface RecordScheduledContinuationReceiptRequest {
   readonly runsOn?: 'cloud';
   readonly nativeCancellationReceipt?: ScheduledContinuationNativeCancellationReceipt;
   readonly detail?: string;
+}
+
+export type CancelScheduledContinuationRequest =
+  | { readonly continuationId: string; readonly expectedVersion: number }
+  | { readonly goalId: string; readonly latest: true; readonly expectedVersion: number };
+
+export interface CancelScheduledContinuationResult {
+  readonly outcome: ScheduledContinuationCancellationOutcome;
+  readonly continuation: ScheduledContinuationSnapshot;
+  readonly cancellation: ScheduledTaskCancellationInstruction;
 }
 
 export interface ClaimScheduledContinuationRequest {
@@ -302,6 +314,32 @@ export class ScheduledContinuationService {
         now: this.now().toISOString(),
       });
       return ok(toPublicContinuation(record));
+    } catch (error: unknown) {
+      return mapError(error);
+    }
+  }
+
+  public async cancelScheduledContinuation(
+    actor: FileActor,
+    request: CancelScheduledContinuationRequest,
+  ): Promise<Result<CancelScheduledContinuationResult>> {
+    try {
+      if (!Number.isInteger(request.expectedVersion) || request.expectedVersion < 0) throw new Error('expectedVersion is invalid');
+      const target = 'continuationId' in request
+        ? { continuationId: required(request.continuationId, 'continuationId', MAX_ID) }
+        : { goalId: required(request.goalId, 'goalId', MAX_ID), latest: true as const };
+      const cancelled = await this.goals.cancelScheduledContinuation({
+        ...target,
+        ownerClientId: owner(actor),
+        expectedVersion: request.expectedVersion,
+        now: this.now().toISOString(),
+      });
+      const continuation = toPublicContinuation(cancelled.continuation);
+      return ok({
+        outcome: cancelled.outcome,
+        continuation,
+        cancellation: scheduledTaskCancellationInstruction(cancelled.continuation),
+      });
     } catch (error: unknown) {
       return mapError(error);
     }
@@ -519,6 +557,46 @@ function buildTaskUpdateRequest(
     expectedContinuationVersion: continuation.version,
     name: `Continue lnwjud goal ${continuation.goalId}`.slice(0, 120),
     prompt: `Wake the current chat for continuation ${continuation.continuationId}, goal ${continuation.goalId}, workspace ${workspaceId}. Call claim_scheduled_continuation first. On another collision, update this same native task again by the returned taskUpdateRequest; never create a replacement task.`,
+  };
+}
+
+function scheduledTaskCancellationInstruction(record: ScheduledContinuationSnapshot): ScheduledTaskCancellationInstruction {
+  if (record.status === 'superseded') return { action: 'none', reason: 'no_live_task' };
+  if (
+    (record.status === 'cancel_required' || record.status === 'cancel_failed' || record.status === 'cancel_uncertain')
+    && record.nativeTaskId !== undefined
+  ) {
+    return {
+      action: 'delete_native_task',
+      continuationId: record.continuationId,
+      nativeTaskId: record.nativeTaskId,
+      provider: 'chatgpt_scheduled_task',
+      expectedContinuationVersion: record.version,
+      receiptRequired: true,
+      reason: 'live_task_confirmed',
+    };
+  }
+  if (record.status === 'cancelled') {
+    return {
+      action: 'none',
+      continuationId: record.continuationId,
+      ...(record.nativeTaskId === undefined ? {} : { nativeTaskId: record.nativeTaskId }),
+      reason: 'already_cancelled',
+    };
+  }
+  if (record.status === 'claimed' || record.status === 'terminal_noop') {
+    return {
+      action: 'none',
+      continuationId: record.continuationId,
+      ...(record.nativeTaskId === undefined ? {} : { nativeTaskId: record.nativeTaskId }),
+      reason: 'already_fired',
+    };
+  }
+  return {
+    action: 'none',
+    continuationId: record.continuationId,
+    ...(record.nativeTaskId === undefined ? {} : { nativeTaskId: record.nativeTaskId }),
+    reason: 'native_task_unverified',
   };
 }
 

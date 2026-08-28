@@ -5,6 +5,7 @@ export * from './goal-repository.js';
 export * from './migrations/scheduled-continuation-migration.js';
 export * from './migrations/goal-lease-repair-migration.js';
 export * from './migrations/goal-live-continuation-lease-quarantine-migration.js';
+export * from './migrations/goal-cancellation-migration.js';
 export * from './migrations/retire-auto-machine-roots-migration.js';
 export * from './settings-repository.js';
 export * from './workspace-repository.js';

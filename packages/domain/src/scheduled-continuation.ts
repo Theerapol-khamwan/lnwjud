@@ -55,6 +55,13 @@ export type ScheduledContinuationReceiptOutcome =
   | 'cancel_failed'
   | 'cancel_uncertain';
 
+export type ScheduledContinuationCancellationOutcome =
+  | 'delete_required'
+  | 'cancelled'
+  | 'already_cancelled'
+  | 'already_fired'
+  | 'native_task_unverified';
+
 export interface ScheduledContinuationNativeCancellationReceipt {
   readonly provider: 'chatgpt_scheduled_task';
   readonly operation: 'delete';
@@ -137,6 +144,26 @@ export interface RecordScheduledContinuationReceiptRecordRequest {
   readonly nativeCancellationReceipt?: ScheduledContinuationNativeCancellationReceipt;
   readonly detail?: string;
   readonly now: string;
+}
+
+export type CancelScheduledContinuationRecordRequest =
+  | {
+      readonly continuationId: string;
+      readonly ownerClientId: string;
+      readonly expectedVersion: number;
+      readonly now: string;
+    }
+  | {
+      readonly goalId: string;
+      readonly latest: true;
+      readonly ownerClientId: string;
+      readonly expectedVersion: number;
+      readonly now: string;
+    };
+
+export interface CancelScheduledContinuationRecordResult {
+  readonly outcome: ScheduledContinuationCancellationOutcome;
+  readonly continuation: ScheduledContinuationRecord;
 }
 
 export interface ScheduledContinuationWorkerLiveness {
@@ -265,6 +292,7 @@ export interface GoalFencedMutationObservation {
 export interface ScheduledContinuationRepository {
   prepareScheduledContinuation(request: PrepareScheduledContinuationRecordRequest): Promise<PrepareScheduledContinuationRecordResult>;
   recordScheduledContinuationReceipt(request: RecordScheduledContinuationReceiptRecordRequest): Promise<ScheduledContinuationRecord>;
+  cancelScheduledContinuation(request: CancelScheduledContinuationRecordRequest): Promise<CancelScheduledContinuationRecordResult>;
   claimScheduledContinuation(request: ClaimScheduledContinuationRecordRequest): Promise<ClaimScheduledContinuationRecordResult>;
   expediteScheduledContinuation(request: ExpediteScheduledContinuationRecordRequest): Promise<ExpediteScheduledContinuationRecordResult>;
   getScheduledContinuation(request: GetScheduledContinuationRecordRequest): Promise<ScheduledContinuationRecord | null>;

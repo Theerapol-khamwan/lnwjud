@@ -128,6 +128,8 @@ export function inspectMutationOperation(
       return execute('process_stop interrupts only an exact process handle owned by the current client/session/workspace');
     case 'codex_run':
     case 'codex_stop':
+    case 'cancel_goal':
+    case 'cancel_scheduled_continuation':
     case 'sandbox_exec':
       return opaque(`${toolName} can execute or interrupt effects that cannot be proven at the gateway`);
     case 'self_heal_apply':

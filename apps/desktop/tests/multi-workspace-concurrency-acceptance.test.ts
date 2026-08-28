@@ -55,8 +55,8 @@ describe('multi-workspace concurrency acceptance', () => {
       expect(transportA.sessionId).not.toBe(transportB.sessionId);
 
       const [toolsA, toolsB] = await Promise.all([clientA.listTools(), clientB.listTools()]);
-      expect(toolsA.tools).toHaveLength(217);
-      expect(toolsB.tools).toHaveLength(217);
+      expect(toolsA.tools).toHaveLength(219);
+      expect(toolsB.tools).toHaveLength(219);
 
       await runtime.services.setWorkspaceActive({ workspaceId: workspaceA.id, active: false });
       expect((await runtime.services.getDashboard()).activeWorkspaces.map((workspace) => workspace.id)).toEqual([workspaceB.id]);

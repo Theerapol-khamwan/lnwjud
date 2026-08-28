@@ -8,6 +8,7 @@ import {
   isApplicationAuthorized,
   isFullBypassAuthorization,
   ok,
+  type GoalTaskCancellationObservation,
   type InvocationAuthorization,
   type Result,
 } from '@lnwjud/domain';
@@ -160,6 +161,30 @@ export class ShellCapabilityBackend implements CapabilityBackend {
     return err(appError('PROCESS_NOT_FOUND', 'Task was not found'));
   }
 
+  /** Trusted cancellation path used by durable goals; it deliberately ignores the transient MCP session. */
+  public async cancelForGoal(
+    ownerClientId: string,
+    workspaceId: string,
+    taskId: string,
+  ): Promise<Result<GoalTaskCancellationObservation>> {
+    const record = this.tasks.get(taskId);
+    if (record !== undefined) {
+      if (record.owner.clientId !== ownerClientId || record.owner.workspaceId !== workspaceId) {
+        return err(appError('PERMISSION_DENIED', 'Task belongs to another client or workspace'));
+      }
+      if (isVerifiedTerminal(record.state)) {
+        return ok({ matched: true, state: 'already_terminal', detail: record.state });
+      }
+      const verified = await this.tryTerminate(record, 'cancelled');
+      if (verified && isVerifiedTerminal(record.state)) {
+        return ok({ matched: true, state: 'cancelled', detail: record.state });
+      }
+      return ok({ matched: true, state: 'termination_unverified', detail: record.state });
+    }
+    if (this.durableStore !== undefined) return this.durableStore.cancelForGoal(taskId, ownerClientId, workspaceId);
+    return ok({ matched: false, state: 'not_found' });
+  }
+
   private async run(request: ShellRequest, signal?: AbortSignal, authorization?: InvocationAuthorization): Promise<Result<unknown>> {
     if (request.executable === undefined) return err(appError('INVALID_INPUT', 'Executable is required'));
     if (request.privilege === 'admin') return err(appError('PERMISSION_DENIED', 'Administrator access is not available to the local runner'));
@@ -185,6 +210,10 @@ export class ShellCapabilityBackend implements CapabilityBackend {
     if (signal?.aborted) return err(appError('PROCESS_TIMEOUT', 'Shell request was cancelled before launch', true));
 
     if (this.durableStore !== undefined && request.execution !== 'foreground') {
+      // Durable tasks intentionally outlive the originating MCP request. Goal
+      // cancellation reaches them through GoalTaskCancellationService using
+      // the tracked task id, while an ordinary caller/response timeout must
+      // not cancel a task that has already been submitted.
       return this.runDurable(request, cwd.value, invocation.value);
     }
 

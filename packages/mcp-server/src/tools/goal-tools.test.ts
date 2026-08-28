@@ -18,18 +18,22 @@ describe('durable goal MCP tools', () => {
   it('publishes typed schemas and safe permission annotations', () => {
     const context = { actor, contextEconomy: new ContextEconomyRuntime(), services: {} } as McpToolContext;
     const byName = new Map(goalTools(context).map((entry) => [entry.name, entry]));
-    expect([...byName.keys()]).toEqual(['run_goal', 'get_goal', 'checkpoint_goal', 'finish_goal', 'list_goals']);
+    expect([...byName.keys()]).toEqual(['run_goal', 'get_goal', 'checkpoint_goal', 'finish_goal', 'cancel_goal', 'list_goals']);
     expect(byName.get('run_goal')).toMatchObject({ permission: 'WRITE', annotations: { readOnlyHint: false, destructiveHint: false } });
     expect(byName.get('get_goal')).toMatchObject({ permission: 'READ', annotations: { readOnlyHint: true, destructiveHint: false } });
     expect(byName.get('list_goals')).toMatchObject({ permission: 'READ', annotations: { readOnlyHint: true, destructiveHint: false } });
     expect(byName.get('checkpoint_goal')).toMatchObject({ permission: 'WRITE', annotations: { readOnlyHint: false, destructiveHint: false } });
     expect(byName.get('finish_goal')).toMatchObject({ permission: 'WRITE', annotations: { readOnlyHint: false, destructiveHint: false } });
+    expect(byName.get('cancel_goal')).toMatchObject({ permission: 'WRITE', annotations: { readOnlyHint: false, destructiveHint: true } });
     expect(byName.get('finish_goal')?.description).toContain('must be called before any completion report');
     expect(byName.get('finish_goal')?.description).toContain('even when scheduling was disabled');
+    expect(byName.get('cancel_goal')?.description).toContain('aborts in-flight fenced MCP requests');
 
     expect(byName.get('run_goal')?.parse({ workspaceId: 'workspace-1', goalKey: 'stable-key' })).toMatchObject({ ok: true });
     expect(byName.get('run_goal')?.parse({ workspaceId: 'workspace-1', goalKey: 'stable-key', leaseSeconds: 5 })).toMatchObject({ ok: false });
     expect(byName.get('checkpoint_goal')?.parse({ goalId: 'goal-1' })).toMatchObject({ ok: false });
+    expect(byName.get('cancel_goal')?.parse({ goalId: 'goal-1', expectedRevision: 1, summary: 'stop', evidence: [] })).toMatchObject({ ok: true });
+    expect(byName.get('cancel_goal')?.parse({ goalId: 'goal-1', leaseToken: 'old-token', expectedRevision: 1, summary: 'stop', evidence: [] })).toMatchObject({ ok: false });
     expect(byName.get('get_goal')?.parse({})).toMatchObject({ ok: false });
     expect(byName.get('get_goal')?.parse({ goalId: 'goal-1', workspaceId: 'workspace-1', goalKey: 'key' })).toMatchObject({ ok: false });
   });
@@ -158,10 +162,10 @@ describe('durable goal MCP tools', () => {
     expect(events.find((entry) => entry.toolName === 'checkpoint_goal')?.targetSummary).toContain('goal-1');
   });
 
-  it('registers the five tools in the public registry/catalog with typed schemas', () => {
+  it('registers the six tools in the public registry/catalog with typed schemas', () => {
     const registry = new ToolRegistry({}, actor);
     const names = registry.list().map((entry) => entry.name);
-    for (const name of ['run_goal', 'get_goal', 'checkpoint_goal', 'finish_goal', 'list_goals']) expect(names).toContain(name);
+    for (const name of ['run_goal', 'get_goal', 'checkpoint_goal', 'finish_goal', 'cancel_goal', 'list_goals']) expect(names).toContain(name);
     const runSchema = registry.describeSchema('run_goal');
     const checkpointSchema = registry.describeSchema('checkpoint_goal');
     expect(JSON.stringify(runSchema)).toContain('goalKey');

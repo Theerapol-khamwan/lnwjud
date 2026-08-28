@@ -6,6 +6,7 @@ import {
   isApplicationAuthorized,
   isFullBypassAuthorization,
   ok,
+  type GoalTaskCancellationObservation,
   type CommandSpec,
   type InvocationAuthorization,
   type Result,
@@ -31,7 +32,7 @@ export interface ProcessManagerPort {
   list?(): readonly ManagedProcess[];
   status(processId: string): Result<ManagedProcess>;
   logs(processId: string, query: LogQuery): Result<ProcessLogResult>;
-  stop(processId: string): Promise<Result<void>>;
+  stop(processId: string, autoRetry?: boolean): Promise<Result<void>>;
 }
 
 export interface ProjectCommandSource {
@@ -133,6 +134,38 @@ export class ProcessService {
     return this.processManager.status(processId);
   }
 
+  /** Trusted cancellation path used by durable goals; it deliberately ignores the transient MCP session. */
+  public async cancelForGoal(
+    ownerClientId: string,
+    workspaceId: string,
+    processId: string,
+  ): Promise<Result<GoalTaskCancellationObservation>> {
+    const owner = this.owners.get(processId);
+    if (owner === undefined) return ok({ matched: false, state: 'not_found' });
+    if (owner.actorId !== ownerClientId || owner.workspaceId !== workspaceId) {
+      return err(appError('PERMISSION_DENIED', 'Process belongs to another client or workspace'));
+    }
+
+    const before = this.processManager.status(processId);
+    if (!before.ok) {
+      return before.error.code === 'PROCESS_NOT_FOUND'
+        ? ok({ matched: false, state: 'not_found' })
+        : before;
+    }
+    if (isVerifiedTerminalProcess(before.value.state)) {
+      return ok({ matched: true, state: 'already_terminal', detail: before.value.state });
+    }
+
+    const stopped = await this.processManager.stop(processId, true);
+    if (!stopped.ok) return stopped;
+    const after = this.processManager.status(processId);
+    if (!after.ok) return ok({ matched: true, state: 'termination_unverified', detail: 'Process status could not be re-read after cancellation' });
+    if (isVerifiedTerminalProcess(after.value.state)) {
+      return ok({ matched: true, state: 'cancelled', detail: after.value.state });
+    }
+    return ok({ matched: true, state: 'termination_unverified', detail: after.value.state });
+  }
+
   public async list(actor: FileActor, workspaceId: string): Promise<Result<readonly ManagedProcess[]>> {
     const workspace = await this.getWorkspace(workspaceId);
     if (!workspace.ok) return workspace;
@@ -212,6 +245,13 @@ export class ProcessService {
     }, signal, (process) => {
       this.owners.set(process.processId, { actorId: actor.clientId, sessionId: actorSessionId(actor), workspaceId });
     });
+    if (started.ok && isAborted(signal)) {
+      // A process can be spawned just before goal cancellation aborts the
+      // request. Stop that provisional child before returning so it cannot
+      // escape tracking as an unowned background worker.
+      await this.processManager.stop(started.value.processId, true).catch(() => undefined);
+      return cancelledStart();
+    }
     if (started.ok) this.owners.set(started.value.processId, { actorId: actor.clientId, sessionId: actorSessionId(actor), workspaceId });
     return started;
   }
@@ -295,4 +335,8 @@ function isWithinWorkspace(root: string, candidate: string): boolean {
 
 function isAborted(signal: AbortSignal | undefined): boolean {
   return signal?.aborted === true;
+}
+
+function isVerifiedTerminalProcess(state: ManagedProcess['state']): boolean {
+  return state === 'exited' || state === 'failed' || state === 'stopped' || state === 'timed_out';
 }

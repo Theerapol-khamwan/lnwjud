@@ -385,7 +385,14 @@ export class ToolRegistry {
         policyAllowsScopedDestructive,
         explicitUserConfirmation: hasExplicitUserConfirmation(activeRoutedInput),
       });
-      const execution = await this.executeWithinResponseBudget(tool, approvalExecutionInput, invocationAuthorization, parentSignal);
+      const execution = await this.executeWithinResponseBudget(
+        tool,
+        approvalExecutionInput,
+        invocationAuthorization,
+        parentSignal,
+        goalLease === undefined ? undefined : goalLease.goalId,
+        callId,
+      );
       const response = execution.response;
       const rawResultTargetSummary = summarizeStructuredResultTarget(response.structuredContent);
       const resultTargetSummary = rawResultTargetSummary === undefined
@@ -526,13 +533,24 @@ export class ToolRegistry {
     input: unknown,
     authorization: InvocationAuthorization,
     parentSignal?: AbortSignal,
+    goalId?: string,
+    callId?: string,
   ): Promise<BudgetedToolExecution> {
     const controller = new AbortController();
+    const registration = goalId === undefined || callId === undefined || this.services.goalRequestCancellation === undefined
+      ? undefined
+      : this.services.goalRequestCancellation.register(goalId, callId, controller);
     let timer: ReturnType<typeof setTimeout> | undefined;
     let settled = false;
     let deadlineExceeded = false;
     let onParentAbort: (() => void) | undefined;
     let operation: Promise<McpToolResponse> | undefined;
+    let registrationReleased = false;
+    const releaseRegistration = (): void => {
+      if (registrationReleased) return;
+      registrationReleased = true;
+      registration?.release();
+    };
     try {
       const response = await new Promise<McpToolResponse>((resolve, reject) => {
         const finish = (response: McpToolResponse): void => {
@@ -549,6 +567,11 @@ export class ToolRegistry {
           onParentAbort();
           return;
         }
+        if (registration?.accepted === false) {
+          finish(mapError(appError('CONFLICT', `MCP tool ${tool.name} was cancelled because its durable goal is already cancelled`, true)));
+          releaseRegistration();
+          return;
+        }
         parentSignal?.addEventListener('abort', onParentAbort, { once: true });
         const responseBudgetMs = this.maxToolDurationMs;
         if (responseBudgetMs !== null) {
@@ -558,7 +581,14 @@ export class ToolRegistry {
             finish(mapError(appError('PROCESS_TIMEOUT', `MCP tool ${tool.name} exceeded the ${Math.ceil(responseBudgetMs / 1000)}s response budget; cancellation was requested, but an underlying operation may still be finishing. Check task/process status before retrying.`, true)));
           }, responseBudgetMs);
         }
-        operation = tool.execute(input, controller.signal, authorization).then(mapResult);
+        try {
+          operation = tool.execute(input, controller.signal, authorization).then(mapResult);
+        } catch (error: unknown) {
+          releaseRegistration();
+          reject(error);
+          return;
+        }
+        void operation.then(releaseRegistration, releaseRegistration);
         void operation.then(finish, reject);
       });
       return {
@@ -568,6 +598,7 @@ export class ToolRegistry {
     } finally {
       if (timer !== undefined) clearTimeout(timer);
       if (onParentAbort !== undefined) parentSignal?.removeEventListener('abort', onParentAbort);
+      if (operation === undefined) releaseRegistration();
     }
   }
 }
@@ -1001,7 +1032,7 @@ function commandExecutionLeavesActiveWorkspace(toolName: string, input: unknown,
 }
 function isDestructiveMutation(decision: MutationPolicyDecision): boolean { return decision.kind === 'replace' || decision.kind === 'delete' || decision.kind === 'opaque_mutation'; }
 const ALWAYS_CONFIRM_MUTATION_TOOLS = new Set([
-  'codex_run', 'codex_stop', 'mcp_call', 'web_fetch', 'scheduler',
+  'codex_run', 'codex_stop', 'cancel_goal', 'cancel_scheduled_continuation', 'mcp_call', 'web_fetch', 'scheduler',
   'office', 'office_ppt', 'docx_merge', 'dom_cdp', 'computer_use',
   'accessibility', 'input_event', 'ui_target_action', 'window', 'clipboard',
   'audio', 'screen_record',

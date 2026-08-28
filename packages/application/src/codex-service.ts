@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { appError, err, isApplicationAuthorized, ok, type InvocationAuthorization, type Result } from '@lnwjud/domain';
+import { appError, err, isApplicationAuthorized, ok, type GoalTaskCancellationObservation, type InvocationAuthorization, type Result } from '@lnwjud/domain';
 import { CodexAdapter, type CodexStatus } from '@lnwjud/codex';
 import type { CodexRunAuditInput } from '@lnwjud/audit';
 import { DefaultPermissionEngine, permissionProfiles, type PermissionEngine, type PermissionProfile } from '@lnwjud/permissions';
@@ -133,6 +133,38 @@ export class CodexService {
     return this.adapter.statusProcess(owner.processId);
   }
 
+  /** Trusted cancellation path used by durable goals; it deliberately ignores the transient MCP session. */
+  public async cancelForGoal(
+    ownerClientId: string,
+    workspaceId: string,
+    codexTaskId: string,
+  ): Promise<Result<GoalTaskCancellationObservation>> {
+    const owner = this.owners.get(codexTaskId);
+    if (owner === undefined) return ok({ matched: false, state: 'not_found' });
+    if (owner.actorId !== ownerClientId || owner.workspaceId !== workspaceId) {
+      return err(appError('PERMISSION_DENIED', 'Codex task belongs to another client or workspace'));
+    }
+
+    const before = this.adapter.statusProcess(owner.processId);
+    if (!before.ok) {
+      return before.error.code === 'PROCESS_NOT_FOUND'
+        ? ok({ matched: false, state: 'not_found' })
+        : before;
+    }
+    if (isVerifiedTerminalProcess(before.value.state)) {
+      return ok({ matched: true, state: 'already_terminal', detail: before.value.state });
+    }
+
+    const stopped = await this.adapter.stop(owner.processId, true);
+    if (!stopped.ok) return stopped;
+    const after = this.adapter.statusProcess(owner.processId);
+    if (!after.ok) return ok({ matched: true, state: 'termination_unverified', detail: 'Codex process status could not be re-read after cancellation' });
+    if (isVerifiedTerminalProcess(after.value.state)) {
+      return ok({ matched: true, state: 'cancelled', detail: after.value.state });
+    }
+    return ok({ matched: true, state: 'termination_unverified', detail: after.value.state });
+  }
+
   public async list(actor: FileActor, workspaceId: string): Promise<Result<readonly CodexTaskListItem[]>> {
     const workspace = await this.getWorkspace(workspaceId);
     if (!workspace.ok) return workspace;
@@ -197,4 +229,8 @@ function isAborted(signal: AbortSignal | undefined): boolean {
 
 function cancelledCodexRun(): Result<never> {
   return err(appError('PROCESS_TIMEOUT', 'Codex run was cancelled before launch completed', true));
+}
+
+function isVerifiedTerminalProcess(state: ManagedProcess['state']): boolean {
+  return state === 'exited' || state === 'failed' || state === 'stopped' || state === 'timed_out';
 }

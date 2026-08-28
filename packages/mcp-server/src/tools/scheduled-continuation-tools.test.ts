@@ -12,7 +12,7 @@ function context(services: McpApplicationServices = {}): McpToolContext {
 }
 
 describe('scheduled continuation MCP tools', () => {
-  it('publishes exactly five strict tools with the intended permission metadata', () => {
+  it('publishes exactly six strict tools with the intended permission metadata', () => {
     const tools = scheduledContinuationTools(context());
     const byName = new Map(tools.map((tool) => [tool.name, tool]));
     expect([...byName.keys()]).toEqual([
@@ -21,10 +21,12 @@ describe('scheduled continuation MCP tools', () => {
       'claim_scheduled_continuation',
       'get_scheduled_continuation',
       'expedite_scheduled_continuation',
+      'cancel_scheduled_continuation',
     ]);
     for (const name of ['prepare_scheduled_continuation', 'record_scheduled_continuation_receipt', 'claim_scheduled_continuation', 'expedite_scheduled_continuation']) {
       expect(byName.get(name)).toMatchObject({ permission: 'WRITE', annotations: { readOnlyHint: false, destructiveHint: false } });
     }
+    expect(byName.get('cancel_scheduled_continuation')).toMatchObject({ permission: 'WRITE', annotations: { readOnlyHint: false, destructiveHint: true } });
     expect(byName.get('get_scheduled_continuation')).toMatchObject({ permission: 'READ', annotations: { readOnlyHint: true, destructiveHint: false } });
 
     const validPrepare = {
@@ -64,6 +66,9 @@ describe('scheduled continuation MCP tools', () => {
     expect(byName.get('get_scheduled_continuation')?.parse({})).toMatchObject({ ok: false });
     expect(byName.get('get_scheduled_continuation')?.parse({ continuationId: 'c-1', goalId: 'g-1', latest: true })).toMatchObject({ ok: false });
     expect(byName.get('get_scheduled_continuation')?.parse({ goalId: 'g-1', latest: true })).toMatchObject({ ok: true });
+    expect(byName.get('cancel_scheduled_continuation')?.parse({ continuationId: 'c-1', expectedVersion: 2 })).toMatchObject({ ok: true });
+    expect(byName.get('cancel_scheduled_continuation')?.parse({ goalId: 'g-1', latest: true, expectedVersion: 2 })).toMatchObject({ ok: true });
+    expect(byName.get('cancel_scheduled_continuation')?.parse({ continuationId: 'c-1', goalId: 'g-1', latest: true, expectedVersion: 2 })).toMatchObject({ ok: false });
     expect(byName.get('prepare_scheduled_continuation')?.description).toContain('adaptive');
     expect(byName.get('prepare_scheduled_continuation')?.description).toContain('2 and 25 minutes');
     expect(byName.get('claim_scheduled_continuation')?.description).toContain('60 seconds early');

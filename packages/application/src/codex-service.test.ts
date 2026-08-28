@@ -166,6 +166,40 @@ describe('CodexService', () => {
     expect(service.statusForGoalLiveness(workspace.id, started.value.codexTaskId)).toMatchObject({ ok: true, value: { state: 'running' } });
     expect(service.statusForGoalLiveness('another-workspace', started.value.codexTaskId)).toMatchObject({ ok: false, error: { code: 'PERMISSION_DENIED' } });
   });
+
+  it('cancels a tracked Codex task across MCP sessions while enforcing stable client/workspace ownership', async () => {
+    const workspace = await createWorkspace();
+    let current: ManagedProcess = {
+      processId: 'process-1', executable: 'codex', args: [], cwd: workspace.realRootPath,
+      state: 'running', startedAt: new Date(0).toISOString(),
+    };
+    const stopCalls: Array<{ processId: string; autoRetry: boolean | undefined }> = [];
+    const adapter = fakeAdapter();
+    adapter.statusProcess = (): Result<ManagedProcess> => ok(current);
+    adapter.stop = async (processId, autoRetry): Promise<Result<void>> => {
+      stopCalls.push({ processId, autoRetry });
+      current = { ...current, state: 'stopped', finishedAt: new Date(1).toISOString(), exitCode: -1 };
+      return ok(undefined);
+    };
+    const service = new CodexService(repository(workspace), { adapter, taskIdFactory: (): string => 'codex-goal-cancel' });
+    const started = await service.run(
+      { clientId: 'client-1', clientName: 'test', sessionId: 'session-a' },
+      workspace.id,
+      'review',
+      undefined,
+      true,
+    );
+    expect(started.ok).toBe(true);
+    if (!started.ok) return;
+
+    await expect(service.cancelForGoal('client-2', workspace.id, started.value.codexTaskId))
+      .resolves.toMatchObject({ ok: false, error: { code: 'PERMISSION_DENIED' } });
+    await expect(service.cancelForGoal('client-1', workspace.id, started.value.codexTaskId))
+      .resolves.toMatchObject({ ok: true, value: { matched: true, state: 'cancelled' } });
+    expect(stopCalls).toEqual([{ processId: 'process-1', autoRetry: true }]);
+    await expect(service.cancelForGoal('client-1', workspace.id, started.value.codexTaskId))
+      .resolves.toMatchObject({ ok: true, value: { matched: true, state: 'already_terminal' } });
+  });
 });
 
 async function createWorkspace(): Promise<Workspace> {

@@ -143,6 +143,7 @@ export const CORE_TOOL_RUNTIME_FIXTURES = {
     stepUpdates: [], nextAction: '', blockers: [], evidence: [], activeTaskIds: [],
   }, 'goals.checkpointGoal'),
   finish_goal: service({ goalId: 'goal-1', leaseToken: 'lease-token', expectedRevision: 0, status: 'completed', summary: 'smoke', evidence: [] }, 'goals.finishGoal'),
+  cancel_goal: service({ goalId: 'goal-1', expectedRevision: 0, summary: 'cancel smoke', evidence: [] }, 'goals.cancelGoal'),
   list_goals: service({}, 'goals.listGoals'),
   prepare_scheduled_continuation: service({
     goalId: 'goal-1', leaseToken: 'lease-token', expectedRevision: 0, currentPhase: 'smoke', summary: 'smoke',
@@ -156,6 +157,7 @@ export const CORE_TOOL_RUNTIME_FIXTURES = {
     expectedLeaseGeneration: 1, expectedGoalRevision: 1, expectedContinuationVersion: 1,
     reason: 'host_budget_warning',
   }, 'scheduledContinuations.expediteScheduledContinuation'),
+  cancel_scheduled_continuation: service({ continuationId: 'continuation-1', expectedVersion: 0 }, 'scheduledContinuations.cancelScheduledContinuation'),
   tool_batch: service({ calls: [{ id: 'readiness-child', tool: 'workspace_list', arguments: {} }] }, 'workspaceInfo.list'),
 } as const satisfies Readonly<Record<string, ToolRuntimeFixture>>;
 

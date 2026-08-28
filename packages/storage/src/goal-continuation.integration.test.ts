@@ -1,9 +1,11 @@
 import { mkdtemp, rm } from 'node:fs/promises';
+import { createHash } from 'node:crypto';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { GoalContinuationService } from '@lnwjud/application';
-import type { FileActor } from '@lnwjud/application';
+import { ScheduledContinuationService } from '@lnwjud/application';
+import type { FileActor, GoalRequestCancellationPort, GoalTaskCancellationPort } from '@lnwjud/application';
 import type { Workspace } from '@lnwjud/workspace';
 import { SqliteDatabase } from './database.js';
 import { SqliteGoalRepository } from './goal-repository.js';
@@ -31,18 +33,31 @@ async function fixture(): Promise<{ root: string; filename: string; workspace: W
   };
 }
 
-async function open(filename: string, workspace: Workspace, now: () => Date): Promise<{
+async function open(
+  filename: string,
+  workspace: Workspace,
+  now: () => Date,
+  taskCancellation?: GoalTaskCancellationPort,
+  requestCancellation?: GoalRequestCancellationPort,
+): Promise<{
   database: SqliteDatabase;
   workspaces: SqliteWorkspaceRepository;
   repository: SqliteGoalRepository;
   service: GoalContinuationService;
+  scheduledService: ScheduledContinuationService;
 }> {
   const database = new SqliteDatabase(filename);
   const workspaces = new SqliteWorkspaceRepository(database);
   if (await workspaces.get(workspace.id) === null) await workspaces.insert(workspace);
   const repository = new SqliteGoalRepository(database);
-  const service = new GoalContinuationService(workspaces, repository, { now });
-  return { database, workspaces, repository, service };
+  const scheduledService = new ScheduledContinuationService(repository, { now });
+  const service = new GoalContinuationService(workspaces, repository, {
+    now,
+    scheduledContinuations: repository,
+    ...(taskCancellation === undefined ? {} : { taskCancellation }),
+    ...(requestCancellation === undefined ? {} : { requestCancellation }),
+  });
+  return { database, workspaces, repository, service, scheduledService };
 }
 
 const actor = (sessionId: string, clientId = 'chatgpt-web-client'): FileActor => ({
@@ -310,5 +325,163 @@ describe('durable goal continuation persistence', () => {
     const listed = await second.service.listGoals(actor('scheduled-next-session'), { workspaceId: workspace.id, limit: 20 });
     expect(listed).toMatchObject({ ok: true, value: { goals: [expect.objectContaining({ goalId: created.value.goalId })] } });
     second.database.close();
+  });
+
+  it('cancels an active goal after lease expiry and stops every tracked task across session boundaries', async () => {
+    const { filename, workspace } = await fixture();
+    let now = new Date('2026-08-26T00:00:00.000Z');
+    const calls: Array<{ ownerClientId: string; workspaceId: string; taskId: string }> = [];
+    const taskCancellation: GoalTaskCancellationPort = {
+      async cancelForGoal(ownerClientId, workspaceId, taskIds) {
+        return taskIds.map((taskId) => {
+          calls.push({ ownerClientId, workspaceId, taskId });
+          return { taskId, status: 'cancelled' as const, providers: [] };
+        });
+      },
+    };
+    const requestCancellations: string[] = [];
+    const requestCancellation: GoalRequestCancellationPort = {
+      register: () => ({ accepted: true, done: Promise.resolve(), release: () => undefined }),
+      async cancelForGoal(goalId) {
+        requestCancellations.push(goalId);
+        return { goalId, requested: 1, stopped: 1, remaining: 0, timedOut: false, requestIds: ['call-live'] };
+      },
+    };
+    const runtime = await open(filename, workspace, () => now, taskCancellation, requestCancellation);
+    try {
+      const created = await runtime.service.runGoal(actor('session-a'), { ...createRequest, leaseSeconds: 30 });
+      if (!created.ok || created.value.leaseToken === undefined) throw new Error('goal create failed');
+      const checkpointed = await runtime.service.checkpointGoal(actor('session-a'), {
+      goalId: created.value.goalId,
+      leaseToken: created.value.leaseToken,
+      expectedRevision: created.value.revision,
+      currentPhase: 'running',
+      summary: 'Three managed tasks are still tracked.',
+      stepUpdates: [],
+      nextAction: 'Cancel all tracked work.',
+      blockers: [],
+      evidence: [],
+      activeTaskIds: ['process-task', 'codex-task', 'shell-task'],
+      });
+      expect(checkpointed).toMatchObject({ ok: true, value: { revision: 1 } });
+
+      now = new Date('2026-08-26T00:00:31.000Z');
+      const cancelled = await runtime.service.cancelGoal(actor('session-b'), {
+        goalId: created.value.goalId,
+        expectedRevision: 1,
+        summary: 'User cancelled the goal and all tracked background work.',
+        evidence: [{ kind: 'note', value: 'manual cancellation' }],
+      });
+      expect(cancelled).toMatchObject({
+      ok: true,
+      value: {
+        status: 'cancelled',
+        revision: 2,
+        activeTaskIds: [],
+        trackedTaskIds: ['process-task', 'codex-task', 'shell-task'],
+        allTasksStopped: true,
+        allRequestsStopped: true,
+        requestCancellation: {
+          goalId: created.value.goalId,
+          requested: 1,
+          stopped: 1,
+          remaining: 0,
+          timedOut: false,
+          requestIds: ['call-live'],
+        },
+        taskCancellations: [
+          { taskId: 'process-task', status: 'cancelled' },
+          { taskId: 'codex-task', status: 'cancelled' },
+          { taskId: 'shell-task', status: 'cancelled' },
+        ],
+      },
+      });
+      expect(calls).toEqual([
+      { ownerClientId: 'chatgpt-web-client', workspaceId: 'workspace-1', taskId: 'process-task' },
+      { ownerClientId: 'chatgpt-web-client', workspaceId: 'workspace-1', taskId: 'codex-task' },
+      { ownerClientId: 'chatgpt-web-client', workspaceId: 'workspace-1', taskId: 'shell-task' },
+      ]);
+      expect(requestCancellations).toEqual([created.value.goalId]);
+      expect(await runtime.repository.getById(created.value.goalId)).toMatchObject({ status: 'cancelled', activeTaskIds: [] });
+      expect((await runtime.repository.getById(created.value.goalId))?.checkpoints.at(-1)).toMatchObject({
+        revision: 2,
+        activeTaskIds: ['process-task', 'codex-task', 'shell-task'],
+      });
+    } finally {
+      runtime.database.close();
+    }
+  });
+
+  it('marks a pending successor for host cancellation and makes an obsolete wake terminal_noop after goal cancellation', async () => {
+    const { filename, workspace } = await fixture();
+    let now = new Date('2026-08-26T00:00:00.000Z');
+    const runtime = await open(filename, workspace, () => now);
+    try {
+      const created = await runtime.service.runGoal(actor('session-a'), { ...createRequest, leaseSeconds: 3_600 });
+      if (!created.ok || created.value.leaseToken === undefined) throw new Error('goal create failed');
+      const prepared = await runtime.scheduledService.prepareScheduledContinuation(actor('session-a'), {
+        goalId: created.value.goalId,
+        leaseToken: created.value.leaseToken,
+        expectedRevision: created.value.revision,
+        currentPhase: 'running',
+        summary: 'A successor is armed while work continues.',
+        stepUpdates: [],
+        nextAction: 'Continue the goal.',
+        blockers: [],
+        evidence: [],
+        activeTaskIds: [],
+        successorDelayMinutes: 25,
+        executionPreference: 'cloud',
+      });
+      expect(prepared).toMatchObject({ ok: true, value: { continuation: { status: 'prepared' } } });
+      if (!prepared.ok) throw new Error('successor prepare failed');
+      const scheduled = await runtime.scheduledService.recordScheduledContinuationReceipt(actor('session-a'), {
+        continuationId: prepared.value.continuation.continuationId,
+        expectedVersion: prepared.value.continuation.version,
+        outcome: 'created',
+        nativeTaskId: 'native-cancel-me',
+        runsOn: 'cloud',
+      });
+      expect(scheduled).toMatchObject({ ok: true, value: { status: 'scheduled' } });
+      await runtime.repository.beginGoalFencedMutation({
+        callId: 'live-call-before-cancel',
+        goalId: created.value.goalId,
+        workspaceId: workspace.id,
+        ownerClientId: 'chatgpt-web-client',
+        leaseTokenHash: createHash('sha256').update(created.value.leaseToken).digest('hex'),
+        leaseGeneration: prepared.value.goal.leaseGeneration,
+        startedAt: '2026-08-26T00:00:05.000Z',
+        expiresAt: '2026-08-26T00:01:05.000Z',
+      });
+      expect((await runtime.repository.observeGoalFencedMutations(created.value.goalId, '2026-08-26T00:00:06.000Z')).liveFencedCallCount).toBe(1);
+
+      now = new Date('2026-08-26T00:00:05.000Z');
+      const cancelled = await runtime.service.cancelGoal(actor('session-b'), {
+        goalId: created.value.goalId,
+        expectedRevision: prepared.value.goal.revision,
+        summary: 'Stop the goal and prevent its obsolete wake from continuing.',
+        evidence: [{ kind: 'note', value: 'manual cancellation' }],
+      });
+      expect(cancelled).toMatchObject({
+        ok: true,
+        value: {
+          status: 'cancelled',
+          scheduledTaskCancellation: {
+            action: 'delete_native_task',
+            nativeTaskId: 'native-cancel-me',
+            receiptRequired: true,
+          },
+        },
+      });
+      expect((await runtime.repository.observeGoalFencedMutations(created.value.goalId, '2026-08-26T00:00:06.000Z')).liveFencedCallCount).toBe(0);
+
+      const lateWake = await runtime.scheduledService.claimScheduledContinuation(actor('session-c'), {
+        continuationId: prepared.value.continuation.continuationId,
+      });
+      expect(lateWake).toMatchObject({ ok: true, value: { outcome: 'terminal_noop', goal: { status: 'cancelled' } } });
+      expect((await runtime.repository.getById(created.value.goalId))?.status).toBe('cancelled');
+    } finally {
+      runtime.database.close();
+    }
   });
 });

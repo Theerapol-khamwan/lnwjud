@@ -7,6 +7,8 @@ import {
   FileService,
   GitService,
   GoalContinuationService,
+  GoalRequestCancellationService,
+  GoalTaskCancellationService,
   GoalMutationFenceService,
   ScheduledContinuationService,
   ProcessService,
@@ -93,7 +95,6 @@ export function createStdioMcpRuntime(
     ? rawWorkspaceRepository
     : new StrictWorkspaceRepository(rawWorkspaceRepository, options.strictAllowedRoots);
   const goalRepository = new SqliteGoalRepository(database);
-  const goalService = new GoalContinuationService(workspaceRepository, goalRepository, { scheduledContinuations: goalRepository });
   const workspaceIndex = new WorkspaceIndexService(workspaceRepository, new JsonWorkspaceIndexStore(path.join(dataPath, 'workspace-index')));
   const settingsRepository = new SqliteSettingsRepository(database);
   const auditRepository = new SqliteAuditRepository(database);
@@ -155,6 +156,17 @@ export function createStdioMcpRuntime(
     return roots;
   }, effectiveUnrestricted, options.strictAllowedRoots, () => parsePathList(settingsRepository.get(USER_SETTING_KEYS.capabilityRoots)),
   () => parseIntegerSetting(settingsRepository.get(USER_SETTING_KEYS.shellSynchronousWaitSeconds), DEFAULT_SHELL_SYNCHRONOUS_WAIT_SECONDS, MIN_CONFIGURABLE_WAIT_SECONDS, MAX_CONFIGURABLE_WAIT_SECONDS));
+  const taskCancellation = new GoalTaskCancellationService([
+    { provider: 'process', cancelForGoal: processService.cancelForGoal.bind(processService) },
+    { provider: 'codex', cancelForGoal: codexService.cancelForGoal.bind(codexService) },
+    { provider: 'shell', cancelForGoal: capabilityRuntime.shell.cancelForGoal.bind(capabilityRuntime.shell) },
+  ]);
+  const requestCancellation = new GoalRequestCancellationService();
+  const goalService = new GoalContinuationService(workspaceRepository, goalRepository, {
+    scheduledContinuations: goalRepository,
+    taskCancellation,
+    requestCancellation,
+  });
   const goalMutationFence = new GoalMutationFenceService(goalRepository, {
     taskStateReader: new RuntimeGoalManagedTaskStateReader({
       process: processService,
@@ -227,6 +239,7 @@ export function createStdioMcpRuntime(
     file: fileService,
     checkpoint: checkpointService,
     goals: goalService,
+    goalRequestCancellation: requestCancellation,
     scheduledContinuations: scheduledContinuationService,
     goalMutationFence,
     search: new SearchService(workspaceRepository),

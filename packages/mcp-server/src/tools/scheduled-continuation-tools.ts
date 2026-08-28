@@ -85,12 +85,18 @@ const expediteSchema = z.object({
   ]),
 }).strict();
 
+const cancelSchema = z.union([
+  z.object({ continuationId, expectedVersion: version }).strict(),
+  z.object({ goalId, latest: z.literal(true), expectedVersion: version }).strict(),
+]);
+
 export const SCHEDULED_CONTINUATION_TOOL_NAMES = [
   'prepare_scheduled_continuation',
   'record_scheduled_continuation_receipt',
   'claim_scheduled_continuation',
   'get_scheduled_continuation',
   'expedite_scheduled_continuation',
+  'cancel_scheduled_continuation',
 ] as const;
 
 export function scheduledContinuationTools(context: McpToolContext): McpToolDefinition[] {
@@ -160,6 +166,14 @@ export function scheduledContinuationTools(context: McpToolContext): McpToolDefi
       annotations: { readOnlyHint: false, destructiveHint: false },
       inputSchema: expediteSchema,
       handler: async (input) => context.services.scheduledContinuations?.expediteScheduledContinuation(context.actor, input) ?? missingService(),
+    }),
+    defineTool({
+      name: 'cancel_scheduled_continuation',
+      description: 'Cancel one scheduled successor independently of its goal. Identify it by continuationId or the latest record for a goal, then use the returned cancellation instruction to delete the exact native ChatGPT Scheduled Task and record its host receipt. This does not cancel the durable goal or stop its running tasks.',
+      permission: 'WRITE',
+      annotations: { readOnlyHint: false, destructiveHint: true },
+      inputSchema: cancelSchema,
+      handler: async (input) => context.services.scheduledContinuations?.cancelScheduledContinuation(context.actor, input) ?? missingService(),
     }),
   ];
 }

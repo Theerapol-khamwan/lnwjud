@@ -1,7 +1,15 @@
-export type GoalStatus = 'active' | 'completed' | 'failed' | 'blocked';
-export type GoalTerminalStatus = Exclude<GoalStatus, 'active'>;
+export type GoalStatus = 'active' | 'completed' | 'failed' | 'blocked' | 'cancelled';
+export type GoalTerminalStatus = 'completed' | 'failed' | 'blocked';
 export type GoalStepStatus = 'pending' | 'in_progress' | 'completed' | 'blocked';
 export type GoalEvidenceKind = 'path' | 'hash' | 'task' | 'note';
+
+export type GoalTaskCancellationState = 'cancelled' | 'already_terminal' | 'not_found' | 'termination_unverified';
+
+export interface GoalTaskCancellationObservation {
+  readonly matched: boolean;
+  readonly state: GoalTaskCancellationState;
+  readonly detail?: string;
+}
 
 export interface GoalPlanStep {
   readonly id: string;
@@ -141,6 +149,21 @@ export interface FinishGoalRecordRequest {
   readonly now: string;
 }
 
+export interface CancelGoalRecordRequest {
+  readonly checkpointId: string;
+  readonly goalId: string;
+  readonly ownerClientId: string;
+  readonly expectedRevision: number;
+  readonly summary: string;
+  readonly evidence: readonly GoalEvidence[];
+  readonly now: string;
+}
+
+export interface CancelGoalRecordResult {
+  readonly goal: GoalRecord;
+  readonly trackedTaskIds: readonly string[];
+}
+
 export interface ListGoalRecordsRequest {
   readonly ownerClientId: string;
   readonly workspaceId?: string;
@@ -165,4 +188,5 @@ export interface GoalRepository {
   list(request: ListGoalRecordsRequest): Promise<readonly GoalRecord[]>;
   checkpoint(request: CheckpointGoalRecordRequest): Promise<GoalRecord>;
   finish(request: FinishGoalRecordRequest): Promise<GoalRecord>;
+  cancel(request: CancelGoalRecordRequest): Promise<CancelGoalRecordResult>;
 }

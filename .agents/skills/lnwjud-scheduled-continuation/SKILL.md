@@ -12,6 +12,7 @@ One user request starts one durable chain: acquire the goal, arm one cloud succe
 - Never require the user to type “continue”, “ทำต่อ”, or ask for status to restart an unfinished goal.
 - Never send a completion report while `get_goal` reports `active`.
 - A request to stop scheduling cancels only the successor. It does not cancel, block, pause, or complete the durable goal. Continue in the current run and still call `finish_goal` when the work is actually done.
+- `cancel_goal` and `cancel_scheduled_continuation` are independent controls: the former records the goal as cancelled, aborts in-flight fenced MCP requests, and stops every tracked process, Codex task, and shell task; the latter cancels only the waiting successor. Call both when the user wants both effects.
 - Use one native one-time cloud ChatGPT Scheduled Task in the current chat. Never use recurrence, Windows Task Scheduler, `schtasks.exe`, cron, shell timers, browser automation, or undocumented scheduling APIs.
 - Native task creation, update, and deletion are host-owned. lnwjud stores the reservation, receipts, claim, and cancellation truth.
 
@@ -42,7 +43,9 @@ If `get_goal` is still `active` and scheduling remains authorized:
 3. If the turn is about to yield, call `expedite_scheduled_continuation` with `turn_yield_signal`, update the **same native task** to **+2 minutes**, and record the reschedule receipt.
 4. Only then may the current turn yield. A status update is not completion.
 
-If the user disabled scheduling, delete the exact pending native task and record its native host deletion receipt. Do not create another successor; remain in the current run, wait for bounded active work, finish verification, and close the goal.
+If the user disabled scheduling, call `cancel_scheduled_continuation` for the exact pending successor, delete the exact pending native task, and record its native host deletion receipt. Do not create another successor; remain in the current run, wait for bounded active work, finish verification, and close the goal.
+
+If the user asks to cancel the goal, call `cancel_goal` with the latest expected revision. It aborts active fenced MCP requests and stops every tracked task across process, Codex, and shell backends, including durable shell workers from another MCP session. Treat `allRequestsStopped: false`, `allTasksStopped: false`, `requestCancellation.timedOut: true`, or a `termination_unverified` result as unresolved evidence and report it; do not claim that all background work stopped. If the user also asks to cancel its scheduled successor, call `cancel_scheduled_continuation` separately and complete its exact native-host deletion receipt flow.
 
 ## Scheduled wake
 

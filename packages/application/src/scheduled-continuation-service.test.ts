@@ -464,4 +464,84 @@ describe('ScheduledContinuationService', () => {
       database.close();
     }
   });
+
+  it('cancels a scheduled continuation independently while leaving the active goal unchanged until a host receipt arrives', async () => {
+    const { database, goals, scheduled } = await fixture();
+    try {
+      const started = await startGoal(goals);
+      const prepared = await scheduled.prepareScheduledContinuation(actor, validPrepare(started));
+      expect(prepared.ok).toBe(true);
+      if (!prepared.ok) throw new Error('prepare failed');
+      const created = await scheduled.recordScheduledContinuationReceipt(actor, {
+        continuationId: prepared.value.continuation.continuationId,
+        expectedVersion: prepared.value.continuation.version,
+        outcome: 'created',
+        nativeTaskId: 'native-independent-cancel',
+        runsOn: 'cloud',
+      });
+      expect(created).toMatchObject({ ok: true, value: { status: 'scheduled', version: 1 } });
+      if (!created.ok) throw new Error('create receipt failed');
+
+      const requested = await scheduled.cancelScheduledContinuation(actor, {
+        continuationId: created.value.continuationId,
+        expectedVersion: created.value.version,
+      });
+      expect(requested).toMatchObject({
+        ok: true,
+        value: {
+          outcome: 'delete_required',
+          continuation: { status: 'cancel_required', nativeTaskId: 'native-independent-cancel', version: 2 },
+          cancellation: {
+            action: 'delete_native_task',
+            nativeTaskId: 'native-independent-cancel',
+            expectedContinuationVersion: 2,
+            receiptRequired: true,
+          },
+        },
+      });
+      expect(await goals.getGoal(actor, { goalId: started.goalId })).toMatchObject({ ok: true, value: { status: 'active' } });
+      if (!requested.ok) throw new Error('cancel request failed');
+
+      const receipt = await scheduled.recordScheduledContinuationReceipt(actor, {
+        continuationId: requested.value.continuation.continuationId,
+        expectedVersion: requested.value.continuation.version,
+        outcome: 'cancelled',
+        nativeCancellationReceipt: {
+          provider: 'chatgpt_scheduled_task',
+          operation: 'delete',
+          nativeTaskId: 'native-independent-cancel',
+          state: 'deleted',
+          observedAt: '2026-08-27T10:00:05.000Z',
+        },
+      });
+      expect(receipt).toMatchObject({ ok: true, value: { status: 'cancelled' } });
+    } finally {
+      database.close();
+    }
+  });
+
+  it('supersedes a prepared continuation with no native task without requesting a host deletion', async () => {
+    const { database, goals, scheduled } = await fixture();
+    try {
+      const started = await startGoal(goals);
+      const prepared = await scheduled.prepareScheduledContinuation(actor, validPrepare(started));
+      expect(prepared.ok).toBe(true);
+      if (!prepared.ok) throw new Error('prepare failed');
+
+      const cancelled = await scheduled.cancelScheduledContinuation(actor, {
+        continuationId: prepared.value.continuation.continuationId,
+        expectedVersion: prepared.value.continuation.version,
+      });
+      expect(cancelled).toMatchObject({
+        ok: true,
+        value: {
+          outcome: 'cancelled',
+          continuation: { status: 'superseded' },
+          cancellation: { action: 'none', reason: 'no_live_task' },
+        },
+      });
+    } finally {
+      database.close();
+    }
+  });
 });

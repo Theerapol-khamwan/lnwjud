@@ -660,6 +660,7 @@ describe('ShellCapabilityBackend unrestricted', () => {
     await expect(backendB.execute({ operation: 'status', task_id: taskId, ...owner('session-b') })).resolves.toMatchObject({ ok: false, error: { code: 'PERMISSION_DENIED' } });
     await expect(backendB.execute({ operation: 'list', ...owner('session-b') })).resolves.toMatchObject({ ok: true, value: { tasks: [] } });
     await expect(backendB.execute({ operation: 'status', task_id: taskId, ...owner('session-a') })).resolves.toMatchObject({ ok: true });
-    await expect(backendB.execute({ operation: 'cancel', task_id: taskId, userConfirmed: true, ...owner('session-a') })).resolves.toMatchObject({ ok: true });
+    await expect(backendB.cancelForGoal('client-1', 'workspace-1', taskId))
+      .resolves.toMatchObject({ ok: true, value: { matched: true, state: 'cancelled' } });
   });
 });

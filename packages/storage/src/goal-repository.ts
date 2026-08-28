@@ -7,6 +7,8 @@ import {
   type GoalFencedMutationAdmission,
   type GoalFencedMutationObservation,
   type CheckpointGoalRecordRequest,
+  type CancelGoalRecordRequest,
+  type CancelGoalRecordResult,
   type FinishGoalRecordRequest,
   type GoalCheckpointRecord,
   type GoalEvidence,
@@ -32,6 +34,8 @@ import {
   type ScheduledContinuationMutationFence,
   type ScheduledContinuationRescheduleReason,
   type ScheduledContinuationStatus,
+  type CancelScheduledContinuationRecordRequest,
+  type CancelScheduledContinuationRecordResult,
 } from '@lnwjud/domain';
 import type { SqliteDatabase } from './database.js';
 
@@ -332,6 +336,68 @@ export class SqliteGoalRepository implements GoalRepository, ScheduledContinuati
     });
   }
 
+  public async cancel(request: CancelGoalRecordRequest): Promise<CancelGoalRecordResult> {
+    return this.transaction(() => {
+      const current = this.requireById(request.goalId);
+      this.assertOwner(current, request.ownerClientId);
+      if (current.revision !== request.expectedRevision) throw new GoalStateError('conflict', 'Goal revision is stale');
+      if (current.status === 'cancelled') {
+        // Repair any legacy/live fence rows left by an interrupted cancellation
+        // so a repeated cancel remains an effective hard stop.
+        this.database.connection.prepare(`
+          UPDATE goal_fenced_mutation_calls
+          SET completed_at = COALESCE(completed_at, ?)
+          WHERE goal_id = ? AND completed_at IS NULL
+        `).run(request.now, request.goalId);
+        return { goal: current, trackedTaskIds: cancellationTaskIds(current) };
+      }
+      if (current.status !== 'active') throw new GoalStateError('terminal', 'Goal is already terminal');
+
+      const trackedTaskIds = [...current.activeTaskIds];
+      const revision = current.revision + 1;
+      const changed = this.database.connection.prepare(`
+        UPDATE goals
+        SET status = 'cancelled', revision = ?, current_phase = 'cancelled', next_action = '', blockers_json = '[]', active_task_ids_json = '[]',
+            lease_owner_client_id = NULL, lease_owner_session_id = NULL, lease_token_hash = NULL, lease_duration_seconds = NULL,
+            lease_heartbeat_at = NULL, lease_expires_at = NULL, updated_at = ?,
+            terminal_summary = ?, terminal_evidence_json = ?, terminal_at = ?
+        WHERE id = ? AND revision = ? AND status = 'active'
+      `).run(
+        revision,
+        request.now,
+        request.summary,
+        JSON.stringify(request.evidence),
+        request.now,
+        request.goalId,
+        request.expectedRevision,
+      );
+      if (Number(changed.changes) !== 1) throw new GoalStateError('conflict', 'Goal cancellation lost the compare-and-swap race');
+      // A cancellation invalidates every currently admitted fenced mutation
+      // immediately. The handler still receives an AbortSignal from the
+      // runtime registry, but liveness probes must not keep treating a
+      // cancelled goal as if a worker were actively mutating its workspace.
+      this.database.connection.prepare(`
+        UPDATE goal_fenced_mutation_calls
+        SET completed_at = ?
+        WHERE goal_id = ? AND completed_at IS NULL
+      `).run(request.now, request.goalId);
+      this.insertCheckpoint({
+        id: request.checkpointId,
+        goalId: request.goalId,
+        revision,
+        currentPhase: 'cancelled',
+        summary: request.summary,
+        stepUpdates: [],
+        nextAction: '',
+        blockers: [],
+        evidence: request.evidence,
+        activeTaskIds: trackedTaskIds,
+        createdAt: request.now,
+      });
+      return { goal: this.requireById(request.goalId), trackedTaskIds };
+    });
+  }
+
   public async prepareScheduledContinuation(
     request: PrepareScheduledContinuationRecordRequest,
   ): Promise<PrepareScheduledContinuationRecordResult> {
@@ -512,9 +578,6 @@ export class SqliteGoalRepository implements GoalRepository, ScheduledContinuati
           throw new GoalStateError('conflict', 'Reschedule failure receipt due time does not match the pending update');
         }
       } else if (request.outcome === 'cancelled') {
-        if (goal.status === 'active') {
-          throw new GoalStateError('conflict', 'Native task cancellation cannot be confirmed while the durable goal is active');
-        }
         if (!['cancel_required', 'cancel_failed', 'cancel_uncertain'].includes(currentRow.status)) {
           throw new GoalStateError('conflict', `Cancelled receipt cannot be recorded from status ${currentRow.status}`);
         }
@@ -538,9 +601,6 @@ export class SqliteGoalRepository implements GoalRepository, ScheduledContinuati
           throw new GoalStateError('conflict', 'Native cancellation evidence predates durable goal termination');
         }
       } else if (request.outcome === 'cancel_failed' || request.outcome === 'cancel_uncertain') {
-        if (goal.status === 'active') {
-          throw new GoalStateError('conflict', 'Native task cancellation state cannot be recorded while the durable goal is active');
-        }
         if (!['cancel_required', 'cancel_failed', 'cancel_uncertain'].includes(currentRow.status)) {
           throw new GoalStateError('conflict', `Cancellation receipt cannot be recorded from status ${currentRow.status}`);
         }
@@ -578,6 +638,75 @@ export class SqliteGoalRepository implements GoalRepository, ScheduledContinuati
       );
       if (Number(changed.changes) !== 1) throw new GoalStateError('conflict', 'Scheduled continuation receipt lost the compare-and-swap race');
       return this.requireScheduledContinuationById(request.continuationId);
+    });
+  }
+
+  public async cancelScheduledContinuation(
+    request: CancelScheduledContinuationRecordRequest,
+  ): Promise<CancelScheduledContinuationRecordResult> {
+    return this.transaction(() => {
+      const row = 'continuationId' in request
+        ? this.selectScheduledContinuationById(request.continuationId)
+        : this.selectLatestScheduledContinuation(request.goalId);
+      if (row === undefined) throw new GoalStateError('not_found', 'Scheduled continuation was not found');
+      const continuation = this.toScheduledContinuationRecord(row);
+      const goal = this.requireById(row.goal_id);
+      this.assertOwner(goal, request.ownerClientId);
+      if (continuation.version !== request.expectedVersion) throw new GoalStateError('conflict', 'Scheduled continuation version is stale');
+
+      if (continuation.status === 'cancelled' || continuation.status === 'superseded') {
+        return { outcome: 'already_cancelled', continuation };
+      }
+      if (continuation.status === 'claimed' || continuation.status === 'terminal_noop') {
+        return { outcome: 'already_fired', continuation };
+      }
+      if (continuation.status === 'cancel_required' && continuation.nativeTaskId !== undefined) {
+        return { outcome: 'delete_required', continuation };
+      }
+      if (
+        (continuation.status === 'cancel_failed' || continuation.status === 'cancel_uncertain')
+        && continuation.nativeTaskId !== undefined
+      ) {
+        const changed = this.database.connection.prepare(`
+          UPDATE goal_scheduled_continuations
+          SET status = 'cancel_required', version = version + 1, updated_at = ?, terminal_at = NULL
+          WHERE id = ? AND version = ?
+        `).run(request.now, continuation.continuationId, continuation.version);
+        if (Number(changed.changes) !== 1) throw new GoalStateError('conflict', 'Scheduled continuation cancellation retry lost the compare-and-swap race');
+        return { outcome: 'delete_required', continuation: this.requireScheduledContinuationById(continuation.continuationId) };
+      }
+
+      let nextStatus: ScheduledContinuationStatus;
+      let outcome: CancelScheduledContinuationRecordResult['outcome'];
+      if (
+        continuation.nativeTaskId !== undefined
+        && ['scheduled', 'create_uncertain', 'reschedule_required', 'reschedule_failed', 'reschedule_uncertain'].includes(continuation.status)
+      ) {
+        nextStatus = 'cancel_required';
+        outcome = 'delete_required';
+      } else if (continuation.nativeTaskId === undefined && (continuation.status === 'prepared' || continuation.status === 'create_failed')) {
+        nextStatus = 'superseded';
+        outcome = 'cancelled';
+      } else {
+        nextStatus = 'cancel_uncertain';
+        outcome = 'native_task_unverified';
+      }
+
+      const terminalAt = isLiveScheduledStatus(nextStatus) ? null : request.now;
+      const changed = this.database.connection.prepare(`
+        UPDATE goal_scheduled_continuations
+        SET status = ?, version = version + 1, updated_at = ?, terminal_at = ?, last_detail = ?
+        WHERE id = ? AND version = ?
+      `).run(
+        nextStatus,
+        request.now,
+        terminalAt,
+        'Cancellation requested by the goal owner',
+        continuation.continuationId,
+        continuation.version,
+      );
+      if (Number(changed.changes) !== 1) throw new GoalStateError('conflict', 'Scheduled continuation cancellation lost the compare-and-swap race');
+      return { outcome, continuation: this.requireScheduledContinuationById(continuation.continuationId) };
     });
   }
 
@@ -1385,8 +1514,12 @@ function isScheduledRescheduleReason(value: string): value is ScheduledContinuat
 }
 
 function parseGoalStatus(value: string): GoalStatus {
-  if (value === 'active' || value === 'completed' || value === 'failed' || value === 'blocked') return value;
+  if (value === 'active' || value === 'completed' || value === 'failed' || value === 'blocked' || value === 'cancelled') return value;
   throw corrupt('Goal status is invalid');
+}
+
+function cancellationTaskIds(goal: GoalRecord): readonly string[] {
+  return goal.checkpoints.at(-1)?.activeTaskIds ?? [];
 }
 
 function parsePlan(serialized: string): GoalPlan {

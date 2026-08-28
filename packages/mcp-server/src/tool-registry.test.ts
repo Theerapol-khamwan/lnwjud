@@ -10,6 +10,7 @@ import { permissionProfiles, type PermissionProfile } from '@lnwjud/permissions'
 import { DEFAULT_DESTRUCTIVE_AUTO_APPROVAL_POLICY, type DestructiveAutoApprovalPolicy } from '@lnwjud/shared';
 import type { ActivitySinkEvent } from './activity-tracker.js';
 import { ToolRegistry, type McpApplicationServices, type ToolRegistryOptions, type WorkspaceScope } from './tool-registry.js';
+import { GoalRequestCancellationService } from '@lnwjud/application';
 import { CODEX_TOOL_NAMES } from './tools/codex-tools.js';
 import { isAdvertisedDeliveryState } from './tool-delivery-contract.js';
 import { UPGRADE_TOOL_CATALOG } from './upgrade-catalog.js';
@@ -39,8 +40,8 @@ describe('MCP tool registry', () => {
       'read_file_page', 'read_file_page_continue',
       'workspace_index', 'workspace_index_status', 'workspace_index_watch', 'workspace_index_stop',
       'session_handoff', 'verify_incremental',
-      'run_goal', 'get_goal', 'checkpoint_goal', 'finish_goal', 'list_goals',
-      'prepare_scheduled_continuation', 'record_scheduled_continuation_receipt', 'claim_scheduled_continuation', 'get_scheduled_continuation', 'expedite_scheduled_continuation',
+      'run_goal', 'get_goal', 'checkpoint_goal', 'finish_goal', 'cancel_goal', 'list_goals',
+      'prepare_scheduled_continuation', 'record_scheduled_continuation_receipt', 'claim_scheduled_continuation', 'get_scheduled_continuation', 'expedite_scheduled_continuation', 'cancel_scheduled_continuation',
       ...UPGRADE_TOOL_CATALOG.filter((entry) => isAdvertisedDeliveryState(entry.deliveryState)).map((entry) => entry.name),
       'tool_batch',
     ]);
@@ -702,6 +703,41 @@ describe('MCP tool registry', () => {
       { tool: 'apply_patch', input: expect.not.objectContaining({ userConfirmed: true }), authorization: expect.objectContaining({ mode: 'standard', applicationApproved: true, source: 'profile' }) },
     ]);
     expect(calls).toEqual(['git', 'process_start', 'shell']);
+  });
+
+  it('registers fenced MCP requests and aborts them when their goal is cancelled', async () => {
+    const cancellation = new GoalRequestCancellationService({ waitMs: 100 });
+    let started = false;
+    let aborted = false;
+    const services: McpApplicationServices = {
+      goalRequestCancellation: cancellation,
+      file: {
+        async writeFile(_actor, _workspaceId, _request, signal) {
+          started = true;
+          return new Promise((resolve) => {
+            signal?.addEventListener('abort', () => {
+              aborted = true;
+              resolve(ok({ path: 'src/file.ts', bytesWritten: 0 }));
+            }, { once: true });
+          });
+        },
+      },
+    };
+    const registry = new ToolRegistry(services, actor);
+    const pending = registry.invoke('write_file', {
+      workspaceId: 'workspace-1',
+      path: 'src/file.ts',
+      content: 'cancel me',
+      goalLease: { goalId: 'goal-cancel', leaseToken: 'lease-token', leaseGeneration: 1 },
+    });
+
+    for (let attempt = 0; attempt < 20 && !started; attempt += 1) await Promise.resolve();
+    expect(started).toBe(true);
+    await expect(cancellation.cancelForGoal('goal-cancel')).resolves.toMatchObject({
+      goalId: 'goal-cancel', requested: 1, stopped: 1, remaining: 0, timedOut: false,
+    });
+    expect(aborted).toBe(true);
+    await expect(pending).resolves.toMatchObject({ structuredContent: { path: 'src/file.ts' } });
   });
 
   it('honors Custom ALLOW for ordinary replacement and opaque operations instead of silently converting it to ASK', async () => {

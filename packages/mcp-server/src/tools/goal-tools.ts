@@ -62,13 +62,20 @@ const finishGoalSchema = z.object({
   evidence: z.array(evidence).max(20),
 }).strict();
 
+const cancelGoalSchema = z.object({
+  goalId,
+  expectedRevision: z.number().int().min(0),
+  summary: z.string().min(1).max(2048),
+  evidence: z.array(evidence).max(20),
+}).strict();
+
 const listGoalsSchema = z.object({
   workspaceId: z.string().min(1).max(128).optional(),
-  status: z.enum(['active', 'completed', 'failed', 'blocked']).optional(),
+  status: z.enum(['active', 'completed', 'failed', 'blocked', 'cancelled']).optional(),
   limit: z.number().int().min(1).max(100).default(50),
 }).strict();
 
-export const GOAL_TOOL_NAMES = ['run_goal', 'get_goal', 'checkpoint_goal', 'finish_goal', 'list_goals'] as const;
+export const GOAL_TOOL_NAMES = ['run_goal', 'get_goal', 'checkpoint_goal', 'finish_goal', 'cancel_goal', 'list_goals'] as const;
 
 export function goalTools(context: McpToolContext): McpToolDefinition[] {
   return [
@@ -125,6 +132,14 @@ export function goalTools(context: McpToolContext): McpToolDefinition[] {
       annotations: { readOnlyHint: false, destructiveHint: false },
       inputSchema: finishGoalSchema,
       handler: async (input) => context.services.goals?.finishGoal(context.actor, input) ?? missingService(),
+    }),
+    defineTool({
+      name: 'cancel_goal',
+      description: 'Cancel a durable goal independently of any scheduled successor. It records the goal as cancelled, aborts in-flight fenced MCP requests for that goal, and attempts to stop every tracked process, Codex task, and shell task across the current runtime and durable task store; inspect requestCancellation, taskCancellations, and allRequestsStopped/allTasksStopped for unresolved work. If scheduledTaskCancellation requests delete_native_task, use cancel_scheduled_continuation separately and complete the exact native ChatGPT host deletion receipt.',
+      permission: 'WRITE',
+      annotations: { readOnlyHint: false, destructiveHint: true },
+      inputSchema: cancelGoalSchema,
+      handler: async (input) => context.services.goals?.cancelGoal(context.actor, input) ?? missingService(),
     }),
     defineTool({
       name: 'list_goals',

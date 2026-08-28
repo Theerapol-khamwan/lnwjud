@@ -7,6 +7,8 @@ import {
   FileService,
   GitService,
   GoalContinuationService,
+  GoalRequestCancellationService,
+  GoalTaskCancellationService,
   GoalMutationFenceService,
   ScheduledContinuationService,
   ProjectService,
@@ -195,7 +197,6 @@ export function createDesktopRuntime(dataPath: string, options: DesktopRuntimeOp
   const database = new SqliteDatabase(databaseFilename, { backupDirectory });
   const workspaceRepository = new SqliteWorkspaceRepository(database);
   const goalRepository = new SqliteGoalRepository(database);
-  const goalService = new GoalContinuationService(workspaceRepository, goalRepository, { scheduledContinuations: goalRepository });
   const workspaceIndex = new WorkspaceIndexService(workspaceRepository, new JsonWorkspaceIndexStore(path.join(dataPath, 'workspace-index')));
   const settingsRepository = new SqliteSettingsRepository(database);
   const workLogViewState = new WorkLogViewState(settingsRepository);
@@ -266,6 +267,17 @@ export function createDesktopRuntime(dataPath: string, options: DesktopRuntimeOp
       .filter((workspace) => !isDriveRoot(workspace.realRootPath) && !isDriveRoot(workspace.rootPath))
       .map((workspace) => workspace.realRootPath)
   ), unrestricted, () => readSettings().capabilityRoots, () => readSettings().shellSynchronousWaitSeconds);
+  const taskCancellation = new GoalTaskCancellationService([
+    { provider: 'process', cancelForGoal: processService.cancelForGoal.bind(processService) },
+    { provider: 'codex', cancelForGoal: codexService.cancelForGoal.bind(codexService) },
+    { provider: 'shell', cancelForGoal: capabilityRuntime.shell.cancelForGoal.bind(capabilityRuntime.shell) },
+  ]);
+  const requestCancellation = new GoalRequestCancellationService();
+  const goalService = new GoalContinuationService(workspaceRepository, goalRepository, {
+    scheduledContinuations: goalRepository,
+    taskCancellation,
+    requestCancellation,
+  });
   const goalMutationFence = new GoalMutationFenceService(goalRepository, {
     taskStateReader: new RuntimeGoalManagedTaskStateReader({
       process: processService,
@@ -302,6 +314,7 @@ export function createDesktopRuntime(dataPath: string, options: DesktopRuntimeOp
     file: fileService,
     checkpoint: checkpointService,
     goals: goalService,
+    goalRequestCancellation: requestCancellation,
     scheduledContinuations: scheduledContinuationService,
     goalMutationFence,
     search: searchService,
