@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { ok, type Result } from '@lnwjud/domain';
+import { err, type Result } from '@lnwjud/domain';
 import { UPGRADE_TOOL_CATALOG } from './upgrade-catalog.js';
 import { ToolRegistry } from './tool-registry.js';
 import {
@@ -8,21 +8,18 @@ import {
   type ToolRuntimeFixture,
 } from './tool-runtime-fixtures.js';
 import type { McpApplicationServices } from './tools/tool-types.js';
+import { createRuntimeSuccessServices as successServices, runtimeRecord as record } from './tool-runtime-test-harness.js';
 
 const actor = { clientId: 'runtime-contract-test', clientName: 'runtime-contract-test' };
 
-const PHASE_5_TO_18_TOOL_NAMES = [
-  'symbol_search', 'find_definition', 'find_references', 'find_implementations', 'call_hierarchy',
-  'import_graph', 'dependency_graph', 'module_graph', 'type_search', 'trace_symbol',
-  'context_ranking', 'debug_context', 'review_context', 'change_context', 'symbol_context',
-  'test_context', 'dependency_context', 'git_context', 'frontend_context', 'backend_context',
-  'route_intent', 'recipe_list', 'recipe_describe', 'recipe_run', 'dry_run', 'review_changes',
-  'changed_symbols', 'affected_modules', 'git_history_context', 'git_blame_context',
-  'discover_tests', 'run_affected_tests', 'test_failures', 'coverage_context', 'test_history',
-  'cache_stats', 'cache_clear', 'cache_invalidate', 'hook_list', 'hook_register', 'hook_remove',
-  'skill_match', 'skill_load', 'plugin_install', 'plugin_list', 'plugin_enable', 'plugin_disable',
-  'plugin_remove', 'session_context', 'session_checkpoint', 'session_resume', 'session_history',
-  'response_mode',
+const PHASE_5_TO_18_TOOL_NAMES = UPGRADE_TOOL_CATALOG
+  .filter((entry) => entry.phase >= 5 && entry.phase <= 18)
+  .map((entry) => entry.name)
+  .sort();
+
+const COMPOUND_CONTEXT_TOOL_NAMES = [
+  'debug_context', 'review_context', 'change_context', 'symbol_context',
+  'test_context', 'git_context', 'frontend_context', 'backend_context',
 ] as const;
 
 function auditedDefinitionNames(registry: ToolRegistry): string[] {
@@ -31,108 +28,6 @@ function auditedDefinitionNames(registry: ToolRegistry): string[] {
     .map((definition) => definition.name)
     .filter((name) => !upgradeNames.has(name));
   return [...coreNames, ...PHASE_5_TO_18_TOOL_NAMES].sort();
-}
-
-type ServiceResolver = (method: string, args: readonly unknown[]) => unknown;
-
-function serviceProxy(group: string, calls: string[], resolve: ServiceResolver): object {
-  return new Proxy<Record<string, unknown>>({}, {
-    get(_target, property) {
-      return async (...args: unknown[]) => {
-        const method = String(property);
-        calls.push(`${group}.${method}`);
-        return ok(resolve(method, args));
-      };
-    },
-  });
-}
-
-function record(value: unknown): Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value)
-    ? value as Record<string, unknown>
-    : {};
-}
-
-function successServices(calls: string[]): McpApplicationServices {
-  const processSnapshot = {
-    processId: 'process-1', executable: 'pnpm.cmd', args: ['typecheck'], cwd: 'E:\\project', state: 'exited',
-    startedAt: new Date(0).toISOString(), finishedAt: new Date(1).toISOString(), exitCode: 0,
-  };
-  const png = { format: 'png', mime_type: 'image/png', data_base64: 'cG5n', width: 640, height: 480, origin_x: 0, origin_y: 0 };
-
-  return {
-    workspaceInfo: serviceProxy('workspaceInfo', calls, (method) => method === 'list'
-      ? [{ id: 'workspace-1', path: 'E:\\project' }]
-      : { id: 'workspace-1', path: 'E:\\project' }),
-    workspaceQuery: serviceProxy('workspaceQuery', calls, () => ({ entries: [] })),
-    projectSnapshot: serviceProxy('projectSnapshot', calls, () => ({ workspaceId: 'workspace-1', files: 1 })),
-    project: serviceProxy('project', calls, () => ({ kind: 'node', packageManager: 'pnpm' })),
-    file: serviceProxy('file', calls, (method, args) => {
-      if (method === 'readFile') {
-        const request = record(args[2]);
-        const filePath = typeof request.path === 'string' ? request.path : 'README.md';
-        const startLine = typeof request.startLine === 'number' ? request.startLine : 1;
-        const paged = filePath === 'paged.txt';
-        const content = paged && startLine === 1 ? 'one\ntwo' : paged ? 'two' : 'export const smoke = true;\n';
-        const endLine = paged ? 2 : startLine + Math.max(0, content.split(/\r?\n/).filter(Boolean).length - 1);
-        return { path: filePath, content, startLine, endLine, encoding: 'utf8', mimeType: 'text/plain', byteLength: Buffer.byteLength(content) };
-      }
-      if (method === 'readFiles') return { files: [] };
-      if (method === 'listRecoveryItems') return [];
-      if (method === 'prepareExternalFileMutation') {
-        const request = record(args[2]);
-        return { sourcePaths: Array.isArray(request.sourcePaths) ? request.sourcePaths : [], targetPath: typeof request.targetPath === 'string' ? request.targetPath : 'output.tmp' };
-      }
-      return { executed: true };
-    }),
-    checkpoint: serviceProxy('checkpoint', calls, (method) => method === 'list' ? [] : { restored: true }),
-    search: serviceProxy('search', calls, (method) => method === 'searchText'
-      ? { matches: [{ path: 'src/smoke.ts', line: 1, text: 'smoke' }, { path: 'src/second.ts', line: 1, text: 'smoke' }], truncated: false }
-      : { paths: ['src/smoke.ts', 'src/second.test.ts'], truncated: false }),
-    workspaceIndex: serviceProxy('workspaceIndex', calls, (method) => method === 'status'
-      ? { indexed: true, snapshot: { entries: [
-        { relativePath: 'src/smoke.ts', kind: 'file', language: 'typescript', isTest: false, symbols: ['smoke'], functions: [], classes: [], interfaces: [], imports: [], exports: [] },
-        { relativePath: 'src/second.test.ts', kind: 'file', language: 'typescript', isTest: true, symbols: ['second'], functions: [], classes: [], interfaces: [], imports: [], exports: [] },
-      ] } }
-      : { executed: true }),
-    git: serviceProxy('git', calls, (method) => {
-      if (method === 'status') return { entries: [] };
-      if (method === 'diff') return { patch: '', truncated: false };
-      if (method === 'log') return { commits: [], truncated: false };
-      return { exitCode: 0, stdout: '', stderr: '' };
-    }),
-    process: serviceProxy('process', calls, (method) => {
-      if (method === 'list') return [];
-      if (method === 'logs') return { entries: [], truncated: false };
-      if (method === 'previewProjectCommand') return { executable: 'pnpm.cmd', args: ['test'], cwd: 'E:\\project' };
-      if (method === 'stop') return { stopped: true };
-      return processSnapshot;
-    }),
-    codex: serviceProxy('codex', calls, (method) => method === 'list' ? [] : { ...processSnapshot, codexTaskId: 'codex-1' }),
-    goals: serviceProxy('goals', calls, (method) => method === 'listGoals' ? [] : { goalId: 'goal-1', status: 'active', acquired: true, leaseToken: 'lease-token' }),
-    scheduledContinuations: serviceProxy('scheduledContinuations', calls, () => ({ continuationId: 'continuation-1', status: 'scheduled', version: 1 })),
-    extensions: serviceProxy('extensions', calls, (method) => {
-      if (method === 'listSkills') return { skills: [] };
-      if (method === 'readSkill') return { id: 'skill-1', name: 'Smoke', description: 'Smoke', source: 'workspace', path: 'SKILL.md', content: '# Smoke' };
-      if (method === 'listMcpServers') return { servers: [{ name: 'server-1' }] };
-      if (method === 'describeMcpServer') return { server: 'server-1', enabled: true, connected: true, tools: [] };
-      return { called: true };
-    }),
-    capabilities: {
-      async execute(tool: string, input: unknown) {
-        calls.push(`capabilities.${tool}`);
-        const request = record(input);
-        if (tool === 'accessibility') {
-          if (request.action === 'observe') return ok({ elements: [{ element: { name: 'Save', automation_id: 'save', enabled: true, offscreen: false, bounds: { x: 20, y: 30, width: 100, height: 40 } } }] });
-          if (request.action === 'find_element') return ok({ element: { name: 'Save', automation_id: 'save', bounds: { x: 20, y: 30, width: 100, height: 40 } } });
-          return ok({ executed: true });
-        }
-        if (tool === 'vision') return ok(png);
-        if (tool === 'shell' && request.operation === 'list') return ok({ tasks: [] });
-        return ok({ executed: true });
-      },
-    } as NonNullable<McpApplicationServices['capabilities']>,
-  } as unknown as McpApplicationServices;
 }
 
 async function executeDefinition(
@@ -199,6 +94,8 @@ async function cacheGeneration(registry: ToolRegistry): Promise<number> {
 describe('tool runtime delivery contract', () => {
   it('tracks an exact runtime fixture for every core and phase 5-18 definition', () => {
     const registry = new ToolRegistry({}, actor);
+    expect(PHASE_5_TO_18_TOOL_NAMES).toHaveLength(53);
+    expect(Object.keys(PHASE_5_TO_18_TOOL_RUNTIME_FIXTURES).sort()).toEqual(PHASE_5_TO_18_TOOL_NAMES);
     expect(Object.keys(TOOL_RUNTIME_FIXTURES).sort()).toEqual(auditedDefinitionNames(registry));
     expect(Object.keys(TOOL_RUNTIME_FIXTURES)).toHaveLength(144);
   });
@@ -210,10 +107,13 @@ describe('tool runtime delivery contract', () => {
 
     expect(allNames).toEqual(expect.arrayContaining([
       'codex_status', 'codex_run', 'codex_task_list', 'codex_task_status', 'codex_task_logs', 'codex_stop',
-      'agent_swarm_run',
+      'agent_swarm_run', 'plugin_install', 'plugin_list', 'plugin_enable', 'plugin_disable', 'plugin_remove',
     ]));
     expect(advertisedNames).not.toContain('codex_status');
     expect(advertisedNames).not.toContain('agent_swarm_run');
+    expect(advertisedNames).not.toEqual(expect.arrayContaining([
+      'plugin_install', 'plugin_list', 'plugin_enable', 'plugin_disable', 'plugin_remove',
+    ]));
   });
 
   it('assigns an explicit delivery state to every upgrade definition', () => {
@@ -225,11 +125,66 @@ describe('tool runtime delivery contract', () => {
     ))).toBe(true);
   });
 
-  it('marks plugin descriptor operations as dependency-gated by the persisted registry', () => {
+  it('keeps plugin operations disabled until a real validated plugin registry is injected', () => {
     const pluginEntries = UPGRADE_TOOL_CATALOG.filter((entry) => entry.phase === 16);
     expect(pluginEntries).toHaveLength(5);
-    expect(pluginEntries.every((entry) => entry.deliveryState === 'dependency_gated')).toBe(true);
-    expect(pluginEntries.every((entry) => entry.requirements?.includes('configured persisted plugin descriptor registry') === true)).toBe(true);
+    expect(pluginEntries.every((entry) => entry.deliveryState === 'feature_disabled')).toBe(true);
+    expect(pluginEntries.every((entry) => entry.requirements?.includes('validated injected plugin registry') === true)).toBe(true);
+  });
+
+  it.each(COMPOUND_CONTEXT_TOOL_NAMES)('%s reports each missing backing service truthfully', async (name) => {
+    for (const [missingService, requirement] of [
+      ['search', 'workspace search service'],
+      ['file', 'workspace file service'],
+      ['git', 'configured Git service'],
+    ] as const) {
+      const calls: string[] = [];
+      const services = { ...successServices(calls), [missingService]: undefined } as McpApplicationServices;
+      const registry = new ToolRegistry(services, actor, { codexToolsEnabled: true });
+      const result = await executeDefinition(registry, name, { workspaceId: 'workspace-1', query: 'smoke' });
+      expect(result, `${name} without ${missingService}`).toMatchObject({
+        ok: true,
+        value: {
+          tool: name,
+          status: 'needs_setup',
+          available: false,
+          ready: false,
+          executed: false,
+          requirements: [requirement],
+        },
+      });
+    }
+
+    const allMissing = await executeDefinition(
+      new ToolRegistry({}, actor, { codexToolsEnabled: true }),
+      name,
+      { workspaceId: 'workspace-1', query: 'smoke' },
+    );
+    expect(allMissing).toMatchObject({
+      ok: true,
+      value: {
+        requirements: ['workspace search service', 'workspace file service', 'configured Git service'],
+      },
+    });
+  });
+
+  it('propagates compound-context service failures instead of embedding them in success', async () => {
+    const calls: string[] = [];
+    const serviceFailure = { code: 'INTERNAL_ERROR' as const, message: 'runtime contract service failure', recoverable: true };
+    const failingSearch = {
+      async searchText() { calls.push('search.searchText'); return err(serviceFailure); },
+      async searchFiles() { calls.push('search.searchFiles'); return err(serviceFailure); },
+    } as unknown as NonNullable<McpApplicationServices['search']>;
+    const searchRegistry = new ToolRegistry({ ...successServices(calls), search: failingSearch }, actor, { codexToolsEnabled: true });
+    await expect(executeDefinition(searchRegistry, 'debug_context', { workspaceId: 'workspace-1', query: 'smoke' }))
+      .resolves.toMatchObject({ ok: false, error: serviceFailure });
+
+    const failingGit = {
+      async status() { calls.push('git.status'); return err(serviceFailure); },
+    } as unknown as NonNullable<McpApplicationServices['git']>;
+    const gitRegistry = new ToolRegistry({ ...successServices(calls), git: failingGit }, actor, { codexToolsEnabled: true });
+    await expect(executeDefinition(gitRegistry, 'debug_context', { workspaceId: 'workspace-1', query: 'smoke' }))
+      .resolves.toMatchObject({ ok: false, error: serviceFailure });
   });
 
   it.each(Object.entries(TOOL_RUNTIME_FIXTURES))('%s produces its declared runtime evidence', async (name, fixture) => {
@@ -262,10 +217,40 @@ describe('tool runtime delivery contract', () => {
       return;
     }
 
-    expect(Object.keys(output).length, `${name} returned an empty placeholder`).toBeGreaterThan(0);
-    expect(output).not.toHaveProperty('contract');
-    if (generationBefore !== undefined) {
-      expect(await cacheGeneration(registry)).toBeGreaterThan(generationBefore);
+    const oracle = fixture.oracle;
+    expect(oracle, `${name} deterministic fixture lacks an output/state oracle`).toBeDefined();
+    if (oracle === undefined) return;
+    expect(output, `${name} did not produce its tool-specific deterministic output`).toMatchObject(oracle.expected);
+    for (const key of oracle.requiredKeys ?? []) expect(output, `${name} omitted ${key}`).toHaveProperty(key);
+    expect(calls, `${name} deterministic operation dispatched a backing service`).toHaveLength(callsBefore);
+
+    if (oracle.alternate !== undefined) {
+      const alternate = await executeDefinition(registry, name, oracle.alternate.input);
+      expect(alternate).toMatchObject({ ok: true });
+      if (alternate.ok) expect(record(alternate.value)).toMatchObject(oracle.alternate.expected);
+    }
+
+    if (oracle.state === 'cache_generation') {
+      expect(generationBefore).toBeTypeOf('number');
+      expect(await cacheGeneration(registry)).toBeGreaterThan(generationBefore ?? -1);
+    }
+    if (oracle.state === 'hook_registered' || oracle.state === 'hook_removed') {
+      const listed = await executeDefinition(registry, 'hook_list', {});
+      expect(listed).toMatchObject({ ok: true });
+      const hooks = listed.ok && Array.isArray(record(listed.value).hooks) ? record(listed.value).hooks : [];
+      if (oracle.state === 'hook_registered') expect(hooks).toEqual(expect.arrayContaining([{ name: 'runtime-contract', event: 'beforeTool' }]));
+      else expect(hooks).not.toEqual(expect.arrayContaining([{ name: 'runtime-contract', event: 'beforeTool' }]));
+    }
+    if (oracle.state === 'session_checkpoint') {
+      const history = await executeDefinition(registry, 'session_history', {});
+      expect(history).toMatchObject({ ok: true });
+      const checkpoints = history.ok && Array.isArray(record(history.value).checkpoints) ? record(history.value).checkpoints : [];
+      expect(checkpoints.length).toBeGreaterThan(0);
+      expect(checkpoints.every((checkpoint) => (
+        typeof checkpoint === 'object' && checkpoint !== null
+        && typeof record(checkpoint).id === 'string'
+        && typeof record(checkpoint).summary === 'string'
+      ))).toBe(true);
     }
   });
 

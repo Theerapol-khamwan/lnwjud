@@ -13,6 +13,17 @@ export interface ToolRuntimeFixture {
   readonly input: Readonly<Record<string, unknown>>;
   readonly evidence: ToolRuntimeEvidence;
   readonly prepare?: ToolRuntimePreparation;
+  readonly oracle?: ToolRuntimeOracle;
+}
+
+export interface ToolRuntimeOracle {
+  readonly expected: Readonly<Record<string, unknown>>;
+  readonly requiredKeys?: readonly string[];
+  readonly alternate?: {
+    readonly input: Readonly<Record<string, unknown>>;
+    readonly expected: Readonly<Record<string, unknown>>;
+  };
+  readonly state?: 'cache_generation' | 'hook_registered' | 'hook_removed' | 'session_checkpoint';
 }
 
 const workspaceId = 'workspace-1';
@@ -26,8 +37,9 @@ const service = (
 
 const deterministic = (
   input: Readonly<Record<string, unknown>>,
+  oracle: ToolRuntimeOracle,
   prepare?: ToolRuntimePreparation,
-): ToolRuntimeFixture => ({ input, evidence: { kind: 'deterministic_operation' }, ...(prepare === undefined ? {} : { prepare }) });
+): ToolRuntimeFixture => ({ input, evidence: { kind: 'deterministic_operation' }, oracle, ...(prepare === undefined ? {} : { prepare }) });
 
 const unavailable = (
   input: Readonly<Record<string, unknown>>,
@@ -108,7 +120,11 @@ export const CORE_TOOL_RUNTIME_FIXTURES = {
   workspace_context: service({ workspaceId, query: 'smoke' }, 'search.searchText'),
   workspace_context_continue: service({ continuationToken: 'context-token' }, 'file.readFile', 'workspace_context'),
   workspace_full_scan: service({ workspaceId }, 'search.searchFiles'),
-  workspace_full_scan_continue: deterministic({ continuationToken: 'scan-token' }, 'workspace_full_scan'),
+  workspace_full_scan_continue: deterministic(
+    { continuationToken: 'scan-token' },
+    { expected: { scannedWorkspaces: 1, scannedFiles: 2, hasMore: false }, requiredKeys: ['files'] },
+    'workspace_full_scan',
+  ),
   workspace_snapshot: service({ workspaceId }, 'projectSnapshot.snapshot'),
   search_all: service({ workspaceId, query: 'smoke' }, 'search.searchText'),
   read_many_files: service({ workspaceId, files: [{ path: 'README.md' }] }, 'file.readFile'),
@@ -155,7 +171,10 @@ export const PHASE_5_TO_18_TOOL_RUNTIME_FIXTURES = {
   module_graph: service({ workspaceId, path: 'src/smoke.ts' }, 'workspaceIndex.status'),
   type_search: service({ workspaceId, query: 'Smoke' }, 'workspaceIndex.status'),
   trace_symbol: service({ workspaceId, symbol: 'smoke' }, 'workspaceIndex.status'),
-  context_ranking: deterministic({ query: 'smoke' }),
+  context_ranking: deterministic({ query: 'smoke' }, { expected: {
+    signals: { exactSymbol: 100, exactFilename: 80, recentChange: 60, sameModule: 50, dependency: 40, test: 30, text: 20, proximity: 10 },
+    lowerRankedResultsRemainAvailable: true,
+  } }),
   debug_context: service({ workspaceId, query: 'smoke failure' }, 'git.status'),
   review_context: service({ workspaceId, query: 'review smoke' }, 'git.status'),
   change_context: service({ workspaceId, query: 'changed smoke' }, 'git.status'),
@@ -165,11 +184,27 @@ export const PHASE_5_TO_18_TOOL_RUNTIME_FIXTURES = {
   git_context: service({ workspaceId, query: 'smoke' }, 'git.status'),
   frontend_context: service({ workspaceId, query: 'component smoke' }, 'git.status'),
   backend_context: service({ workspaceId, query: 'service smoke' }, 'git.status'),
-  route_intent: deterministic({ prompt: 'debug the smoke failure' }),
-  recipe_list: deterministic({}),
-  recipe_describe: deterministic({ name: 'bugfix' }),
-  recipe_run: deterministic({ prompt: 'debug a smoke failure', dryRun: true }),
-  dry_run: deterministic({ prompt: 'build the smoke project' }),
+  route_intent: deterministic({ prompt: 'debug the smoke failure' }, {
+    expected: { route: 'debug', domain: 'desktop/mcp/logging', confidence: 'high', selectedModel: 'deterministic', reasonCodes: ['keyword:debug'], authorizationUnchanged: true },
+    alternate: { input: { prompt: 'test the smoke project' }, expected: { route: 'test', domain: 'project/tests', selectedModel: 'deterministic', reasonCodes: ['keyword:test'] } },
+  }),
+  recipe_list: deterministic({}, { expected: { recipes: [
+    { name: 'bugfix', steps: ['workspace_context', 'git_context', 'test_context', 'live_logs_query'], optional: false },
+    { name: 'code-review', steps: ['review_context', 'changed_symbols', 'discover_tests'], optional: false },
+    { name: 'frontend-debug', steps: ['debug_ui', 'console_context', 'network_context', 'capture_ui_state'], optional: true },
+    { name: 'release-check', steps: ['git_context', 'regression_report', 'benchmark_run'], optional: false },
+  ] } }),
+  recipe_describe: deterministic({ name: 'bugfix' }, { expected: {
+    name: 'bugfix', steps: ['workspace_context', 'git_context', 'test_context', 'live_logs_query'], optional: false,
+  } }),
+  recipe_run: deterministic({ prompt: 'debug a smoke failure', dryRun: true }, {
+    expected: { route: 'debug', operations: ['workspace_context', 'git_context', 'live_logs_query', 'test_context'], permissions: ['filesystem.read', 'git.read'], dryRun: true, sideEffectsStarted: false },
+    alternate: { input: { prompt: 'test the smoke project', dryRun: true }, expected: { route: 'test', operations: ['workspace_context', 'discover_tests', 'test_context'] } },
+  }),
+  dry_run: deterministic({ prompt: 'build the smoke project' }, {
+    expected: { route: 'frontend', operations: ['workspace_context', 'repo_map'], permissions: ['filesystem.read', 'git.read'], sideEffects: { writes: [], shell: [], gitMutations: [], network: [] }, sideEffectsStarted: false },
+    alternate: { input: { prompt: 'test the smoke project' }, expected: { route: 'test', operations: ['workspace_context', 'discover_tests', 'test_context'] } },
+  }),
   review_changes: service({ workspaceId }, 'git.status'),
   changed_symbols: service({ workspaceId, query: 'smoke' }, 'workspaceIndex.status'),
   affected_modules: service({ workspaceId }, 'git.status'),
@@ -180,24 +215,27 @@ export const PHASE_5_TO_18_TOOL_RUNTIME_FIXTURES = {
   test_failures: service({ workspaceId }, 'process.list'),
   coverage_context: service({ workspaceId }, 'search.searchFiles'),
   test_history: service({ workspaceId }, 'process.list'),
-  cache_stats: deterministic({}),
-  cache_clear: deterministic({}, 'cache_seed'),
-  cache_invalidate: deterministic({ path: 'src/smoke.ts' }, 'cache_seed'),
-  hook_list: deterministic({}, 'hook_register'),
-  hook_register: deterministic({ name: 'runtime-contract', event: 'beforeTool' }),
-  hook_remove: deterministic({ name: 'runtime-contract', userConfirmed: true }, 'hook_register'),
+  cache_stats: deterministic({}, { expected: { hits: 0, misses: 0, bytesSaved: 0, generation: 0, hitRate: 0, entries: 0, invalidation: 'mtime/content-hash/filesystem-event' }, requiredKeys: ['contextEconomy'] }),
+  cache_clear: deterministic({}, { expected: { cleared: true, scope: 'all', previousGeneration: 0, generation: 1 }, state: 'cache_generation' }, 'cache_seed'),
+  cache_invalidate: deterministic({ path: 'src/smoke.ts' }, { expected: { cleared: true, scope: 'src/smoke.ts', previousGeneration: 0, generation: 1 }, state: 'cache_generation' }, 'cache_seed'),
+  hook_list: deterministic({}, { expected: { hooks: [{ name: 'runtime-contract', event: 'beforeTool' }] }, requiredKeys: ['lifecycleEvents'], state: 'hook_registered' }, 'hook_register'),
+  hook_register: deterministic({ name: 'runtime-contract', event: 'beforeTool' }, { expected: { registered: true, hook: { name: 'runtime-contract', event: 'beforeTool' } }, state: 'hook_registered' }),
+  hook_remove: deterministic({ name: 'runtime-contract', userConfirmed: true }, { expected: { removed: true, name: 'runtime-contract' }, state: 'hook_removed' }, 'hook_register'),
   skill_match: service({ query: 'smoke', source: 'workspace' }, 'extensions.listSkills'),
   skill_load: service({ skillId: 'skill-1' }, 'extensions.readSkill'),
-  plugin_install: unavailable({ name: 'safe-plugin' }),
-  plugin_list: unavailable({}),
-  plugin_enable: unavailable({ name: 'safe-plugin' }),
-  plugin_disable: unavailable({ name: 'safe-plugin' }),
-  plugin_remove: unavailable({ name: 'safe-plugin', userConfirmed: true }),
-  session_context: deterministic({}, 'session_checkpoint'),
-  session_checkpoint: deterministic({ summary: 'runtime contract checkpoint' }),
-  session_resume: deterministic({}, 'session_checkpoint'),
-  session_history: deterministic({}, 'session_checkpoint'),
-  response_mode: deterministic({ mode: 'compact' }),
+  plugin_install: unavailable({ name: 'safe-plugin' }, 'disabled'),
+  plugin_list: unavailable({}, 'disabled'),
+  plugin_enable: unavailable({ name: 'safe-plugin' }, 'disabled'),
+  plugin_disable: unavailable({ name: 'safe-plugin' }, 'disabled'),
+  plugin_remove: unavailable({ name: 'safe-plugin', userConfirmed: true }, 'disabled'),
+  session_context: deterministic({}, { expected: { checkpoints: [{ summary: 'prepared checkpoint' }] }, requiredKeys: ['session'], state: 'session_checkpoint' }, 'session_checkpoint'),
+  session_checkpoint: deterministic({ summary: 'runtime contract checkpoint' }, { expected: { summary: 'runtime contract checkpoint' }, requiredKeys: ['id', 'createdAt', 'inputDigest'], state: 'session_checkpoint' }),
+  session_resume: deterministic({}, { expected: { checkpoints: [{ summary: 'prepared checkpoint' }] }, requiredKeys: ['session'], state: 'session_checkpoint' }, 'session_checkpoint'),
+  session_history: deterministic({}, { expected: { checkpoints: [{ summary: 'prepared checkpoint' }] }, state: 'session_checkpoint' }, 'session_checkpoint'),
+  response_mode: deterministic({ mode: 'compact' }, {
+    expected: { mode: 'compact', omittedDetailsRemainFetchable: true, continuationSupported: true },
+    alternate: { input: { mode: 'verbose' }, expected: { mode: 'verbose', omittedDetailsRemainFetchable: true, continuationSupported: true } },
+  }),
 } as const satisfies Readonly<Record<string, ToolRuntimeFixture>>;
 
 export const TOOL_RUNTIME_FIXTURES: Readonly<Record<string, ToolRuntimeFixture>> = Object.freeze({

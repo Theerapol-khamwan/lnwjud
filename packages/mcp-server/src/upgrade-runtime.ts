@@ -223,16 +223,11 @@ export class UpgradeRuntimeService {
       case 'skill_load':
         return this.skillInsight(name, input);
       case 'plugin_list':
-        if (this.stateStore === undefined) return ok(truthfulUnavailable(name, 'needs_setup', ['configured persisted plugin descriptor registry']));
-        if (!await this.refreshSharedState()) return err(appError('INTERNAL_ERROR', 'Persisted plugin descriptor registry is unavailable', true));
-        return ok({ plugins: [...this.plugins.values()] });
       case 'plugin_install':
       case 'plugin_enable':
       case 'plugin_disable':
-        return this.changePlugin(name, readString(input, 'name') ?? readString(input, 'plugin'));
       case 'plugin_remove':
-        if (!isApplicationAuthorized(authorization, input.userConfirmed === true)) return err(appError('PERMISSION_REQUIRED', 'Removing a plugin requires explicit user confirmation'));
-        return this.changePlugin(name, readString(input, 'name') ?? readString(input, 'plugin'));
+        return ok(truthfulUnavailable(name, 'disabled', ['validated injected plugin registry']));
       case 'session_context':
       case 'session_resume':
         return ok({ session: Object.fromEntries(this.session), checkpoints: this.checkpoints });
@@ -450,41 +445,6 @@ export class UpgradeRuntimeService {
     const counts = new Map<string, number>();
     for (const entry of UPGRADE_TOOL_CATALOG) for (const tag of entry.tags) counts.set(tag, (counts.get(tag) ?? 0) + 1);
     return { categories: [...counts.entries()].sort(([left], [right]) => left.localeCompare(right)).map(([category, tools]) => ({ category, tools })) };
-  }
-
-  private async changePlugin(operation: string, name: string | undefined): Promise<Result<unknown>> {
-    if (this.stateStore === undefined) {
-      return ok(truthfulUnavailable(operation, 'needs_setup', ['configured persisted plugin descriptor registry']));
-    }
-    if (name === undefined || name.trim().length === 0) return err(appError('INVALID_INPUT', 'Plugin name is required'));
-    let changed = false;
-    let exists = false;
-    if (operation === 'plugin_remove') {
-      const persisted = await this.mutateSharedState((plugins) => { changed = plugins.delete(name); }, true);
-      if (!persisted) return err(appError('INTERNAL_ERROR', 'Plugin removal could not be persisted', true));
-      return ok({ changed, name });
-    }
-    const plugin = { name, enabled: operation !== 'plugin_disable' };
-    const persisted = await this.mutateSharedState((plugins) => {
-      const current = plugins.get(name);
-      exists = current !== undefined;
-      if (operation === 'plugin_install') {
-        if (!exists) { plugins.set(name, plugin); changed = true; }
-        return;
-      }
-      if (current !== undefined && current.enabled !== plugin.enabled) {
-        plugins.set(name, plugin);
-        changed = true;
-      }
-    }, true);
-    if (!persisted) return err(appError('INTERNAL_ERROR', 'Plugin descriptor change could not be persisted', true));
-    if (operation === 'plugin_install' && exists) {
-      return err(appError('INVALID_INPUT', 'Plugin already exists; remove it explicitly before installing a replacement'));
-    }
-    if (operation !== 'plugin_install' && !exists) {
-      return err(appError('INVALID_INPUT', 'Plugin must be installed before it can be enabled or disabled'));
-    }
-    return ok({ changed, ...plugin });
   }
 
   private async createTask(kind: RuntimeTask['kind'], input: Record<string, unknown>): Promise<RuntimeTask> {
@@ -780,7 +740,8 @@ export class UpgradeRuntimeService {
     const workspaceId = readString(input, 'workspaceId');
     const requirements = [
       ...(workspaceId === undefined ? ['registered workspace'] : []),
-      ...(this.services.search === undefined && this.services.workspaceIndex === undefined ? ['workspace search or index service'] : []),
+      ...(this.services.search === undefined ? ['workspace search service'] : []),
+      ...(this.services.file === undefined ? ['workspace file service'] : []),
       ...(this.services.git === undefined ? ['configured Git service'] : []),
     ];
     if (requirements.length > 0) return ok(truthfulUnavailable(name, 'needs_setup', requirements));
@@ -791,14 +752,14 @@ export class UpgradeRuntimeService {
       intent: name.includes('review') ? 'review' : name.includes('test') ? 'explore' : name.includes('symbol') ? 'trace' : name.includes('debug') ? 'debug' : 'auto',
       mode: 'full',
     });
-    const git = workspaceId === undefined || this.services.git === undefined
-      ? ok(null)
-      : await this.services.git.status(this.actorForOperation(), workspaceId);
+    if (!context.ok) return context;
+    const git = await this.services.git!.status(this.actorForOperation(), workspaceId!);
+    if (!git.ok) return git;
     return ok({
       tool: name,
       query,
-      context: context.ok ? context.value : { error: context.error },
-      git: git.ok ? git.value : { error: git.error },
+      context: context.value,
+      git: git.value,
       internalOperations: ['workspace search', 'indexed symbol lookup', 'git status', 'test relevance'],
       rawToolsRemainAvailable: true,
     });

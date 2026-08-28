@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { mkdtemp } from 'node:fs/promises';
+import { mkdtemp, rm } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { ok } from '@lnwjud/domain';
@@ -106,7 +106,7 @@ describe('upgrade runtime', () => {
     expect(remove).toMatchObject({ ok: true, value: { decision: 'ask', contextAccess: 'unrestricted' } });
   });
 
-  it('keeps hooks create-only and requires a persisted plugin registry for plugin changes', async () => {
+  it('keeps hooks create-only and plugin operations disabled without a real injected registry', async () => {
     const runtime = new UpgradeRuntimeService({}, actor);
 
     await expect(runtime.execute('hook_register', { name: 'audit', event: 'beforeTool' }))
@@ -114,35 +114,33 @@ describe('upgrade runtime', () => {
     await expect(runtime.execute('hook_register', { name: 'audit', event: 'afterTool' }))
       .resolves.toMatchObject({ ok: false, error: { code: 'INVALID_INPUT' } });
 
-    await expect(runtime.execute('plugin_install', { name: 'safe-plugin' }))
-      .resolves.toMatchObject({ ok: true, value: { status: 'needs_setup', executed: false, requirements: expect.any(Array) } });
-
     const directory = await mkdtemp(path.join(os.tmpdir(), 'lnwjud-plugin-registry-'));
-    const runtimeStatePath = path.join(directory, 'runtime.json');
-    const persisted = new UpgradeRuntimeService({ runtimeStatePath }, actor);
-    await expect(persisted.execute('plugin_install', { name: 'safe-plugin' }))
-      .resolves.toMatchObject({ ok: true, value: { changed: true, name: 'safe-plugin' } });
-    await expect(persisted.execute('plugin_install', { name: 'safe-plugin' }))
-      .resolves.toMatchObject({ ok: false, error: { code: 'INVALID_INPUT' } });
-
-    await expect(persisted.execute('plugin_disable', { name: 'safe-plugin' }))
-      .resolves.toMatchObject({ ok: true, value: { changed: true, name: 'safe-plugin', enabled: false } });
-    await expect(persisted.execute('plugin_disable', { name: 'safe-plugin' }))
-      .resolves.toMatchObject({ ok: true, value: { changed: false, name: 'safe-plugin', enabled: false } });
-
-    const reloaded = new UpgradeRuntimeService({ runtimeStatePath }, actor);
-    await expect(reloaded.execute('plugin_enable', { name: 'safe-plugin' }))
-      .resolves.toMatchObject({ ok: true, value: { changed: true, name: 'safe-plugin', enabled: true } });
-    await expect(reloaded.execute('plugin_enable', { name: 'safe-plugin' }))
-      .resolves.toMatchObject({ ok: true, value: { changed: false, name: 'safe-plugin', enabled: true } });
-
-    await expect(new UpgradeRuntimeService({ runtimeStatePath }, actor).execute('plugin_list', {}))
-      .resolves.toMatchObject({ ok: true, value: { plugins: [{ name: 'safe-plugin', enabled: true }] } });
-
-    await expect(persisted.execute('plugin_remove', { name: 'safe-plugin', userConfirmed: true }))
-      .resolves.toMatchObject({ ok: true, value: { changed: true, name: 'safe-plugin' } });
-    await expect(new UpgradeRuntimeService({ runtimeStatePath }, actor).execute('plugin_list', {}))
-      .resolves.toMatchObject({ ok: true, value: { plugins: [] } });
+    try {
+      const runtimeStatePath = path.join(directory, 'runtime.json');
+      for (const candidate of [runtime, new UpgradeRuntimeService({ runtimeStatePath }, actor)]) {
+        for (const [name, input] of [
+          ['plugin_install', { name: 'safe-plugin' }],
+          ['plugin_list', {}],
+          ['plugin_enable', { name: 'safe-plugin' }],
+          ['plugin_disable', { name: 'safe-plugin' }],
+          ['plugin_remove', { name: 'safe-plugin', userConfirmed: true }],
+        ] as const) {
+          await expect(candidate.execute(name, input)).resolves.toMatchObject({
+            ok: true,
+            value: {
+              tool: name,
+              status: 'disabled',
+              available: false,
+              ready: false,
+              executed: false,
+              requirements: ['validated injected plugin registry'],
+            },
+          });
+        }
+      }
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
   });
 
   it('shares context economy telemetry between workspace context and the stats tool', async () => {
