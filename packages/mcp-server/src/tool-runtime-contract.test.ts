@@ -111,9 +111,9 @@ describe('tool runtime delivery contract', () => {
     ]));
     expect(advertisedNames).not.toContain('codex_status');
     expect(advertisedNames).not.toContain('agent_swarm_run');
-    expect(advertisedNames).not.toEqual(expect.arrayContaining([
-      'plugin_install', 'plugin_list', 'plugin_enable', 'plugin_disable', 'plugin_remove',
-    ]));
+    for (const pluginName of ['plugin_install', 'plugin_list', 'plugin_enable', 'plugin_disable', 'plugin_remove']) {
+      expect(advertisedNames).not.toContain(pluginName);
+    }
   });
 
   it('assigns an explicit delivery state to every upgrade definition', () => {

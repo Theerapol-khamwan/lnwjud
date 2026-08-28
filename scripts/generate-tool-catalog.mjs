@@ -14,9 +14,11 @@ const readmeEndMarker = '<!-- END GENERATED README TOOL REGISTRY -->';
 const checkOnly = process.argv.includes('--check');
 
 const { ToolRegistry } = await import(pathToFileURL(registryModulePath).href);
-const registry = new ToolRegistry({}, { clientId: 'catalog-generator', clientName: 'catalog-generator' }, { codexToolsEnabled: true });
-const tools = registry.list();
-const defaultToolCount = new ToolRegistry({}, { clientId: 'catalog-generator', clientName: 'catalog-generator' }).list().length;
+const actor = { clientId: 'catalog-generator', clientName: 'catalog-generator' };
+const codexEnabledRegistry = new ToolRegistry({}, actor, { codexToolsEnabled: true });
+const tools = codexEnabledRegistry.listAll();
+const defaultAdvertisedCount = new ToolRegistry({}, actor).list().length;
+const codexEnabledAdvertisedCount = codexEnabledRegistry.list().length;
 const current = await readFile(contractPath, 'utf8');
 const currentReadme = await readFile(readmePath, 'utf8');
 const newline = current.includes('\r\n') ? '\r\n' : '\n';
@@ -30,7 +32,7 @@ const block = [
   contractStartMarker,
   '## Generated live ToolRegistry index',
   '',
-  `This block is generated from the built \`ToolRegistry\`. Current count: **${tools.length} tools**.`,
+  `This complete inventory is generated from \`ToolRegistry.listAll()\`: **${tools.length} total tool definitions**. The runtime advertises **${defaultAdvertisedCount} tools by default** and **${codexEnabledAdvertisedCount} tools when Codex delegation is enabled** through \`tools/list\`.`,
   'Run `pnpm docs:tools` after intentionally changing the registry; CI runs `pnpm docs:tools:check` and fails on drift.',
   '',
   '| # | Tool | Permission | Read-only | Destructive |',
@@ -55,9 +57,9 @@ const readmeRows = tools.map((tool, index) => {
 });
 const readmeBlock = [
   readmeStartMarker,
-  `## Complete MCP tool catalog (${tools.length} configurable tools; ${defaultToolCount} advertised by default)`,
+  `## Complete MCP tool catalog (${tools.length} total definitions; ${defaultAdvertisedCount} advertised by default; ${codexEnabledAdvertisedCount} with Codex enabled)`,
   '',
-  'This index is generated from the current `ToolRegistry`, not copied from an older release document. Optional/planned tools still appear in the advertised contract and report their availability/requirements at runtime where applicable.',
+  'This complete index is generated from `ToolRegistry.listAll()`, not copied from an older release document. The default `tools/list` surface advertises only operational or dependency-gated definitions; planned and feature-disabled definitions remain visible here without being advertised. Enabling Codex delegation adds its six operational definitions to the advertised surface.',
   '',
   '| # | Tool | Permission | Runtime description |',
   '| ---: | --- | --- | --- |',
@@ -81,13 +83,13 @@ const normalizeLineEndings = (value) => value.replace(/\r\n/g, '\n').replace(/\r
 if (checkOnly) {
   if (normalizeLineEndings(current) !== normalizeLineEndings(expected)
     || normalizeLineEndings(currentReadme) !== normalizeLineEndings(expectedReadme)) {
-    process.stderr.write(`Tool catalog drift detected: configurable=${tools.length}, default=${defaultToolCount}. Run: corepack pnpm@10.15.0 docs:tools\n`);
+    process.stderr.write(`Tool catalog drift detected: total=${tools.length}, defaultAdvertised=${defaultAdvertisedCount}, codexAdvertised=${codexEnabledAdvertisedCount}. Run: corepack pnpm@10.15.0 docs:tools\n`);
     process.exitCode = 1;
   } else {
-    process.stdout.write(`Tool catalogs are synchronized: configurable=${tools.length}, default=${defaultToolCount}.\n`);
+    process.stdout.write(`Tool catalogs are synchronized: total=${tools.length}, defaultAdvertised=${defaultAdvertisedCount}, codexAdvertised=${codexEnabledAdvertisedCount}.\n`);
   }
 } else {
   await writeFile(contractPath, expected, 'utf8');
   await writeFile(readmePath, expectedReadme, 'utf8');
-  process.stdout.write(`Generated ToolRegistry catalogs: configurable=${tools.length}, default=${defaultToolCount}.\n`);
+  process.stdout.write(`Generated ToolRegistry catalogs: total=${tools.length}, defaultAdvertised=${defaultAdvertisedCount}, codexAdvertised=${codexEnabledAdvertisedCount}.\n`);
 }

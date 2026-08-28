@@ -6,7 +6,7 @@
 
 <p align="center">
   <strong>Windows-first local AI-agent runtime and MCP gateway</strong><br />
-  <em>229 configurable tools for local files, Git, processes, Windows automation, WSL, browser control, durable goal continuation, indexing, observability, and extensibility; 223 are advertised by default because codex_* delegation is opt-in.</em>
+  <em>229 total tool definitions for local files, Git, processes, Windows automation, WSL, browser control, durable goal continuation, indexing, observability, and extensibility; 217 are advertised by default and 223 when codex_* delegation is enabled.</em>
 </p>
 
 <p align="center">
@@ -43,9 +43,10 @@ machine.
 
 ## Current version: v4.28.0
 
-The v4.28.0 release target and runtime contract contain **229 configurable MCP tools**,
-with **223 advertised by default** because
-the six `codex_*` delegation tools are opt-in. The earlier 184-tool snapshot remains
+The v4.28.0 release target and runtime contract contain **229 total MCP tool definitions**,
+with **217 advertised by default** and **223 advertised when the six `codex_*`
+delegation tools are enabled**. Planned and feature-disabled definitions remain in
+the complete inventory without appearing in `tools/list`. The earlier 184-tool snapshot remains
 only as the compatibility baseline used by the v4 architecture; new v4 gateway
 capabilities are additive.
 
@@ -57,7 +58,7 @@ capabilities are additive.
 - Repairs first-run recovery: Projects and Doctor remain reachable with zero workspaces, failed initial IPC loads show a retryable error, Add Project preserves failed input, Doctor probes the configured MCP identity endpoint, and partial bootstrap errors remain visible after the dashboard loads.
 - Stops automatic A:–Z: drive discovery and registration. Mapped/network drives such as a DGX share mounted at `Z:` are no longer mistaken for local disks during startup; generated legacy `Local Disk X:` rows are archived reversibly while projects and explicitly named roots are preserved.
 - Adds the loopback `/_lnwjud/identity` probe so Doctor can distinguish lnwjud from an unrelated listener on the configured port.
-- Expands and synchronizes the live registry to **229 configurable tools / 223 advertised by default**, bumps Desktop/CLI/packages and release artifacts to **v4.28.0**, and adds focused permission/first-run/runtime regression coverage.
+- Expands and synchronizes the live registry to **229 total definitions / 217 advertised by default / 223 with Codex delegation enabled**, bumps Desktop/CLI/packages and release artifacts to **v4.28.0**, and adds focused permission/first-run/runtime regression coverage.
 
 Current v4 highlights include:
 
@@ -89,7 +90,7 @@ Current v4 highlights include:
 Authoritative in-repository references:
 
 - [Tool contract](docs/architecture/TOOL_CONTRACT.md) — core primitive schemas,
-  policy classes, and compatibility rules; the 229-tool configurable index below comes from the live runtime registry.
+  policy classes, and compatibility rules; the 229-definition complete index below comes from the live runtime registry.
 - [Upgrade architecture](docs/architecture/UPGRADE_ARCHITECTURE.md) — v4 runtime
   architecture and additive gateway design.
 - [Release process](docs/development/RELEASE_PROCESS.md) — canonical `dev -> PR -> main CI -> tag -> Release -> dev sync` sequence, exact-SHA artifact rule, and failure handling.
@@ -295,7 +296,7 @@ The stable flow is:
 3. Enter a name/description, choose **Tunnel** under Connection, and select the
    associated `lnwjud` tunnel or enter its `tunnel_id`.
 4. Create the connection and review the discovered tools and metadata.
-5. Confirm that the default runtime exposes **222 tools** (or **228** when Codex delegation is explicitly enabled) and run a read-only
+5. Confirm that the default runtime exposes **217 tools** (or **223** when Codex delegation is explicitly enabled) and run a read-only
    smoke test before trying writes.
 
 Example smoke test:
@@ -900,9 +901,9 @@ For workspace <workspace-id>, show the project snapshot, Git status, and the top
 After changing tool metadata or restarting the tunnel, refresh the connector and continue in the same chat. Start a new chat only if Refresh connector does not clear a stale schema.
 
 <!-- BEGIN GENERATED README TOOL REGISTRY -->
-## Complete MCP tool catalog (229 configurable tools; 223 advertised by default)
+## Complete MCP tool catalog (229 total definitions; 217 advertised by default; 223 with Codex enabled)
 
-This index is generated from the current `ToolRegistry`, not copied from an older release document. Optional/planned tools still appear in the advertised contract and report their availability/requirements at runtime where applicable.
+This complete index is generated from `ToolRegistry.listAll()`, not copied from an older release document. The default `tools/list` surface advertises only operational or dependency-gated definitions; planned and feature-disabled definitions remain visible here without being advertised. Enabling Codex delegation adds its six operational definitions to the advertised surface.
 
 | # | Tool | Permission | Runtime description |
 | ---: | --- | --- | --- |

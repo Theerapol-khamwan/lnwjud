@@ -8,7 +8,7 @@ Zod schemas in `packages/mcp-server/src/tools/` are the implementation source
 of truth. The existing human-oriented catalog remains useful for field details,
 while this document records the primitive/core contract, preserves the earlier
 compatibility baseline, and records policy class, annotations, and schema source.
-The full configurable v4 registry contains 229 tools; the default runtime advertises 223 because the six `codex_*` delegation tools are opt-in. The additive v4 entries are defined
+The complete v4 inventory contains 229 tool definitions. The default runtime advertises 217 through `tools/list`, or 223 when the six `codex_*` delegation tools are enabled; one planned and five feature-disabled definitions remain inventory-only. The additive v4 entries are defined
 in `packages/mcp-server/src/upgrade-catalog.ts` and the exact runtime order is
 verified by `packages/mcp-server/src/tool-registry.test.ts`.
 
@@ -17,7 +17,7 @@ verified by `packages/mcp-server/src/tool-registry.test.ts`.
 <!-- BEGIN GENERATED TOOL REGISTRY -->
 ## Generated live ToolRegistry index
 
-This block is generated from the built `ToolRegistry`. Current count: **229 tools**.
+This complete inventory is generated from `ToolRegistry.listAll()`: **229 total tool definitions**. The runtime advertises **217 tools by default** and **223 tools when Codex delegation is enabled** through `tools/list`.
 Run `pnpm docs:tools` after intentionally changing the registry; CI runs `pnpm docs:tools:check` and fails on drift.
 
 | # | Tool | Permission | Read-only | Destructive |
@@ -285,7 +285,7 @@ Mutations still receive typed policy classification for audit/dispatch behavior.
 
 ## Core primitive runtime catalog
 
-The generated live `ToolRegistry` index above is the authoritative runtime catalog for all **229 configurable tools**. It is generated from the built registry and checked in CI. This section intentionally does not maintain a second hand-numbered primitive table, because duplicate permission/schema tables can drift from `tools/list`. The Zod schemas in `packages/mcp-server/src/tools/` and the generated table above remain the source of truth for names, permissions, annotations, ordering, and input JSON Schema.
+The generated live `ToolRegistry.listAll()` index above is the authoritative complete catalog for all **229 tool definitions**. It is generated from the built registry and checked in CI. This section intentionally does not maintain a second hand-numbered primitive table, because duplicate permission/schema tables can drift from the registry. The Zod schemas in `packages/mcp-server/src/tools/` and the generated table above remain the source of truth for names, permissions, annotations, ordering, and input JSON Schema; `tools/list` exposes only the currently advertised subset.
 
 ## Schema groups and contract examples
 
@@ -376,7 +376,7 @@ capability backends. Important invariants are:
 - `vision`, `health`, and `system_info` remain truthful read-only diagnostics;
 - `web_fetch` remains HTTP(S)-only and bounded by explicit byte/timeout fields;
 - `skills_*` and `mcp_*` remain bridge tools and do not silently flatten
-  child-server tools into the 228-tool configurable catalog; `mcp_list` and
+  child-server tools into the 229-definition complete inventory; `mcp_list` and
   `mcp_describe` are read-only inspection while `mcp_call` is opaque mutation.
 
 The additive Windows gateway contract is:
