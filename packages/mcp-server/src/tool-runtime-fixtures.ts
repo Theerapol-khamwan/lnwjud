@@ -264,7 +264,7 @@ export const PHASE_19_TO_33_TOOL_RUNTIME_FIXTURES = {
   service_context: windowsRuntime('service_context', { service: 'EventLog' }),
   process_context: windowsRuntime('process_context', {}, 'capabilities.system_info'),
   port_context: windowsRuntime('port_context', {}),
-  registry_context: windowsRuntime('registry_context', { key: 'HKLM\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion' }),
+  registry_context: windowsRuntime('registry_context', { key: 'HKLM\\SYSTEM\\CurrentControlSet\\Control\\Session Manager\\Environment' }),
   event_log_context: windowsRuntime('event_log_context', { log_name: 'Application', max_events: 1 }),
   installed_runtime_context: windowsRuntime('installed_runtime_context', {}),
   path_context: windowsRuntime('path_context', {}),

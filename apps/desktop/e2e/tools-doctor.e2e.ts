@@ -162,6 +162,7 @@ async function launchDesktop(options: { readonly dataRoot?: string; readonly fix
   const dataRoot = options.dataRoot ?? await mkdtemp(path.join(os.tmpdir(), 'lnwjud-tools-doctor-data-'));
   const fixtureRoot = options.fixtureRoot ?? await createFixture();
   const devToolsPort = await findEphemeralPort();
+  const mcpPort = await findEphemeralPort();
   const launchExecutable = packagedExecutable ?? electronExecutable;
   const launchArgs = packagedExecutable === undefined
     ? [`--remote-debugging-port=${devToolsPort}`, `--user-data-dir=${dataRoot}`, mainEntry]
@@ -183,6 +184,7 @@ async function launchDesktop(options: { readonly dataRoot?: string; readonly fix
       APPDATA: dataRoot,
       LNWJUD_DATA_PATH: dataRoot,
       LNWJUD_WORKSPACE: fixtureRoot,
+      LNWJUD_MCP_PORT: String(mcpPort),
       LNWJUD_UNRESTRICTED: '1',
       LNWJUD_E2E_FIXTURE: '1',
       LNWJUD_E2E_NODE_PATH: globalThis.process.execPath,
