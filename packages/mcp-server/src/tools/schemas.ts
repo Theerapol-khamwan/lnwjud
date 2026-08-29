@@ -262,21 +262,43 @@ export const wslFilesystemCapabilitySchema = z.object({
   ...capabilityRequestSchema,
 }).strict();
 
+const domActionSchema = z.enum([
+  'launch', 'status', 'list_tabs', 'new_tab', 'close_tab', 'navigate',
+  'evaluate', 'query', 'click', 'type', 'wait', 'screenshot',
+]);
+const domTargetActions = new Set([
+  'close_tab', 'navigate', 'evaluate', 'query', 'click', 'type', 'wait', 'screenshot',
+]);
+
 const domStepSchema = z.object({
-  action: z.string().trim().min(1).max(128),
+  action: domActionSchema,
   parameters: capabilityParametersSchema.optional(),
 }).strict();
 
 export const domCdpCapabilitySchema = z.object({
-  action: z.enum(['launch', 'status', 'list_tabs', 'new_tab', 'close_tab', 'navigate', 'evaluate', 'query', 'click', 'type', 'wait', 'screenshot']).optional(),
+  action: domActionSchema.optional(),
   parameters: capabilityParametersSchema.optional(),
   steps: z.array(domStepSchema).min(1).max(100).optional(),
   tab_id: z.string().trim().min(1).max(256).optional(),
+  allow_protected_tab_action: z.boolean().default(false),
   display_id: z.string().trim().min(1).max(128).optional(),
   timeout_seconds: z.number().min(0.1).max(3600).optional(),
   approval: capabilityApprovalSchema,
   ...capabilityRequestSchema,
-}).strict();
+}).strict().superRefine((value, ctx) => {
+  if ((value.action === undefined) === (value.steps === undefined)) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'Provide exactly one of action or steps' });
+  }
+  const actions = value.steps?.map((step) => step.action) ?? (value.action === undefined ? [] : [value.action]);
+  if (actions.some((action) => domTargetActions.has(action)) && value.tab_id === undefined) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['tab_id'], message: 'Target-scoped DOM actions require tab_id' });
+  }
+  value.steps?.forEach((step, index) => {
+    if (step.parameters !== undefined && 'tab_id' in step.parameters) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['steps', index, 'parameters', 'tab_id'], message: 'Use the top-level tab_id for the whole batch' });
+    }
+  });
+});
 
 export const accessibilityCapabilitySchema = z.object({
   action: z.enum(['status', 'launch_app', 'activate_app', 'list_windows', 'observe', 'observe_summary', 'observe_changes', 'inspect_elements', 'find_element', 'click', 'focus', 'read_value', 'set_value', 'select_item', 'menu_select', 'close_window', 'minimize_window', 'maximize_window', 'restore_window', 'set_window_frame']),

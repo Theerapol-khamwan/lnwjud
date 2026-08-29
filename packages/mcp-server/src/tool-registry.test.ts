@@ -113,7 +113,15 @@ describe('MCP tool registry', () => {
     const registry = new ToolRegistry({}, actor);
     const byName = new Map(registry.list().map((tool) => [tool.name, tool]));
     expect(byName.get('shell')?.parse({ operation: 'run', executable: 'node', arguments: [] })).toMatchObject({ ok: true });
-    expect(byName.get('dom_cdp')?.parse({ action: 'query', parameters: { selector: '#app' } })).toMatchObject({ ok: true });
+    const domCdp = byName.get('dom_cdp');
+    expect(domCdp?.parse({ action: 'query', parameters: { selector: '#app' } })).toMatchObject({ ok: false });
+    expect(domCdp?.parse({ action: 'query', tab_id: 'tab-1', parameters: { selector: '#app' } })).toMatchObject({ ok: true });
+    expect(domCdp?.parse({ action: 'list_tabs' })).toMatchObject({ ok: true });
+    expect(domCdp?.parse({ action: 'new_tab', parameters: { url: 'about:blank' } })).toMatchObject({ ok: true });
+    expect(domCdp?.parse({
+      tab_id: 'tab-1',
+      steps: [{ action: 'query', parameters: { selector: 'body', tab_id: 'tab-2' } }],
+    })).toMatchObject({ ok: false });
     expect(byName.get('computer_use')?.parse({ workspaceId: 'workspace-1', action: 'click', target: { x: 10, y: 20 }, userConfirmed: true })).toMatchObject({ ok: true });
     expect(byName.get('accessibility')?.parse({})).toMatchObject({ ok: false, error: { code: 'INVALID_INPUT' } });
     expect(byName.get('input_event')?.parse({ operation: 'click', parameters: { x: 1, y: 2 } })).toMatchObject({ ok: true });
@@ -183,7 +191,7 @@ describe('MCP tool registry', () => {
     const registry = new ToolRegistry({ capabilities: { async execute(): Promise<ReturnType<typeof ok>> { executed = true; return ok({ executed: true }); } } }, actor, {
       profileProvider: (): typeof permissionProfiles.safe => permissionProfiles.safe,
     });
-    const response = await registry.invoke('dom_cdp', { action: 'type', parameters: { selector: 'input', text: 'unsafe' } });
+    const response = await registry.invoke('dom_cdp', { action: 'type', tab_id: 'tab-1', parameters: { selector: 'input', text: 'unsafe' } });
     expect(response).toMatchObject({ isError: true, structuredContent: { error: { code: 'PERMISSION_DENIED' } } });
     expect(executed).toBe(false);
   });
@@ -872,7 +880,7 @@ describe('MCP tool registry', () => {
       await expect(registry.invoke('process_start', { workspaceId: 'workspace-1', executable: 'powershell', args: ['-Command', `${command} x.txt`] })).resolves.toMatchObject({ isError: true, structuredContent: { error: { code: 'PERMISSION_REQUIRED' } } });
     }
     await expect(registry.invoke('codex_run', { workspaceId: 'workspace-1', instruction: 'edit the project' })).resolves.toMatchObject({ isError: true, structuredContent: { error: { code: 'PERMISSION_REQUIRED' } } });
-    await expect(registry.invoke('dom_cdp', { action: 'evaluate', parameters: { expression: 'fetch("/api/item/1", {method:"DELETE"})' } })).resolves.toMatchObject({ isError: true, structuredContent: { error: { code: 'PERMISSION_REQUIRED' } } });
+    await expect(registry.invoke('dom_cdp', { action: 'evaluate', tab_id: 'tab-1', parameters: { expression: 'fetch("/api/item/1", {method:"DELETE"})' } })).resolves.toMatchObject({ isError: true, structuredContent: { error: { code: 'PERMISSION_REQUIRED' } } });
     await expect(registry.invoke('accessibility', { action: 'click', parameters: { name: 'button' } })).resolves.toMatchObject({ isError: true, structuredContent: { error: { code: 'PERMISSION_REQUIRED' } } });
     expect(calls).toEqual([]);
   });
