@@ -7,6 +7,9 @@
 <p align="center">
   <strong>Windows-first local AI-agent runtime and MCP gateway</strong><br />
   <em>231 total tool definitions for local files, Git, processes, Windows automation, WSL, browser control, durable goal continuation, indexing, observability, and extensibility; 195 are advertised by default and 201 when codex_* delegation is enabled.</em>
+
+  <em>อ่านที่เหลือใน Readme ได้เลยครับ ติดปัญหาทักมาได้ใน FB: Adisorn NM ได้ตลอดครับ / กำลังพัฒนาให้เรื่อยๆครับ ท่านที่ถามหาช่องสนับสนุนค่ากาแฟ แปะลิงค์ ไว้ให้แล้วครับ ขอบคุณครับ</em>
+ https://easydonate.app/abcz
 </p>
 
 <p align="center">
