@@ -28,6 +28,7 @@ import { applyLogSnapshot } from './features/live/log-buffer.js';
 import { SettingsPage, type SettingsSection } from './features/settings/SettingsPage.js';
 import { DoctorPanel } from './features/doctor/DoctorPanel.js';
 import { ToolsPage } from './features/tools/ToolsPage.js';
+import { remediationNavigationForTarget } from './features/tools/remediation-navigation.js';
 import { FirstRunTunnelTip } from './features/onboarding/FirstRunTunnelTip.js';
 import {
   guidedTunnelLaunchDecision,
@@ -571,8 +572,13 @@ export function App(): ReactElement {
     if (action.kind === 'recheck') { await loadToolCatalog(action.requirementIds); return; }
     if (action.kind === 'open_official_url') { await window.lnwjud.openToolSetupTarget({ target: action.target }); return; }
     if (action.kind === 'copy_command') { await window.lnwjud.copyToolCommand({ commandId: action.commandId }); return; }
-    if (action.target === 'projects') { setScreen('projects'); return; }
-    setScreen('settings');
+    const navigation = remediationNavigationForTarget(action.target);
+    if (navigation === null) {
+      setError(propsText(locale, `ไม่รู้จักเป้าหมายการตั้งค่า: ${action.target}`, `Unknown settings target: ${action.target}`));
+      return;
+    }
+    if (navigation.screen === 'projects') { setScreen('projects'); return; }
+    requestSettingsSection(navigation.section);
   }
 
   async function runDoctor(): Promise<void> {

@@ -1,5 +1,6 @@
 import type { ReactElement } from 'react';
 import type { DoctorCheck, DoctorReport, RemediationAction, ResolvedRemediation, UiLocale } from '@lnwjud/ipc-contracts';
+import { formatDateTime } from '../../date-time.js';
 import { createTranslator } from '../../i18n/index.js';
 
 interface DoctorPanelProps {
@@ -36,13 +37,24 @@ export function DoctorPanel({
     const remediation = check.remediationId === undefined ? undefined : remediationById.get(check.remediationId);
     return (
       <article key={check.id} data-testid={`doctor-check-${check.id}`} className={`doctor-check doctor-${check.status}`}>
-        <div className="doctor-check-heading"><div><strong>{check.title || check.id}</strong><code>{check.id}</code></div><span>{check.status}</span></div>
-        <p>{check.summary || check.message}</p>
+        <div className="doctor-check-heading">
+          <div className="doctor-check-title-copy"><strong>{check.title || check.id}</strong>{check.title.includes(check.id) ? null : <code>{check.id}</code>}</div>
+          <span className={`doctor-status-badge doctor-status-${check.status}`}>{statusLabel(locale, check.status)}</span>
+        </div>
+        <p className="doctor-check-summary">{check.summary || check.message}</p>
         {check.detail === undefined ? null : <p className="doctor-check-detail">{check.detail}</p>}
         {check.affectedToolNames.length === 0 ? null : <p className="doctor-affected-tools"><strong>{locale === 'th' ? 'กระทบเครื่องมือ:' : 'Affected tools:'}</strong> {check.affectedToolNames.join(', ')}</p>}
-        {remediation === undefined ? null : <div className="doctor-remediation"><strong>{remediation.title}</strong><p>{remediation.explanation}</p><ol>{remediation.steps.map((step) => <li key={step}>{step}</li>)}</ol><div className="doctor-remediation-actions">{remediation.actions.map((action, index) => <button type="button" key={`${remediation.id}:${index}`} onClick={() => { void onRemediation?.(action); }}>{actionLabel(locale, action)}</button>)}</div></div>}
-        {onRecheck === undefined ? null : <button type="button" className="doctor-recheck" onClick={() => { void onRecheck([check.id]); }}>{locale === 'th' ? 'ตรวจรายการนี้ใหม่' : 'Recheck this issue'}</button>}
-        <small>{locale === 'th' ? 'ตรวจเมื่อ' : 'Checked'} {check.checkedAt} · {check.durationMs} ms</small>
+        {remediation === undefined ? null : (
+          <div className="doctor-remediation">
+            <div className="doctor-remediation-copy"><strong>{remediation.title}</strong><p>{remediation.explanation}</p></div>
+            {remediation.steps.length === 0 ? null : <ol>{remediation.steps.map((step) => <li key={step}>{step}</li>)}</ol>}
+            <div className="doctor-remediation-actions">{remediation.actions.map((action, index) => <button type="button" key={`${remediation.id}:${index}`} onClick={() => { void onRemediation?.(action); }}>{actionLabel(locale, action)}</button>)}</div>
+          </div>
+        )}
+        <div className="doctor-check-footer">
+          {onRecheck === undefined ? null : <button type="button" className="doctor-recheck" onClick={() => { void onRecheck([check.id]); }}>{locale === 'th' ? 'ตรวจรายการนี้ใหม่' : 'Recheck this issue'}</button>}
+          <small>{locale === 'th' ? 'ตรวจเมื่อ' : 'Checked'} {formatDateTime(check.checkedAt, check.checkedAt)} · {check.durationMs} ms</small>
+        </div>
       </article>
     );
   };
@@ -62,6 +74,16 @@ export function DoctorPanel({
       {projectSetupRequired ? <div className="doctor-recovery-actions"><p>{locale === 'th' ? 'เพิ่มโปรเจกต์แรกเพื่อเริ่มทำงาน แล้วกลับมาตรวจอีกครั้ง' : 'Add your first project to begin, then run Doctor again.'}</p><button type="button" onClick={onOpenProjects}>{locale === 'th' ? 'เพิ่มโปรเจกต์' : 'Add Project'}</button></div> : null}
     </section>
   );
+}
+
+function statusLabel(locale: UiLocale, status: DoctorCheck['status']): string {
+  const labels: Record<DoctorCheck['status'], readonly [string, string]> = {
+    pass: ['ผ่าน', 'Pass'],
+    warn: ['เตือน', 'Warn'],
+    fail: ['ไม่ผ่าน', 'Fail'],
+    unknown: ['ไม่ทราบ', 'Unknown'],
+  };
+  return labels[status][locale === 'th' ? 0 : 1];
 }
 
 function actionLabel(locale: UiLocale, action: RemediationAction): string {

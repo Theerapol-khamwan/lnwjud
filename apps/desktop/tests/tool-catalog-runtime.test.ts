@@ -40,6 +40,17 @@ describe('Desktop Tool Catalog runtime', () => {
       expect(catalog.remediations.length).toBeGreaterThan(0);
       expect(() => structuredClone(catalog)).not.toThrow();
       expect(catalog.items.find((item) => item.name === 'run_goal')?.inputSchema).toMatchObject({ type: 'object' });
+
+      const doctor = await Promise.race([
+        runtime.services.runDoctor(),
+        new Promise<never>((_resolve, reject) => setTimeout(() => reject(new Error('Doctor runtime read timed out')), 5_000)),
+      ]);
+      for (const id of ['browser_cdp', 'network_access', 'office_desktop']) {
+        const check = doctor.checks.find((candidate) => candidate.id === id);
+        expect(check, `${id} should be present`).toBeDefined();
+        expect(check?.detail).not.toBe('Probe timed out');
+        expect(check?.durationMs).toBeLessThan(2_000);
+      }
     } finally {
       await runtime.close();
     }

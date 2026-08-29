@@ -547,11 +547,17 @@ export function createDesktopRuntime(dataPath: string, options: DesktopRuntimeOp
     return { status: result.status, detail: result.message };
   };
   const capabilityRequirement = async (name: string): Promise<RequirementProbeResult> => {
-    const capabilities = await buildCapabilitySummary(capabilityRuntime.health);
-    const capability = capabilities.find((entry) => entry.name === name);
-    if (capability === undefined) return { status: 'unknown', detail: `${name} capability was not reported` };
-    if (capability.ready) return { status: 'pass', detail: `${name} is ready` };
-    return { status: capability.available ? 'fail' : 'unknown', detail: capability.available ? `${name} needs setup` : `${name} is unavailable` };
+    const result = await capabilityRuntime.health.execute({ operation: 'check_tool', tool: name });
+    if (!result.ok) return { status: 'unknown', detail: result.error.message };
+    if (!isRecord(result.value)) return { status: 'unknown', detail: `${name} capability health response was invalid` };
+    const available = result.value.available !== false;
+    const ready = result.value.ready !== false;
+    const reason = typeof result.value.reason === 'string' ? result.value.reason : undefined;
+    if (ready) return { status: 'pass', detail: reason ?? `${name} is ready` };
+    return {
+      status: available ? 'fail' : 'unknown',
+      detail: reason ?? (available ? `${name} needs setup` : `${name} is unavailable`),
+    };
   };
   const resolveConfiguredExecutable = async (raw: string): Promise<boolean> => {
     const trimmed = raw.trim();

@@ -1,5 +1,6 @@
 import { useEffect, useRef, type ReactElement } from 'react';
 import type { ResolvedRemediation, ToolCatalogItem, UiLocale } from '@lnwjud/ipc-contracts';
+import { formatDateTime } from '../../date-time.js';
 
 interface ToolDetailModalProps {
   readonly locale: UiLocale;
@@ -34,34 +35,62 @@ export function ToolDetailModal({ locale, item, remediations, onClose, onRemedia
   }, [onClose]);
 
   const relevantRemediations = remediations.filter((remediation) => item.remediationIds.includes(remediation.id));
+  const notChecked = locale === 'th' ? 'ยังไม่มีผลตรวจ' : 'Not checked';
   return (
     <div className="tool-modal-backdrop" role="presentation" onMouseDown={(event): void => { if (event.currentTarget === event.target) onClose(); }}>
       <section ref={dialogRef} className="tool-modal" role="dialog" aria-modal="true" aria-labelledby="tool-detail-title">
         <header className="tool-modal-header">
-          <div><p className="eyebrow">{item.origin === 'external_mcp' ? `MCP · ${item.serverName ?? ''}` : 'lnwjud'}</p><h2 ref={titleRef} tabIndex={-1} id="tool-detail-title">{item.title}</h2><code>{item.name}</code></div>
-          <button ref={closeRef} type="button" onClick={onClose} aria-label={locale === 'th' ? 'ปิดรายละเอียดเครื่องมือ' : 'Close tool details'}>×</button>
+          <div className="tool-modal-title-copy">
+            <p className="eyebrow">{item.origin === 'external_mcp' ? `MCP · ${item.serverName ?? ''}` : 'lnwjud'}</p>
+            <div className="tool-modal-title-line">
+              <h2 ref={titleRef} tabIndex={-1} id="tool-detail-title">{item.title}</h2>
+              <span className={`tool-readiness-badge tool-readiness-${item.readiness}`}>{readinessLabel(locale, item.readiness)}</span>
+            </div>
+            <code>{item.name}</code>
+          </div>
+          <button ref={closeRef} className="tool-modal-close" type="button" onClick={onClose} aria-label={locale === 'th' ? 'ปิดรายละเอียดเครื่องมือ' : 'Close tool details'}>×</button>
         </header>
         <div className="tool-modal-scroll">
-          <p>{item.longDescription}</p>
+          <p className="tool-modal-description">{item.longDescription}</p>
           <dl className="tool-facts">
-            <div><dt>{locale === 'th' ? 'สถานะ' : 'Status'}</dt><dd>{item.readiness}</dd></div>
+            <div><dt>{locale === 'th' ? 'สถานะ' : 'Status'}</dt><dd><span className={`tool-readiness-badge tool-readiness-${item.readiness}`}>{readinessLabel(locale, item.readiness)}</span></dd></div>
             <div><dt>{locale === 'th' ? 'สิทธิ์ที่ประกาศ' : 'Declared permission'}</dt><dd>{item.declaredPermission}</dd></div>
             <div><dt>{locale === 'th' ? 'ผลจากโปรไฟล์' : 'Profile decision'}</dt><dd>{item.profileDecision}</dd></div>
             <div><dt>{locale === 'th' ? 'ความเสี่ยง' : 'Risk mode'}</dt><dd>{item.riskMode}</dd></div>
-            <div><dt>{locale === 'th' ? 'ตรวจล่าสุด' : 'Checked at'}</dt><dd>{item.checkedAt ?? (locale === 'th' ? 'ยังไม่มีผลตรวจ' : 'Not checked')}</dd></div>
-            <div><dt>{locale === 'th' ? 'ข้อมูลเก่า' : 'Stale'}</dt><dd>{String(item.stale)}</dd></div>
-            <div><dt>{locale === 'th' ? 'ยกเลิกได้' : 'Cancelable'}</dt><dd>{item.supportsCancel === null ? 'unknown' : String(item.supportsCancel)}</dd></div>
-            <div><dt>Dry run</dt><dd>{item.supportsDryRun === null ? 'unknown' : String(item.supportsDryRun)}</dd></div>
+            <div><dt>{locale === 'th' ? 'ตรวจล่าสุด' : 'Checked at'}</dt><dd>{formatDateTime(item.checkedAt, notChecked)}</dd></div>
+            <div><dt>{locale === 'th' ? 'ข้อมูลเก่า' : 'Stale'}</dt><dd>{booleanLabel(locale, item.stale)}</dd></div>
+            <div><dt>{locale === 'th' ? 'ยกเลิกได้' : 'Cancelable'}</dt><dd>{nullableBooleanLabel(locale, item.supportsCancel)}</dd></div>
+            <div><dt>Dry run</dt><dd>{nullableBooleanLabel(locale, item.supportsDryRun)}</dd></div>
           </dl>
           {item.riskMode === 'input_dependent' ? <p role="note" className="tool-risk-caveat">{locale === 'th' ? 'ระดับความเสี่ยงและการขออนุมัติอาจเปลี่ยนตาม operation และ arguments ที่ระบุ ไม่ได้หมายความว่าทุก operation มีระดับเดียวกัน' : 'Risk and approval requirements can change with the selected operation and arguments; not every operation has the same risk level.'}</p> : null}
           {item.stale ? <p role="status" className="tool-stale-caveat">{locale === 'th' ? 'ผล readiness นี้เกินอายุ cache แล้ว ควรตรวจใหม่ก่อนพึ่งพาสถานะ' : 'This readiness result is stale; recheck before relying on it.'}</p> : null}
-          {item.requirements.length > 0 ? <section><h3>{locale === 'th' ? 'ข้อกำหนด' : 'Requirements'}</h3><ul>{item.requirements.map((requirement) => <li key={requirement.id}><strong>{requirement.id}</strong> — {requirement.status}{requirement.detail ? ` · ${requirement.detail}` : ''}</li>)}</ul></section> : null}
-          {item.inputSchema !== null ? <details><summary>{locale === 'th' ? 'Input schema' : 'Input schema'}</summary><pre>{JSON.stringify(item.inputSchema, null, 2)}</pre></details> : null}
+          {item.requirements.length > 0 ? <section className="tool-modal-section"><h3>{locale === 'th' ? 'ข้อกำหนด' : 'Requirements'}</h3><ul className="tool-requirement-list">{item.requirements.map((requirement) => <li key={requirement.id}><div><strong>{requirement.id}</strong><span className={`doctor-status-badge doctor-status-${requirement.status}`}>{requirement.status}</span></div>{requirement.detail ? <p>{requirement.detail}</p> : null}</li>)}</ul></section> : null}
+          {item.inputSchema !== null ? <details className="tool-schema-details"><summary>{locale === 'th' ? 'Input schema' : 'Input schema'}</summary><pre>{JSON.stringify(item.inputSchema, null, 2)}</pre></details> : null}
           {relevantRemediations.map((remediation) => <section key={remediation.id} className="tool-remediation"><h3>{remediation.title}</h3><p>{remediation.explanation}</p><ol>{remediation.steps.map((step) => <li key={step}>{step}</li>)}</ol><div className="tool-action-row">{remediation.actions.map((action, index) => <button type="button" key={`${remediation.id}-${index}`} onClick={() => onRemediation(action)}>{actionLabel(locale, action)}</button>)}</div></section>)}
         </div>
       </section>
     </div>
   );
+}
+
+function readinessLabel(locale: UiLocale, readiness: ToolCatalogItem['readiness']): string {
+  const labels: Record<ToolCatalogItem['readiness'], readonly [string, string]> = {
+    ready: ['พร้อม', 'Ready'],
+    needs_setup: ['ต้องตั้งค่า', 'Needs setup'],
+    blocked: ['ถูกบล็อก', 'Blocked'],
+    disabled: ['ปิดใช้งาน', 'Disabled'],
+    unsupported: ['ไม่รองรับ', 'Unsupported'],
+    unknown: ['ไม่ทราบ', 'Unknown'],
+  };
+  return labels[readiness][locale === 'th' ? 0 : 1];
+}
+
+function booleanLabel(locale: UiLocale, value: boolean): string {
+  return value ? (locale === 'th' ? 'ใช่' : 'Yes') : (locale === 'th' ? 'ไม่' : 'No');
+}
+
+function nullableBooleanLabel(locale: UiLocale, value: boolean | null): string {
+  return value === null ? (locale === 'th' ? 'ไม่ทราบ' : 'Unknown') : booleanLabel(locale, value);
 }
 
 function actionLabel(locale: UiLocale, action: ResolvedRemediation['actions'][number]): string {
