@@ -1,6 +1,6 @@
 # Issue #16 Browser Tab Isolation Acceptance
 
-Status: execution in progress for lnwjud `4.29.0` on 2026-08-29.
+Status: acceptance A-H passed for lnwjud `4.29.0` on 2026-08-29; final packaging/provenance verification follows this evidence update.
 
 This record is intentionally redacted. It records only version/transport metadata, tab IDs, harmless URLs, tool names, permission outcomes, and pass/fail evidence. It must not contain cookies, auth headers, page contents, SQL, tokens, or ChatGPT conversation text.
 
@@ -20,12 +20,12 @@ Mutating a ChatGPT tab additionally requires both `allow_protected_tab_action: t
 | Field | Evidence |
 | --- | --- |
 | Source branch | `dev` |
-| Source commit at matrix creation | `0aed189` |
+| Candidate code commit | `38ab96f` (acceptance evidence is committed afterward; no browser implementation changed during H) |
 | Package version | `4.29.0` |
-| Installed executable version/path | Candidate installer not built/installed yet; H remains pending until the candidate Secure MCP Tunnel is actually connected |
-| MCP transport | A-G: source-built `@lnwjud/capabilities` candidate against real lnwjud-managed Chrome CDP; H: pending candidate Secure MCP Tunnel |
+| Installed executable version/path | `C:\Users\ABCz\AppData\Local\Programs\lnwjud\lnwjud.exe`; FileVersion `4.29.0`, ProductVersion `4.29.0.0` |
+| MCP transport | A-G: source-built `@lnwjud/capabilities` candidate against real lnwjud-managed Chrome CDP; H: actual ChatGPT request through the installed Secure MCP Tunnel runtime |
 | Chrome CDP port/profile | Managed Chrome CDP `127.0.0.1:9222`; disposable lnwjud-managed browser lifecycle used |
-| Harmless navigation destination | `https://example.com/?issue16=verified` |
+| Harmless navigation destinations | A-G: `https://example.com/?issue16=verified`; H: `https://example.com/?issue16=case-h` |
 
 ## Acceptance matrix
 
@@ -38,7 +38,7 @@ Mutating a ChatGPT tab additionally requires both `allow_protected_tab_action: t
 | E | Protected ChatGPT ID with override but without `userConfirmed` | `PERMISSION_DENIED` even under Full Bypass | **PASS** | Explicit Full Bypass authorization still returned `PERMISSION_DENIED`; request log empty |
 | F | Protected ChatGPT ID with both explicit fields | Only that exact ID is dispatched | **PASS** | Disposable protected target dispatched one `Page.navigate` only to ID `B362...AD91` |
 | G | Target closes after selection | Fail with target-not-found; do not choose another tab | **PASS** | Closed disposable target returned `INVALID_INPUT` target-not-found; request log empty; surviving application tab remained unchanged |
-| H | Actual ChatGPT/Secure MCP request to navigate a harmless target | Live Logs show `dom_cdp` plus exact `tab_id`; no `computer_use`, `accessibility`, or `input_event` address-bar sequence | **PENDING** | Current connected Secure MCP runtime is pre-candidate (its exposed `dom_cdp` schema still lacks the candidate protected-action field/conditional target contract); H must be re-run after installing/connecting the 4.29.0 candidate |
+| H | Actual ChatGPT/Secure MCP request to navigate a harmless target | Live Logs show `dom_cdp` plus exact `tab_id`; no `computer_use`, `accessibility`, or `input_event` address-bar sequence | **PASS** | Installed 4.29.0 server rejected `navigate` without `tab_id`; actual ChatGPT request then navigated exact ID `5C9D...C950` to `https://example.com/?issue16=case-h`. `mcp-activity.log` recorded `dom_cdp:navigate tab=5C9D...C950`; the H acceptance session contained only `dom_cdp` and bounded `shell` verification calls, with no `computer_use`, `accessibility`, or `input_event` calls |
 
 ## Managed Chrome A-G evidence
 
@@ -46,8 +46,10 @@ A-G ran on 2026-08-29 against real lnwjud-managed Chrome on CDP port `9222`, usi
 
 ## Actual ChatGPT / Secure MCP Tunnel H evidence
 
-Pending after candidate installation/reconnection. The currently connected ChatGPT/Secure MCP runtime advertises the older `dom_cdp` contract, so using it as Case H proof would test the pre-candidate installed runtime rather than the source that produced A-G. The 4.29.0 installer may be built for user testing, but final Issue #16 sign-off remains incomplete until the installed candidate tunnel exposes the new schema and a real ChatGPT request shows the exact `tab_id` in Live Logs with no native address-bar fallback.
+After installing 4.29.0, the local executable reported FileVersion `4.29.0` / ProductVersion `4.29.0.0`. Through this ChatGPT conversation's Secure MCP connection, `dom_cdp status` initially reported no managed browser, then `launch` opened a managed `https://example.com/` target. A direct `navigate` without `tab_id` failed server-side validation with `Target-scoped DOM actions require tab_id`, proving the installed runtime is enforcing the candidate contract even if the host-retained displayed tool schema has stale descriptive metadata. The client then listed tabs, selected exact ID `5C9D...C950`, and navigated only that target to `https://example.com/?issue16=case-h`.
+
+The local `mcp-activity.log` recorded the target summary `dom_cdp:navigate tab=5C9D...C950`. For the H acceptance session beginning at 2026-08-29T11:17:00Z, grouped activity contained only `dom_cdp` and bounded `shell` verification calls; there were no `computer_use`, `accessibility`, or `input_event` calls. This distinguishes the successful CDP navigation from the address-bar/native-input failure mode described in the original report.
 
 ## Final sign-off
 
-This document is not a completion claim until every A-H row is replaced with PASS/FAIL evidence and the candidate source/install metadata is finalized.
+All acceptance cases A-H pass with redacted evidence. Issue #16 browser target isolation is accepted for the 4.29.0 candidate. Final repository status, pushed commit, rebuilt installer provenance, and SHA-256 values are verified separately after this evidence file is committed.
