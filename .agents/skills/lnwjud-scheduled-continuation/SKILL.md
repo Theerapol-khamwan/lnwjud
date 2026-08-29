@@ -49,7 +49,7 @@ If the user asks to cancel the goal, call `cancel_goal` with the latest expected
 
 ## Scheduled wake
 
-1. Call `claim_scheduled_continuation` first with the normal **600-second lease**; do not request a longer lease. Do no workspace mutation beforehand. The runtime accepts a confirmed cloud wake up to 60 seconds early so minute-level host jitter cannot consume the only wake without a handoff. While this run is genuinely active, checkpoint and fenced-mutation activity slide the lease forward, capped by the scheduled handoff deadline; inactivity does not renew it.
+1. Call `claim_scheduled_continuation` first with the normal **600-second lease**; do not request a longer lease. Do no workspace mutation beforehand. The runtime accepts a confirmed cloud wake up to **120 seconds early** so observed native-host jitter does not consume the one-time wake without a handoff. While this run is genuinely active, checkpoint and fenced-mutation activity slide the lease forward, capped by the scheduled handoff deadline; inactivity does not renew it.
 2. Handle the returned outcome exactly:
 
    - `terminal_noop`: the durable goal is already terminal. Create no successor and let this already-firing one-time host task return naturally so the host can mark the run completed. Do **not** disable, pause, delete, or reschedule the current wake as a substitute for natural completion.
@@ -58,6 +58,8 @@ If the user asks to cancel the goal, call `cancel_goal` with the latest expected
    - `receipt_required`: reconcile the exact native task first; record `created`, `create_failed`, or `create_uncertain` truthfully.
    - `reschedule_required`: update `taskUpdateRequest.nativeTaskId`, the **same native task**, to its +2-minute due time, record the receipt, and end this wake. Repeat collisions **without a retry limit**.
    - `acquired`, including `orphan_recovered`: use the new lease token/generation as `goalLease`, arm the next adaptive successor before long work, then continue from the durable checkpoint without waiting for user input.
+
+3. If exact ChatGPT host metadata later proves that the recorded native one-time task already **ran/was consumed** but the durable continuation is still in a pending/live state because claim never completed, reconcile it with `record_scheduled_continuation_receipt(outcome: consumed)` and the exact native host run receipt. `consumed` means only that the host task is no longer pending; it does **not** mean the goal work completed. If the goal is still active, reserve and create a fresh successor after reconciliation. This is host-consumption recovery, not a worker collision; real collisions must still update the same live native task to +2 minutes.
 
 ## Collision and orphan safety
 

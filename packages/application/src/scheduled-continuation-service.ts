@@ -13,6 +13,7 @@ import {
   type ScheduledContinuationCancellationOutcome,
   type ScheduledContinuationExpediteReason,
   type ScheduledContinuationNativeCancellationReceipt,
+  type ScheduledContinuationNativeRunReceipt,
   type ScheduledContinuationReceiptOutcome,
   type ScheduledContinuationRepository,
   type ScheduledContinuationSnapshot,
@@ -28,7 +29,7 @@ export const MAX_SUCCESSOR_DELAY_MINUTES = 25;
 /** @deprecated Use DEFAULT_SUCCESSOR_DELAY_MINUTES for the adaptive watchdog default. */
 export const SUCCESSOR_DELAY_MINUTES = DEFAULT_SUCCESSOR_DELAY_MINUTES;
 export const COLLISION_RESCHEDULE_MINUTES = 2;
-export const SCHEDULED_WAKE_EARLY_TOLERANCE_SECONDS = 60;
+export const SCHEDULED_WAKE_EARLY_TOLERANCE_SECONDS = 120;
 
 const MAX_ID = 128;
 const MAX_TEXT = 2_048;
@@ -91,6 +92,7 @@ export interface RecordScheduledContinuationReceiptRequest {
   readonly nativeTaskId?: string;
   readonly dueAt?: string;
   readonly runsOn?: 'cloud';
+  readonly nativeRunReceipt?: ScheduledContinuationNativeRunReceipt;
   readonly nativeCancellationReceipt?: ScheduledContinuationNativeCancellationReceipt;
   readonly detail?: string;
 }
@@ -283,9 +285,18 @@ export class ScheduledContinuationService {
       const continuationId = required(request.continuationId, 'continuationId', MAX_ID);
       if (!Number.isInteger(request.expectedVersion) || request.expectedVersion < 0) throw new Error('expectedVersion is invalid');
       const suppliedNativeTaskId = request.nativeTaskId === undefined ? undefined : required(request.nativeTaskId, 'nativeTaskId', MAX_NATIVE_TASK_ID);
+      const nativeRunReceipt = request.nativeRunReceipt === undefined
+        ? undefined
+        : normalizeNativeRunReceipt(request.nativeRunReceipt);
       const nativeCancellationReceipt = request.nativeCancellationReceipt === undefined
         ? undefined
         : normalizeNativeCancellationReceipt(request.nativeCancellationReceipt);
+      if (request.outcome === 'consumed' && nativeRunReceipt === undefined) {
+        throw new Error('consumed requires a native host run receipt');
+      }
+      if (request.outcome !== 'consumed' && nativeRunReceipt !== undefined) {
+        throw new Error('nativeRunReceipt is only valid for consumed');
+      }
       if (request.outcome === 'cancelled' && nativeCancellationReceipt === undefined) {
         throw new Error('cancelled requires a native host deletion receipt');
       }
@@ -294,12 +305,19 @@ export class ScheduledContinuationService {
       }
       if (
         suppliedNativeTaskId !== undefined
+        && nativeRunReceipt !== undefined
+        && suppliedNativeTaskId !== nativeRunReceipt.nativeTaskId
+      ) {
+        throw new Error('native run receipt task ID does not match nativeTaskId');
+      }
+      if (
+        suppliedNativeTaskId !== undefined
         && nativeCancellationReceipt !== undefined
         && suppliedNativeTaskId !== nativeCancellationReceipt.nativeTaskId
       ) {
         throw new Error('native cancellation receipt task ID does not match nativeTaskId');
       }
-      const nativeTaskId = nativeCancellationReceipt?.nativeTaskId ?? suppliedNativeTaskId;
+      const nativeTaskId = nativeRunReceipt?.nativeTaskId ?? nativeCancellationReceipt?.nativeTaskId ?? suppliedNativeTaskId;
       const detail = request.detail === undefined ? undefined : safeText(request.detail, MAX_RECEIPT_DETAIL, 'detail', true);
       const record = await this.goals.recordScheduledContinuationReceipt({
         continuationId,
@@ -309,6 +327,7 @@ export class ScheduledContinuationService {
         ...(nativeTaskId === undefined ? {} : { nativeTaskId }),
         ...(request.dueAt === undefined ? {} : { dueAt: requiredIso(request.dueAt, 'dueAt') }),
         ...(request.runsOn === undefined ? {} : { runsOn: request.runsOn }),
+        ...(nativeRunReceipt === undefined ? {} : { nativeRunReceipt }),
         ...(nativeCancellationReceipt === undefined ? {} : { nativeCancellationReceipt }),
         ...(detail === undefined ? {} : { detail }),
         now: this.now().toISOString(),
@@ -525,7 +544,7 @@ export class ScheduledContinuationService {
 }
 
 function buildScheduleRequest(continuation: ScheduledContinuationSnapshot, workspaceId: string): ScheduledContinuationRequest {
-  const prompt = `Call claim_scheduled_continuation first for continuation ${continuation.continuationId}, goal ${continuation.goalId}, workspace ${workspaceId}; native wake jitter up to 60 seconds early is accepted. If acquired, immediately arm exactly one cloud successor using an adaptive delay between 2 and 25 minutes and record its receipt before continuing the durable goal. 25 minutes is the maximum watchdog, not a fixed cadence: use a shorter delay for bounded final work, and if this turn will end while unfinished, move the same native task to now+2 through expedite_scheduled_continuation. Keep working or waiting on active task IDs until their terminal results are inspected. Never send a completion response while get_goal still reports active. When acceptance evidence is complete, call finish_goal even if the user disabled further scheduling, then require get_goal to be terminal. Delete the exact distinct pending successor through the native ChatGPT Scheduled Task host only when scheduledTaskCancellation requests it, record cancelled only with the native host deletion receipt, then read the continuation back and require status cancelled. If claim returns terminal_noop or this current one-time wake has already fired, do not delete, disable, pause, or reschedule the current host task; return naturally so the host can mark the one-time run completed. Never use pause/disable as deletion or completion proof. Never report cancellation as successful while deletion is failed, uncertain, or unverified. If the goal is terminal, stop and do not schedule again. Never use Windows Task Scheduler.`;
+  const prompt = `Call claim_scheduled_continuation first for continuation ${continuation.continuationId}, goal ${continuation.goalId}, workspace ${workspaceId}; native wake jitter up to 120 seconds early is accepted. If exact host metadata later proves this native task already ran without claim completing, reconcile it as consumed with the exact host run receipt; consumed never means the goal work completed, and an active goal must reserve a fresh successor. If acquired, immediately arm exactly one cloud successor using an adaptive delay between 2 and 25 minutes and record its receipt before continuing the durable goal. 25 minutes is the maximum watchdog, not a fixed cadence: use a shorter delay for bounded final work, and if this turn will end while unfinished, move the same native task to now+2 through expedite_scheduled_continuation. Keep working or waiting on active task IDs until their terminal results are inspected. Never send a completion response while get_goal still reports active. When acceptance evidence is complete, call finish_goal even if the user disabled further scheduling, then require get_goal to be terminal. Delete the exact distinct pending successor through the native ChatGPT Scheduled Task host only when scheduledTaskCancellation requests it, record cancelled only with the native host deletion receipt, then read the continuation back and require status cancelled. If claim returns terminal_noop or this current one-time wake has already fired, do not delete, disable, pause, or reschedule the current host task; return naturally so the host can mark the one-time run completed. Never use pause/disable as deletion or completion proof. Never report cancellation as successful while deletion is failed, uncertain, or unverified. If the goal is terminal, stop and do not schedule again. Never use Windows Task Scheduler.`;
   return {
     provider: 'chatgpt_scheduled_task',
     occurrence: 'once',
@@ -747,6 +766,22 @@ function requiredIso(value: string, label: string): string {
   const bounded = required(value, label, 64);
   if (Number.isNaN(Date.parse(bounded))) throw new Error(`${label} is invalid`);
   return bounded;
+}
+
+function normalizeNativeRunReceipt(
+  receipt: ScheduledContinuationNativeRunReceipt,
+): ScheduledContinuationNativeRunReceipt {
+  if (receipt.provider !== 'chatgpt_scheduled_task' || receipt.operation !== 'run') {
+    throw new Error('native run receipt provider or operation is invalid');
+  }
+  if (receipt.state !== 'consumed') throw new Error('native run receipt state is invalid');
+  return {
+    provider: 'chatgpt_scheduled_task',
+    operation: 'run',
+    nativeTaskId: required(receipt.nativeTaskId, 'native run receipt task ID', MAX_NATIVE_TASK_ID),
+    state: 'consumed',
+    observedAt: requiredIso(receipt.observedAt, 'native run receipt observedAt'),
+  };
 }
 
 function normalizeNativeCancellationReceipt(

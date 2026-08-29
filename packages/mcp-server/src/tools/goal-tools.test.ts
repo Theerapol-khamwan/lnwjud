@@ -175,5 +175,9 @@ describe('durable goal MCP tools', () => {
     expect(JSON.stringify(runSchema)).toContain('leaseSeconds');
     expect(JSON.stringify(checkpointSchema)).toContain('expectedRevision');
     expect(JSON.stringify(checkpointSchema)).toContain('releaseLease');
+    const runJsonSchema = registry.describeInputJsonSchema('run_goal');
+    expect(runJsonSchema).toMatchObject({ type: 'object' });
+    expect(JSON.stringify(runJsonSchema)).toContain('goalKey');
+    expect(() => structuredClone(runJsonSchema)).not.toThrow();
   });
 });

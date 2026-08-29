@@ -49,6 +49,19 @@ describe('scheduled continuation MCP tools', () => {
     expect(byName.get('record_scheduled_continuation_receipt')?.parse({ continuationId: 'c-1', expectedVersion: 0, outcome: 'created', nativeTaskId: 'native-1' })).toMatchObject({ ok: false });
     expect(byName.get('record_scheduled_continuation_receipt')?.parse({ continuationId: 'c-1', expectedVersion: 0, outcome: 'created', nativeTaskId: 'native-1', runsOn: 'cloud' })).toMatchObject({ ok: true });
     expect(byName.get('record_scheduled_continuation_receipt')?.parse({ continuationId: 'c-1', expectedVersion: 1, outcome: 'rescheduled', nativeTaskId: 'native-1', dueAt: '2026-08-27T10:27:00.000Z' })).toMatchObject({ ok: true });
+    expect(byName.get('record_scheduled_continuation_receipt')?.parse({ continuationId: 'c-1', expectedVersion: 2, outcome: 'consumed' })).toMatchObject({ ok: false });
+    expect(byName.get('record_scheduled_continuation_receipt')?.parse({
+      continuationId: 'c-1',
+      expectedVersion: 2,
+      outcome: 'consumed',
+      nativeRunReceipt: {
+        provider: 'chatgpt_scheduled_task',
+        operation: 'run',
+        nativeTaskId: 'native-1',
+        state: 'consumed',
+        observedAt: '2026-08-27T10:12:00.000Z',
+      },
+    })).toMatchObject({ ok: true });
     expect(byName.get('record_scheduled_continuation_receipt')?.parse({ continuationId: 'c-1', expectedVersion: 2, outcome: 'cancelled', nativeTaskId: 'native-1' })).toMatchObject({ ok: false });
     expect(byName.get('record_scheduled_continuation_receipt')?.parse({
       continuationId: 'c-1',
@@ -75,7 +88,7 @@ describe('scheduled continuation MCP tools', () => {
     expect(byName.get('cancel_scheduled_continuation')?.parse({ continuationId: 'c-1', goalId: 'g-1', latest: true, expectedVersion: 2 })).toMatchObject({ ok: false });
     expect(byName.get('prepare_scheduled_continuation')?.description).toContain('adaptive');
     expect(byName.get('prepare_scheduled_continuation')?.description).toContain('2 and 25 minutes');
-    expect(byName.get('claim_scheduled_continuation')?.description).toContain('60 seconds early');
+    expect(byName.get('claim_scheduled_continuation')?.description).toContain('120 seconds early');
     expect(byName.get('claim_scheduled_continuation')?.description).toContain('terminal_noop');
     expect(byName.get('claim_scheduled_continuation')?.description).toContain('do not delete, disable, pause, or reschedule');
     expect(byName.get('cancel_scheduled_continuation')?.description).toContain('still-pending scheduled successor');

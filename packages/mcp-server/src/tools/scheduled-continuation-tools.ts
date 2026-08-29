@@ -22,6 +22,13 @@ const version = z.number().int().min(0);
 const nativeTaskId = z.string().min(1).max(512);
 const dueAt = z.string().datetime({ offset: true });
 const detail = z.string().max(1024).optional();
+const nativeRunReceipt = z.object({
+  provider: z.literal('chatgpt_scheduled_task'),
+  operation: z.literal('run'),
+  nativeTaskId,
+  state: z.literal('consumed'),
+  observedAt: z.string().datetime({ offset: true }),
+}).strict();
 const nativeCancellationReceipt = z.object({
   provider: z.literal('chatgpt_scheduled_task'),
   operation: z.literal('delete'),
@@ -55,6 +62,7 @@ const receiptSchema = z.discriminatedUnion('outcome', [
   z.object({ continuationId, expectedVersion: version, outcome: z.literal('rescheduled'), nativeTaskId, dueAt, runsOn: z.literal('cloud').optional(), detail }).strict(),
   z.object({ continuationId, expectedVersion: version, outcome: z.literal('reschedule_failed'), nativeTaskId, dueAt, runsOn: z.literal('cloud').optional(), detail }).strict(),
   z.object({ continuationId, expectedVersion: version, outcome: z.literal('reschedule_uncertain'), nativeTaskId, dueAt, runsOn: z.literal('cloud').optional(), detail }).strict(),
+  z.object({ continuationId, expectedVersion: version, outcome: z.literal('consumed'), nativeRunReceipt, detail }).strict(),
   z.object({ continuationId, expectedVersion: version, outcome: z.literal('cancelled'), nativeCancellationReceipt, detail }).strict(),
   z.object({ continuationId, expectedVersion: version, outcome: z.literal('cancel_failed'), nativeTaskId: nativeTaskId.optional(), runsOn: z.literal('cloud').optional(), detail }).strict(),
   z.object({ continuationId, expectedVersion: version, outcome: z.literal('cancel_uncertain'), nativeTaskId: nativeTaskId.optional(), runsOn: z.literal('cloud').optional(), detail }).strict(),
@@ -128,7 +136,7 @@ export function scheduledContinuationTools(context: McpToolContext): McpToolDefi
     }),
     defineTool({
       name: 'record_scheduled_continuation_receipt',
-      description: 'Record host-owned cloud one-time task create, same-task reschedule, or cancellation receipts. Cancelled is accepted only with a matching native ChatGPT host deletion receipt; a model assertion is not cancellation proof. The stored native task ID is immutable across reschedules.',
+      description: 'Record host-owned cloud one-time task create, same-task reschedule, consumed-run reconciliation, or cancellation receipts. A consumed receipt requires exact native host run evidence and means only that the one-time task is no longer pending; it does not mean the goal work completed. Cancelled is accepted only with a matching native ChatGPT host deletion receipt; a model assertion is not cancellation proof. The stored native task ID is immutable across reschedules.',
       permission: 'WRITE',
       annotations: { readOnlyHint: false, destructiveHint: false },
       inputSchema: receiptSchema,
@@ -139,13 +147,14 @@ export function scheduledContinuationTools(context: McpToolContext): McpToolDefi
         ...('nativeTaskId' in input && input.nativeTaskId !== undefined ? { nativeTaskId: input.nativeTaskId } : {}),
         ...('dueAt' in input && input.dueAt !== undefined ? { dueAt: input.dueAt } : {}),
         ...('runsOn' in input && input.runsOn !== undefined ? { runsOn: input.runsOn } : {}),
+        ...('nativeRunReceipt' in input ? { nativeRunReceipt: input.nativeRunReceipt } : {}),
         ...('nativeCancellationReceipt' in input ? { nativeCancellationReceipt: input.nativeCancellationReceipt } : {}),
         ...(input.detail === undefined ? {} : { detail: input.detail }),
       }) ?? missingService(),
     }),
     defineTool({
       name: 'claim_scheduled_continuation',
-      description: 'Scheduled-wake entrypoint. Claim before workspace mutation; a confirmed cloud wake up to 60 seconds early is accepted so a one-time task is not consumed without handoff. If native task creation was never confirmed, returns receipt_required for reconciliation. On an active-worker collision, update the exact existing native one-time cloud task to now+2 minutes. If the outcome is terminal_noop, let the already-firing one-time host task return naturally so the host can mark it completed; do not delete, disable, pause, or reschedule that current wake. Do not mutate the workspace, create a replacement task, mark the goal terminal, or stop an active durable chain.',
+      description: 'Scheduled-wake entrypoint. Claim before workspace mutation; a confirmed cloud wake up to 120 seconds early is accepted so native host jitter does not consume the one-time task without handoff. If native task creation was never confirmed, returns receipt_required for reconciliation. On an active-worker collision, update the exact existing native one-time cloud task to now+2 minutes. If the outcome is terminal_noop, let the already-firing one-time host task return naturally so the host can mark it completed; do not delete, disable, pause, or reschedule that current wake. Do not mutate the workspace, create a replacement task, mark the goal terminal, or stop an active durable chain.',
       permission: 'WRITE',
       annotations: { readOnlyHint: false, destructiveHint: false },
       inputSchema: claimSchema,

@@ -7,7 +7,8 @@ function service(statuses: Readonly<Record<string, 'pass' | 'warn' | 'fail' | 'u
   const ids = [
     'platform_windows', 'registered_workspace', 'active_project', 'executable_git', 'executable_ripgrep', 'codex_runtime', 'wsl_runtime',
     'local_mcp_listener', 'browser_cdp', 'windows_ui_automation', 'windows_input', 'windows_window', 'windows_ocr', 'office_desktop',
-    'network_access', 'scheduler_runtime', 'tunnel_runtime', 'external_mcp_connection', 'feature_delivery',
+    'network_access', 'scheduler_runtime', 'tunnel_runtime', 'external_mcp_connection', 'local_pdf_provider', 'configured_lsp',
+    'database_target', 'windows_sandbox', 'browser_event_stream', 'feature_delivery',
   ];
   const probes = Object.fromEntries(ids.map((id) => [id, vi.fn(async () => ({ status: statuses[id] ?? 'pass' as const }))]));
   const registry = new RequirementRegistry(ids.map((id) => ({
@@ -43,6 +44,17 @@ describe('tool catalog readiness aggregation', () => {
     expect((await disabled.catalog.getSnapshot('en')).items.find((item) => item.name === 'codex_run')?.readiness).toBe('disabled');
   });
 
+  it('never reports READY when an optional-for-startup dependency used by the tool is warning', async () => {
+    const gitMissing = service({ executable_git: 'warn' });
+    expect((await gitMissing.catalog.getSnapshot('en')).items.find((item) => item.name === 'git')?.readiness).toBe('needs_setup');
+
+    const pdfMissing = service({ local_pdf_provider: 'warn' });
+    expect((await pdfMissing.catalog.getSnapshot('en')).items.find((item) => item.name === 'inspect_pdf')?.readiness).toBe('needs_setup');
+
+    const lspMissing = service({ configured_lsp: 'warn' });
+    expect((await lspMissing.catalog.getSnapshot('en')).items.find((item) => item.name === 'lsp_diagnostics')?.readiness).toBe('needs_setup');
+  });
+
   it('shares cached/in-flight probes and locale changes do not reprobe', async () => {
     const { catalog, probes } = service({});
     await Promise.all([catalog.getSnapshot('en'), catalog.getSnapshot('en')]);
@@ -56,7 +68,7 @@ describe('tool catalog readiness aggregation', () => {
     const { catalog, probes } = service({ executable_git: 'pass' });
     const result = await catalog.recheck(['executable_git'], 'th');
     expect(probes.executable_git).toHaveBeenCalled();
-    expect(result.doctor.checks).toHaveLength(19);
+    expect(result.doctor.checks).toHaveLength(24);
     expect(result.catalog.locale).toBe('th');
   });
 

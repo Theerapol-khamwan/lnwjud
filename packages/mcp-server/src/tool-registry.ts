@@ -190,6 +190,18 @@ export class ToolRegistry {
   public listInFlight(): ReturnType<ActivityTracker['listInFlight']> { return this.activity.listInFlight(); }
   public listSchemas(): ReturnType<ToolSchemaRegistry['list']> { return this.schemaRegistry.list(); }
   public describeSchema(name: string): ReturnType<ToolSchemaRegistry['describe']> { return this.schemaRegistry.describe(name); }
+  public describeInputJsonSchema(name: string): Record<string, unknown> | undefined {
+    const inputSchema = this.schemaRegistry.describe(name)?.inputSchema;
+    if (!(inputSchema instanceof z.ZodType)) return undefined;
+    try {
+      const jsonSchema = z.toJSONSchema(inputSchema);
+      return typeof jsonSchema === 'object' && jsonSchema !== null && !Array.isArray(jsonSchema)
+        ? jsonSchema as Record<string, unknown>
+        : undefined;
+    } catch {
+      return undefined;
+    }
+  }
 
   public async invoke(name: string, input: unknown, traceContext?: TraceContext, parentSignal?: AbortSignal): Promise<McpToolResponse> {
     const profile = this.profileProvider();

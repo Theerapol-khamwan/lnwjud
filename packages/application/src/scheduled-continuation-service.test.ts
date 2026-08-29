@@ -309,7 +309,7 @@ describe('ScheduledContinuationService', () => {
     }
   });
 
-  it('accepts a confirmed cloud wake up to 60 seconds early so a one-time host task is not consumed without handoff', async () => {
+  it('accepts an observed 74-second early cloud wake within the 120-second jitter tolerance', async () => {
     const { database, goals, scheduled, clock } = await fixture('2026-08-27T10:00:46.000Z');
     const successorActor: FileActor = { ...actor, sessionId: 'scheduled-continuation-early-wake' };
     try {
@@ -326,9 +326,9 @@ describe('ScheduledContinuationService', () => {
       });
       expect(receipt.ok).toBe(true);
       database.connection.prepare('UPDATE goals SET lease_expires_at = ? WHERE id = ?')
-        .run('2026-08-27T10:25:00.000Z', started.goalId);
+        .run('2026-08-27T10:24:00.000Z', started.goalId);
 
-      clock.set('2026-08-27T10:25:10.000Z');
+      clock.set('2026-08-27T10:24:32.000Z');
       await expect(scheduled.claimScheduledContinuation(successorActor, {
         continuationId: prepared.value.continuation.continuationId,
       })).resolves.toMatchObject({
@@ -344,7 +344,7 @@ describe('ScheduledContinuationService', () => {
     }
   });
 
-  it('keeps a wake more than 60 seconds early in not_due state', async () => {
+  it('keeps a wake more than 120 seconds early in not_due state', async () => {
     const { database, goals, scheduled, clock } = await fixture('2026-08-27T10:00:46.000Z');
     try {
       const started = await startGoal(goals);
@@ -352,13 +352,144 @@ describe('ScheduledContinuationService', () => {
       expect(prepared.ok).toBe(true);
       if (!prepared.ok) throw new Error('prepare failed');
 
-      clock.set('2026-08-27T10:24:45.000Z');
+      clock.set('2026-08-27T10:23:45.000Z');
       await expect(scheduled.claimScheduledContinuation(actor, {
         continuationId: prepared.value.continuation.continuationId,
       })).resolves.toMatchObject({
         ok: true,
-        value: { outcome: 'not_due', retryAfterSeconds: 61 },
+        value: { outcome: 'not_due', retryAfterSeconds: 121 },
       });
+    } finally {
+      database.close();
+    }
+  });
+
+  it('reconciles a host-consumed task without claiming goal completion, then allows a fresh successor and clean finish', async () => {
+    const { database, goals, scheduled, clock } = await fixture();
+    try {
+      const started = await startGoal(goals);
+      const prepared = await scheduled.prepareScheduledContinuation(actor, validPrepare(started));
+      expect(prepared.ok).toBe(true);
+      if (!prepared.ok) throw new Error('prepare failed');
+      const created = await scheduled.recordScheduledContinuationReceipt(actor, {
+        continuationId: prepared.value.continuation.continuationId,
+        expectedVersion: prepared.value.continuation.version,
+        outcome: 'created',
+        nativeTaskId: 'native-task-consumed',
+        runsOn: 'cloud',
+      });
+      expect(created).toMatchObject({ ok: true, value: { status: 'scheduled', version: 1 } });
+      if (!created.ok) throw new Error('created receipt failed');
+
+      await expect(scheduled.recordScheduledContinuationReceipt(actor, {
+        continuationId: created.value.continuationId,
+        expectedVersion: created.value.version,
+        outcome: 'consumed',
+      })).resolves.toMatchObject({ ok: false, error: { code: 'INVALID_INPUT' } });
+
+      clock.set('2026-08-27T10:00:06.000Z');
+      const consumed = await scheduled.recordScheduledContinuationReceipt(actor, {
+        continuationId: created.value.continuationId,
+        expectedVersion: created.value.version,
+        outcome: 'consumed',
+        nativeRunReceipt: {
+          provider: 'chatgpt_scheduled_task',
+          operation: 'run',
+          nativeTaskId: 'native-task-consumed',
+          state: 'consumed',
+          observedAt: '2026-08-27T10:00:05.000Z',
+        },
+      });
+      expect(consumed).toMatchObject({ ok: true, value: { status: 'superseded', nativeTaskId: 'native-task-consumed' } });
+
+      const replacement = await scheduled.prepareScheduledContinuation(actor, validPrepare(started, {
+        expectedRevision: prepared.value.goal.revision,
+        currentPhase: 'host-consumption-recovery',
+        summary: 'The native host consumed the previous one-time task before claim completed.',
+        nextAction: 'Create a fresh successor without treating the consumed task as completed work.',
+        successorDelayMinutes: 10,
+      }));
+      expect(replacement).toMatchObject({
+        ok: true,
+        value: { outcome: 'prepared', continuation: { generation: 2, status: 'prepared' }, goal: { revision: 2 } },
+      });
+      if (!replacement.ok) throw new Error('replacement prepare failed');
+
+      const finished = await goals.finishGoal(actor, {
+        goalId: started.goalId,
+        leaseToken: started.leaseToken!,
+        expectedRevision: replacement.value.goal.revision,
+        status: 'completed',
+        summary: 'Goal completed after host-consumption recovery.',
+        evidence: [],
+      });
+      expect(finished).toMatchObject({
+        ok: true,
+        value: { status: 'completed', scheduledTaskCancellation: { action: 'none', reason: 'no_live_task' } },
+      });
+    } finally {
+      database.close();
+    }
+  });
+
+  it('reconciles an already-consumed native successor after finish without fake deletion or reopening the goal', async () => {
+    const { database, goals, scheduled, clock } = await fixture();
+    try {
+      const started = await startGoal(goals);
+      const prepared = await scheduled.prepareScheduledContinuation(actor, validPrepare(started));
+      expect(prepared.ok).toBe(true);
+      if (!prepared.ok) throw new Error('prepare failed');
+
+      const created = await scheduled.recordScheduledContinuationReceipt(actor, {
+        continuationId: prepared.value.continuation.continuationId,
+        expectedVersion: prepared.value.continuation.version,
+        outcome: 'created',
+        nativeTaskId: 'native-task-finish-consumed',
+        runsOn: 'cloud',
+      });
+      expect(created).toMatchObject({ ok: true, value: { status: 'scheduled' } });
+      if (!created.ok) throw new Error('created receipt failed');
+
+      clock.set('2026-08-27T10:00:10.000Z');
+      const finished = await goals.finishGoal(actor, {
+        goalId: started.goalId,
+        leaseToken: started.leaseToken!,
+        expectedRevision: prepared.value.goal.revision,
+        status: 'completed',
+        summary: 'Completed while the native successor was racing with its one-time host run.',
+        evidence: [],
+      });
+      expect(finished).toMatchObject({
+        ok: true,
+        value: {
+          status: 'completed',
+          scheduledTaskCancellation: {
+            action: 'delete_native_task',
+            nativeTaskId: 'native-task-finish-consumed',
+          },
+        },
+      });
+
+      const cancelRequired = await scheduled.getScheduledContinuation(actor, { goalId: started.goalId, latest: true });
+      expect(cancelRequired).toMatchObject({ ok: true, value: { status: 'cancel_required' } });
+      if (!cancelRequired.ok) throw new Error('cancel-required continuation missing');
+
+      clock.set('2026-08-27T10:00:12.000Z');
+      const consumed = await scheduled.recordScheduledContinuationReceipt(actor, {
+        continuationId: cancelRequired.value.continuationId,
+        expectedVersion: cancelRequired.value.version,
+        outcome: 'consumed',
+        nativeRunReceipt: {
+          provider: 'chatgpt_scheduled_task',
+          operation: 'run',
+          nativeTaskId: 'native-task-finish-consumed',
+          state: 'consumed',
+          observedAt: '2026-08-27T10:00:11.000Z',
+        },
+      });
+      expect(consumed).toMatchObject({ ok: true, value: { status: 'superseded' } });
+      await expect(goals.getGoal(actor, { goalId: started.goalId }))
+        .resolves.toMatchObject({ ok: true, value: { status: 'completed' } });
     } finally {
       database.close();
     }

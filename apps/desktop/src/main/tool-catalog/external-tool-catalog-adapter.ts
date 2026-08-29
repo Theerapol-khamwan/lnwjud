@@ -1,15 +1,26 @@
 import type { ExtensionsService } from '@lnwjud/extensions';
 import type { ToolCatalogItem, UiLocale } from '@lnwjud/ipc-contracts';
 
-export async function projectExternalMcpTools(extensions: ExtensionsService, locale: UiLocale): Promise<readonly ToolCatalogItem[]> {
+export async function projectExternalMcpTools(
+  extensions: ExtensionsService,
+  locale: UiLocale,
+  options: { readonly describeTimeoutMs?: number } = {},
+): Promise<readonly ToolCatalogItem[]> {
   const listed = await extensions.listMcpServers();
   if (!listed.ok) return [];
   const items: ToolCatalogItem[] = [];
+  const describeTimeoutMs = options.describeTimeoutMs ?? 1_500;
   for (const server of listed.value.servers) {
     if (!server.enabled || server.excluded) continue;
-    const described = await extensions.describeMcpServer({ server: server.name });
-    if (!described.ok) {
-      items.push(serverPlaceholder(server.name, locale, server.connected));
+    // Catalog reads must never start or reconnect a disconnected external MCP.
+    // Keep it visible as a setup item and let explicit MCP actions own connection side effects.
+    if (!server.connected) {
+      items.push(serverPlaceholder(server.name, locale, false));
+      continue;
+    }
+    const described = await describeConnectedServerBounded(extensions, server.name, describeTimeoutMs);
+    if (described === null || !described.ok) {
+      items.push(serverPlaceholder(server.name, locale, true));
       continue;
     }
     for (const tool of described.value.tools) {
@@ -37,6 +48,29 @@ export async function projectExternalMcpTools(extensions: ExtensionsService, loc
     }
   }
   return items;
+}
+
+async function describeConnectedServerBounded(
+  extensions: ExtensionsService,
+  serverName: string,
+  timeoutMs: number,
+): Promise<Awaited<ReturnType<ExtensionsService['describeMcpServer']>> | null> {
+  const controller = new AbortController();
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    const timeout = new Promise<null>((resolve) => {
+      timer = setTimeout(() => {
+        controller.abort();
+        resolve(null);
+      }, Math.max(1, timeoutMs));
+    });
+    return await Promise.race([
+      extensions.describeMcpServer({ server: serverName }, controller.signal),
+      timeout,
+    ]);
+  } finally {
+    if (timer !== undefined) clearTimeout(timer);
+  }
 }
 
 function serverPlaceholder(serverName: string, locale: UiLocale, connected: boolean): ToolCatalogItem {

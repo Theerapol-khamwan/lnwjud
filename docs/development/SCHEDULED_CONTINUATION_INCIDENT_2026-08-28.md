@@ -43,7 +43,8 @@ The database was inspected read-only. The historical stale goal was intentionall
 - `successorDelayMinutes` accepts integer values from 2 through 25. Twenty-five is the default/maximum watchdog, not a fixed cadence; bounded phases use shorter delays (normally 10 minutes, or 5 minutes for final verification/packaging).
 - The current run continues immediately after arming the successor. A schedule is recovery insurance, not permission to stop.
 - If a host turn must end while the goal is still active, the exact same native task is moved to `now+2`; no replacement task is created.
-- Claim accepts native wake jitter up to 60 seconds early. Real worker collisions still fail closed into same-task `now+2` rescheduling.
+- Claim accepts native wake jitter up to 120 seconds early. Real worker collisions still fail closed into same-task `now+2` rescheduling.
+- If exact ChatGPT host metadata proves that a native one-time task ran/was consumed while durable state still says pending/live because claim did not complete, record an exact `consumed` host-run receipt. This clears the stale live continuation/fence without claiming goal completion; an active goal then creates a fresh successor.
 - A user request to stop scheduling cancels only the successor. The current run must still wait for recorded background tasks, inspect terminal results, complete acceptance, call `finish_goal`, and confirm `get_goal` is terminal.
 - No completion response is valid while `get_goal` reports `active`.
 - Setup and Portable package the same `lnwjud-scheduled-continuation` skill under `resources/agent-skills`.

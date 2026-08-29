@@ -578,6 +578,31 @@ export class SqliteGoalRepository implements GoalRepository, ScheduledContinuati
         if (request.dueAt !== undefined && request.dueAt !== currentRow.pending_due_at) {
           throw new GoalStateError('conflict', 'Reschedule failure receipt due time does not match the pending update');
         }
+      } else if (request.outcome === 'consumed') {
+        if (
+          currentRow.native_task_id === null
+          || request.nativeRunReceipt === undefined
+          || request.nativeRunReceipt.provider !== 'chatgpt_scheduled_task'
+          || request.nativeRunReceipt.operation !== 'run'
+          || request.nativeRunReceipt.nativeTaskId !== currentRow.native_task_id
+          || request.nativeRunReceipt.state !== 'consumed'
+        ) {
+          throw new GoalStateError('conflict', 'Consumed receipt requires matching native host run evidence');
+        }
+        if (![
+          'scheduled', 'create_uncertain',
+          'reschedule_required', 'reschedule_failed', 'reschedule_uncertain',
+          'cancel_required', 'cancel_failed', 'cancel_uncertain',
+        ].includes(currentRow.status)) {
+          throw new GoalStateError('conflict', `Consumed receipt cannot be recorded from status ${currentRow.status}`);
+        }
+        validateIso(request.nativeRunReceipt.observedAt, 'native run observed_at');
+        if (Date.parse(request.nativeRunReceipt.observedAt) < Date.parse(currentRow.created_at)) {
+          throw new GoalStateError('conflict', 'Native run evidence predates scheduled continuation creation');
+        }
+        nextStatus = 'superseded';
+        pendingDueAt = null;
+        rescheduleReason = null;
       } else if (request.outcome === 'cancelled') {
         if (!['cancel_required', 'cancel_failed', 'cancel_uncertain'].includes(currentRow.status)) {
           throw new GoalStateError('conflict', `Cancelled receipt cannot be recorded from status ${currentRow.status}`);
@@ -1545,6 +1570,7 @@ function isLiveScheduledStatus(value: string): boolean {
 
 function receiptStatus(outcome: RecordScheduledContinuationReceiptRecordRequest['outcome']): ScheduledContinuationStatus {
   if (outcome === 'created' || outcome === 'rescheduled') return 'scheduled';
+  if (outcome === 'consumed') return 'superseded';
   return outcome;
 }
 

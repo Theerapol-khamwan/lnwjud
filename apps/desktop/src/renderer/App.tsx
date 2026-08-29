@@ -243,8 +243,12 @@ export function App(): ReactElement {
     }
 
     setStartupDoctorReady(false);
-    void window.lnwjud.runDoctor().then((report) => {
+    void Promise.all([
+      window.lnwjud.runDoctor(),
+      window.lnwjud.getToolCatalog({ locale }),
+    ]).then(([report, catalog]) => {
       setDoctor(report);
+      setToolCatalog(catalog);
       if (startupDoctorCorePassed(report)) {
         try { markStartupDoctorPassed(window.localStorage, appVersion); } catch { /* Re-run next launch if storage is unavailable. */ }
         setStartupDoctorReady(true);
@@ -517,7 +521,11 @@ export function App(): ReactElement {
   async function changeLocale(next: UiLocale): Promise<void> {
     await window.lnwjud.setLocale({ locale: next });
     setLocale(next);
+    const catalogPromise = screen === 'tools' || screen === 'doctor' ? window.lnwjud.getToolCatalog({ locale: next }) : null;
+    const doctorPromise = screen === 'doctor' ? window.lnwjud.runDoctor() : null;
     await refresh();
+    if (catalogPromise !== null) setToolCatalog(await catalogPromise);
+    if (doctorPromise !== null) setDoctor(await doctorPromise);
   }
 
   async function setUserSettings(settings: UserSettings): Promise<boolean> {
@@ -569,8 +577,12 @@ export function App(): ReactElement {
 
   async function runDoctor(): Promise<void> {
     try {
-      const report = await window.lnwjud.runDoctor();
+      const [report, catalog] = await Promise.all([
+        window.lnwjud.runDoctor(),
+        window.lnwjud.getToolCatalog({ locale }),
+      ]);
       setDoctor(report);
+      setToolCatalog(catalog);
       if (startupDoctorCorePassed(report) && appVersion !== null) {
         try { markStartupDoctorPassed(window.localStorage, appVersion); } catch { /* Re-run next launch if storage is unavailable. */ }
         startupDoctorVersion.current = appVersion;

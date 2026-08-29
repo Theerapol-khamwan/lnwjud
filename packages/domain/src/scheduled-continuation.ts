@@ -51,6 +51,7 @@ export type ScheduledContinuationReceiptOutcome =
   | 'rescheduled'
   | 'reschedule_failed'
   | 'reschedule_uncertain'
+  | 'consumed'
   | 'cancelled'
   | 'cancel_failed'
   | 'cancel_uncertain';
@@ -67,6 +68,14 @@ export interface ScheduledContinuationNativeCancellationReceipt {
   readonly operation: 'delete';
   readonly nativeTaskId: string;
   readonly state: 'deleted' | 'not_found';
+  readonly observedAt: string;
+}
+
+export interface ScheduledContinuationNativeRunReceipt {
+  readonly provider: 'chatgpt_scheduled_task';
+  readonly operation: 'run';
+  readonly nativeTaskId: string;
+  readonly state: 'consumed';
   readonly observedAt: string;
 }
 
@@ -141,6 +150,7 @@ export interface RecordScheduledContinuationReceiptRecordRequest {
   readonly nativeTaskId?: string;
   readonly dueAt?: string;
   readonly runsOn?: ScheduledContinuationRunsOn;
+  readonly nativeRunReceipt?: ScheduledContinuationNativeRunReceipt;
   readonly nativeCancellationReceipt?: ScheduledContinuationNativeCancellationReceipt;
   readonly detail?: string;
   readonly now: string;

@@ -20,6 +20,11 @@ export const KNOWN_TOOL_REQUIREMENT_IDS = Object.freeze([
   'scheduler_runtime',
   'tunnel_runtime',
   'external_mcp_connection',
+  'local_pdf_provider',
+  'configured_lsp',
+  'database_target',
+  'windows_sandbox',
+  'browser_event_stream',
   'feature_delivery',
 ] as const);
 
@@ -99,7 +104,12 @@ function requirementsFor(name: string, category: ToolCategory): readonly string[
   if (/^input_event$/.test(name)) { ids.add('platform_windows'); ids.add('windows_input'); }
   if (/^window$/.test(name)) { ids.add('platform_windows'); ids.add('windows_window'); }
   if (/^vision/.test(name)) { ids.add('platform_windows'); ids.add('windows_ocr'); }
-  if (category === 'office_media') ids.add('office_desktop');
+  if (name === 'office' || /^office_(ppt|outlook)$/.test(name) || name === 'inspect_workbook' || name === 'docx_merge') ids.add('office_desktop');
+  if (name === 'inspect_pdf' || name === 'pdf_extract_tables') ids.add('local_pdf_provider');
+  if (name === 'lsp_diagnostics' || name === 'lsp_rename') ids.add('configured_lsp');
+  if (name === 'db_inspect' || name === 'db_query') ids.add('database_target');
+  if (name === 'sandbox_exec') ids.add('windows_sandbox');
+  if (name === 'network_context' || name === 'console_context') ids.add('browser_event_stream');
   if (/^(web_fetch$|network_context$|mcp_)/.test(name)) ids.add('network_access');
   if (/^scheduler$/.test(name)) { ids.add('platform_windows'); ids.add('scheduler_runtime'); }
   if (/^(windows_environment$|service_context$|process_context$|port_context$|registry_context$|event_log_context$|installed_runtime_context$|path_context$|startup_context$|event_watch$|crash_trace$|sandbox_exec$)/.test(name)) ids.add('platform_windows');

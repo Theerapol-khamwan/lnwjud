@@ -296,7 +296,7 @@ The stable flow is:
 3. Enter a name/description, choose **Tunnel** under Connection, and select the
    associated `lnwjud` tunnel or enter its `tunnel_id`.
 4. Create the connection and review the discovered tools and metadata.
-5. Confirm that the default runtime exposes **219 tools** (or **225** when Codex delegation is explicitly enabled) and run a read-only
+5. Confirm that the default runtime exposes **195 tools** (or **201** when Codex delegation is explicitly enabled) and run a read-only
    smoke test before trying writes.
 
 Example smoke test:
@@ -915,239 +915,239 @@ After changing tool metadata or restarting the tunnel, refresh the connector and
 
 This complete index is generated from `ToolRegistry.listAll()`, not copied from an older release document. The default `tools/list` surface advertises only operational or dependency-gated definitions; planned and feature-disabled definitions remain visible here without being advertised. Enabling Codex delegation adds its six operational definitions to the advertised surface.
 
-| # | Tool | Permission | Runtime description |
-| ---: | --- | --- | --- |
-| 1 | `workspace_list` | READ | List registered project workspaces available to lnwjud. Legacy explicitly registered drive roots may also appear as kind=machine_root. |
-| 2 | `workspace_register` | WRITE | Register an existing project directory by absolute path. parentWorkspaceId is optional and retained only for legacy machine-root-relative registration. Idempotent for the same path. |
-| 3 | `workspace_info` | READ | Return the configured workspace summary. |
-| 4 | `workspace_tree` | READ | List a bounded workspace tree. Absolute path does not require workspaceId. |
-| 5 | `project_snapshot` | READ | Return a bounded project snapshot without source contents. |
-| 6 | `read_file` | READ | Read a workspace file as UTF-8 text or as an image/binary payload. Absolute paths (C:\...) do not require workspaceId. For large files or an unknown location, prefer search_text first and then read_file_page for the relevant range instead of reading the whole file. |
-| 7 | `read_files` | READ | Read up to twenty bounded workspace files in parallel. Absolute paths do not require workspaceId. For large files, locate text with search_text and page with read_file_page instead of loading entire files. |
-| 8 | `search_files` | READ | Search workspace filenames with automatic context-economy filters; set includeIgnored for an explicit full path search. Absolute path does not require workspaceId. |
-| 9 | `search_text` | READ | Preferred tool to locate relevant code/lines before reading files. Searches workspace text using direct ripgrep arguments with automatic binary/generated filters; set includeIgnored for an explicit full path search. Absolute path does not require workspaceId. Follow with read_file_page for large files. |
-| 10 | `git_status` | READ | Inspect parsed read-only Git status. For writes (init, add, commit, remote, push, rm, clean, reset) use the git tool. |
-| 11 | `git_diff` | READ | Return a bounded read-only Git diff. For writes use the git tool. |
-| 12 | `git_log` | READ | Return bounded structured Git history. For writes use the git tool. |
-| 13 | `git` | EXECUTE | Run a Git subcommand with a separate args array. With Full Bypass OFF, Full Access runs ordinary read and non-destructive Git mutations without confirmation while destructive/data-loss forms, scope overrides, aliases, unsafe pathspecs, unknown commands, and destructive remote/history rewrites remain guarded or denied. Trusted Full Bypass skips lnwjud approval, command-policy, and Active Project scope checks, including explicitly absolute outside paths, without bypassing Git or OS errors. Do not wrap Git in PowerShell/cmd. |
-| 14 | `write_file` | WRITE | Create or replace a UTF-8 text file and missing parents. Balanced/Safe refuse existing targets unless overwriteExisting is explicit; Full may replace an existing target without a confirmation prompt and still creates a checkpoint. Prefer edit_file for narrow repairs. Use this instead of shell scripts that call fs.writeFile, writeFileSync, Set-Content, or equivalent when the task is simply to create or replace guarded text. |
-| 15 | `apply_patch` | WRITE | Apply reviewed whole-file replacement content to at most twenty files. Existing targets are checkpointed first; Full profile does not prompt for non-destructive replacement. Prefer edit_file for narrow repairs. Use this instead of shell-generated whole-file rewrites when several reviewed text files must change. |
-| 16 | `edit_file` | WRITE | First choice for narrow source, config, and text repairs. Replaces exact text only when the expected occurrence count matches, checkpoints the original, and refuses conflicts instead of rewriting an unverified whole file. Use edit_file instead of shell, node -e, python -c, PowerShell Set-Content, or inline filesystem scripts when a guarded text edit can express the change. Full Access performs ordinary edits without a confirmation prompt; destructive deletion remains separately guarded. |
-| 17 | `move_file` | WRITE | Move a file or directory, creating missing destination parents. With Full Bypass OFF, Full Access performs ordinary in-project moves without a confirmation prompt while conflicting or destructive forms remain policy-gated. Trusted Full Bypass skips lnwjud approval/scope checks for explicit absolute outside paths; OS/filesystem errors still apply. |
-| 18 | `copy_file` | WRITE | Copy a file or directory within one workspace, creating missing destination parents. |
-| 19 | `delete_file` | DANGEROUS | Delete one file or empty directory. With Full Bypass OFF, eligible in-project targets move to Recovery Trash and exact safe targets can use scoped auto-approval; critical paths, roots, non-empty directories, ambiguous paths, and mismatched workspaces remain guarded. Trusted Full Bypass skips lnwjud approval/scope checks and permits an exact absolute outside target, which is deleted without Recovery Trash; root and non-empty-directory input guards still apply. |
-| 20 | `list_recovery_items` | READ | List trusted Recovery Trash entries for one workspace, including deleted items, binary pre-replacement backups, original paths, timestamps, payload availability, and the local Recovery Trash root. |
-| 21 | `restore_deleted_file` | WRITE | Restore one Recovery Trash item to its original path. Deleted-item restores refuse existing targets. A pre-replacement restore first backs up the current live version for undo, then restores the older binary or text payload. Full runs recoverable restores without an extra prompt; stricter profiles may require confirmation. The operation remains scoped to the recorded workspace. |
-| 22 | `list_checkpoints` | READ | List encrypted pre-mutation checkpoints for one workspace without returning saved file content. |
-| 23 | `restore_checkpoint` | WRITE | Restore a reviewed pre-mutation checkpoint. Standard mode requires explicit confirmation; trusted Full Bypass skips the lnwjud confirmation gate. A new rollback checkpoint is created before replacing current content when the target is inside a recoverable workspace. |
-| 24 | `process_start` | EXECUTE | Immediate-return managed process launcher for real executables and long-lived processes. With Full Bypass OFF, inline text-file rewrites must use edit_file/apply_patch/write_file and risky commands, scope changes, or permission-profile ASK decisions require confirmation. Trusted Full Bypass skips lnwjud command/profile/scope approval, including an explicitly absolute cwd outside the Active Project; input validation, executable availability, OS rights, and exact process ownership still apply. Starts one executable with separate arguments and returns processId as soon as the child is spawned; it never waits for command completion. Follow with process_status/process_logs/process_stop. For restart-safe durable work, use shell, whose MCP run mode is forced to background. |
-| 25 | `process_list` | READ | List managed process handles owned by this client in a workspace, including launches whose response was cancelled. |
-| 26 | `process_status` | READ | Read one status snapshot for an owned process handle. Do not tight-poll this tool; use project_* for normal project verification, or shell background + durable task_id for work expected to exceed ~5 minutes. |
-| 27 | `process_logs` | READ | Read bounded logs for an owned process handle. Prefer one bounded log read after meaningful progress rather than repeated status polling. |
-| 28 | `process_stop` | EXECUTE | Stop an owned managed process tree after explicit chat confirmation in standard mode. Trusted Full Bypass skips the lnwjud confirmation gate; exact process ownership still applies. |
-| 29 | `project_dev` | EXECUTE | Immediate-return launcher for the detected project dev command. In standard mode the gateway previews the exact executable/argv for host approval and re-resolves it immediately before spawn; any change requires fresh approval. Trusted Full Bypass skips the lnwjud approval boundary. Project-owned script bodies remain opaque and are not covered by Recovery Trash. |
-| 30 | `project_test` | EXECUTE | Immediate-return launcher for the detected project test command. In standard mode the gateway previews the exact executable/argv for host approval and re-resolves it immediately before spawn; any change requires fresh approval. Trusted Full Bypass skips the lnwjud approval boundary. Project-owned script bodies remain opaque and are not covered by Recovery Trash. |
-| 31 | `project_lint` | EXECUTE | Immediate-return launcher for the detected project lint command. In standard mode the gateway previews the exact executable/argv for host approval and re-resolves it immediately before spawn; any change requires fresh approval. Trusted Full Bypass skips the lnwjud approval boundary. Project-owned script bodies remain opaque and are not covered by Recovery Trash. |
-| 32 | `project_typecheck` | EXECUTE | Immediate-return launcher for the detected project typecheck command. In standard mode the gateway previews the exact executable/argv for host approval and re-resolves it immediately before spawn; any change requires fresh approval. Trusted Full Bypass skips the lnwjud approval boundary. Project-owned script bodies remain opaque and are not covered by Recovery Trash. |
-| 33 | `project_build` | EXECUTE | Immediate-return launcher for the detected project build command. In standard mode the gateway previews the exact executable/argv for host approval and re-resolves it immediately before spawn; any change requires fresh approval. Trusted Full Bypass skips the lnwjud approval boundary. Project-owned script bodies remain opaque and are not covered by Recovery Trash. |
-| 34 | `codex_status` | READ | Report local Codex installation and capabilities without credential inspection. |
-| 35 | `codex_run` | EXECUTE | Delegate an instruction to the local Codex CLI in the Active Project. Starting Codex requires explicit chat confirmation and host approval in standard mode; trusted Full Bypass skips those lnwjud application checks without forging userConfirmed. |
-| 36 | `codex_task_list` | READ | List local Codex task handles owned by this client, including launches whose response was cancelled. |
-| 37 | `codex_task_status` | READ | Read status for an owned Codex task. |
-| 38 | `codex_task_logs` | READ | Read bounded logs for an owned Codex task. |
-| 39 | `codex_stop` | EXECUTE | Stop an owned Codex task process after explicit chat confirmation in standard mode. Trusted Full Bypass skips the lnwjud confirmation gate; task ownership still applies. |
-| 40 | `shell` | EXECUTE | Non-blocking command runner for real command execution, builds/tests, package managers, and system operations. Never use shell as a source/config/text editor. For any direct text-file change, call edit_file first; use apply_patch for reviewed whole-file or multi-file replacements and write_file for file creation/replacement. Inline Node/Python/PowerShell/sed commands that rewrite text files are rejected before native approval so the client can route to the guarded file tools instead. MCP run calls are ALWAYS forced to execution=background, even if a client requests foreground or auto, so the call returns a task_id immediately instead of waiting for command completion. Follow with status/logs/result; wait uses the user-configurable MCP poll window (5-60 seconds, default 5). When the user requires babysitting until completion, keep using bounded waits and do not report completion until the terminal result is inspected. Otherwise, if the host turn must yield while a durable task is still running, checkpoint its task_id and use the active scheduled-continuation handoff instead of abandoning the goal. With Full Bypass OFF, Full Access runs ordinary policy-allowed commands without confirmation while destructive, broad, recursive, critical, outside-project, or unparseable forms retain normal approval/command policy. Trusted Full Bypass skips lnwjud approval, command-policy, Active Project, goalLease, and allowed-root checks, including an explicitly absolute cwd outside the project; input validation, executable availability, Windows ACL/UAC, and child-process failures still apply. dry_run and task observation are non-mutating. |
-| 41 | `dom_cdp` | READ | Default for web-page DOM work inside managed Chrome: inspect content, query selectors, click, type, navigate, evaluate JavaScript, wait, manage tabs, and capture screenshots. In standard mode, any action that can change local or remote state requires explicit chat confirmation and host approval. Trusted Full Bypass skips lnwjud approval without forging userConfirmed. Use steps to batch related DOM actions in one call. |
-| 42 | `computer_use` | EXECUTE | Codex-style native Windows computer use for testing desktop apps. Take annotated screenshots, inspect semantic controls, and operate by semantic target, numbered visual mark, or explicit coordinates. Routes through Accessibility first and uses guarded pointer/keyboard input only when needed. Supports click, typing, keys, hotkeys, scroll, drag, pointer movement, and window activation. |
-| 43 | `accessibility` | READ | Semantic native Windows UI tool. Inspect UI trees and named controls, then click, focus, read or set values, select controls and menus, or manage a native element. Prefer shell for direct system work and dom_cdp for web pages. |
-| 44 | `input_event` | EXECUTE | Low-level keyboard and pointer fallback. Use only when DOM/CDP and Accessibility cannot operate the target. Supports text, keys, mouse movement, clicks, drag, scroll, held buttons, release_all, and batched sequences. |
-| 45 | `vision` | READ | Visual and OCR fallback for content unavailable through DOM or Accessibility. Capture a display, window, or region, or run local Vision OCR. It never clicks or types. |
-| 46 | `vision_annotated_capture` | READ | Capture a local Windows screen/region/window and return a short-lived Set-of-Marks observation with numbered bounds, a content hash, and an annotated PNG. This tool only observes; use ui_target_action for a separately gated action. |
-| 47 | `ui_target_action` | EXECUTE | Act on one mark from a current vision_annotated_capture observation. The observation ID, optional hash, TTL, workspace owner, and current Accessibility element are checked before the action is sent. |
-| 48 | `window` | EXECUTE | Direct native Windows window management. List, inspect, activate, move, resize, minimize, maximize, restore, or close windows without raw coordinates when a window operation is sufficient. |
-| 49 | `health` | READ | Diagnostics only. Check all lnwjud backends or one public tool after a failure, when asked for status, or while diagnosing permissions. Do not use as a preflight before normal work. |
-| 50 | `system_info` | READ | Read-only system information: OS, CPU, memory, disks, battery, uptime, and top processes by memory. Use for environment checks and diagnostics. |
-| 51 | `notification` | EXECUTE | Show a Windows notification (toast when BurntToast is installed, balloon otherwise). Use to tell the user when a long task finishes. |
-| 52 | `file_dialog` | EXECUTE | Open a native Windows file open/save dialog and return the chosen path(s). The dialog does not read or write files itself; use the guarded file tools afterwards. |
-| 53 | `clipboard` | EXECUTE | Read or write the Windows clipboard (text, or PNG image as base64). Use get_text/get_image to read and set_text to write. |
-| 54 | `web_fetch` | READ | Fetch an http/https URL (GET/POST/PUT/DELETE/HEAD) with bounded size and timeout. In standard mode every POST, PUT, or DELETE requires explicit chat confirmation and host approval; trusted Full Bypass skips lnwjud approval. dry_run remains safe. Returns status, headers, and text or base64 body. |
-| 55 | `audio` | EXECUTE | Record the microphone to a WAV file or play a local audio file through MCI. In standard mode recording requires the host-selected Active Project workspaceId and explicit confirmation; trusted Full Bypass skips lnwjud approval/scope checks. Existing in-workspace outputs use Recovery Trash before replacement when available. record is synchronous and limited to 600 seconds. Use stop to abort an ongoing record/play. |
-| 56 | `screen_record` | EXECUTE | Record the screen to an MP4 using ffmpeg gdigrab (requires ffmpeg on PATH). In standard mode starting a recording requires the host-selected Active Project workspaceId and explicit confirmation; trusted Full Bypass skips lnwjud approval/scope checks. Existing in-workspace outputs use Recovery Trash before replacement when available. start spawns a background capture, status checks it, stop finalizes the file. Recording stops automatically after 3600 seconds. |
-| 57 | `office` | WRITE | Automate Excel, Word, PowerPoint, or Outlook through COM. In standard mode every write, replace, merge, or save_as action requires an Active Project workspaceId, explicit chat confirmation, and host approval. Trusted Full Bypass skips lnwjud approval/scope checks without forging userConfirmed. Existing in-workspace targets use Recovery Trash before replacement when available. Requires Microsoft Office installed. |
-| 58 | `scheduler` | EXECUTE | Manage Windows scheduled tasks with schtasks.exe. list is read-only; in standard mode create, run, and delete require explicit chat confirmation and host approval. Trusted Full Bypass skips lnwjud approval without forging userConfirmed. |
-| 59 | `wsl_exec` | EXECUTE | Non-blocking WSL2 developer runner for one Linux executable plus argv; shell command strings are not accepted. Do not use wsl_exec as a source/config/text editor. For any direct text-file change, call edit_file first; use apply_patch for reviewed whole-file or multi-file replacements and write_file for file creation/replacement. Inline Node/Python/PowerShell-style rewrites and sed in-place edits are rejected before native approval so the client can route to guarded file tools. MCP run calls are ALWAYS forced to execution=background, even if a client requests foreground or auto, and return a task_id immediately. Follow with status/logs/result; wait uses the user-configurable MCP poll window (5-60 seconds, default 5). When the user requires babysitting until completion, keep using bounded waits and do not report completion until the terminal result is inspected. Otherwise, if the host turn must yield while a durable task is still running, checkpoint its task_id and use the active scheduled-continuation handoff instead of abandoning the goal. With Full Bypass OFF, Full Access runs ordinary WSL commands without confirmation while destructive, broad, recursive, outside-project, or unparseable forms retain normal approval/command policy. Trusted Full Bypass skips lnwjud approval, command-policy, Active Project, goalLease, and allowed-root checks, including an explicitly requested external cwd; WSL availability, argv validation, Linux permissions, and process failures still apply. |
-| 60 | `wsl_fs` | READ | Translate paths and inspect metadata between a registered Windows workspace and WSL without exposing raw \\wsl$ read/write access. |
-| 61 | `skills_list` | READ | List the union of bundled skills and every discovered machine-global or active-workspace skill from Cursor, Claude, Agents, Codex, the Codex plugin cache, GitHub workspace roots, and lnwjud settings. Nested and symlinked skill collections are included. Filter with query or source. |
-| 62 | `skills_read` | READ | Read a local skill SKILL.md (or a relative file inside the skill folder). Prefer the source-qualified id returned by skills_list; an unambiguous bare name or $name is also accepted. Follow the skill instructions with lnwjud tools and mcp_call. |
-| 63 | `mcp_list` | READ | List local MCP servers discovered from Cursor, Claude Desktop, and lnwjud settings. This inspection is read-only and does not flatten child tools into the lnwjud catalog. |
-| 64 | `mcp_describe` | READ | Connect to one local MCP server (if needed) and return its tool names, descriptions, and input schemas. This operation only inspects the child tool catalog. |
-| 65 | `mcp_call` | DANGEROUS | Call a tool on a discovered local MCP server. Child side effects and filesystem/network scope are controlled by that child server, so standard mode treats every mcp_call as opaque mutation and requires explicit chat plus host exact-action approval. Trusted Full Bypass skips lnwjud application approval; the child server still enforces its own policy. |
-| 66 | `workspace_context` | READ | Aggregate ranked workspace context with snippets, symbols, Git/test relevance, economy metadata, and continuation; automatic discovery can be explicitly expanded. |
-| 67 | `workspace_context_continue` | READ | Continue a workspace_context result without discarding unreturned candidates. |
-| 68 | `workspace_full_scan` | READ | Enumerate workspace files with full access by default; set includeIgnored false to use the persistent automatic index. |
-| 69 | `workspace_full_scan_continue` | READ | Continue a workspace_full_scan result page. |
-| 70 | `workspace_snapshot` | READ | Return workspace identity and project snapshot metadata without source contents. |
-| 71 | `search_all` | READ | Search text and filenames across one or all registered workspaces with automatic economy filters or an explicit includeIgnored override. |
-| 72 | `read_many_files` | READ | Read many workspace files in parallel while preserving one result or error per requested path. |
-| 73 | `read_file_page` | READ | Preferred reader for large files after search_text identifies the relevant area. Reads a deterministic line chunk with explicit continuation instead of silently truncating or loading the whole file. |
-| 74 | `read_file_page_continue` | READ | Continue read_file_page from the next deterministic line chunk only when more surrounding context is needed; avoid re-reading earlier pages. |
-| 75 | `workspace_index` | READ | Build or refresh the persistent workspace index using automatic context filters unless ignored paths are explicitly included. |
-| 76 | `workspace_index_status` | READ | Return persistent index metadata and lossless watcher queue telemetry. |
-| 77 | `workspace_index_watch` | READ | Watch all workspace paths and incrementally re-index only changed paths with configurable debounce/concurrency. |
-| 78 | `workspace_index_stop` | READ | Stop a workspace watcher after draining all queued path updates. |
-| 79 | `session_handoff` | READ | Create a concise same-chat recovery message from the real phase tracker, current git status/diff, and durable background task IDs. Use only when the user requests a handoff or an unavoidable client/platform interruption requires recovery; never trigger it merely because elapsed time passed. If a tool schema looks stale, Refresh connector first; open a new chat only if refresh does not fix it. |
-| 80 | `verify_incremental` | EXECUTE | Run the detected project typecheck only when the current git status/diff fingerprint changed. Starting a new verification process requires explicit user confirmation in standard mode; trusted Full Bypass skips that lnwjud gate. Returns cache=hit when unchanged and cache=miss after a new verification. Prefer this during iterative edits; use project_test/project_lint/project_build only when that specific verification is needed. For full suites or packaging expected to exceed ~5 minutes, launch a durable shell background task and record its task_id in the tracker. |
-| 81 | `run_goal` | WRITE | Immediate-return durable goal create/resume and lease acquisition. It never runs a model or waits for foreground work. |
-| 82 | `get_goal` | READ | Read the latest durable goal snapshot without changing state or returning a lease token. |
-| 83 | `checkpoint_goal` | WRITE | Atomically checkpoint durable goal progress using the current lease and expected revision. |
-| 84 | `finish_goal` | WRITE | Finish the local durable goal using lease/revision compare-and-swap. It must be called before any completion report, even when scheduling was disabled or the user requested no more successors. If scheduledTaskCancellation requests delete_native_task, delete that exact task through the native ChatGPT Scheduled Task host, record its native deletion receipt, and verify status=cancelled before reporting cancellation success. |
-| 85 | `cancel_goal` | WRITE | Cancel a durable goal independently of any scheduled successor. It records the goal as cancelled, aborts in-flight fenced MCP requests for that goal, and attempts to stop every tracked process, Codex task, and shell task across the current runtime and durable task store; inspect requestCancellation, taskCancellations, and allRequestsStopped/allTasksStopped for unresolved work. If scheduledTaskCancellation requests delete_native_task, use cancel_scheduled_continuation separately and complete the exact native ChatGPT host deletion receipt. |
-| 86 | `list_goals` | READ | List a bounded set of durable goals owned by the current stable MCP client, optionally filtered by workspace/status. |
-| 87 | `prepare_scheduled_continuation` | WRITE | Checkpoint and reserve exactly one current-chat cloud successor with an adaptive delay between 2 and 25 minutes. The 25-minute default is a maximum watchdog, while bounded final work may use a shorter delay. This workflow never creates or deletes the native task itself. |
-| 88 | `record_scheduled_continuation_receipt` | WRITE | Record host-owned cloud one-time task create, same-task reschedule, or cancellation receipts. Cancelled is accepted only with a matching native ChatGPT host deletion receipt; a model assertion is not cancellation proof. The stored native task ID is immutable across reschedules. |
-| 89 | `claim_scheduled_continuation` | WRITE | Scheduled-wake entrypoint. Claim before workspace mutation; a confirmed cloud wake up to 60 seconds early is accepted so a one-time task is not consumed without handoff. If native task creation was never confirmed, returns receipt_required for reconciliation. On an active-worker collision, update the exact existing native one-time cloud task to now+2 minutes. If the outcome is terminal_noop, let the already-firing one-time host task return naturally so the host can mark it completed; do not delete, disable, pause, or reschedule that current wake. Do not mutate the workspace, create a replacement task, mark the goal terminal, or stop an active durable chain. |
-| 90 | `get_scheduled_continuation` | READ | Read one scheduled-continuation snapshot by continuation ID or the latest record for a goal. A healthy current run keeps its adaptive watchdog unless a real turn-yield signal requires same-task +2 handoff. |
-| 91 | `expedite_scheduled_continuation` | WRITE | For an enumerated handoff-risk signal, including a turn that is about to end while the goal is unfinished, move the exact existing cloud one-time native task to now+2 minutes. No replacement task is created. |
-| 92 | `cancel_scheduled_continuation` | WRITE | Cancel one still-pending scheduled successor independently of its goal. Identify it by continuationId or the latest record for a goal, then use the returned cancellation instruction to delete the exact pending native ChatGPT Scheduled Task and record its host receipt. Never treat pausing/disabling an already-fired current wake as deletion or completion proof. This does not cancel the durable goal or stop its running tasks. |
-| 93 | `symbol_search` | READ | Search indexed symbols across the workspace. |
-| 94 | `find_definition` | READ | Find deterministic symbol definitions. |
-| 95 | `find_references` | READ | Find textual and indexed references to a symbol. |
-| 96 | `find_implementations` | READ | Find interface and class implementations. |
-| 97 | `call_hierarchy` | READ | Return a deterministic call hierarchy approximation. |
-| 98 | `import_graph` | READ | Return indexed imports and exports for a module. |
-| 99 | `dependency_graph` | READ | Return package and module dependency metadata. |
-| 100 | `module_graph` | READ | Return the workspace module graph. |
-| 101 | `type_search` | READ | Search indexed TypeScript, JavaScript, and Python types. |
-| 102 | `trace_symbol` | READ | Combine definition, references, imports, tests, and recent context. |
-| 103 | `context_ranking` | READ | Explain ranking signals without removing lower-ranked context. |
-| 104 | `debug_context` | READ | Gather deterministic debugging context and continuation metadata. |
-| 105 | `review_context` | READ | Gather code-review context. |
-| 106 | `change_context` | READ | Gather changed files, symbols, dependencies, and tests. |
-| 107 | `symbol_context` | READ | Gather context around a symbol. |
-| 108 | `test_context` | READ | Gather relevant test context. |
-| 109 | `dependency_context` | READ | Gather dependency-related context. |
-| 110 | `git_context` | READ | Gather Git status, diff, and history context. |
-| 111 | `frontend_context` | READ | Gather frontend project context. |
-| 112 | `backend_context` | READ | Gather backend project context. |
-| 113 | `route_intent` | READ | Classify a prompt with a deterministic, overridable route. |
-| 114 | `recipe_list` | READ | List built-in and user recipe names. |
-| 115 | `recipe_describe` | READ | Describe a recipe plan and permissions. |
-| 116 | `recipe_run` | EXECUTE | Preview or run a deterministic recipe plan. |
-| 117 | `dry_run` | READ | Return a no-side-effect execution preview. |
-| 118 | `review_changes` | READ | Review current Git changes and affected context. |
-| 119 | `changed_symbols` | READ | Find symbols in changed files. |
-| 120 | `affected_modules` | READ | Find modules affected by current changes. |
-| 121 | `git_history_context` | READ | Return relevant recent Git history. |
-| 122 | `git_blame_context` | READ | Return line ownership context for a file. |
-| 123 | `discover_tests` | READ | Discover project tests without imposing an execution limit. |
-| 124 | `run_affected_tests` | EXECUTE | Plan or run tests affected by changed files. |
-| 125 | `test_failures` | READ | Summarize recorded test failures. |
-| 126 | `coverage_context` | READ | Return coverage context when project tooling provides it. |
-| 127 | `test_history` | READ | Return recent test execution history. |
-| 128 | `cache_stats` | READ | Return shared cache hit/miss telemetry. |
-| 129 | `cache_clear` | WRITE | Clear safe local runtime caches. |
-| 130 | `cache_invalidate` | WRITE | Invalidate cache entries for a path or workspace. |
-| 131 | `hook_list` | READ | List registered lifecycle hooks. |
-| 132 | `hook_register` | WRITE | Register a deterministic lifecycle hook descriptor. |
-| 133 | `hook_remove` | WRITE | Remove a lifecycle hook descriptor. |
-| 134 | `skill_match` | READ | Match relevant local skills without loading all skill text. |
-| 135 | `skill_load` | READ | Load a selected local skill by identifier. |
-| 136 | `plugin_install` | WRITE | Register a declared plugin descriptor after validation and permission evaluation. |
-| 137 | `plugin_list` | READ | List installed and enabled plugins. |
-| 138 | `plugin_enable` | WRITE | Enable an installed plugin. |
-| 139 | `plugin_disable` | WRITE | Disable an installed plugin. |
-| 140 | `plugin_remove` | DANGEROUS | Remove an installed plugin. |
-| 141 | `session_context` | READ | Return persisted development-session context. |
-| 142 | `session_checkpoint` | WRITE | Persist a development-session checkpoint. |
-| 143 | `session_resume` | READ | Resume a persisted session context. |
-| 144 | `session_history` | READ | Return session checkpoints and decisions. |
-| 145 | `response_mode` | READ | Select compact, normal, verbose, or stream formatting. |
-| 146 | `inspect_web_app` | READ | Combine DOM, console, network, URL, and screenshot metadata. |
-| 147 | `debug_ui` | READ | Gather deterministic UI debugging context. |
-| 148 | `capture_ui_state` | READ | Capture a structured UI state. |
-| 149 | `form_context` | READ | Inspect form controls and values metadata. |
-| 150 | `network_context` | READ | Summarize browser network context when a retained CDP network event stream is available. |
-| 151 | `console_context` | READ | Summarize browser console context when a retained CDP Runtime/Log event stream is available. |
-| 152 | `browser_debug_context` | READ | Combine browser diagnostics for one request. |
-| 153 | `windows_environment` | READ | Inspect Windows environment metadata. |
-| 154 | `service_context` | READ | Inspect Windows service metadata. |
-| 155 | `process_context` | READ | Inspect process-tree context. |
-| 156 | `port_context` | READ | Inspect local listening-port context. |
-| 157 | `registry_context` | READ | Inspect registry context through the Windows capability boundary. |
-| 158 | `event_log_context` | READ | Inspect Windows event-log context. |
-| 159 | `installed_runtime_context` | READ | Inspect installed runtimes and package managers. |
-| 160 | `path_context` | READ | Resolve executable and PATH context. |
-| 161 | `startup_context` | READ | Inspect startup configuration context. |
-| 162 | `mcp_discover` | READ | Discover external MCP servers without flattening native tools. |
-| 163 | `mcp_health` | READ | Return external MCP connection health. |
-| 164 | `mcp_resources` | READ | List resources exposed by connected MCP servers when the child server supports resources/list. |
-| 165 | `task_create` | EXECUTE | Create a visible managed runtime task. |
-| 166 | `task_status` | READ | Read managed task state. |
-| 167 | `task_cancel` | EXECUTE | Cancel a managed runtime task. |
-| 168 | `task_result` | READ | Read a managed task result. |
-| 169 | `task_list` | READ | List managed runtime tasks. |
-| 170 | `delegate` | EXECUTE | Delegate a task through a policy/audit adapter. |
-| 171 | `delegate_status` | READ | Read delegated agent state. |
-| 172 | `delegate_cancel` | EXECUTE | Cancel a delegated agent task. |
-| 173 | `delegate_result` | READ | Read delegated agent result. |
-| 174 | `parallel_delegate` | EXECUTE | Run isolated read-only agent tasks with collision metadata. |
-| 175 | `permission_check` | READ | Evaluate an action class without limiting allowed context reads. |
-| 176 | `permission_profile` | READ | Return the active Permission v2 profile. |
-| 177 | `live_logs_query` | READ | Query structured activity/log metadata with correlation IDs. |
-| 178 | `live_logs_status` | READ | Return Live Logs pipeline health and source status. |
-| 179 | `telemetry_dashboard` | READ | Return runtime performance telemetry. |
-| 180 | `context_economy_stats` | READ | Return context discovery, deduplication, ledger, and token-efficiency telemetry. |
-| 181 | `execution_plan` | READ | Return the cheapest deterministic execution plan and reason. |
-| 182 | `repo_map` | READ | Return a traversable repository structural map. |
-| 183 | `context_expand` | READ | Return optional import, caller, type, test, and change references. |
-| 184 | `recovery_status` | READ | Return reconnect, retry, continuation, cache, and worker recovery state. |
-| 185 | `tool_schema_list` | READ | List versioned tool schema metadata. |
-| 186 | `tool_schema_register` | WRITE | Register a backward-compatible tool schema descriptor. |
-| 187 | `capabilities` | READ | Discover capability categories without requiring every full schema. |
-| 188 | `tool_search` | READ | Search tools, tags, phases, and descriptions deterministically. |
-| 189 | `tool_dynamic_filter` | READ | Return a bounded ranked tool set using deterministic scoring with optional local rerank fallback. |
-| 190 | `tool_describe` | READ | Describe one tool contract on demand. |
-| 191 | `tool_categories` | READ | List tool categories and counts. |
-| 192 | `tool_function_find` | READ | Find the best local tool/function candidates for a prompt. |
-| 193 | `tool_aliases` | READ | List stable shorthand aliases and their primitive tool targets. |
-| 194 | `mcp_hub` | READ | Describe the additive MCP hub boundary without flattening child tools or retaining credentials. |
-| 195 | `dev_context` | READ | Run the unified deterministic development-context facade. |
-| 196 | `recipe_catalog` | READ | Return inspectable developer automation recipes. |
-| 197 | `capture_screenshot` | READ | Capture screenshot metadata for visual validation. |
-| 198 | `compare_screenshot` | READ | Compare screenshot metadata or supplied artifacts. |
-| 199 | `dom_snapshot` | READ | Return a structured DOM snapshot. |
-| 200 | `layout_metadata` | READ | Return layout metadata for visual validation. |
-| 201 | `visual_context` | READ | Combine screenshot, DOM, layout, console, and network references. |
-| 202 | `inspect_workbook` | READ | Inspect workbook sheets, used ranges, and a bounded sample through Excel COM. |
-| 203 | `compare_workbook_layout` | READ | Compare workbook layout metadata through an optional spreadsheet plugin. |
-| 204 | `render_excel_preview` | READ | Render an Excel preview through an optional spreadsheet plugin. |
-| 205 | `inspect_pdf` | READ | Inspect PDF page structure and text through the local PDF provider. |
-| 206 | `compare_pdf_pages` | READ | Compare PDF page metadata through an optional PDF plugin. |
-| 207 | `project_profile_get` | READ | Read project intelligence conventions. |
-| 208 | `project_profile_set` | WRITE | Update project intelligence conventions. |
-| 209 | `handoff_context` | READ | Build a structured cross-agent handoff bundle from real workspace, Git, and context services. |
-| 210 | `benchmark_run` | EXECUTE | Run or preview a benchmark scenario. |
-| 211 | `regression_report` | READ | Return benchmark and regression results. |
-| 212 | `sandbox_exec` | EXECUTE | Run an artifact-based Windows Sandbox job with networking disabled and read-only mapped input. |
-| 213 | `event_watch` | EXECUTE | Watch an allowlisted user-mode ETW or Windows Event Log diagnostic stream. |
-| 214 | `crash_trace` | READ | Return bounded crash and service-diagnostic context from allowlisted user-mode sources. |
-| 215 | `lsp_diagnostics` | READ | Read diagnostics from an owned language-server child process. |
-| 216 | `lsp_rename` | WRITE | Create a cross-file LSP rename edit plan before any workspace write. |
-| 217 | `debug_attach` | EXECUTE | Attach a DAP client only to an owned workspace debug adapter. |
-| 218 | `debug_step` | EXECUTE | Perform a bounded DAP stepping/read operation in an owned debug session. |
-| 219 | `git_worktree_spawn` | WRITE | Create a confined, ledger-owned Git worktree for isolated agent work with collision metadata. |
-| 220 | `git_worktree_remove` | DANGEROUS | Remove a ledger-owned Git worktree after dry-run and standard-mode confirmation; trusted Full Bypass skips lnwjud approval. |
-| 221 | `db_inspect` | READ | Inspect a local database schema through a configured, read-only connection. |
-| 222 | `db_query` | READ | Run a bounded read-only local SQLite SELECT, PRAGMA, or WITH...SELECT query. |
-| 223 | `office_ppt` | WRITE | Read PowerPoint content or save a copy through the existing Office policy boundary. |
-| 224 | `office_outlook` | READ | Read Outlook folder and message headers through the existing Office policy boundary. |
-| 225 | `pdf_extract_tables` | READ | Extract bounded PDF text and tables through a local document provider. |
-| 226 | `docx_merge` | WRITE | Create a deterministic DOCX merge plan and write only after approval. |
-| 227 | `self_heal_plan` | READ | Propose safe, deterministic, reversible recovery steps without applying mutations. |
-| 228 | `self_heal_apply` | DANGEROUS | Apply a current reversible recovery plan without automatic destructive retries; standard mode requires confirmation and trusted Full Bypass skips lnwjud approval. |
-| 229 | `skills_import` | WRITE | Import a compatible skill descriptor after validation and permission review. |
-| 230 | `agent_swarm_run` | EXECUTE | Plan bounded parallel subagents with ownership, collision, approval, and cancellation metadata. |
-| 231 | `tool_batch` | EXECUTE | Execute multiple MCP tools with parallel, dependency-aware, timeout, cancellation, and partial-result handling. |
+| # | Tool | Permission | Advertised | Delivery | Runtime evidence | Runtime description |
+| ---: | --- | --- | --- | --- | --- | --- |
+| 1 | `workspace_list` | READ | default | operational | service_dispatch | List registered project workspaces available to lnwjud. Legacy explicitly registered drive roots may also appear as kind=machine_root. |
+| 2 | `workspace_register` | WRITE | default | operational | service_dispatch | Register an existing project directory by absolute path. parentWorkspaceId is optional and retained only for legacy machine-root-relative registration. Idempotent for the same path. |
+| 3 | `workspace_info` | READ | default | operational | service_dispatch | Return the configured workspace summary. |
+| 4 | `workspace_tree` | READ | default | operational | service_dispatch | List a bounded workspace tree. Absolute path does not require workspaceId. |
+| 5 | `project_snapshot` | READ | default | operational | service_dispatch | Return a bounded project snapshot without source contents. |
+| 6 | `read_file` | READ | default | operational | service_dispatch | Read a workspace file as UTF-8 text or as an image/binary payload. Absolute paths (C:\...) do not require workspaceId. For large files or an unknown location, prefer search_text first and then read_file_page for the relevant range instead of reading the whole file. |
+| 7 | `read_files` | READ | default | operational | service_dispatch | Read up to twenty bounded workspace files in parallel. Absolute paths do not require workspaceId. For large files, locate text with search_text and page with read_file_page instead of loading entire files. |
+| 8 | `search_files` | READ | default | operational | service_dispatch | Search workspace filenames with automatic context-economy filters; set includeIgnored for an explicit full path search. Absolute path does not require workspaceId. |
+| 9 | `search_text` | READ | default | operational | service_dispatch | Preferred tool to locate relevant code/lines before reading files. Searches workspace text using direct ripgrep arguments with automatic binary/generated filters; set includeIgnored for an explicit full path search. Absolute path does not require workspaceId. Follow with read_file_page for large files. |
+| 10 | `git_status` | READ | default | operational | service_dispatch | Inspect parsed read-only Git status. For writes (init, add, commit, remote, push, rm, clean, reset) use the git tool. |
+| 11 | `git_diff` | READ | default | operational | service_dispatch | Return a bounded read-only Git diff. For writes use the git tool. |
+| 12 | `git_log` | READ | default | operational | service_dispatch | Return bounded structured Git history. For writes use the git tool. |
+| 13 | `git` | EXECUTE | default | operational | service_dispatch | Run a Git subcommand with a separate args array. With Full Bypass OFF, Full Access runs ordinary read and non-destructive Git mutations without confirmation while destructive/data-loss forms, scope overrides, aliases, unsafe pathspecs, unknown commands, and destructive remote/history rewrites remain guarded or denied. Trusted Full Bypass skips lnwjud approval, command-policy, and Active Project scope checks, including explicitly absolute outside paths, without bypassing Git or OS errors. Do not wrap Git in PowerShell/cmd. |
+| 14 | `write_file` | WRITE | default | operational | service_dispatch | Create or replace a UTF-8 text file and missing parents. Balanced/Safe refuse existing targets unless overwriteExisting is explicit; Full may replace an existing target without a confirmation prompt and still creates a checkpoint. Prefer edit_file for narrow repairs. Use this instead of shell scripts that call fs.writeFile, writeFileSync, Set-Content, or equivalent when the task is simply to create or replace guarded text. |
+| 15 | `apply_patch` | WRITE | default | operational | service_dispatch | Apply reviewed whole-file replacement content to at most twenty files. Existing targets are checkpointed first; Full profile does not prompt for non-destructive replacement. Prefer edit_file for narrow repairs. Use this instead of shell-generated whole-file rewrites when several reviewed text files must change. |
+| 16 | `edit_file` | WRITE | default | operational | service_dispatch | First choice for narrow source, config, and text repairs. Replaces exact text only when the expected occurrence count matches, checkpoints the original, and refuses conflicts instead of rewriting an unverified whole file. Use edit_file instead of shell, node -e, python -c, PowerShell Set-Content, or inline filesystem scripts when a guarded text edit can express the change. Full Access performs ordinary edits without a confirmation prompt; destructive deletion remains separately guarded. |
+| 17 | `move_file` | WRITE | default | operational | service_dispatch | Move a file or directory, creating missing destination parents. With Full Bypass OFF, Full Access performs ordinary in-project moves without a confirmation prompt while conflicting or destructive forms remain policy-gated. Trusted Full Bypass skips lnwjud approval/scope checks for explicit absolute outside paths; OS/filesystem errors still apply. |
+| 18 | `copy_file` | WRITE | default | operational | service_dispatch | Copy a file or directory within one workspace, creating missing destination parents. |
+| 19 | `delete_file` | DANGEROUS | default | operational | service_dispatch | Delete one file or empty directory. With Full Bypass OFF, eligible in-project targets move to Recovery Trash and exact safe targets can use scoped auto-approval; critical paths, roots, non-empty directories, ambiguous paths, and mismatched workspaces remain guarded. Trusted Full Bypass skips lnwjud approval/scope checks and permits an exact absolute outside target, which is deleted without Recovery Trash; root and non-empty-directory input guards still apply. |
+| 20 | `list_recovery_items` | READ | default | operational | service_dispatch | List trusted Recovery Trash entries for one workspace, including deleted items, binary pre-replacement backups, original paths, timestamps, payload availability, and the local Recovery Trash root. |
+| 21 | `restore_deleted_file` | WRITE | default | operational | service_dispatch | Restore one Recovery Trash item to its original path. Deleted-item restores refuse existing targets. A pre-replacement restore first backs up the current live version for undo, then restores the older binary or text payload. Full runs recoverable restores without an extra prompt; stricter profiles may require confirmation. The operation remains scoped to the recorded workspace. |
+| 22 | `list_checkpoints` | READ | default | operational | service_dispatch | List encrypted pre-mutation checkpoints for one workspace without returning saved file content. |
+| 23 | `restore_checkpoint` | WRITE | default | operational | service_dispatch | Restore a reviewed pre-mutation checkpoint. Standard mode requires explicit confirmation; trusted Full Bypass skips the lnwjud confirmation gate. A new rollback checkpoint is created before replacing current content when the target is inside a recoverable workspace. |
+| 24 | `process_start` | EXECUTE | default | operational | service_dispatch | Immediate-return managed process launcher for real executables and long-lived processes. With Full Bypass OFF, inline text-file rewrites must use edit_file/apply_patch/write_file and risky commands, scope changes, or permission-profile ASK decisions require confirmation. Trusted Full Bypass skips lnwjud command/profile/scope approval, including an explicitly absolute cwd outside the Active Project; input validation, executable availability, OS rights, and exact process ownership still apply. Starts one executable with separate arguments and returns processId as soon as the child is spawned; it never waits for command completion. Follow with process_status/process_logs/process_stop. For restart-safe durable work, use shell, whose MCP run mode is forced to background. |
+| 25 | `process_list` | READ | default | operational | service_dispatch | List managed process handles owned by this client in a workspace, including launches whose response was cancelled. |
+| 26 | `process_status` | READ | default | operational | service_dispatch | Read one status snapshot for an owned process handle. Do not tight-poll this tool; use project_* for normal project verification, or shell background + durable task_id for work expected to exceed ~5 minutes. |
+| 27 | `process_logs` | READ | default | operational | service_dispatch | Read bounded logs for an owned process handle. Prefer one bounded log read after meaningful progress rather than repeated status polling. |
+| 28 | `process_stop` | EXECUTE | default | operational | service_dispatch | Stop an owned managed process tree after explicit chat confirmation in standard mode. Trusted Full Bypass skips the lnwjud confirmation gate; exact process ownership still applies. |
+| 29 | `project_dev` | EXECUTE | default | operational | service_dispatch | Immediate-return launcher for the detected project dev command. In standard mode the gateway previews the exact executable/argv for host approval and re-resolves it immediately before spawn; any change requires fresh approval. Trusted Full Bypass skips the lnwjud approval boundary. Project-owned script bodies remain opaque and are not covered by Recovery Trash. |
+| 30 | `project_test` | EXECUTE | default | operational | service_dispatch | Immediate-return launcher for the detected project test command. In standard mode the gateway previews the exact executable/argv for host approval and re-resolves it immediately before spawn; any change requires fresh approval. Trusted Full Bypass skips the lnwjud approval boundary. Project-owned script bodies remain opaque and are not covered by Recovery Trash. |
+| 31 | `project_lint` | EXECUTE | default | operational | service_dispatch | Immediate-return launcher for the detected project lint command. In standard mode the gateway previews the exact executable/argv for host approval and re-resolves it immediately before spawn; any change requires fresh approval. Trusted Full Bypass skips the lnwjud approval boundary. Project-owned script bodies remain opaque and are not covered by Recovery Trash. |
+| 32 | `project_typecheck` | EXECUTE | default | operational | service_dispatch | Immediate-return launcher for the detected project typecheck command. In standard mode the gateway previews the exact executable/argv for host approval and re-resolves it immediately before spawn; any change requires fresh approval. Trusted Full Bypass skips the lnwjud approval boundary. Project-owned script bodies remain opaque and are not covered by Recovery Trash. |
+| 33 | `project_build` | EXECUTE | default | operational | service_dispatch | Immediate-return launcher for the detected project build command. In standard mode the gateway previews the exact executable/argv for host approval and re-resolves it immediately before spawn; any change requires fresh approval. Trusted Full Bypass skips the lnwjud approval boundary. Project-owned script bodies remain opaque and are not covered by Recovery Trash. |
+| 34 | `codex_status` | READ | Codex opt-in | operational | service_dispatch | Report local Codex installation and capabilities without credential inspection. |
+| 35 | `codex_run` | EXECUTE | Codex opt-in | operational | service_dispatch | Delegate an instruction to the local Codex CLI in the Active Project. Starting Codex requires explicit chat confirmation and host approval in standard mode; trusted Full Bypass skips those lnwjud application checks without forging userConfirmed. |
+| 36 | `codex_task_list` | READ | Codex opt-in | operational | service_dispatch | List local Codex task handles owned by this client, including launches whose response was cancelled. |
+| 37 | `codex_task_status` | READ | Codex opt-in | operational | service_dispatch | Read status for an owned Codex task. |
+| 38 | `codex_task_logs` | READ | Codex opt-in | operational | service_dispatch | Read bounded logs for an owned Codex task. |
+| 39 | `codex_stop` | EXECUTE | Codex opt-in | operational | service_dispatch | Stop an owned Codex task process after explicit chat confirmation in standard mode. Trusted Full Bypass skips the lnwjud confirmation gate; task ownership still applies. |
+| 40 | `shell` | EXECUTE | default | operational | service_dispatch | Non-blocking command runner for real command execution, builds/tests, package managers, and system operations. Never use shell as a source/config/text editor. For any direct text-file change, call edit_file first; use apply_patch for reviewed whole-file or multi-file replacements and write_file for file creation/replacement. Inline Node/Python/PowerShell/sed commands that rewrite text files are rejected before native approval so the client can route to the guarded file tools instead. MCP run calls are ALWAYS forced to execution=background, even if a client requests foreground or auto, so the call returns a task_id immediately instead of waiting for command completion. Follow with status/logs/result; wait uses the user-configurable MCP poll window (5-60 seconds, default 5). When the user requires babysitting until completion, keep using bounded waits and do not report completion until the terminal result is inspected. Otherwise, if the host turn must yield while a durable task is still running, checkpoint its task_id and use the active scheduled-continuation handoff instead of abandoning the goal. With Full Bypass OFF, Full Access runs ordinary policy-allowed commands without confirmation while destructive, broad, recursive, critical, outside-project, or unparseable forms retain normal approval/command policy. Trusted Full Bypass skips lnwjud approval, command-policy, Active Project, goalLease, and allowed-root checks, including an explicitly absolute cwd outside the project; input validation, executable availability, Windows ACL/UAC, and child-process failures still apply. dry_run and task observation are non-mutating. |
+| 41 | `dom_cdp` | READ | default | operational | service_dispatch | Default for web-page DOM work inside managed Chrome: inspect content, query selectors, click, type, navigate, evaluate JavaScript, wait, manage tabs, and capture screenshots. In standard mode, any action that can change local or remote state requires explicit chat confirmation and host approval. Trusted Full Bypass skips lnwjud approval without forging userConfirmed. Use steps to batch related DOM actions in one call. |
+| 42 | `computer_use` | EXECUTE | default | operational | service_dispatch | Codex-style native Windows computer use for testing desktop apps. Take annotated screenshots, inspect semantic controls, and operate by semantic target, numbered visual mark, or explicit coordinates. Routes through Accessibility first and uses guarded pointer/keyboard input only when needed. Supports click, typing, keys, hotkeys, scroll, drag, pointer movement, and window activation. |
+| 43 | `accessibility` | READ | default | operational | service_dispatch | Semantic native Windows UI tool. Inspect UI trees and named controls, then click, focus, read or set values, select controls and menus, or manage a native element. Prefer shell for direct system work and dom_cdp for web pages. |
+| 44 | `input_event` | EXECUTE | default | operational | service_dispatch | Low-level keyboard and pointer fallback. Use only when DOM/CDP and Accessibility cannot operate the target. Supports text, keys, mouse movement, clicks, drag, scroll, held buttons, release_all, and batched sequences. |
+| 45 | `vision` | READ | default | operational | service_dispatch | Visual and OCR fallback for content unavailable through DOM or Accessibility. Capture a display, window, or region, or run local Vision OCR. It never clicks or types. |
+| 46 | `vision_annotated_capture` | READ | default | operational | service_dispatch | Capture a local Windows screen/region/window and return a short-lived Set-of-Marks observation with numbered bounds, a content hash, and an annotated PNG. This tool only observes; use ui_target_action for a separately gated action. |
+| 47 | `ui_target_action` | EXECUTE | default | operational | service_dispatch | Act on one mark from a current vision_annotated_capture observation. The observation ID, optional hash, TTL, workspace owner, and current Accessibility element are checked before the action is sent. |
+| 48 | `window` | EXECUTE | default | operational | service_dispatch | Direct native Windows window management. List, inspect, activate, move, resize, minimize, maximize, restore, or close windows without raw coordinates when a window operation is sufficient. |
+| 49 | `health` | READ | default | operational | service_dispatch | Diagnostics only. Check all lnwjud backends or one public tool after a failure, when asked for status, or while diagnosing permissions. Do not use as a preflight before normal work. |
+| 50 | `system_info` | READ | default | operational | service_dispatch | Read-only system information: OS, CPU, memory, disks, battery, uptime, and top processes by memory. Use for environment checks and diagnostics. |
+| 51 | `notification` | EXECUTE | default | operational | service_dispatch | Show a Windows notification (toast when BurntToast is installed, balloon otherwise). Use to tell the user when a long task finishes. |
+| 52 | `file_dialog` | EXECUTE | default | operational | service_dispatch | Open a native Windows file open/save dialog and return the chosen path(s). The dialog does not read or write files itself; use the guarded file tools afterwards. |
+| 53 | `clipboard` | EXECUTE | default | operational | service_dispatch | Read or write the Windows clipboard (text, or PNG image as base64). Use get_text/get_image to read and set_text to write. |
+| 54 | `web_fetch` | READ | default | operational | service_dispatch | Fetch an http/https URL (GET/POST/PUT/DELETE/HEAD) with bounded size and timeout. In standard mode every POST, PUT, or DELETE requires explicit chat confirmation and host approval; trusted Full Bypass skips lnwjud approval. dry_run remains safe. Returns status, headers, and text or base64 body. |
+| 55 | `audio` | EXECUTE | default | operational | service_dispatch | Record the microphone to a WAV file or play a local audio file through MCI. In standard mode recording requires the host-selected Active Project workspaceId and explicit confirmation; trusted Full Bypass skips lnwjud approval/scope checks. Existing in-workspace outputs use Recovery Trash before replacement when available. record is synchronous and limited to 600 seconds. Use stop to abort an ongoing record/play. |
+| 56 | `screen_record` | EXECUTE | default | operational | service_dispatch | Record the screen to an MP4 using ffmpeg gdigrab (requires ffmpeg on PATH). In standard mode starting a recording requires the host-selected Active Project workspaceId and explicit confirmation; trusted Full Bypass skips lnwjud approval/scope checks. Existing in-workspace outputs use Recovery Trash before replacement when available. start spawns a background capture, status checks it, stop finalizes the file. Recording stops automatically after 3600 seconds. |
+| 57 | `office` | WRITE | default | operational | service_dispatch | Automate Excel, Word, PowerPoint, or Outlook through COM. In standard mode every write, replace, merge, or save_as action requires an Active Project workspaceId, explicit chat confirmation, and host approval. Trusted Full Bypass skips lnwjud approval/scope checks without forging userConfirmed. Existing in-workspace targets use Recovery Trash before replacement when available. Requires Microsoft Office installed. |
+| 58 | `scheduler` | EXECUTE | default | operational | service_dispatch | Manage Windows scheduled tasks with schtasks.exe. list is read-only; in standard mode create, run, and delete require explicit chat confirmation and host approval. Trusted Full Bypass skips lnwjud approval without forging userConfirmed. |
+| 59 | `wsl_exec` | EXECUTE | default | operational | service_dispatch | Non-blocking WSL2 developer runner for one Linux executable plus argv; shell command strings are not accepted. Do not use wsl_exec as a source/config/text editor. For any direct text-file change, call edit_file first; use apply_patch for reviewed whole-file or multi-file replacements and write_file for file creation/replacement. Inline Node/Python/PowerShell-style rewrites and sed in-place edits are rejected before native approval so the client can route to guarded file tools. MCP run calls are ALWAYS forced to execution=background, even if a client requests foreground or auto, and return a task_id immediately. Follow with status/logs/result; wait uses the user-configurable MCP poll window (5-60 seconds, default 5). When the user requires babysitting until completion, keep using bounded waits and do not report completion until the terminal result is inspected. Otherwise, if the host turn must yield while a durable task is still running, checkpoint its task_id and use the active scheduled-continuation handoff instead of abandoning the goal. With Full Bypass OFF, Full Access runs ordinary WSL commands without confirmation while destructive, broad, recursive, outside-project, or unparseable forms retain normal approval/command policy. Trusted Full Bypass skips lnwjud approval, command-policy, Active Project, goalLease, and allowed-root checks, including an explicitly requested external cwd; WSL availability, argv validation, Linux permissions, and process failures still apply. |
+| 60 | `wsl_fs` | READ | default | operational | service_dispatch | Translate paths and inspect metadata between a registered Windows workspace and WSL without exposing raw \\wsl$ read/write access. |
+| 61 | `skills_list` | READ | default | operational | service_dispatch | List the union of bundled skills and every discovered machine-global or active-workspace skill from Cursor, Claude, Agents, Codex, the Codex plugin cache, GitHub workspace roots, and lnwjud settings. Nested and symlinked skill collections are included. Filter with query or source. |
+| 62 | `skills_read` | READ | default | operational | service_dispatch | Read a local skill SKILL.md (or a relative file inside the skill folder). Prefer the source-qualified id returned by skills_list; an unambiguous bare name or $name is also accepted. Follow the skill instructions with lnwjud tools and mcp_call. |
+| 63 | `mcp_list` | READ | default | operational | service_dispatch | List local MCP servers discovered from Cursor, Claude Desktop, and lnwjud settings. This inspection is read-only and does not flatten child tools into the lnwjud catalog. |
+| 64 | `mcp_describe` | READ | default | operational | service_dispatch | Connect to one local MCP server (if needed) and return its tool names, descriptions, and input schemas. This operation only inspects the child tool catalog. |
+| 65 | `mcp_call` | DANGEROUS | default | operational | service_dispatch | Call a tool on a discovered local MCP server. Child side effects and filesystem/network scope are controlled by that child server, so standard mode treats every mcp_call as opaque mutation and requires explicit chat plus host exact-action approval. Trusted Full Bypass skips lnwjud application approval; the child server still enforces its own policy. |
+| 66 | `workspace_context` | READ | default | operational | service_dispatch | Aggregate ranked workspace context with snippets, symbols, Git/test relevance, economy metadata, and continuation; automatic discovery can be explicitly expanded. |
+| 67 | `workspace_context_continue` | READ | default | operational | service_dispatch | Continue a workspace_context result without discarding unreturned candidates. |
+| 68 | `workspace_full_scan` | READ | default | operational | service_dispatch | Enumerate workspace files with full access by default; set includeIgnored false to use the persistent automatic index. |
+| 69 | `workspace_full_scan_continue` | READ | default | operational | deterministic_operation | Continue a workspace_full_scan result page. |
+| 70 | `workspace_snapshot` | READ | default | operational | service_dispatch | Return workspace identity and project snapshot metadata without source contents. |
+| 71 | `search_all` | READ | default | operational | service_dispatch | Search text and filenames across one or all registered workspaces with automatic economy filters or an explicit includeIgnored override. |
+| 72 | `read_many_files` | READ | default | operational | service_dispatch | Read many workspace files in parallel while preserving one result or error per requested path. |
+| 73 | `read_file_page` | READ | default | operational | service_dispatch | Preferred reader for large files after search_text identifies the relevant area. Reads a deterministic line chunk with explicit continuation instead of silently truncating or loading the whole file. |
+| 74 | `read_file_page_continue` | READ | default | operational | service_dispatch | Continue read_file_page from the next deterministic line chunk only when more surrounding context is needed; avoid re-reading earlier pages. |
+| 75 | `workspace_index` | READ | default | operational | service_dispatch | Build or refresh the persistent workspace index using automatic context filters unless ignored paths are explicitly included. |
+| 76 | `workspace_index_status` | READ | default | operational | service_dispatch | Return persistent index metadata and lossless watcher queue telemetry. |
+| 77 | `workspace_index_watch` | READ | default | operational | service_dispatch | Watch all workspace paths and incrementally re-index only changed paths with configurable debounce/concurrency. |
+| 78 | `workspace_index_stop` | READ | default | operational | service_dispatch | Stop a workspace watcher after draining all queued path updates. |
+| 79 | `session_handoff` | READ | default | operational | service_dispatch | Create a concise same-chat recovery message from the real phase tracker, current git status/diff, and durable background task IDs. Use only when the user requests a handoff or an unavoidable client/platform interruption requires recovery; never trigger it merely because elapsed time passed. If a tool schema looks stale, Refresh connector first; open a new chat only if refresh does not fix it. |
+| 80 | `verify_incremental` | EXECUTE | default | operational | service_dispatch | Run the detected project typecheck only when the current git status/diff fingerprint changed. Starting a new verification process requires explicit user confirmation in standard mode; trusted Full Bypass skips that lnwjud gate. Returns cache=hit when unchanged and cache=miss after a new verification. Prefer this during iterative edits; use project_test/project_lint/project_build only when that specific verification is needed. For full suites or packaging expected to exceed ~5 minutes, launch a durable shell background task and record its task_id in the tracker. |
+| 81 | `run_goal` | WRITE | default | operational | service_dispatch | Immediate-return durable goal create/resume and lease acquisition. It never runs a model or waits for foreground work. |
+| 82 | `get_goal` | READ | default | operational | service_dispatch | Read the latest durable goal snapshot without changing state or returning a lease token. |
+| 83 | `checkpoint_goal` | WRITE | default | operational | service_dispatch | Atomically checkpoint durable goal progress using the current lease and expected revision. |
+| 84 | `finish_goal` | WRITE | default | operational | service_dispatch | Finish the local durable goal using lease/revision compare-and-swap. It must be called before any completion report, even when scheduling was disabled or the user requested no more successors. If scheduledTaskCancellation requests delete_native_task, delete that exact task through the native ChatGPT Scheduled Task host, record its native deletion receipt, and verify status=cancelled before reporting cancellation success. |
+| 85 | `cancel_goal` | WRITE | default | operational | service_dispatch | Cancel a durable goal independently of any scheduled successor. It records the goal as cancelled, aborts in-flight fenced MCP requests for that goal, and attempts to stop every tracked process, Codex task, and shell task across the current runtime and durable task store; inspect requestCancellation, taskCancellations, and allRequestsStopped/allTasksStopped for unresolved work. If scheduledTaskCancellation requests delete_native_task, use cancel_scheduled_continuation separately and complete the exact native ChatGPT host deletion receipt. |
+| 86 | `list_goals` | READ | default | operational | service_dispatch | List a bounded set of durable goals owned by the current stable MCP client, optionally filtered by workspace/status. |
+| 87 | `prepare_scheduled_continuation` | WRITE | default | operational | service_dispatch | Checkpoint and reserve exactly one current-chat cloud successor with an adaptive delay between 2 and 25 minutes. The 25-minute default is a maximum watchdog, while bounded final work may use a shorter delay. This workflow never creates or deletes the native task itself. |
+| 88 | `record_scheduled_continuation_receipt` | WRITE | default | operational | service_dispatch | Record host-owned cloud one-time task create, same-task reschedule, consumed-run reconciliation, or cancellation receipts. A consumed receipt requires exact native host run evidence and means only that the one-time task is no longer pending; it does not mean the goal work completed. Cancelled is accepted only with a matching native ChatGPT host deletion receipt; a model assertion is not cancellation proof. The stored native task ID is immutable across reschedules. |
+| 89 | `claim_scheduled_continuation` | WRITE | default | operational | service_dispatch | Scheduled-wake entrypoint. Claim before workspace mutation; a confirmed cloud wake up to 120 seconds early is accepted so native host jitter does not consume the one-time task without handoff. If native task creation was never confirmed, returns receipt_required for reconciliation. On an active-worker collision, update the exact existing native one-time cloud task to now+2 minutes. If the outcome is terminal_noop, let the already-firing one-time host task return naturally so the host can mark it completed; do not delete, disable, pause, or reschedule that current wake. Do not mutate the workspace, create a replacement task, mark the goal terminal, or stop an active durable chain. |
+| 90 | `get_scheduled_continuation` | READ | default | operational | service_dispatch | Read one scheduled-continuation snapshot by continuation ID or the latest record for a goal. A healthy current run keeps its adaptive watchdog unless a real turn-yield signal requires same-task +2 handoff. |
+| 91 | `expedite_scheduled_continuation` | WRITE | default | operational | service_dispatch | For an enumerated handoff-risk signal, including a turn that is about to end while the goal is unfinished, move the exact existing cloud one-time native task to now+2 minutes. No replacement task is created. |
+| 92 | `cancel_scheduled_continuation` | WRITE | default | operational | service_dispatch | Cancel one still-pending scheduled successor independently of its goal. Identify it by continuationId or the latest record for a goal, then use the returned cancellation instruction to delete the exact pending native ChatGPT Scheduled Task and record its host receipt. Never treat pausing/disabling an already-fired current wake as deletion or completion proof. This does not cancel the durable goal or stop its running tasks. |
+| 93 | `symbol_search` | READ | default | operational | service_dispatch | Search indexed symbols across the workspace. |
+| 94 | `find_definition` | READ | default | operational | service_dispatch | Find deterministic symbol definitions. |
+| 95 | `find_references` | READ | default | operational | service_dispatch | Find textual and indexed references to a symbol. |
+| 96 | `find_implementations` | READ | default | operational | service_dispatch | Find interface and class implementations. |
+| 97 | `call_hierarchy` | READ | default | operational | service_dispatch | Return a deterministic call hierarchy approximation. |
+| 98 | `import_graph` | READ | default | operational | service_dispatch | Return indexed imports and exports for a module. |
+| 99 | `dependency_graph` | READ | default | operational | service_dispatch | Return package and module dependency metadata. |
+| 100 | `module_graph` | READ | default | operational | service_dispatch | Return the workspace module graph. |
+| 101 | `type_search` | READ | default | operational | service_dispatch | Search indexed TypeScript, JavaScript, and Python types. |
+| 102 | `trace_symbol` | READ | default | operational | service_dispatch | Combine definition, references, imports, tests, and recent context. |
+| 103 | `context_ranking` | READ | default | operational | deterministic_operation | Explain ranking signals without removing lower-ranked context. |
+| 104 | `debug_context` | READ | default | operational | service_dispatch | Gather deterministic debugging context and continuation metadata. |
+| 105 | `review_context` | READ | default | operational | service_dispatch | Gather code-review context. |
+| 106 | `change_context` | READ | default | operational | service_dispatch | Gather changed files, symbols, dependencies, and tests. |
+| 107 | `symbol_context` | READ | default | operational | service_dispatch | Gather context around a symbol. |
+| 108 | `test_context` | READ | default | operational | service_dispatch | Gather relevant test context. |
+| 109 | `dependency_context` | READ | default | operational | service_dispatch | Gather dependency-related context. |
+| 110 | `git_context` | READ | default | operational | service_dispatch | Gather Git status, diff, and history context. |
+| 111 | `frontend_context` | READ | default | operational | service_dispatch | Gather frontend project context. |
+| 112 | `backend_context` | READ | default | operational | service_dispatch | Gather backend project context. |
+| 113 | `route_intent` | READ | default | operational | deterministic_operation | Classify a prompt with a deterministic, overridable route. |
+| 114 | `recipe_list` | READ | default | operational | deterministic_operation | List built-in and user recipe names. |
+| 115 | `recipe_describe` | READ | default | operational | deterministic_operation | Describe a recipe plan and permissions. |
+| 116 | `recipe_run` | EXECUTE | default | operational | deterministic_operation | Preview or run a deterministic recipe plan. |
+| 117 | `dry_run` | READ | default | operational | deterministic_operation | Return a no-side-effect execution preview. |
+| 118 | `review_changes` | READ | default | operational | service_dispatch | Review current Git changes and affected context. |
+| 119 | `changed_symbols` | READ | default | operational | service_dispatch | Find symbols in changed files. |
+| 120 | `affected_modules` | READ | default | operational | service_dispatch | Find modules affected by current changes. |
+| 121 | `git_history_context` | READ | default | operational | service_dispatch | Return relevant recent Git history. |
+| 122 | `git_blame_context` | READ | default | operational | service_dispatch | Return line ownership context for a file. |
+| 123 | `discover_tests` | READ | default | operational | service_dispatch | Discover project tests without imposing an execution limit. |
+| 124 | `run_affected_tests` | EXECUTE | default | operational | service_dispatch | Plan or run tests affected by changed files. |
+| 125 | `test_failures` | READ | default | operational | service_dispatch | Summarize recorded test failures. |
+| 126 | `coverage_context` | READ | default | operational | service_dispatch | Return coverage context when project tooling provides it. |
+| 127 | `test_history` | READ | default | operational | service_dispatch | Return recent test execution history. |
+| 128 | `cache_stats` | READ | default | operational | deterministic_operation | Return shared cache hit/miss telemetry. |
+| 129 | `cache_clear` | WRITE | default | operational | deterministic_operation | Clear safe local runtime caches. |
+| 130 | `cache_invalidate` | WRITE | default | operational | deterministic_operation | Invalidate cache entries for a path or workspace. |
+| 131 | `hook_list` | READ | default | operational | deterministic_operation | List registered lifecycle hooks. |
+| 132 | `hook_register` | WRITE | default | operational | deterministic_operation | Register a deterministic lifecycle hook descriptor. |
+| 133 | `hook_remove` | WRITE | default | operational | deterministic_operation | Remove a lifecycle hook descriptor. |
+| 134 | `skill_match` | READ | default | operational | service_dispatch | Match relevant local skills without loading all skill text. |
+| 135 | `skill_load` | READ | default | operational | service_dispatch | Load a selected local skill by identifier. |
+| 136 | `plugin_install` | WRITE | no | feature_disabled | truthful_unavailable | Register a declared plugin descriptor after validation and permission evaluation. |
+| 137 | `plugin_list` | READ | no | feature_disabled | truthful_unavailable | List installed and enabled plugins. |
+| 138 | `plugin_enable` | WRITE | no | feature_disabled | truthful_unavailable | Enable an installed plugin. |
+| 139 | `plugin_disable` | WRITE | no | feature_disabled | truthful_unavailable | Disable an installed plugin. |
+| 140 | `plugin_remove` | DANGEROUS | no | feature_disabled | truthful_unavailable | Remove an installed plugin. |
+| 141 | `session_context` | READ | default | operational | deterministic_operation | Return persisted development-session context. |
+| 142 | `session_checkpoint` | WRITE | default | operational | deterministic_operation | Persist a development-session checkpoint. |
+| 143 | `session_resume` | READ | default | operational | deterministic_operation | Resume a persisted session context. |
+| 144 | `session_history` | READ | default | operational | deterministic_operation | Return session checkpoints and decisions. |
+| 145 | `response_mode` | READ | default | operational | deterministic_operation | Select compact, normal, verbose, or stream formatting. |
+| 146 | `inspect_web_app` | READ | default | operational | service_dispatch | Combine DOM, console, network, URL, and screenshot metadata. |
+| 147 | `debug_ui` | READ | default | operational | service_dispatch | Gather deterministic UI debugging context. |
+| 148 | `capture_ui_state` | READ | default | operational | service_dispatch | Capture a structured UI state. |
+| 149 | `form_context` | READ | default | operational | service_dispatch | Inspect form controls and values metadata. |
+| 150 | `network_context` | READ | default | dependency_gated | truthful_unavailable | Summarize browser network context when a retained CDP network event stream is available. |
+| 151 | `console_context` | READ | default | dependency_gated | truthful_unavailable | Summarize browser console context when a retained CDP Runtime/Log event stream is available. |
+| 152 | `browser_debug_context` | READ | default | operational | service_dispatch | Combine browser diagnostics for one request. |
+| 153 | `windows_environment` | READ | default | operational | service_dispatch | Inspect Windows environment metadata. |
+| 154 | `service_context` | READ | default | operational | deterministic_operation | Inspect Windows service metadata. |
+| 155 | `process_context` | READ | default | operational | service_dispatch | Inspect process-tree context. |
+| 156 | `port_context` | READ | default | operational | deterministic_operation | Inspect local listening-port context. |
+| 157 | `registry_context` | READ | default | operational | deterministic_operation | Inspect registry context through the Windows capability boundary. |
+| 158 | `event_log_context` | READ | default | operational | deterministic_operation | Inspect Windows event-log context. |
+| 159 | `installed_runtime_context` | READ | default | operational | deterministic_operation | Inspect installed runtimes and package managers. |
+| 160 | `path_context` | READ | default | operational | deterministic_operation | Resolve executable and PATH context. |
+| 161 | `startup_context` | READ | default | operational | deterministic_operation | Inspect startup configuration context. |
+| 162 | `mcp_discover` | READ | default | operational | service_dispatch | Discover external MCP servers without flattening native tools. |
+| 163 | `mcp_health` | READ | default | operational | service_dispatch | Return external MCP connection health. |
+| 164 | `mcp_resources` | READ | default | dependency_gated | service_dispatch | List resources exposed by connected MCP servers when the child server supports resources/list. |
+| 165 | `task_create` | EXECUTE | no | feature_disabled | truthful_unavailable | Create a visible managed runtime task. |
+| 166 | `task_status` | READ | no | feature_disabled | truthful_unavailable | Read managed task state. |
+| 167 | `task_cancel` | EXECUTE | no | feature_disabled | truthful_unavailable | Cancel a managed runtime task. |
+| 168 | `task_result` | READ | no | feature_disabled | truthful_unavailable | Read a managed task result. |
+| 169 | `task_list` | READ | no | feature_disabled | truthful_unavailable | List managed runtime tasks. |
+| 170 | `delegate` | EXECUTE | no | feature_disabled | truthful_unavailable | Delegate a task through a policy/audit adapter. |
+| 171 | `delegate_status` | READ | no | feature_disabled | truthful_unavailable | Read delegated agent state. |
+| 172 | `delegate_cancel` | EXECUTE | no | feature_disabled | truthful_unavailable | Cancel a delegated agent task. |
+| 173 | `delegate_result` | READ | no | feature_disabled | truthful_unavailable | Read delegated agent result. |
+| 174 | `parallel_delegate` | EXECUTE | no | feature_disabled | truthful_unavailable | Run isolated read-only agent tasks with collision metadata. |
+| 175 | `permission_check` | READ | default | operational | deterministic_operation | Evaluate an action class without limiting allowed context reads. |
+| 176 | `permission_profile` | READ | default | operational | deterministic_operation | Return the active Permission v2 profile. |
+| 177 | `live_logs_query` | READ | no | feature_disabled | truthful_unavailable | Query structured activity/log metadata with correlation IDs. |
+| 178 | `live_logs_status` | READ | no | feature_disabled | truthful_unavailable | Return Live Logs pipeline health and source status. |
+| 179 | `telemetry_dashboard` | READ | no | feature_disabled | truthful_unavailable | Return runtime performance telemetry. |
+| 180 | `context_economy_stats` | READ | default | operational | deterministic_operation | Return context discovery, deduplication, ledger, and token-efficiency telemetry. |
+| 181 | `execution_plan` | READ | default | operational | deterministic_operation | Return the cheapest deterministic execution plan and reason. |
+| 182 | `repo_map` | READ | default | operational | service_dispatch | Return a traversable repository structural map. |
+| 183 | `context_expand` | READ | default | operational | service_dispatch | Return optional import, caller, type, test, and change references. |
+| 184 | `recovery_status` | READ | default | operational | deterministic_operation | Return reconnect, retry, continuation, cache, and worker recovery state. |
+| 185 | `tool_schema_list` | READ | default | operational | deterministic_operation | List versioned tool schema metadata. |
+| 186 | `tool_schema_register` | WRITE | no | feature_disabled | truthful_unavailable | Register a backward-compatible tool schema descriptor. |
+| 187 | `capabilities` | READ | default | operational | deterministic_operation | Discover capability categories without requiring every full schema. |
+| 188 | `tool_search` | READ | default | operational | deterministic_operation | Search tools, tags, phases, and descriptions deterministically. |
+| 189 | `tool_dynamic_filter` | READ | default | operational | deterministic_operation | Return a bounded ranked tool set using deterministic scoring with optional local rerank fallback. |
+| 190 | `tool_describe` | READ | default | operational | deterministic_operation | Describe one tool contract on demand. |
+| 191 | `tool_categories` | READ | default | operational | deterministic_operation | List tool categories and counts. |
+| 192 | `tool_function_find` | READ | default | operational | deterministic_operation | Find the best local tool/function candidates for a prompt. |
+| 193 | `tool_aliases` | READ | default | operational | deterministic_operation | List stable shorthand aliases and their primitive tool targets. |
+| 194 | `mcp_hub` | READ | default | dependency_gated | service_dispatch | Describe the additive MCP hub boundary without flattening child tools or retaining credentials. |
+| 195 | `dev_context` | READ | default | operational | service_dispatch | Run the unified deterministic development-context facade. |
+| 196 | `recipe_catalog` | READ | default | operational | deterministic_operation | Return inspectable developer automation recipes. |
+| 197 | `capture_screenshot` | READ | default | operational | service_dispatch | Capture screenshot metadata for visual validation. |
+| 198 | `compare_screenshot` | READ | default | operational | deterministic_operation | Compare screenshot metadata or supplied artifacts. |
+| 199 | `dom_snapshot` | READ | default | operational | service_dispatch | Return a structured DOM snapshot. |
+| 200 | `layout_metadata` | READ | default | operational | service_dispatch | Return layout metadata for visual validation. |
+| 201 | `visual_context` | READ | default | operational | service_dispatch | Combine screenshot, DOM, layout, console, and network references. |
+| 202 | `inspect_workbook` | READ | default | operational | service_dispatch | Inspect workbook sheets, used ranges, and a bounded sample through Excel COM. |
+| 203 | `compare_workbook_layout` | READ | no | feature_disabled | truthful_unavailable | Compare workbook layout metadata through an optional spreadsheet plugin. |
+| 204 | `render_excel_preview` | READ | no | feature_disabled | truthful_unavailable | Render an Excel preview through an optional spreadsheet plugin. |
+| 205 | `inspect_pdf` | READ | default | dependency_gated | truthful_unavailable | Inspect PDF page structure and text through the local PDF provider. |
+| 206 | `compare_pdf_pages` | READ | no | feature_disabled | truthful_unavailable | Compare PDF page metadata through an optional PDF plugin. |
+| 207 | `project_profile_get` | READ | no | feature_disabled | truthful_unavailable | Read project intelligence conventions. |
+| 208 | `project_profile_set` | WRITE | no | feature_disabled | truthful_unavailable | Update project intelligence conventions. |
+| 209 | `handoff_context` | READ | default | operational | service_dispatch | Build a structured cross-agent handoff bundle from real workspace, Git, and context services. |
+| 210 | `benchmark_run` | EXECUTE | no | feature_disabled | truthful_unavailable | Run or preview a benchmark scenario. |
+| 211 | `regression_report` | READ | no | feature_disabled | truthful_unavailable | Return benchmark and regression results. |
+| 212 | `sandbox_exec` | EXECUTE | default | dependency_gated | truthful_unavailable | Run an artifact-based Windows Sandbox job with networking disabled and read-only mapped input. |
+| 213 | `event_watch` | EXECUTE | default | dependency_gated | deterministic_operation | Watch an allowlisted user-mode ETW or Windows Event Log diagnostic stream. |
+| 214 | `crash_trace` | READ | default | dependency_gated | deterministic_operation | Return bounded crash and service-diagnostic context from allowlisted user-mode sources. |
+| 215 | `lsp_diagnostics` | READ | default | dependency_gated | truthful_unavailable | Read diagnostics from an owned language-server child process. |
+| 216 | `lsp_rename` | WRITE | default | dependency_gated | truthful_unavailable | Create a cross-file LSP rename edit plan before any workspace write. |
+| 217 | `debug_attach` | EXECUTE | no | feature_disabled | truthful_unavailable | Attach a DAP client only to an owned workspace debug adapter. |
+| 218 | `debug_step` | EXECUTE | no | feature_disabled | truthful_unavailable | Perform a bounded DAP stepping/read operation in an owned debug session. |
+| 219 | `git_worktree_spawn` | WRITE | default | dependency_gated | deterministic_operation | Create a confined, ledger-owned Git worktree for isolated agent work with collision metadata. |
+| 220 | `git_worktree_remove` | DANGEROUS | default | dependency_gated | deterministic_operation | Remove a ledger-owned Git worktree after dry-run and standard-mode confirmation; trusted Full Bypass skips lnwjud approval. |
+| 221 | `db_inspect` | READ | default | dependency_gated | truthful_unavailable | Inspect a local database schema through a configured, read-only connection. |
+| 222 | `db_query` | READ | default | dependency_gated | truthful_unavailable | Run a bounded read-only local SQLite SELECT, PRAGMA, or WITH...SELECT query. |
+| 223 | `office_ppt` | WRITE | default | dependency_gated | service_dispatch | Read PowerPoint content or save a copy through the existing Office policy boundary. |
+| 224 | `office_outlook` | READ | default | dependency_gated | service_dispatch | Read Outlook folder and message headers through the existing Office policy boundary. |
+| 225 | `pdf_extract_tables` | READ | default | dependency_gated | truthful_unavailable | Extract bounded PDF text and tables through a local document provider. |
+| 226 | `docx_merge` | WRITE | default | dependency_gated | service_dispatch | Create a deterministic DOCX merge plan and write only after approval. |
+| 227 | `self_heal_plan` | READ | default | operational | service_dispatch | Propose safe, deterministic, reversible recovery steps without applying mutations. |
+| 228 | `self_heal_apply` | DANGEROUS | default | dependency_gated | service_dispatch | Apply a current reversible recovery plan without automatic destructive retries; standard mode requires confirmation and trusted Full Bypass skips lnwjud approval. |
+| 229 | `skills_import` | WRITE | no | feature_disabled | truthful_unavailable | Import a compatible skill descriptor after validation and permission review. |
+| 230 | `agent_swarm_run` | EXECUTE | no | planned | truthful_unavailable | Plan bounded parallel subagents with ownership, collision, approval, and cancellation metadata. |
+| 231 | `tool_batch` | EXECUTE | default | operational | service_dispatch | Execute multiple MCP tools with parallel, dependency-aware, timeout, cancellation, and partial-result handling. |
 <!-- END GENERATED README TOOL REGISTRY -->
 
 ## Detailed capability guide

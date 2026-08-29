@@ -1,114 +1,293 @@
-import { expect, test } from '@playwright/test';
-import type { RequirementResult, ToolCatalogItem, ToolProfileDecision } from '@lnwjud/ipc-contracts';
-import { catalogDefinitions } from '../src/main/tool-catalog/catalog-definitions.js';
-import { RemediationRegistry } from '../src/main/tool-catalog/remediation-registry.js';
-import { RequirementRegistry } from '../src/main/tool-catalog/requirement-registry.js';
-import { ToolCatalogService } from '../src/main/tool-catalog/tool-catalog-service.js';
-import { startupDoctorCorePassed } from '../src/renderer/features/onboarding/startup-doctor-state.js';
+import { copyFile, mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { spawn, type ChildProcess } from 'node:child_process';
+import { createServer } from 'node:net';
+import os from 'node:os';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { chromium, expect, test, type Browser, type Locator, type Page } from '@playwright/test';
 
-const requirementIds = [
-  'platform_windows', 'registered_workspace', 'active_project', 'executable_git', 'executable_ripgrep', 'codex_runtime', 'wsl_runtime',
-  'local_mcp_listener', 'browser_cdp', 'windows_ui_automation', 'windows_input', 'windows_window', 'windows_ocr', 'office_desktop',
-  'network_access', 'scheduler_runtime', 'tunnel_runtime', 'external_mcp_connection', 'feature_delivery',
-] as const;
-type Status = RequirementResult['status'];
+const desktopRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+const mainEntry = path.join(desktopRoot, 'dist', 'main', 'main.js');
+const electronExecutable = path.join(desktopRoot, 'node_modules', 'electron', 'dist', 'electron.exe');
+const packagedExecutable = process.env.LNWJUD_PACKAGED_EXECUTABLE?.trim() || undefined;
 
-function fixture(initial: Readonly<Record<string, Status>> = {}, options: {
-  readonly profileDecision?: ToolProfileDecision;
-  readonly externalItems?: readonly ToolCatalogItem[];
-} = {}): { catalog: ToolCatalogService; statuses: Record<string, Status>; counts: Record<string, number> } {
-  const statuses: Record<string, Status> = Object.fromEntries(requirementIds.map((id) => [id, initial[id] ?? 'pass']));
-  const counts: Record<string, number> = Object.fromEntries(requirementIds.map((id) => [id, 0]));
-  const registry = new RequirementRegistry(requirementIds.map((id) => ({
-    id,
-    required: id !== 'codex_runtime' && id !== 'external_mcp_connection' && id !== 'feature_delivery',
-    summaryKey: `requirement.${id}`,
-    remediationId: id === 'executable_git' ? 'install_git' : id === 'executable_ripgrep' ? 'install_ripgrep' : 'recheck_runtime',
-    probe: async (): Promise<{ status: Status }> => { counts[id] += 1; return { status: statuses[id] }; },
-  })), { ttlMs: 60_000 });
-  const catalog = new ToolCatalogService(registry, new RemediationRegistry(), {
-    profileDecision: (): ToolProfileDecision => options.profileDecision ?? 'ALLOW',
-    codexEnabled: (): boolean => false,
-    externalItems: async (): Promise<readonly ToolCatalogItem[]> => options.externalItems ?? [],
-  });
-  return { catalog, statuses, counts };
-}
+type LaunchedDesktop = {
+  readonly process: ChildProcess;
+  readonly browser: Browser;
+  readonly page: Page;
+  readonly dataRoot: string;
+  readonly fixtureRoot: string;
+};
 
-function externalOffline(): ToolCatalogItem {
-  return {
-    name: 'offline_tool', origin: 'external_mcp', serverName: 'offline-server', category: 'extensions',
-    title: 'offline_tool', shortDescription: 'Offline external MCP tool', longDescription: 'Server is offline',
-    declaredPermission: 'UNKNOWN', profileDecision: 'UNKNOWN', riskMode: 'external_unknown', readiness: 'needs_setup', stale: false,
-    checkedAt: '2026-08-29T00:00:00.000Z', supportsCancel: null, supportsDryRun: null, requirements: [],
-    remediationIds: ['connect_external_mcp'], inputSchema: null, searchText: ['offline_tool', 'offline-server'],
-  };
-}
+test.describe('Tools catalog and Doctor real Electron acceptance', () => {
+  test.setTimeout(120_000);
 
-test.describe('Tools catalog and Doctor acceptance', () => {
-  test('normal runtime exposes one catalog row for every first-party definition', async () => {
-    const { catalog } = fixture();
-    const snapshot = await catalog.getSnapshot('en');
-    const firstParty = snapshot.items.filter((item) => item.origin === 'lnwjud');
-    expect(firstParty).toHaveLength(Object.keys(catalogDefinitions).length);
-    expect(new Set(firstParty.map((item) => item.name)).size).toBe(firstParty.length);
+  test('normal runtime renders the full first-party catalog and readiness counts', async () => {
+    const app = await launchDesktop();
+    try {
+      await openTools(app.page);
+      await expect(app.page.getByRole('tab', { name: /lnwjud \(231\)/ })).toBeVisible();
+      await expect(app.page.locator('.tool-card')).toHaveCount(231);
+      await expect(app.page.locator('.tool-status-strip')).toContainText(/ready|needs_setup/);
+    } finally { await closeDesktop(app); }
   });
 
-  test('missing dependency marks affected tools needs_setup and Doctor names the affected tools', async () => {
-    const { catalog } = fixture({ executable_git: 'fail' });
-    const snapshot = await catalog.getSnapshot('en');
-    expect(snapshot.items.find((item) => item.name === 'git')?.readiness).toBe('needs_setup');
-    const doctor = await catalog.runDoctor(['executable_git'], 'en');
-    expect(doctor.checks[0]?.status).toBe('fail');
-    expect(doctor.checks[0]?.affectedToolNames).toContain('git');
-    expect(doctor.checks[0]?.remediationId).toBe('install_git');
+  test('missing LSP dependency is needs_setup and explains the real requirement', async () => {
+    const app = await launchDesktop();
+    try {
+      await openTools(app.page);
+      const card = toolCard(app.page, 'lsp_diagnostics');
+      await expect(card).toContainText('needs_setup');
+      await card.click();
+      await expect(app.page.getByRole('dialog')).toContainText('configured_lsp');
+      await expect(app.page.getByRole('dialog')).toContainText(/No local language-server command|Language Server/);
+    } finally { await closeDesktop(app); }
   });
 
-  test('selected recheck recovers both Doctor and Tool Catalog from the same refreshed requirement', async () => {
-    const { catalog, statuses } = fixture({ executable_git: 'fail' });
-    expect((await catalog.getSnapshot('en')).items.find((item) => item.name === 'git')?.readiness).toBe('needs_setup');
-    statuses.executable_git = 'pass';
-    const recovered = await catalog.recheck(['executable_git'], 'en');
-    expect(recovered.doctor.checks.find((check) => check.id === 'executable_git')?.status).toBe('pass');
-    expect(recovered.catalog.items.find((item) => item.name === 'git')?.readiness).toBe('ready');
+  test('selected dependency recheck recovers the tool and preserves the full Doctor report', async () => {
+    const app = await launchDesktop();
+    try {
+      await openTools(app.page);
+      await expect(toolCard(app.page, 'lsp_diagnostics')).toContainText('needs_setup');
+      const nodePath = process.execPath;
+      await app.page.evaluate(async (configuredNodePath) => {
+        const dashboard = await window.lnwjud.getDashboard();
+        await window.lnwjud.setUserSettings({
+          settings: { ...dashboard.settings, lspCommands: { typescript: JSON.stringify([configuredNodePath, '--version']) } },
+        });
+      }, nodePath);
+      await app.page.getByRole('button', { name: 'Doctor', exact: true }).click();
+      const lspCheck = app.page.getByTestId('doctor-check-configured_lsp');
+      await expect(lspCheck).toHaveClass(/doctor-warn/);
+      await lspCheck.getByRole('button', { name: /ตรวจรายการนี้ใหม่|Recheck this issue/ }).click();
+      await expect(lspCheck).toHaveClass(/doctor-pass/);
+      await expect(app.page.getByTestId('doctor-check-persistent_tunnel_identity')).toHaveCount(1);
+      await openTools(app.page);
+      await expect(toolCard(app.page, 'lsp_diagnostics')).toContainText('ready');
+    } finally { await closeDesktop(app); }
   });
 
-  test('permission deny blocks a tool in the catalog without invoking the tool runtime', async () => {
-    const runtimeInvocations = 0;
-    const { catalog } = fixture({}, { profileDecision: 'DENY' });
-    const snapshot = await catalog.getSnapshot('en');
-    expect(snapshot.items.find((item) => item.name === 'read_file')?.readiness).toBe('blocked');
-    expect(runtimeInvocations).toBe(0);
+  test('permission deny blocks dangerous tools without invoking their runtime', async () => {
+    const app = await launchDesktop();
+    try {
+      await app.page.evaluate(async () => { await window.lnwjud.setPermissionProfile({ profile: 'safe' }); });
+      const before = await app.page.evaluate(async () => (await window.lnwjud.getDashboard()).auditEventCount);
+      await openTools(app.page);
+      const card = toolCard(app.page, 'delete_file');
+      await expect(card).toContainText('blocked');
+      await card.click();
+      await expect(app.page.getByRole('dialog')).toContainText('DENY');
+      await app.page.getByRole('button', { name: /ปิดรายละเอียดเครื่องมือ|Close tool details/ }).click();
+      const after = await app.page.evaluate(async () => (await window.lnwjud.getDashboard()).auditEventCount);
+      expect(after).toBe(before);
+    } finally { await closeDesktop(app); }
   });
 
-  test('offline external MCP remains separate and honestly needs setup with unknown permission fields', async () => {
-    const { catalog } = fixture({}, { externalItems: [externalOffline()] });
-    const snapshot = await catalog.getSnapshot('en');
-    const external = snapshot.items.find((item) => item.origin === 'external_mcp');
-    expect(external).toMatchObject({ readiness: 'needs_setup', declaredPermission: 'UNKNOWN', profileDecision: 'UNKNOWN' });
-    expect(external?.remediationIds).toContain('connect_external_mcp');
+  test('offline external MCP is rendered separately as needs_setup with UNKNOWN permission', async () => {
+    const first = await launchDesktop();
+    const { dataRoot, fixtureRoot } = first;
+    try {
+      await first.page.evaluate(async () => {
+        const dashboard = await window.lnwjud.getDashboard();
+        await window.lnwjud.setUserSettings({
+          settings: {
+            ...dashboard.settings,
+            extensions: {
+              mode: 'enable_all', disabledServers: [], enabledServers: [], disabledSkillRoots: [], extraSkillRoots: [],
+              extraMcpServers: [{ name: 'offline-fixture', command: 'Z:\\missing\\offline-mcp.exe', args: [], cwd: '', type: 'stdio', env: {} }],
+            },
+          },
+        });
+      });
+    } finally { await closeDesktop(first, true); }
+
+    const second = await launchDesktop({ dataRoot, fixtureRoot });
+    try {
+      await openTools(second.page);
+      await second.page.getByRole('tab', { name: /External MCP \(\d+\)/ }).click();
+      const card = toolCard(second.page, '@offline-fixture');
+      await expect(card).toContainText('needs_setup');
+      await expect(card).toContainText('UNKNOWN');
+    } finally { await closeDesktop(second); }
   });
 
-  test('Thai/English catalog switch reuses cached probes instead of probing again', async () => {
-    const { catalog, counts } = fixture();
-    await catalog.getSnapshot('en');
-    const before = Object.values(counts).reduce((sum, value) => sum + value, 0);
-    await catalog.getSnapshot('th');
-    const after = Object.values(counts).reduce((sum, value) => sum + value, 0);
-    expect(after).toBe(before);
+  test('locale switch refreshes bilingual copy while reusing cached readiness probes', async () => {
+    const app = await launchDesktop();
+    try {
+      await openTools(app.page);
+      const before = await app.page.evaluate(async () => {
+        const snapshot = await window.lnwjud.getToolCatalog({ locale: 'th' });
+        const tool = snapshot.items.find((item) => item.name === 'lsp_diagnostics');
+        return { checkedAt: tool?.checkedAt, shortDescription: tool?.shortDescription };
+      });
+      await app.page.getByRole('button', { name: 'English' }).click();
+      await expect(app.page.getByRole('heading', { name: 'Tools' })).toBeVisible();
+      const after = await app.page.evaluate(async () => {
+        const snapshot = await window.lnwjud.getToolCatalog({ locale: 'en' });
+        const tool = snapshot.items.find((item) => item.name === 'lsp_diagnostics');
+        return { checkedAt: tool?.checkedAt, shortDescription: tool?.shortDescription };
+      });
+      expect(after.checkedAt).toBe(before.checkedAt);
+      expect(after.shortDescription).not.toBe(before.shortDescription);
+    } finally { await closeDesktop(app); }
   });
 
-  test('startup blocks on required fail/unknown but ignores optional failure', () => {
-    const core = (status: 'pass' | 'fail' | 'unknown'): { checks: Array<{ id: string; required: boolean; status: 'pass' | 'fail' | 'unknown' }> } => ({
-      checks: [
-        { id: 'os', required: true, status: 'pass' as const },
-        { id: 'database', required: true, status: 'pass' as const },
-        { id: 'executable_ripgrep', required: true, status },
-        { id: 'mcp-port', required: true, status: 'pass' as const },
-        { id: 'codex_runtime', required: false, status: 'fail' as const },
-      ],
-    });
-    expect(startupDoctorCorePassed(core('pass') as never)).toBe(true);
-    expect(startupDoctorCorePassed(core('fail') as never)).toBe(false);
-    expect(startupDoctorCorePassed(core('unknown') as never)).toBe(false);
+  test('startup blocks on required failure but optional dependency failure does not block', async () => {
+    test.skip(packagedExecutable !== undefined, 'Packaged builds carry bundled required executables; PATH-only startup dependency failure is a source-build scenario.');
+    const requiredFailBin = await mkdtemp(path.join(os.tmpdir(), 'lnwjud-path-required-fail-'));
+    const optionalFailBin = await mkdtemp(path.join(os.tmpdir(), 'lnwjud-path-optional-fail-'));
+    await copyFile(process.execPath, path.join(optionalFailBin, 'rg.exe'));
+
+    const requiredFail = await launchDesktop({ pathOverride: requiredFailBin });
+    try {
+      await expect(requiredFail.page.getByRole('heading', { name: 'Doctor', exact: true })).toBeVisible({ timeout: 30_000 });
+      await expect(requiredFail.page.getByTestId('doctor-check-executable_ripgrep')).toHaveClass(/doctor-fail/);
+    } finally { await closeDesktop(requiredFail); }
+
+    const optionalFail = await launchDesktop({ pathOverride: optionalFailBin });
+    try {
+      await dismissFirstRunTip(optionalFail.page);
+      await expect(optionalFail.page.getByRole('heading', { name: /ศูนย์ควบคุม Agent|Agent Control Center/ })).toBeVisible({ timeout: 30_000 });
+      await optionalFail.page.getByRole('button', { name: 'Doctor', exact: true }).click();
+      await expect(optionalFail.page.getByTestId('doctor-check-executable_git')).toHaveClass(/doctor-warn/);
+    } finally {
+      await closeDesktop(optionalFail);
+      await Promise.all([removeTemporaryRoot(requiredFailBin), removeTemporaryRoot(optionalFailBin)]);
+    }
   });
 });
+
+async function launchDesktop(options: { readonly dataRoot?: string; readonly fixtureRoot?: string; readonly pathOverride?: string } = {}): Promise<LaunchedDesktop> {
+  const dataRoot = options.dataRoot ?? await mkdtemp(path.join(os.tmpdir(), 'lnwjud-tools-doctor-data-'));
+  const fixtureRoot = options.fixtureRoot ?? await createFixture();
+  const devToolsPort = await findEphemeralPort();
+  const launchExecutable = packagedExecutable ?? electronExecutable;
+  const launchArgs = packagedExecutable === undefined
+    ? [`--remote-debugging-port=${devToolsPort}`, `--user-data-dir=${dataRoot}`, mainEntry]
+    : [`--remote-debugging-port=${devToolsPort}`, `--user-data-dir=${dataRoot}`];
+  const inheritedPath = globalThis.process.env.Path ?? globalThis.process.env.PATH ?? '';
+  const sourceRuntimePath = path.join(desktopRoot, 'build', 'runtime-tools', 'ripgrep');
+  const defaultPath = packagedExecutable === undefined
+    ? [sourceRuntimePath, inheritedPath].filter((entry) => entry.length > 0).join(path.delimiter)
+    : inheritedPath;
+  const effectivePath = options.pathOverride ?? defaultPath;
+  const process = spawn(launchExecutable, launchArgs, {
+    cwd: desktopRoot,
+    shell: false,
+    windowsHide: true,
+    env: {
+      ...globalThis.process.env,
+      PATH: effectivePath,
+      Path: effectivePath,
+      APPDATA: dataRoot,
+      LNWJUD_DATA_PATH: dataRoot,
+      LNWJUD_WORKSPACE: fixtureRoot,
+      LNWJUD_UNRESTRICTED: '1',
+      LNWJUD_E2E_FIXTURE: '1',
+      LNWJUD_E2E_NODE_PATH: globalThis.process.execPath,
+    },
+  });
+  const stderr: string[] = [];
+  process.stderr?.on('data', (chunk: Buffer) => stderr.push(chunk.toString()));
+  await waitForDevTools(devToolsPort, process, stderr);
+  const browser = await chromium.connectOverCDP(`http://127.0.0.1:${devToolsPort}`);
+  const context = browser.contexts()[0];
+  if (context === undefined) throw new Error('Electron did not create a browser context');
+  await expect.poll(() => context.pages().length).toBeGreaterThan(0);
+  const page = context.pages()[0];
+  if (page === undefined) throw new Error('Electron did not create a renderer page');
+  return { process, browser, page, dataRoot, fixtureRoot };
+}
+
+async function openTools(page: Page): Promise<void> {
+  await dismissFirstRunTip(page);
+  await page.getByRole('button', { name: /เครื่องมือ|Tools/, exact: true }).click();
+  await expect(page.getByRole('heading', { name: /เครื่องมือ|Tools/, exact: true })).toBeVisible({ timeout: 30_000 });
+  await expect(page.locator('.tool-card').first()).toBeVisible({ timeout: 30_000 });
+}
+
+async function dismissFirstRunTip(page: Page): Promise<void> {
+  try {
+    await expect.poll(async () => page.evaluate(async () => {
+      const dashboard = await window.lnwjud.getDashboard();
+      return window.localStorage.getItem('lnwjud.startup-doctor.passed-version.v1') === dashboard.appVersion;
+    }), { timeout: 30_000, intervals: [100, 250, 500] }).toBe(true);
+  } catch (cause: unknown) {
+    const diagnostics = await page.evaluate(async () => {
+      const report = await window.lnwjud.runDoctor();
+      const coreIds = new Set(['os', 'database', 'executable_ripgrep', 'mcp-port']);
+      const coreChecks = report.checks
+        .filter((check) => coreIds.has(check.id))
+        .map((check) => ({ id: check.id, required: check.required, status: check.status, message: check.message }));
+      let catalog: { ok: true; itemCount: number } | { ok: false; error: string };
+      try {
+        const snapshot = await window.lnwjud.getToolCatalog({ locale: (await window.lnwjud.getDashboard()).locale });
+        catalog = { ok: true, itemCount: snapshot.items.length };
+      } catch (error: unknown) {
+        catalog = { ok: false, error: error instanceof Error ? error.message : String(error) };
+      }
+      return { coreChecks, catalog, bodyText: document.body.innerText.slice(0, 4_000) };
+    });
+    throw new Error(`Startup Doctor did not become ready: ${JSON.stringify(diagnostics)}`, { cause });
+  }
+
+  const later = page.getByRole('button', { name: /ไว้ทีหลัง|Set up later/ });
+  await later.click({ timeout: 3_000 }).catch(() => undefined);
+}
+
+function toolCard(page: Page, name: string): Locator {
+  const exactName = new RegExp(`^${escapeRegExp(name)}$`);
+  return page.locator('button.tool-card').filter({ has: page.locator('code').filter({ hasText: exactName }) }).first();
+}
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+async function createFixture(): Promise<string> {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'lnwjud-tools-doctor-workspace-'));
+  await mkdir(path.join(root, 'src'));
+  await writeFile(path.join(root, 'src', 'app.ts'), 'export const ready = true;\n', 'utf8');
+  await writeFile(path.join(root, 'package.json'), JSON.stringify({ name: 'tools-doctor-e2e-fixture', scripts: { test: 'node --version' } }), 'utf8');
+  return root;
+}
+
+async function findEphemeralPort(): Promise<number> {
+  const server = createServer();
+  await new Promise<void>((resolve, reject) => {
+    server.once('error', reject);
+    server.listen({ host: '127.0.0.1', port: 0 }, () => resolve());
+  });
+  const address = server.address();
+  await new Promise<void>((resolve, reject) => server.close((error) => error === undefined ? resolve() : reject(error)));
+  if (address === null || typeof address === 'string') throw new Error('Could not allocate an ephemeral port');
+  return address.port;
+}
+
+async function waitForDevTools(port: number, electronProcess: ChildProcess, stderr: readonly string[]): Promise<void> {
+  await expect.poll(async () => {
+    if (electronProcess.exitCode !== null) throw new Error(`Electron exited with ${electronProcess.exitCode}: ${stderr.join('')}`);
+    try { return (await fetch(`http://127.0.0.1:${port}/json/version`)).ok; } catch { return false; }
+  }, { timeout: 20_000, intervals: [50, 100, 250] }).toBe(true);
+}
+
+async function closeDesktop(app: LaunchedDesktop, keepRoots = false): Promise<void> {
+  await app.browser.close().catch(() => undefined);
+  await terminateProcessTree(app.process);
+  if (!keepRoots) await Promise.all([removeTemporaryRoot(app.dataRoot), removeTemporaryRoot(app.fixtureRoot)]);
+}
+
+async function terminateProcessTree(process: ChildProcess): Promise<void> {
+  if (process.exitCode !== null || process.pid === undefined) return;
+  await new Promise<void>((resolve) => {
+    const killer = spawn('taskkill.exe', ['/PID', String(process.pid), '/T', '/F'], { shell: false, windowsHide: true });
+    killer.once('error', () => resolve());
+    killer.once('close', () => resolve());
+  });
+}
+
+async function removeTemporaryRoot(root: string): Promise<void> {
+  await expect.poll(async () => {
+    try { await rm(root, { recursive: true, force: true }); return true; } catch { return false; }
+  }, { timeout: 10_000, intervals: [50, 100, 250] }).toBe(true);
+}

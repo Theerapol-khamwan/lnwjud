@@ -110,8 +110,13 @@ export class ToolCatalogService {
         supportsDryRun: definition.supportsDryRun,
         requirements: requirementResults,
         remediationIds,
-        inputSchema: runtime === undefined ? null : normalizeToolSchema(liveRegistry.describeSchema(definition.name)),
-        searchText: [definition.name, resolveCatalogCopy('en', definition.titleKey), resolveCatalogCopy('th', definition.titleKey)],
+        inputSchema: runtime === undefined ? null : liveRegistry.describeInputJsonSchema(definition.name) ?? null,
+        searchText: [
+          definition.name,
+          resolveCatalogCopy('en', definition.titleKey), resolveCatalogCopy('th', definition.titleKey),
+          resolveCatalogCopy('en', definition.shortDescriptionKey), resolveCatalogCopy('th', definition.shortDescriptionKey),
+          resolveCatalogCopy('en', definition.longDescriptionKey), resolveCatalogCopy('th', definition.longDescriptionKey),
+        ],
       };
     });
     const external = await this.#options.externalItems?.(locale) ?? [];
@@ -130,7 +135,7 @@ function computeReadiness(requirements: readonly RequirementResult[], profileDec
   if (profileDecision === 'DENY') return 'blocked';
   if (requirements.some((result) => result.id === 'platform_windows' && result.status === 'fail')) return 'unsupported';
   if (requirements.some((result) => result.status === 'unknown')) return 'unknown';
-  if (requirements.some((result) => result.status === 'fail')) return 'needs_setup';
+  if (requirements.some((result) => result.status === 'fail' || result.status === 'warn')) return 'needs_setup';
   return 'ready';
 }
 
@@ -153,8 +158,4 @@ function localizedRequirementSummary(locale: UiLocale, result: RequirementSnapsh
 }
 function redactDetail(detail: string): string {
   return detail.replace(/(?:sk|token|key)-[A-Za-z0-9_-]{12,}/gi, '[redacted]').slice(0, 2_048);
-}
-function normalizeToolSchema(value: unknown): Record<string, unknown> | null {
-  if (typeof value !== 'object' || value === null || Array.isArray(value)) return null;
-  return value as Record<string, unknown>;
 }

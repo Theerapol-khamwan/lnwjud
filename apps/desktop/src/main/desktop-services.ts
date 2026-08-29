@@ -1,4 +1,5 @@
 import { createServer } from 'node:net';
+import { existsSync } from 'node:fs';
 import path from 'node:path';
 import {
   CheckpointService,
@@ -552,6 +553,46 @@ export function createDesktopRuntime(dataPath: string, options: DesktopRuntimeOp
     if (capability.ready) return { status: 'pass', detail: `${name} is ready` };
     return { status: capability.available ? 'fail' : 'unknown', detail: capability.available ? `${name} needs setup` : `${name} is unavailable` };
   };
+  const resolveConfiguredExecutable = async (raw: string): Promise<boolean> => {
+    const trimmed = raw.trim();
+    if (trimmed.length === 0) return false;
+    let executable = trimmed;
+    try {
+      const parsed: unknown = JSON.parse(trimmed);
+      if (Array.isArray(parsed) && typeof parsed[0] === 'string') executable = parsed[0];
+    } catch {
+      const quoted = /^"([^"]+)"/.exec(trimmed);
+      executable = quoted?.[1] ?? trimmed.split(/\s+/, 1)[0] ?? trimmed;
+    }
+    return (await executableResolver.resolve(executable)).ok;
+  };
+  const localPdfProviderRequirement = async (): Promise<RequirementProbeResult> => {
+    const configured = readSettings().pdfProviderPath.trim();
+    if (configured.length > 0) {
+      const available = await resolveConfiguredExecutable(configured);
+      return { status: available ? 'pass' : 'warn', detail: available ? 'Configured local PDF provider is available' : 'Configured local PDF provider could not be resolved' };
+    }
+    for (const candidate of ['pdftotext.exe', 'pdftotext']) {
+      if ((await executableResolver.resolve(candidate)).ok) return { status: 'pass', detail: `${candidate} is available on PATH` };
+    }
+    return { status: 'warn', detail: 'No local PDF text provider is configured or available on PATH' };
+  };
+  const configuredLspRequirement = async (): Promise<RequirementProbeResult> => {
+    const commands = Object.values(readSettings().lspCommands).map((value) => value.trim()).filter(Boolean);
+    if (commands.length === 0) return { status: 'warn', detail: 'No local language-server command is configured' };
+    const availability = await Promise.all(commands.map(resolveConfiguredExecutable));
+    return availability.some(Boolean)
+      ? { status: 'pass', detail: `${availability.filter(Boolean).length} configured language-server command(s) resolved` }
+      : { status: 'warn', detail: 'Configured language-server commands could not be resolved' };
+  };
+  const windowsSandboxRequirement = async (): Promise<RequirementProbeResult> => {
+    if (process.platform !== 'win32') return { status: 'fail', detail: 'Windows Sandbox is supported only on Windows' };
+    const root = process.env.SystemRoot ?? process.env.WINDIR;
+    const executable = root === undefined ? '' : path.join(root, 'System32', 'WindowsSandbox.exe');
+    return executable.length > 0 && existsSync(executable)
+      ? { status: 'pass', detail: 'WindowsSandbox.exe is available' }
+      : { status: 'warn', detail: 'Windows Sandbox feature is not installed or enabled' };
+  };
   const requirementDefinitions: readonly RequirementDefinition[] = [
     { id: 'os', required: true, summaryKey: 'requirement.os', probe: async () => ({ status: process.platform === 'win32' && process.arch === 'x64' ? 'pass' : 'fail', detail: `${process.platform} ${process.arch}` }) },
     { id: 'database', required: true, summaryKey: 'requirement.database', probe: async () => ({ status: 'pass', detail: 'SQLite database ready' }) },
@@ -574,6 +615,11 @@ export function createDesktopRuntime(dataPath: string, options: DesktopRuntimeOp
     { id: 'scheduler_runtime', required: false, summaryKey: 'requirement.scheduler_runtime', probe: () => capabilityRequirement('scheduler') },
     { id: 'tunnel_runtime', required: false, summaryKey: 'requirement.tunnel_runtime', remediationId: 'configure_tunnel', probe: async (): Promise<{ status: 'pass' | 'fail'; detail: string }> => { const status = await tunnelController.diagnosticStatus(); return { status: status.state === 'running' ? 'pass' : 'fail', detail: status.message ?? `Tunnel is ${status.state}` }; } },
     { id: 'external_mcp_connection', required: false, summaryKey: 'requirement.external_mcp_connection', remediationId: 'connect_external_mcp', probe: async (): Promise<{ status: 'pass' | 'warn' | 'unknown'; detail: string }> => { const listed = await extensionsService.listMcpServers(); return !listed.ok ? { status: 'unknown', detail: listed.error.message } : { status: listed.value.servers.some((server) => server.enabled && server.connected) ? 'pass' : 'warn', detail: `${listed.value.servers.length} external MCP server(s) discovered` }; } },
+    { id: 'local_pdf_provider', required: false, summaryKey: 'requirement.local_pdf_provider', remediationId: 'configure_pdf_provider', probe: localPdfProviderRequirement },
+    { id: 'configured_lsp', required: false, summaryKey: 'requirement.configured_lsp', remediationId: 'configure_lsp', probe: configuredLspRequirement },
+    { id: 'database_target', required: false, summaryKey: 'requirement.database_target', remediationId: 'configure_database_target', probe: async () => ({ status: 'warn', detail: 'Database tools require a read-only SQLite target inside a registered workspace for each call' }) },
+    { id: 'windows_sandbox', required: false, summaryKey: 'requirement.windows_sandbox', remediationId: 'configure_windows_sandbox', probe: windowsSandboxRequirement },
+    { id: 'browser_event_stream', required: false, summaryKey: 'requirement.browser_event_stream', remediationId: 'configure_browser_events', probe: async () => ({ status: 'warn', detail: 'Console/network tools require a live retained CDP event stream for the selected browser session' }) },
     { id: 'feature_delivery', required: false, summaryKey: 'requirement.feature_delivery', probe: async () => ({ status: 'pass', detail: 'Delivery state comes from the canonical upgrade catalog' }) },
   ];
   const requirementRegistry = new RequirementRegistry(requirementDefinitions, { ttlMs: 30_000, timeoutMs: 2_000 });
@@ -584,6 +630,29 @@ export function createDesktopRuntime(dataPath: string, options: DesktopRuntimeOp
     externalItems: (locale): Promise<readonly ToolCatalogItem[]> => projectExternalMcpTools(extensionsService, locale),
   };
   const toolCatalogService = new ToolCatalogService(requirementRegistry, remediationRegistry, toolCatalogOptions);
+  const tunnelDoctorCheckIds = new Set([
+    'persistent_tunnel_identity', 'runtime_alias_state', 'runtime_process_running', 'tunnel_health', 'tunnel_ready',
+    'control_plane_poll_health', 'local_mcp_binding', 'local_mcp_reachable', 'tunnel_id_matches_saved_identity', 'runtime_key_available',
+  ]);
+  const requirementIdSet = new Set(requirementRegistry.ids());
+  const buildFullDoctorReport = async (locale: UiLocale): Promise<DoctorReport> => {
+    const base = await toolCatalogService.runDoctor(undefined, locale);
+    const tunnel = await tunnelController.diagnosticStatus();
+    recordPersistentTunnelStatus(tunnel);
+    const mcp = mcpLifecycle.status();
+    const tunnelHealth = await tunnelController.incidentHealth();
+    const checks = [...base.checks, ...buildPersistentTunnelDoctorChecks({ tunnel, mcp, tunnelHealth, persistentEnabled: readSettings().tunnelAutoReconnect })];
+    return { checks, exitCode: checks.some((check) => check.required && (check.status === 'fail' || check.status === 'unknown')) ? 1 : 0 };
+  };
+  const recheckCatalogAndDoctor = async (request: RecheckToolCatalogRequest): Promise<{ readonly catalog: ToolCatalogSnapshot; readonly doctor: DoctorReport }> => {
+    const unknown = request.requirementIds.filter((id) => !requirementIdSet.has(id) && !tunnelDoctorCheckIds.has(id));
+    if (unknown.length > 0) throw new Error(`Unknown Doctor check id: ${unknown.join(', ')}`);
+    const canonicalIds = request.requirementIds.filter((id) => requirementIdSet.has(id));
+    const catalog = canonicalIds.length > 0
+      ? (await toolCatalogService.recheck(canonicalIds, request.locale)).catalog
+      : await toolCatalogService.getSnapshot(request.locale);
+    return { catalog, doctor: await buildFullDoctorReport(request.locale) };
+  };
 
   async function resolveWorkspaceOrThrow(workspaceId: string): Promise<Workspace> {
     const workspace = await workspaceRepository.get(workspaceId);
@@ -885,19 +954,9 @@ export function createDesktopRuntime(dataPath: string, options: DesktopRuntimeOp
       const result = await capabilityRuntime.service.execute('dom_cdp', { action: 'launch' });
       return toManagedBrowserStatus(unwrap(result, 'Managed Chrome could not be started'));
     },
-    runDoctor: async (): Promise<DoctorReport> => {
-      const base = await toolCatalogService.runDoctor(undefined, readLocale(settingsRepository));
-      const tunnel = await tunnelController.diagnosticStatus();
-      recordPersistentTunnelStatus(tunnel);
-      const mcp = mcpLifecycle.status();
-      const tunnelHealth = await tunnelController.incidentHealth();
-      const checks = [...base.checks, ...buildPersistentTunnelDoctorChecks({ tunnel, mcp, tunnelHealth, persistentEnabled: readSettings().tunnelAutoReconnect })];
-      return { checks, exitCode: checks.some((check) => check.required && (check.status === 'fail' || check.status === 'unknown')) ? 1 : 0 };
-    },
+    runDoctor: async (): Promise<DoctorReport> => buildFullDoctorReport(readLocale(settingsRepository)),
     getToolCatalog: async (request: GetToolCatalogRequest): Promise<ToolCatalogSnapshot> => toolCatalogService.getSnapshot(request.locale),
-    recheckToolCatalog: async (request: RecheckToolCatalogRequest): Promise<{ readonly catalog: ToolCatalogSnapshot; readonly doctor: DoctorReport }> => toolCatalogService.recheck(request.requirementIds, request.locale),
-    openToolSetupTarget: async (): Promise<{ readonly opened: true }> => ({ opened: true }),
-    copyToolCommand: async (): Promise<{ readonly copied: true }> => ({ copied: true }),
+    recheckToolCatalog: recheckCatalogAndDoctor,
     getLogSnapshot: async (): Promise<LogSnapshot> => {
       const workLog = await buildWorkLog(auditRepository, workLogViewState);
       const inFlight = activityTracker.listInFlight().map(toInFlightItem);

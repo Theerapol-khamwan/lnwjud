@@ -22,6 +22,8 @@ describe('scheduled continuation skill contract', () => {
     expect(skill).toContain('orphan_recovered');
     expect(skill).toContain('cancel');
     expect(skill).toContain('native host deletion receipt');
+    expect(skill).toContain('record_scheduled_continuation_receipt(outcome: consumed)');
+    expect(skill).toContain('does **not** mean the goal work completed');
     expect(skill).toContain('Never report cancellation as successful');
     expect(skill).not.toMatch(/due \*\*25 minutes\*\* later|successor due T\+25/);
     expect(skill).not.toMatch(/retry_prepared|Windows Task Scheduler as fallback/i);

@@ -12,13 +12,21 @@ interface DoctorPanelProps {
   readonly onOpenProjects: () => void;
 }
 
-const ISSUE_RANK: Readonly<Record<DoctorCheck['status'], number>> = { fail: 0, unknown: 1, warn: 2, pass: 3 };
+function issueRank(check: DoctorCheck): number {
+  if (check.status === 'pass') return 6;
+  if (check.required && check.status === 'fail') return 0;
+  if (check.required && check.status === 'unknown') return 1;
+  if (!check.required && check.status === 'fail') return 2;
+  if (check.status === 'unknown') return 3;
+  if (check.status === 'warn') return 4;
+  return 5;
+}
 
 export function DoctorPanel({
   locale = 'th', report, remediations = [], onRunDoctor, onRecheck, onRemediation, onOpenProjects,
 }: DoctorPanelProps): ReactElement {
   const t = createTranslator(locale);
-  const checks = [...(report?.checks ?? [])].sort((left, right) => ISSUE_RANK[left.status] - ISSUE_RANK[right.status] || left.title.localeCompare(right.title));
+  const checks = [...(report?.checks ?? [])].sort((left, right) => issueRank(left) - issueRank(right) || left.title.localeCompare(right.title));
   const issues = checks.filter((check) => check.status !== 'pass');
   const passed = checks.filter((check) => check.status === 'pass');
   const remediationById = new Map(remediations.map((entry) => [entry.id, entry] as const));

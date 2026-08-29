@@ -115,8 +115,6 @@ export interface DesktopIpcServices {
   runDoctor(): Promise<DoctorReport>;
   getToolCatalog(request: GetToolCatalogRequest): Promise<ToolCatalogSnapshot>;
   recheckToolCatalog(request: RecheckToolCatalogRequest): Promise<{ readonly catalog: ToolCatalogSnapshot; readonly doctor: DoctorReport }>;
-  openToolSetupTarget(request: OpenToolSetupTargetRequest): Promise<{ readonly opened: true }>;
-  copyToolCommand(request: CopyToolCommandRequest): Promise<{ readonly copied: true }>;
   getLogSnapshot(): Promise<LogSnapshot>;
   clearLogBuffer(request: ClearLogBufferRequest): Promise<{ readonly cleared: boolean }>;
   captureIncident(updaterEvents?: readonly string[]): Promise<IncidentReport>;
@@ -265,8 +263,6 @@ const defaultDesktopServices: DesktopIpcServices = {
     catalog: { generatedAt: new Date(0).toISOString(), locale: request.locale, items: [], remediations: [] },
     doctor: { checks: [], exitCode: 1 },
   }),
-  openToolSetupTarget: async (): Promise<{ readonly opened: true }> => ({ opened: true }),
-  copyToolCommand: async (): Promise<{ readonly copied: true }> => ({ copied: true }),
   getLogSnapshot: async (): Promise<LogSnapshot> => ({
     lines: [],
     tunnelLogPath: null,
