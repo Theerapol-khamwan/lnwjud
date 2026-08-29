@@ -210,6 +210,9 @@ async function openTools(page: Page): Promise<void> {
 }
 
 async function dismissFirstRunTip(page: Page): Promise<void> {
+  const mcpRunning = await page.evaluate(async () => (await window.lnwjud.getDashboard()).mcp.running);
+  if (!mcpRunning) await page.evaluate(async () => { await window.lnwjud.restartMcp(); });
+
   try {
     await expect.poll(async () => page.evaluate(async () => {
       const dashboard = await window.lnwjud.getDashboard();
