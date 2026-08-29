@@ -1,4 +1,4 @@
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdtemp, realpath, rm } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -15,6 +15,7 @@ describe('WorkspaceInfoService.register', () => {
   it('registers an explicit absolute project without an automatically generated machine root', async () => {
     const projectRoot = await mkdtemp(path.join(os.tmpdir(), 'lnwjud-register-direct-'));
     temporaryRoots.push(projectRoot);
+    const projectRealRoot = await realpath(projectRoot);
 
     const store = new Map<string, Workspace>();
     const repository: WorkspaceRepository = {
@@ -30,7 +31,7 @@ describe('WorkspaceInfoService.register', () => {
 
     expect(registered).toMatchObject({
       ok: true,
-      value: { kind: 'project', realRootPath: projectRoot },
+      value: { kind: 'project', realRootPath: projectRealRoot },
     });
     expect([...store.values()].some((entry) => /^[A-Za-z]:\\$/.test(entry.rootPath))).toBe(false);
   });

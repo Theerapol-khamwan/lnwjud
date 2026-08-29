@@ -47,7 +47,8 @@ describe('FileService writes', () => {
     const workspace = await createWorkspace();
     const outsideRoot = await mkdtemp(path.join(os.tmpdir(), 'lnwjud-file-outside-'));
     temporaryRoots.push(outsideRoot);
-    const outsideFile = path.join(outsideRoot, 'proof.txt');
+    const outsideRealRoot = await realpath(outsideRoot);
+    const outsideFile = path.join(outsideRealRoot, 'proof.txt');
     const checkpoints = checkpointService();
     const service = new FileService(repository(workspace), undefined, undefined, {
       checkpointService: checkpoints,
