@@ -33,7 +33,7 @@ describe('scheduled continuation MCP tools', () => {
       goalId: 'goal-1', leaseToken: 'lease-secret', expectedRevision: 0, currentPhase: 'implement', summary: 'checkpoint',
       stepUpdates: [], nextAction: 'continue', blockers: [], evidence: [], activeTaskIds: [],
     };
-    expect(byName.get('prepare_scheduled_continuation')?.parse(validPrepare)).toMatchObject({ ok: true, value: { successorDelayMinutes: 25, executionPreference: 'cloud' } });
+    expect(byName.get('prepare_scheduled_continuation')?.parse(validPrepare)).toMatchObject({ ok: true, value: { successorDelayMinutes: 2, executionPreference: 'cloud' } });
     expect(byName.get('prepare_scheduled_continuation')?.parse({ ...validPrepare, successorDelayMinutes: 2 })).toMatchObject({ ok: true, value: { successorDelayMinutes: 2 } });
     expect(byName.get('prepare_scheduled_continuation')?.parse({ ...validPrepare, successorDelayMinutes: 5 })).toMatchObject({ ok: true, value: { successorDelayMinutes: 5 } });
     expect(byName.get('prepare_scheduled_continuation')?.parse({ ...validPrepare, successorDelayMinutes: 24 })).toMatchObject({ ok: true, value: { successorDelayMinutes: 24 } });

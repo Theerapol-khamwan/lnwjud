@@ -1,14 +1,14 @@
 # lnwjud — สรุปความสามารถทั้งหมด
 
-สถานะเอกสาร: สรุปจาก source และ runtime contract ปัจจุบันของ lnwjud v4.29.0 (มีทั้งหมด 229 definitions; advertise 217 tools โดยปริยาย และ 223 tools เมื่อเปิด Codex delegation)
+สถานะเอกสาร: สรุปจาก source และ runtime contract ปัจจุบันของ lnwjud v4.29.0 (มีทั้งหมด 231 definitions; advertise 195 tools โดยปริยาย และ 201 tools เมื่อเปิด Codex delegation)
 ขอบเขต: ความสามารถของ gateway, MCP tools, การเชื่อมต่อ AI, สิทธิ์, Live Logs และข้อจำกัดในการใช้งาน
-ตำแหน่งนี้เป็นเอกสารภายในเครื่องตามคำขอ และยังไม่ถูก commit, push หรือปล่อยเป็น release เพิ่มเติม
+เอกสารนี้ถูกติดตามใน repository และต้องสอดคล้องกับ source, runtime contract และ release ปัจจุบัน
 
 ## สรุปสั้น
 
 lnwjud ไม่ใช่ AI model และไม่ใช่ provider API aggregator แต่เป็น Windows-first local development gateway ที่เปิดความสามารถของเครื่องและ workspace ให้ AI host ที่พูดภาษา Model Context Protocol (MCP) ได้
 
-ความสามารถหลักใน v4.9.1 คือ:
+ความสามารถหลักใน v4.29.0 คือ:
 
 - เปิด workspace และ machine roots ให้ AI อ่าน ค้นหา วิเคราะห์ และแก้ไขไฟล์ได้
 - ใช้ Context Economy Engine ลด I/O/token จากการค้นหาอัตโนมัติ โดยยังอ่าน .env, .git, dist และ node_modules ได้เมื่อร้องขอแบบ explicit และอยู่ในขอบเขตที่ workspace/path policy อนุญาต
@@ -325,7 +325,7 @@ skill_match และ skill_load โหลด local skill ตาม intent ผ�
 
 ## รายชื่อ MCP tools ใน runtime snapshot
 
-runtime contract ปัจจุบันมีทั้งหมด 229 tool definitions; ค่า default ส่งกลับ 217 tools และส่งกลับ 223 tools เมื่อเปิด `codex_*` 6 tools. Planned และ feature-disabled definitions ยังคงอยู่ใน complete inventory แต่ไม่ถูก advertise. รายชื่อ full registry ตามลำดับ canonical มีดังนี้:
+runtime contract ปัจจุบันมีทั้งหมด 231 tool definitions; ค่า default ส่งกลับ 195 tools และส่งกลับ 201 tools เมื่อเปิด `codex_*` 6 tools. Planned และ feature-disabled definitions ยังคงอยู่ใน complete inventory แต่ไม่ถูก advertise. รายชื่อ full registry ตามลำดับ canonical มีดังนี้:
 
 ~~~text
 workspace_list
@@ -412,12 +412,14 @@ run_goal
 get_goal
 checkpoint_goal
 finish_goal
+cancel_goal
 list_goals
 prepare_scheduled_continuation
 record_scheduled_continuation_receipt
 claim_scheduled_continuation
 get_scheduled_continuation
 expedite_scheduled_continuation
+cancel_scheduled_continuation
 symbol_search
 find_definition
 find_references

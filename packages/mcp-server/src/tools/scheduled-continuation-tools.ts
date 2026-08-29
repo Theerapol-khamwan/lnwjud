@@ -111,7 +111,7 @@ export function scheduledContinuationTools(context: McpToolContext): McpToolDefi
   return [
     defineTool({
       name: 'prepare_scheduled_continuation',
-      description: 'Checkpoint and reserve exactly one current-chat cloud successor with an adaptive delay between 2 and 25 minutes. The 25-minute default is a maximum watchdog, while bounded final work may use a shorter delay. This workflow never creates or deletes the native task itself.',
+      description: 'Checkpoint and reserve exactly one current-chat cloud successor with an adaptive delay between 2 and 25 minutes. Omitted delay defaults to the fail-safe +2-minute handoff; a healthy current run may explicitly choose a longer 5/10/25-minute watchdog. This workflow never creates or deletes the native task itself.',
       permission: 'WRITE',
       annotations: { readOnlyHint: false, destructiveHint: false },
       inputSchema: prepareSchema,

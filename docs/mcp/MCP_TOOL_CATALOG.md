@@ -2,12 +2,12 @@
 
 Target protocol: MCP `2026-07-28` using TypeScript SDK v2.
 
-Current runtime registry: **214 configurable tools**, with **208 advertised by default**
-because the six `codex_*` delegation tools are opt-in. The historical 184-tool
+Current runtime registry: **231 total tool definitions**, with **195 advertised by default**
+and **201 advertised when the six `codex_*` delegation tools are enabled**. Planned and feature-disabled definitions remain in the complete inventory without appearing in normal `tools/list`. The historical 184-tool
 snapshot remains a compatibility baseline; the narrative below is intentionally
 not a complete generated list.
 
-All tools return structured JSON-compatible output plus concise text where useful. Tool catalog order is deterministic. Desktop and stdio MCP runtimes force permission profile `full`.
+All tools return structured JSON-compatible output plus concise text where useful. Tool catalog order is deterministic. Desktop MCP uses the selected permission profile. Packaged standalone/headless STDIO keeps `full` as its backward-compatible default but supports `safe`, `balanced`, `full`, and `custom`; Secure Tunnel uses the running Desktop MCP permission profile and Active Project.
 
 > **Phase 00 contract note:** the live `v1.1.4` runtime advertises 53 tools.
 > The complete current name/permission/annotation/schema-source matrix is

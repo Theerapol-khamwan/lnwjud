@@ -94,7 +94,27 @@ function validPrepare(started: Awaited<ReturnType<typeof startGoal>>, overrides:
 }
 
 describe('ScheduledContinuationService', () => {
-  it('prepares exactly one cloud successor due 25 minutes later and keeps the current run alive', async () => {
+  it('defaults an omitted successor delay to the fail-safe two-minute handoff', async () => {
+    const { database, goals, scheduled } = await fixture();
+    try {
+      const started = await startGoal(goals);
+      const result = await scheduled.prepareScheduledContinuation(actor, validPrepare(started, { successorDelayMinutes: undefined }));
+      expect(result).toMatchObject({
+        ok: true,
+        value: {
+          outcome: 'prepared',
+          currentRunMayContinue: true,
+          handoffDeadlineAt: '2026-08-27T10:02:00.000Z',
+          scheduleRequest: { dueAt: '2026-08-27T10:02:00.000Z' },
+          goal: { revision: 1, leaseExpiresAt: '2026-08-27T10:02:00.000Z' },
+        },
+      });
+    } finally {
+      database.close();
+    }
+  });
+
+  it('allows an explicit 25-minute watchdog while the current run remains healthy', async () => {
     const { database, goals, scheduled } = await fixture();
     try {
       const started = await startGoal(goals);
@@ -209,7 +229,9 @@ describe('ScheduledContinuationService', () => {
       expect(serialized).not.toContain(started.leaseToken!);
       expect(result.value.scheduleRequest.prompt).toContain('claim_scheduled_continuation');
       expect(result.value.scheduleRequest.prompt).toContain('adaptive delay between 2 and 25 minutes');
-      expect(result.value.scheduleRequest.prompt).toContain('25 minutes is the maximum watchdog');
+      expect(result.value.scheduleRequest.prompt).toContain('Omitted delay fails safe to +2 minutes');
+      expect(result.value.scheduleRequest.prompt).toContain('5/10/25 minutes only as an explicit watchdog');
+      expect(result.value.scheduleRequest.prompt).toContain('no worker will remain after the response');
       expect(result.value.scheduleRequest.prompt).toContain('Never send a completion response while get_goal still reports active');
       expect(result.value.scheduleRequest.prompt).toContain('finish_goal');
       expect(result.value.scheduleRequest.prompt).toContain('Never report cancellation as successful');

@@ -7,7 +7,9 @@ describe('scheduled continuation skill contract', () => {
     const skill = await readFile(path.resolve(process.cwd(), '../../.agents/skills/lnwjud-scheduled-continuation/SKILL.md'), 'utf8');
     expect(skill).toMatch(/description: Use when/);
     expect(skill).toContain('2–25 minutes');
-    expect(skill).toContain('25 minutes is the maximum watchdog, not a fixed cadence');
+    expect(skill).toContain('The API default is deliberately **2 minutes** as a fail-safe');
+    expect(skill).toContain('25 minutes is the maximum watchdog, not the default handoff');
+    expect(skill).toContain('use +2 because there will be no live worker after the turn');
     expect(skill).toContain('A request to stop scheduling cancels only the successor');
     expect(skill).toContain('Never send a completion report while `get_goal` reports `active`');
     expect(skill).toContain('`run_goal` defaults to `scheduledContinuation: auto`');

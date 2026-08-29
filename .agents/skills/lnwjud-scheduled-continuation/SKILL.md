@@ -22,17 +22,17 @@ One user request starts one durable chain: acquire the goal, arm one cloud succe
 
 1. Call `run_goal` with a stable workspace and goal key using the normal **600-second (10-minute) lease**. Never override this workflow to an hour-long lease. Keep the returned lease token and generation private. The lease is a short crash-recovery window, not the expected work duration; real checkpoint/fenced-mutation activity renews it while work is actually alive.
 2. Read the durable checkpoint and do the next useful work. Record real milestones with `checkpoint_goal`; do not checkpoint merely because time elapsed.
-3. After the first checkpoint, call `prepare_scheduled_continuation` and create exactly one native one-time task from its `scheduleRequest`. Record `created` with the real native task ID and `runsOn: cloud` before relying on it.
-4. Choose `successorDelayMinutes` adaptively within **2–25 minutes**:
+3. After the first checkpoint, call `prepare_scheduled_continuation` and create exactly one native one-time task from its `scheduleRequest`. Record `created` with the real native task ID and `runsOn: cloud` **immediately** before relying on it. Never yield after native creation while durable state is still only `prepared`.
+4. Choose `successorDelayMinutes` adaptively within **2–25 minutes**. The API default is deliberately **2 minutes** as a fail-safe: any longer watchdog must be explicit.
 
    | Remaining work at this checkpoint | Delay |
    | --- | --- |
-   | Long or open-ended work while this run is healthy | 25 minutes |
-   | One bounded phase expected within about 15 minutes | 10 minutes |
-   | Final build, smoke, or verification expected soon | 5 minutes |
-   | This turn must end while work remains | update the same task to now +2 minutes |
+   | Long or open-ended work while this run is healthy and will keep executing | explicitly 25 minutes |
+   | One bounded phase expected within about 15 minutes and this run will keep executing | explicitly 10 minutes |
+   | Final build, smoke, or verification expected soon and this run will keep executing | explicitly 5 minutes |
+   | This turn must end while work remains, or no worker will continue after this response | 2 minutes |
 
-   25 minutes is the maximum watchdog, not a fixed cadence. A schedule is a recovery handoff, never permission to stop working early.
+   25 minutes is the maximum watchdog, not the default handoff. A schedule is recovery insurance, never permission to stop working early. If the current response is about to end, do not arm 25/10/5 minutes merely because the goal is long; use +2 because there will be no live worker after the turn.
 5. Attach the current proof as `goalLease` to every fenced mutation. Never put the raw token in prompts, logs, receipts, docs, or user-visible text.
 6. Keep working continuously. For a managed build/test/shell task, use condition-based task wait/status calls, inspect its terminal output, and do not end the turn with only “still running” when the user asked to babysit it to completion.
 
@@ -41,9 +41,9 @@ One user request starts one durable chain: acquire the goal, arm one cloud succe
 If `get_goal` is still `active` and scheduling remains authorized:
 
 1. Checkpoint the exact next action and every active task ID.
-2. Require one confirmed cloud successor. Do not create a second task when one already exists.
-3. If the turn is about to yield, call `expedite_scheduled_continuation` with `turn_yield_signal`, update the **same native task** to **+2 minutes**, and record the reschedule receipt.
-4. Only then may the current turn yield. A status update is not completion.
+2. Require one confirmed cloud successor. If none exists yet, prepare it **directly at +2 minutes**, create the native task, and record `created`; do not first create a 25/10/5-minute task when this turn is already ending. Do not create a second task when one already exists.
+3. If a confirmed successor already exists at a later due time, call `expedite_scheduled_continuation` with `turn_yield_signal`, update the **same native task** to **+2 minutes**, and record the reschedule receipt.
+4. Re-read the continuation and require a confirmed/scheduled state at the +2-minute due time. Only then may the current turn yield. A status update is not completion.
 
 If the user disabled scheduling, call `cancel_scheduled_continuation` for the exact pending successor, delete the exact pending native task, and record its native host deletion receipt. Do not create another successor; remain in the current run, wait for bounded active work, finish verification, and close the goal.
 

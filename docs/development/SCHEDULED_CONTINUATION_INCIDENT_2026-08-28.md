@@ -40,8 +40,8 @@ The database was inspected read-only. The historical stale goal was intentionall
 
 ## Repair contract
 
-- `successorDelayMinutes` accepts integer values from 2 through 25. Twenty-five is the default/maximum watchdog, not a fixed cadence; bounded phases use shorter delays (normally 10 minutes, or 5 minutes for final verification/packaging).
-- The current run continues immediately after arming the successor. A schedule is recovery insurance, not permission to stop.
+- `successorDelayMinutes` accepts integer values from 2 through 25. Omitted delay now fails safe to **2 minutes**; 5/10/25-minute watchdogs must be chosen explicitly while the current run is genuinely continuing. Twenty-five remains only the maximum watchdog.
+- The current run continues immediately after arming the successor. A schedule is recovery insurance, not permission to stop. If the host turn is already ending or no worker will remain after the response, prepare directly at +2 (or move the same confirmed task to +2) instead of leaving a long-delay successor.
 - If a host turn must end while the goal is still active, the exact same native task is moved to `now+2`; no replacement task is created.
 - Claim accepts native wake jitter up to 120 seconds early. Real worker collisions still fail closed into same-task `now+2` rescheduling.
 - If exact ChatGPT host metadata proves that a native one-time task ran/was consumed while durable state still says pending/live because claim did not complete, record an exact `consumed` host-run receipt. This clears the stale live continuation/fence without claiming goal completion; an active goal then creates a fresh successor.
