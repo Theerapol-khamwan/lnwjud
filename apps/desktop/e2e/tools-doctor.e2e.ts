@@ -309,6 +309,10 @@ async function terminateDevToolsProcess(port: number): Promise<void> {
 async function terminateProcessTree(process: ChildProcess): Promise<void> {
   if (process.pid === undefined) return;
   await terminatePidTree(process.pid);
+  await expect.poll(
+    () => process.exitCode !== null || process.signalCode !== null,
+    { timeout: 15_000, intervals: [50, 100, 250, 500] },
+  ).toBe(true);
 }
 
 async function terminatePidTree(pid: number): Promise<void> {
