@@ -490,8 +490,10 @@ describe('MCP tool registry', () => {
   });
 
   it('routes absolute file, database, and command targets to any matching member of the active workspace set', async () => {
-    const rootA = await mkdtemp(path.join(tmpdir(), 'lnwjud-active-a-'));
-    const rootB = await mkdtemp(path.join(tmpdir(), 'lnwjud-active-b-'));
+    const rawRootA = await mkdtemp(path.join(tmpdir(), 'lnwjud-active-a-'));
+    const rawRootB = await mkdtemp(path.join(tmpdir(), 'lnwjud-active-b-'));
+    const rootA = await realpath(rawRootA);
+    const rootB = await realpath(rawRootB);
     try {
       const databasePath = path.join(rootB, 'state.sqlite');
       const database = new DatabaseSync(databasePath);
