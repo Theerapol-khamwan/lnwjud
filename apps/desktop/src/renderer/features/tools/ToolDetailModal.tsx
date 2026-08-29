@@ -1,4 +1,5 @@
 import { useEffect, useRef, type ReactElement } from 'react';
+import { createPortal } from 'react-dom';
 import type { ResolvedRemediation, ToolCatalogItem, UiLocale } from '@lnwjud/ipc-contracts';
 import { formatDateTime } from '../../date-time.js';
 
@@ -36,7 +37,7 @@ export function ToolDetailModal({ locale, item, remediations, onClose, onRemedia
 
   const relevantRemediations = remediations.filter((remediation) => item.remediationIds.includes(remediation.id));
   const notChecked = locale === 'th' ? 'ยังไม่มีผลตรวจ' : 'Not checked';
-  return (
+  const modal = (
     <div className="tool-modal-backdrop" role="presentation" onMouseDown={(event): void => { if (event.currentTarget === event.target) onClose(); }}>
       <section ref={dialogRef} className="tool-modal" role="dialog" aria-modal="true" aria-labelledby="tool-detail-title">
         <header className="tool-modal-header">
@@ -71,6 +72,7 @@ export function ToolDetailModal({ locale, item, remediations, onClose, onRemedia
       </section>
     </div>
   );
+  return typeof document === 'undefined' ? modal : createPortal(modal, document.body);
 }
 
 function readinessLabel(locale: UiLocale, readiness: ToolCatalogItem['readiness']): string {

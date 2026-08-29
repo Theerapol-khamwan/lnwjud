@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs';
 import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
@@ -76,5 +77,15 @@ describe('Tools and Doctor UX', () => {
     expect(markup).toContain(formatDateTime(checkedAt));
     expect(markup).not.toContain(checkedAt);
     expect(markup).toContain('862 ms');
+  });
+
+  it('anchors the tool modal to document.body and constrains scrolling to the viewport-safe modal body', () => {
+    const source = readFileSync(new URL('../src/renderer/features/tools/ToolDetailModal.tsx', import.meta.url), 'utf8');
+    const styles = readFileSync(new URL('../src/renderer/styles.css', import.meta.url), 'utf8');
+    expect(source).toContain("createPortal(modal, document.body)");
+    expect(styles).toContain('z-index: 5000');
+    expect(styles).toContain('align-items: flex-start');
+    expect(styles).toContain('max-height: calc(100dvh - 64px)');
+    expect(styles).toContain('.tool-modal-scroll { flex: 1 1 auto;');
   });
 });
