@@ -668,6 +668,19 @@ loopback URL through a generic port forward.
 If dom_cdp is available, the dashboard can launch managed Chrome. Browser
 automation remains loopback-bound and separate from the file guard.
 
+For every page-targeted browser operation, use this fail-closed targeting flow:
+
+1. Call `dom_cdp` with `action: "list_tabs"`.
+2. Match the intended existing tab using its returned exact ID together with the inspected URL/title.
+3. If there is no safe match, call `dom_cdp` with `action: "new_tab"` and retain that returned ID.
+4. Pass the same top-level `tab_id` to every target-scoped call or `steps` batch.
+5. If that target disappears, stop and list tabs again; never substitute the first or OS-active tab.
+6. Never navigate a web page by focusing or typing into the browser address bar as a fallback.
+
+Mutating a ChatGPT tab has an additional hard boundary: the request must include
+`allow_protected_tab_action: true` and real `userConfirmed: true`. Full Bypass
+does not satisfy or manufacture that explicit-user confirmation.
+
 ## Connect a local Codex client
 
 Local Codex clients can use stdio directly; they do not need Secure MCP Tunnel.
@@ -957,10 +970,10 @@ This complete index is generated from `ToolRegistry.listAll()`, not copied from 
 | 38 | `codex_task_logs` | READ | Codex opt-in | operational | service_dispatch | Read bounded logs for an owned Codex task. |
 | 39 | `codex_stop` | EXECUTE | Codex opt-in | operational | service_dispatch | Stop an owned Codex task process after explicit chat confirmation in standard mode. Trusted Full Bypass skips the lnwjud confirmation gate; task ownership still applies. |
 | 40 | `shell` | EXECUTE | default | operational | service_dispatch | Non-blocking command runner for real command execution, builds/tests, package managers, and system operations. Never use shell as a source/config/text editor. For any direct text-file change, call edit_file first; use apply_patch for reviewed whole-file or multi-file replacements and write_file for file creation/replacement. Inline Node/Python/PowerShell/sed commands that rewrite text files are rejected before native approval so the client can route to the guarded file tools instead. MCP run calls are ALWAYS forced to execution=background, even if a client requests foreground or auto, so the call returns a task_id immediately instead of waiting for command completion. Follow with status/logs/result; wait uses the user-configurable MCP poll window (5-60 seconds, default 5). When the user requires babysitting until completion, keep using bounded waits and do not report completion until the terminal result is inspected. Otherwise, if the host turn must yield while a durable task is still running, checkpoint its task_id and use the active scheduled-continuation handoff instead of abandoning the goal. With Full Bypass OFF, Full Access runs ordinary policy-allowed commands without confirmation while destructive, broad, recursive, critical, outside-project, or unparseable forms retain normal approval/command policy. Trusted Full Bypass skips lnwjud approval, command-policy, Active Project, goalLease, and allowed-root checks, including an explicitly absolute cwd outside the project; input validation, executable availability, Windows ACL/UAC, and child-process failures still apply. dry_run and task observation are non-mutating. |
-| 41 | `dom_cdp` | READ | default | operational | service_dispatch | Default for web-page DOM work inside managed Chrome: inspect content, query selectors, click, type, navigate, evaluate JavaScript, wait, manage tabs, and capture screenshots. In standard mode, any action that can change local or remote state requires explicit chat confirmation and host approval. Trusted Full Bypass skips lnwjud approval without forging userConfirmed. Use steps to batch related DOM actions in one call. |
-| 42 | `computer_use` | EXECUTE | default | operational | service_dispatch | Codex-style native Windows computer use for testing desktop apps. Take annotated screenshots, inspect semantic controls, and operate by semantic target, numbered visual mark, or explicit coordinates. Routes through Accessibility first and uses guarded pointer/keyboard input only when needed. Supports click, typing, keys, hotkeys, scroll, drag, pointer movement, and window activation. |
+| 41 | `dom_cdp` | READ | default | operational | service_dispatch | Default for web-page DOM work inside managed Chrome. Call list_tabs first, select the exact returned tab_id by URL/title, and pass that tab_id to every query, click, type, navigate, evaluate, wait, screenshot, close, or steps call. If no safe matching tab exists, call new_tab and use its returned ID. Target order and the OS-active tab are never ownership signals. Never navigate through the browser address bar with computer_use/accessibility/input_event. Protected ChatGPT tab mutations additionally require allow_protected_tab_action=true plus explicit user confirmation. |
+| 42 | `computer_use` | EXECUTE | default | operational | service_dispatch | Codex-style native Windows computer use for testing desktop apps. Take annotated screenshots, inspect semantic controls, and operate by semantic target, numbered visual mark, or explicit coordinates. Routes through Accessibility first and uses guarded pointer/keyboard input only when needed. Supports click, typing, keys, hotkeys, scroll, drag, pointer movement, and window activation. For web navigation, do not focus/type into a browser address bar; use dom_cdp list_tabs/new_tab plus an explicit tab_id. |
 | 43 | `accessibility` | READ | default | operational | service_dispatch | Semantic native Windows UI tool. Inspect UI trees and named controls, then click, focus, read or set values, select controls and menus, or manage a native element. Prefer shell for direct system work and dom_cdp for web pages. |
-| 44 | `input_event` | EXECUTE | default | operational | service_dispatch | Low-level keyboard and pointer fallback. Use only when DOM/CDP and Accessibility cannot operate the target. Supports text, keys, mouse movement, clicks, drag, scroll, held buttons, release_all, and batched sequences. |
+| 44 | `input_event` | EXECUTE | default | operational | service_dispatch | Low-level keyboard and pointer fallback. Use only when DOM/CDP and Accessibility cannot operate the target. Supports text, keys, mouse movement, clicks, drag, scroll, held buttons, release_all, and batched sequences. For web navigation, do not focus/type into a browser address bar; use dom_cdp list_tabs/new_tab plus an explicit tab_id. |
 | 45 | `vision` | READ | default | operational | service_dispatch | Visual and OCR fallback for content unavailable through DOM or Accessibility. Capture a display, window, or region, or run local Vision OCR. It never clicks or types. |
 | 46 | `vision_annotated_capture` | READ | default | operational | service_dispatch | Capture a local Windows screen/region/window and return a short-lived Set-of-Marks observation with numbered bounds, a content hash, and an annotated PNG. This tool only observes; use ui_target_action for a separately gated action. |
 | 47 | `ui_target_action` | EXECUTE | default | operational | service_dispatch | Act on one mark from a current vision_annotated_capture observation. The observation ID, optional hash, TTL, workspace owner, and current Accessibility element are checked before the action is sent. |
@@ -1062,13 +1075,13 @@ This complete index is generated from `ToolRegistry.listAll()`, not copied from 
 | 143 | `session_resume` | READ | default | operational | deterministic_operation | Resume a persisted session context. |
 | 144 | `session_history` | READ | default | operational | deterministic_operation | Return session checkpoints and decisions. |
 | 145 | `response_mode` | READ | default | operational | deterministic_operation | Select compact, normal, verbose, or stream formatting. |
-| 146 | `inspect_web_app` | READ | default | operational | service_dispatch | Combine DOM, console, network, URL, and screenshot metadata. |
-| 147 | `debug_ui` | READ | default | operational | service_dispatch | Gather deterministic UI debugging context. |
-| 148 | `capture_ui_state` | READ | default | operational | service_dispatch | Capture a structured UI state. |
-| 149 | `form_context` | READ | default | operational | service_dispatch | Inspect form controls and values metadata. |
+| 146 | `inspect_web_app` | READ | default | operational | service_dispatch | Combine DOM, console, network, URL, and screenshot metadata. Requires an exact dom_cdp tab_id from list_tabs or new_tab; never uses the active/first tab. |
+| 147 | `debug_ui` | READ | default | operational | service_dispatch | Gather deterministic UI debugging context. Requires an exact dom_cdp tab_id from list_tabs or new_tab; never uses the active/first tab. |
+| 148 | `capture_ui_state` | READ | default | operational | service_dispatch | Capture a structured UI state. Requires an exact dom_cdp tab_id from list_tabs or new_tab; never uses the active/first tab. |
+| 149 | `form_context` | READ | default | operational | service_dispatch | Inspect form controls and values metadata. Requires an exact dom_cdp tab_id from list_tabs or new_tab; never uses the active/first tab. |
 | 150 | `network_context` | READ | default | dependency_gated | truthful_unavailable | Summarize browser network context when a retained CDP network event stream is available. |
 | 151 | `console_context` | READ | default | dependency_gated | truthful_unavailable | Summarize browser console context when a retained CDP Runtime/Log event stream is available. |
-| 152 | `browser_debug_context` | READ | default | operational | service_dispatch | Combine browser diagnostics for one request. |
+| 152 | `browser_debug_context` | READ | default | operational | service_dispatch | Combine browser diagnostics for one request. Requires an exact dom_cdp tab_id from list_tabs or new_tab; never uses the active/first tab. |
 | 153 | `windows_environment` | READ | default | operational | service_dispatch | Inspect Windows environment metadata. |
 | 154 | `service_context` | READ | default | operational | deterministic_operation | Inspect Windows service metadata. |
 | 155 | `process_context` | READ | default | operational | service_dispatch | Inspect process-tree context. |
@@ -1113,11 +1126,11 @@ This complete index is generated from `ToolRegistry.listAll()`, not copied from 
 | 194 | `mcp_hub` | READ | default | dependency_gated | service_dispatch | Describe the additive MCP hub boundary without flattening child tools or retaining credentials. |
 | 195 | `dev_context` | READ | default | operational | service_dispatch | Run the unified deterministic development-context facade. |
 | 196 | `recipe_catalog` | READ | default | operational | deterministic_operation | Return inspectable developer automation recipes. |
-| 197 | `capture_screenshot` | READ | default | operational | service_dispatch | Capture screenshot metadata for visual validation. |
+| 197 | `capture_screenshot` | READ | default | operational | service_dispatch | Capture screenshot metadata for visual validation. Requires an exact dom_cdp tab_id from list_tabs or new_tab; never uses the active/first tab. |
 | 198 | `compare_screenshot` | READ | default | operational | deterministic_operation | Compare screenshot metadata or supplied artifacts. |
-| 199 | `dom_snapshot` | READ | default | operational | service_dispatch | Return a structured DOM snapshot. |
-| 200 | `layout_metadata` | READ | default | operational | service_dispatch | Return layout metadata for visual validation. |
-| 201 | `visual_context` | READ | default | operational | service_dispatch | Combine screenshot, DOM, layout, console, and network references. |
+| 199 | `dom_snapshot` | READ | default | operational | service_dispatch | Return a structured DOM snapshot. Requires an exact dom_cdp tab_id from list_tabs or new_tab; never uses the active/first tab. |
+| 200 | `layout_metadata` | READ | default | operational | service_dispatch | Return layout metadata for visual validation. Requires an exact dom_cdp tab_id from list_tabs or new_tab; never uses the active/first tab. |
+| 201 | `visual_context` | READ | default | operational | service_dispatch | Combine screenshot, DOM, layout, console, and network references. Requires an exact dom_cdp tab_id from list_tabs or new_tab; never uses the active/first tab. |
 | 202 | `inspect_workbook` | READ | default | operational | service_dispatch | Inspect workbook sheets, used ranges, and a bounded sample through Excel COM. |
 | 203 | `compare_workbook_layout` | READ | no | feature_disabled | truthful_unavailable | Compare workbook layout metadata through an optional spreadsheet plugin. |
 | 204 | `render_excel_preview` | READ | no | feature_disabled | truthful_unavailable | Render an Excel preview through an optional spreadsheet plugin. |

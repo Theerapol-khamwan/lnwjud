@@ -14,11 +14,11 @@ function protocolStub(options: {
   readonly onClose?: (tabId: string) => void;
 }): BrowserCdpProtocol {
   return {
-    async status() { return { ready: true, port: 9222 }; },
-    async listTabs() { return options.tabs; },
-    async newTab(url) { return tab('new-tab', '', url); },
-    async closeTab(tabId) { options.onClose?.(tabId); return { closed: true }; },
-    async request(tabId, method, params) {
+    async status(): Promise<{ readonly ready: boolean; readonly port: number }> { return { ready: true, port: 9222 }; },
+    async listTabs(): Promise<readonly BrowserCdpTab[]> { return options.tabs; },
+    async newTab(url): Promise<BrowserCdpTab> { return tab('new-tab', '', url); },
+    async closeTab(tabId): Promise<unknown> { options.onClose?.(tabId); return { closed: true }; },
+    async request(tabId, method, params): Promise<unknown> {
       options.onRequest?.(tabId, method, params);
       if (method === 'Page.captureScreenshot') return { result: { data: 'aGVsbG8=' } };
       return { result: { result: { value: method === 'Runtime.evaluate' ? { ok: true, text: 'hello', tag: 'DIV' } : { ok: true } } } };
@@ -35,7 +35,7 @@ function reorderingProtocolStub(options: {
   const base = protocolStub({ tabs: options.first, onRequest: (tabId) => options.onRequest(tabId) });
   return {
     ...base,
-    async listTabs() {
+    async listTabs(): Promise<readonly BrowserCdpTab[]> {
       listCount += 1;
       return listCount === 1 ? options.first : options.later;
     },
