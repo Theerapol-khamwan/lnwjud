@@ -9,7 +9,7 @@ describe('tool catalog security boundaries', () => {
     const resolved = registry.resolve('en');
     for (const remediation of resolved) {
       for (const action of remediation.actions) {
-        expect(['open_settings', 'open_official_url', 'open_system_settings', 'copy_command', 'launch_managed_browser', 'set_user_setting', 'recheck']).toContain(action.kind);
+        expect(['open_settings', 'open_official_url', 'open_system_settings', 'copy_command', 'launch_managed_browser', 'install_pdf_provider', 'set_user_setting', 'recheck']).toContain(action.kind);
         if (action.kind === 'open_official_url') expect(action.target in OFFICIAL_URL_TARGETS).toBe(true);
         if (action.kind === 'open_system_settings') expect(action.target).toBe('windows_optional_features');
         if (action.kind === 'copy_command') expect(action.commandId in COPY_COMMANDS).toBe(true);
@@ -28,6 +28,10 @@ describe('tool catalog security boundaries', () => {
 
     const browser = registry.resolve('th', ['configure_browser_cdp'])[0]!;
     expect(browser.actions).toContainEqual({ kind: 'launch_managed_browser' });
+
+    const pdf = registry.resolve('th', ['configure_pdf_provider'])[0]!;
+    expect(pdf.actions).toContainEqual({ kind: 'install_pdf_provider' });
+    expect(pdf.explanation).toContain('SHA-256');
 
     const codex = registry.resolve('th', ['configure_codex'])[0]!;
     expect(codex.actions).toContainEqual({ kind: 'set_user_setting', setting: 'codexToolsEnabled', value: true });

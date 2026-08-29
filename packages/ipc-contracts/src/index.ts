@@ -35,6 +35,7 @@ export const ipcChannels = {
   configureTunnelProfile: 'lnwjud:configure-tunnel-profile',
   openExternalSetupPage: 'lnwjud:open-external-setup-page',
   launchManagedBrowser: 'lnwjud:launch-managed-browser',
+  installPdfProvider: 'lnwjud:install-pdf-provider',
   runDoctor: 'lnwjud:run-doctor',
   getToolCatalog: 'lnwjud:get-tool-catalog',
   recheckToolCatalog: 'lnwjud:recheck-tool-catalog',
@@ -123,6 +124,7 @@ export type RemediationAction =
   | { readonly kind: 'open_system_settings'; readonly target: 'windows_optional_features' }
   | { readonly kind: 'copy_command'; readonly commandId: string }
   | { readonly kind: 'launch_managed_browser' }
+  | { readonly kind: 'install_pdf_provider' }
   | { readonly kind: 'set_user_setting'; readonly setting: 'codexToolsEnabled'; readonly value: boolean }
   | { readonly kind: 'recheck'; readonly requirementIds: readonly string[] };
 
@@ -682,6 +684,15 @@ export interface ManagedBrowserStatus {
   readonly launched: boolean;
 }
 
+export interface PdfProviderInstallResult {
+  readonly providerPath: string;
+  readonly version: string;
+  readonly sourceUrl: string;
+  readonly archiveSha256: string;
+  readonly reused: boolean;
+  readonly restartRequired: boolean;
+}
+
 export interface IpcRequestMap {
   readonly [ipcChannels.listWorkspaces]: undefined;
   readonly [ipcChannels.addWorkspace]: AddWorkspaceRequest;
@@ -716,6 +727,7 @@ export interface IpcRequestMap {
   readonly [ipcChannels.configureTunnelProfile]: ConfigureTunnelProfileRequest;
   readonly [ipcChannels.openExternalSetupPage]: OpenExternalSetupPageRequest;
   readonly [ipcChannels.launchManagedBrowser]: undefined;
+  readonly [ipcChannels.installPdfProvider]: undefined;
   readonly [ipcChannels.runDoctor]: undefined;
   readonly [ipcChannels.getLogSnapshot]: undefined;
   readonly [ipcChannels.clearLogBuffer]: ClearLogBufferRequest;
@@ -762,6 +774,7 @@ export interface IpcResponseMap {
   readonly [ipcChannels.configureTunnelProfile]: { readonly configured: boolean; readonly profilePath: string };
   readonly [ipcChannels.openExternalSetupPage]: { readonly opened: true };
   readonly [ipcChannels.launchManagedBrowser]: ManagedBrowserStatus;
+  readonly [ipcChannels.installPdfProvider]: PdfProviderInstallResult;
   readonly [ipcChannels.runDoctor]: DoctorReport;
   readonly [ipcChannels.getToolCatalog]: ToolCatalogSnapshot;
   readonly [ipcChannels.recheckToolCatalog]: { readonly catalog: ToolCatalogSnapshot; readonly doctor: DoctorReport };
@@ -812,6 +825,7 @@ export interface LnwjudApi {
   configureTunnelProfile(request: ConfigureTunnelProfileRequest): Promise<IpcResponseMap[typeof ipcChannels.configureTunnelProfile]>;
   openExternalSetupPage(request: OpenExternalSetupPageRequest): Promise<IpcResponseMap[typeof ipcChannels.openExternalSetupPage]>;
   launchManagedBrowser(): Promise<IpcResponseMap[typeof ipcChannels.launchManagedBrowser]>;
+  installPdfProvider(): Promise<IpcResponseMap[typeof ipcChannels.installPdfProvider]>;
   runDoctor(): Promise<IpcResponseMap[typeof ipcChannels.runDoctor]>;
   getToolCatalog(request: GetToolCatalogRequest): Promise<IpcResponseMap[typeof ipcChannels.getToolCatalog]>;
   recheckToolCatalog(request: RecheckToolCatalogRequest): Promise<IpcResponseMap[typeof ipcChannels.recheckToolCatalog]>;

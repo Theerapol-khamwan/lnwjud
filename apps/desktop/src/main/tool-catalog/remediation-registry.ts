@@ -62,12 +62,12 @@ const DEFINITIONS: readonly RemediationDefinition[] = [
     ['เปิด MCP & Extensions', 'เพิ่มหรือเปิด MCP Server ที่ต้องการแล้วบันทึก', 'Reconnect/Restart หากจำเป็น แล้วตรวจใหม่'],
   ),
   remediation(
-    'configure_pdf_provider', 'Configure the PDF provider', 'ตั้งค่าตัวอ่าน PDF',
-    'PDF extraction needs pdftotext.exe either on PATH or configured explicitly in Local Providers.',
-    'การอ่านข้อความ PDF ต้องมี pdftotext.exe อยู่ใน PATH หรือกำหนดพาธไว้ที่ Local Providers',
-    [{ kind: 'open_settings', target: 'tools_local_providers' }, { kind: 'recheck', requirementIds: ['local_pdf_provider'] }],
-    ['Open Tools → Local Providers.', 'Set PDF Provider to pdftotext.exe (or install it on PATH).', 'Save changes, restart Local MCP / Tunnel if requested, then recheck.'],
-    ['เปิด Tools → Local Providers', 'ใส่พาธ PDF Provider ไปที่ pdftotext.exe (หรือทำให้โปรแกรมอยู่ใน PATH)', 'บันทึกค่า Restart Local MCP / Tunnel หากระบบแจ้ง แล้วตรวจใหม่'],
+    'configure_pdf_provider', 'Install the PDF provider', 'ติดตั้งตัวอ่าน PDF',
+    'PDF extraction needs pdftotext.exe. lnwjud can download a pinned Poppler for Windows package, verify its SHA-256, install it inside the lnwjud data directory, and configure the provider path automatically.',
+    'การอ่านข้อความ PDF ต้องมี pdftotext.exe โดย lnwjud สามารถดาวน์โหลด Poppler for Windows เวอร์ชันที่กำหนดไว้ ตรวจ SHA-256 ติดตั้งไว้ในโฟลเดอร์ข้อมูลของ lnwjud และตั้งค่าพาธให้อัตโนมัติ',
+    [{ kind: 'install_pdf_provider' }, { kind: 'open_settings', target: 'tools_local_providers' }, { kind: 'recheck', requirementIds: ['local_pdf_provider'] }],
+    ['Click Download & install PDF Provider.', 'lnwjud verifies the pinned archive before extraction and configures pdftotext.exe automatically.', 'Use Local Providers only if you prefer a manually installed pdftotext.exe, then recheck.'],
+    ['กด ดาวน์โหลดและติดตั้ง PDF Provider', 'lnwjud จะตรวจ SHA-256 ของไฟล์ที่กำหนดไว้ก่อนแตกไฟล์ และตั้งค่า pdftotext.exe ให้อัตโนมัติ', 'ใช้ Local Providers เฉพาะกรณีต้องการเลือก pdftotext.exe ที่ติดตั้งเอง แล้วกดตรวจใหม่'],
   ),
   remediation(
     'configure_lsp', 'Configure a Language Server', 'ตั้งค่า Language Server',

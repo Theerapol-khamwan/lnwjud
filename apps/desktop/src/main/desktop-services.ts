@@ -112,6 +112,7 @@ import {
   type InFlightWorkItem,
   type LogSnapshot,
   type ManagedBrowserStatus,
+  type PdfProviderInstallResult,
   type McpConnectionStatus,
   type PermissionProfileName as IpcPermissionProfileName,
   type ProcessSummary,
@@ -147,6 +148,7 @@ import { LogHub, classifyMcpWorkLogKind } from './log-hub.js';
 import { buildIncidentReport, collectRelevantListeners, collectRelevantProcessTree, type IncidentReport } from './incident-report.js';
 import { DesktopMcpLifecycle } from './mcp-lifecycle.js';
 import { WorkLogViewState } from './work-log-view-state.js';
+import { installPdfProvider, type InstalledPdfProvider } from './pdf-provider-installer.js';
 import { CLIENT_PATH_SETTING, TunnelController } from './tunnel-controller.js';
 
 const actor: FileActor = { clientId: 'desktop-renderer', clientName: `${APP_NAME} desktop` };
@@ -179,6 +181,7 @@ export interface DesktopRuntime {
 export interface DesktopRuntimeOptions {
   readonly permissionProfile?: PermissionProfileName;
   readonly hostMutationApprovalProvider?: (request: HostMutationApprovalRequest) => boolean | Promise<boolean>;
+  readonly pdfProviderInstaller?: (dataPath: string) => Promise<InstalledPdfProvider>;
 }
 
 interface StartupTunnelController {
@@ -963,6 +966,13 @@ export function createDesktopRuntime(dataPath: string, options: DesktopRuntimeOp
       const result = await capabilityRuntime.service.execute('dom_cdp', { action: 'launch', userConfirmed: true });
       return toManagedBrowserStatus(unwrap(result, 'Managed Chrome could not be started'));
     },
+    installPdfProvider: async (): Promise<PdfProviderInstallResult> => {
+      const installed = await (options.pdfProviderInstaller ?? installPdfProvider)(dataPath);
+      const previous = readSettings();
+      settingsRepository.set(USER_SETTING_KEYS.pdfProviderPath, installed.providerPath);
+      const next = readSettings();
+      return { ...installed, restartRequired: runtimeRestartRequired(previous, next) };
+    },
     runDoctor: async (): Promise<DoctorReport> => buildFullDoctorReport(readLocale(settingsRepository)),
     getToolCatalog: async (request: GetToolCatalogRequest): Promise<ToolCatalogSnapshot> => toolCatalogService.getSnapshot(request.locale),
     recheckToolCatalog: recheckCatalogAndDoctor,
@@ -1421,7 +1431,6 @@ function runtimeRestartRequired(previous: UserSettings, next: UserSettings): boo
     || previous.mcpIdleTimeoutMs !== next.mcpIdleTimeoutMs
     || previous.mcpHttpPort !== next.mcpHttpPort
     || previous.codexToolsEnabled !== next.codexToolsEnabled
-    || previous.pdfProviderPath !== next.pdfProviderPath
     || JSON.stringify(previous.lspCommands) !== JSON.stringify(next.lspCommands)
     || JSON.stringify(previous.customPermission) !== JSON.stringify(next.customPermission)
     || JSON.stringify(previous.extensions) !== JSON.stringify(next.extensions);

@@ -37,6 +37,7 @@
     "@lnwjud/storage": "workspace:*",
     "@lnwjud/workspace": "workspace:*",
     "electron-updater": "^6.8.9",
+    "extract-zip": "2.0.1",
     "react": "19.1.1",
     "react-dom": "19.1.1"
   },

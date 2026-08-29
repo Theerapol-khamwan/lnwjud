@@ -3,6 +3,7 @@ import type {
   ExtraMcpServerSettings,
   PermissionDecisionSetting,
   PermissionProfileName,
+  PdfProviderInstallResult,
   UiLocale,
   UserSettings,
 } from '@lnwjud/ipc-contracts';
@@ -19,6 +20,7 @@ interface UserConfigPanelProps {
   readonly unrestricted: boolean;
   readonly onUnrestrictedChange: (enabled: boolean) => Promise<boolean>;
   readonly onSave: (settings: UserSettings) => Promise<boolean>;
+  readonly onInstallPdfProvider: () => Promise<PdfProviderInstallResult>;
 }
 
 const DEFAULT_USER_SETTINGS: UserSettings = {
@@ -48,13 +50,16 @@ const DEFAULT_USER_SETTINGS: UserSettings = {
   extensions: { mode: 'enable_all', disabledServers: [], enabledServers: [], disabledSkillRoots: [], extraSkillRoots: [], extraMcpServers: [] },
 };
 
-export function UserConfigPanel({ locale, permissionProfile, stdioPermissionProfile, settings, section, unrestricted, onUnrestrictedChange, onSave }: UserConfigPanelProps): ReactElement {
+export function UserConfigPanel({ locale, permissionProfile, stdioPermissionProfile, settings, section, unrestricted, onUnrestrictedChange, onSave, onInstallPdfProvider }: UserConfigPanelProps): ReactElement {
   const effectiveSettings = settings ?? DEFAULT_USER_SETTINGS;
   const [draft, setDraft] = useState<UserSettings>(effectiveSettings);
   const [dirty, setDirty] = useState(false);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [pdfInstallBusy, setPdfInstallBusy] = useState(false);
+  const [pdfInstallMessage, setPdfInstallMessage] = useState<string | null>(null);
+  const [pdfInstallError, setPdfInstallError] = useState<string | null>(null);
   const [unrestrictedMessage, setUnrestrictedMessage] = useState<string | null>(null);
 
   useEffect(() => {
@@ -112,6 +117,24 @@ export function UserConfigPanel({ locale, permissionProfile, stdioPermissionProf
         env: {},
       }],
     });
+  }
+
+  async function installPdf(): Promise<void> {
+    if (pdfInstallBusy) return;
+    setPdfInstallBusy(true);
+    setPdfInstallMessage(null);
+    setPdfInstallError(null);
+    try {
+      const result = await onInstallPdfProvider();
+      setDraft((previous) => ({ ...previous, pdfProviderPath: result.providerPath }));
+      setPdfInstallMessage(result.reused
+        ? (locale === 'th' ? `PDF Provider พร้อมใช้แล้ว: ${result.providerPath}` : `PDF Provider is ready: ${result.providerPath}`)
+        : (locale === 'th' ? `ติดตั้ง Poppler ${result.version} และตั้งค่า pdftotext.exe เรียบร้อยแล้ว` : `Installed Poppler ${result.version} and configured pdftotext.exe.`));
+    } catch (cause: unknown) {
+      setPdfInstallError(cause instanceof Error ? cause.message : (locale === 'th' ? 'ดาวน์โหลดหรือติดตั้ง PDF Provider ไม่สำเร็จ' : 'Could not download or install the PDF Provider.'));
+    } finally {
+      setPdfInstallBusy(false);
+    }
   }
 
   async function save(): Promise<void> {
@@ -266,12 +289,26 @@ export function UserConfigPanel({ locale, permissionProfile, stdioPermissionProf
           <section className="panel settings-card settings-card-polished" aria-label="Local providers" data-settings-focus="tools-local-providers" tabIndex={-1}>
             <CardHeading icon="◫" title={locale === 'th' ? 'Local Providers' : 'Local Providers'} subtitle={locale === 'th' ? 'ตั้งค่า PDF และ Language Server โดยไม่ต้องแก้ Environment Variable' : 'Configure PDF and language-server providers without environment variables'} badge="ADVANCED" />
             <div className="setting-grid two-col">
-              <Field
-                label={locale === 'th' ? 'PDF Provider (pdftotext.exe)' : 'PDF Provider (pdftotext.exe)'}
-                value={draft.pdfProviderPath}
-                placeholder={locale === 'th' ? 'พาธไปยัง pdftotext.exe (ถ้ามี)' : 'Path to pdftotext.exe (optional)'}
-                onChange={(value) => patch({ pdfProviderPath: value })}
-              />
+              <div className="pdf-provider-install-control">
+                <Field
+                  label={locale === 'th' ? 'PDF Provider (pdftotext.exe)' : 'PDF Provider (pdftotext.exe)'}
+                  value={draft.pdfProviderPath}
+                  placeholder={locale === 'th' ? 'พาธไปยัง pdftotext.exe (ถ้ามี)' : 'Path to pdftotext.exe (optional)'}
+                  onChange={(value) => patch({ pdfProviderPath: value })}
+                />
+                <div className="inline-actions">
+                  <button type="button" className="btn-save-gold" disabled={pdfInstallBusy} onClick={() => { void installPdf(); }}>
+                    {pdfInstallBusy
+                      ? (locale === 'th' ? 'กำลังดาวน์โหลดและติดตั้ง…' : 'Downloading and installing…')
+                      : (locale === 'th' ? 'ดาวน์โหลดและติดตั้งอัตโนมัติ' : 'Download & install automatically')}
+                  </button>
+                </div>
+                <p className="hint">{locale === 'th'
+                  ? 'ดาวน์โหลด Poppler for Windows รุ่นที่ lnwjud กำหนดไว้จาก GitHub Release ตรวจ SHA-256 ก่อนแตกไฟล์ แล้วเก็บไว้ในโฟลเดอร์ข้อมูลของ lnwjud โดยไม่ต้องเพิ่ม PATH หรือใช้สิทธิ์ Administrator'
+                  : 'Downloads the lnwjud-pinned Poppler for Windows release from GitHub, verifies SHA-256 before extraction, and installs it in the lnwjud data directory without changing PATH or requiring Administrator rights.'}</p>
+                {pdfInstallError === null ? null : <div className="alert-box-warning" role="alert">⚠️ {pdfInstallError}</div>}
+                {pdfInstallMessage === null ? null : <div className="toast-success-banner" role="status">✓ {pdfInstallMessage}</div>}
+              </div>
               <TextArea
                 label={locale === 'th' ? 'LSP Commands — LANGUAGE=COMMAND' : 'LSP Commands — LANGUAGE=COMMAND'}
                 value={stringMapToText(draft.lspCommands)}

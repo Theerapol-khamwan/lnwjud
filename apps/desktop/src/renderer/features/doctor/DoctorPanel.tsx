@@ -96,6 +96,7 @@ function statusLabel(locale: UiLocale, status: DoctorCheck['status']): string {
 function actionLabel(locale: UiLocale, action: RemediationAction): string {
   if (action.kind === 'recheck') return locale === 'th' ? 'ตรวจใหม่' : 'Recheck';
   if (action.kind === 'launch_managed_browser') return locale === 'th' ? 'เปิด Managed Browser' : 'Start managed browser';
+  if (action.kind === 'install_pdf_provider') return locale === 'th' ? 'ดาวน์โหลดและติดตั้ง PDF Provider' : 'Download & install PDF Provider';
   if (action.kind === 'set_user_setting') return locale === 'th' ? 'เปิด codex_* และ Restart MCP' : 'Enable codex_* and restart MCP';
   if (action.kind === 'open_system_settings') return locale === 'th' ? 'เปิด Windows Optional Features' : 'Open Windows Optional Features';
   if (action.kind === 'copy_command') return locale === 'th' ? 'คัดลอกคำสั่ง' : 'Copy command';

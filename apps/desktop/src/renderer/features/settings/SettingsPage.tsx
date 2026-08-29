@@ -1,5 +1,5 @@
 import { useEffect, useState, type ReactElement } from 'react';
-import type { DashboardSnapshot, DestructiveDeletePolicy, ExternalSetupTarget, PermissionProfileName, TunnelStatus, UiLocale, UserSettings } from '@lnwjud/ipc-contracts';
+import type { DashboardSnapshot, DestructiveDeletePolicy, ExternalSetupTarget, PdfProviderInstallResult, PermissionProfileName, TunnelStatus, UiLocale, UserSettings } from '@lnwjud/ipc-contracts';
 import { formatDateTime } from '../../date-time.js';
 import { createTranslator } from '../../i18n/index.js';
 import { GuidedTunnelSetup } from '../onboarding/GuidedTunnelSetup.js';
@@ -22,6 +22,7 @@ interface SettingsPageProps {
   readonly onSaveTunnelApiKey: (apiKey: string) => Promise<void>;
   readonly onSetTunnelClientPath: (clientPath: string) => Promise<void>;
   readonly onUserSettingsChange: (settings: UserSettings) => Promise<boolean>;
+  readonly onInstallPdfProvider: () => Promise<PdfProviderInstallResult>;
   readonly onChooseTunnelClientPath: () => Promise<string | null>;
   readonly onConfigureTunnelProfile: (tunnelId: string) => Promise<string>;
   readonly onStartTunnel: () => Promise<TunnelStatus>;
@@ -354,6 +355,7 @@ export function SettingsPage(props: SettingsPageProps): ReactElement {
                 unrestricted={props.dashboard.unrestricted}
                 onUnrestrictedChange={props.onUnrestrictedChange}
                 onSave={props.onUserSettingsChange}
+                onInstallPdfProvider={props.onInstallPdfProvider}
               />
 
               <section className="panel settings-card settings-card-polished" aria-label="AI destructive action policy">
@@ -431,6 +433,7 @@ export function SettingsPage(props: SettingsPageProps): ReactElement {
               unrestricted={props.dashboard.unrestricted}
               onUnrestrictedChange={props.onUnrestrictedChange}
               onSave={props.onUserSettingsChange}
+              onInstallPdfProvider={props.onInstallPdfProvider}
             />
           )}
 

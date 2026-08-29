@@ -30,6 +30,7 @@ import {
   type OpenExternalSetupPageRequest,
   type LogSnapshot,
   type ManagedBrowserStatus,
+  type PdfProviderInstallResult,
   type McpConnectionStatus,
   type PermissionProfileName,
   type ProcessSummary,
@@ -588,6 +589,7 @@ function resolvedRemediation(value: unknown): ResolvedRemediation {
     if (action.kind === 'open_system_settings' && action.target === 'windows_optional_features') return { kind: 'open_system_settings' as const, target: 'windows_optional_features' as const };
     if (action.kind === 'copy_command' && typeof action.commandId === 'string') return { kind: 'copy_command' as const, commandId: action.commandId };
     if (action.kind === 'launch_managed_browser') return { kind: 'launch_managed_browser' as const };
+    if (action.kind === 'install_pdf_provider') return { kind: 'install_pdf_provider' as const };
     if (action.kind === 'set_user_setting' && action.setting === 'codexToolsEnabled' && typeof action.value === 'boolean') return { kind: 'set_user_setting' as const, setting: 'codexToolsEnabled' as const, value: action.value };
     if (action.kind === 'recheck' && Array.isArray(action.requirementIds) && action.requirementIds.every((entry) => typeof entry === 'string')) return { kind: 'recheck' as const, requirementIds: action.requirementIds as string[] };
     throw new Error('Invalid IPC response');
@@ -870,6 +872,20 @@ function launchManagedBrowser(): Promise<ManagedBrowserStatus> {
   return invoke(ipcChannels.launchManagedBrowser).then(managedBrowserStatus);
 }
 
+function installPdfProvider(): Promise<PdfProviderInstallResult> {
+  return invoke(ipcChannels.installPdfProvider).then((value: unknown) => {
+    if (!isRecord(value)) throw new Error('Invalid IPC response');
+    return {
+      providerPath: stringField(value, 'providerPath'),
+      version: stringField(value, 'version'),
+      sourceUrl: stringField(value, 'sourceUrl'),
+      archiveSha256: stringField(value, 'archiveSha256'),
+      reused: booleanField(value, 'reused'),
+      restartRequired: booleanField(value, 'restartRequired'),
+    };
+  });
+}
+
 function logLine(value: unknown): LogLine {
   if (!isRecord(value) || !isLogSource(value.source) || !isLogLevel(value.level)) throw new Error('Invalid IPC response');
   const correlation = parseLogCorrelation(value.correlation);
@@ -1017,6 +1033,7 @@ const api: LnwjudApi = {
   configureTunnelProfile,
   openExternalSetupPage,
   launchManagedBrowser,
+  installPdfProvider,
   runDoctor: () => invoke(ipcChannels.runDoctor).then(doctorReport),
   getToolCatalog,
   recheckToolCatalog,

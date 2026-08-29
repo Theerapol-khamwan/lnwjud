@@ -376,6 +376,34 @@ describe('DesktopRuntime persistence', () => {
       await restarted.close();
     }
   }, 30_000);
+
+  it('installs and configures the PDF provider through the desktop service without requiring restart', async () => {
+    const rawDataRoot = await mkdtemp(path.join(os.tmpdir(), 'lnwjud-runtime-pdf-provider-'));
+    temporaryRoots.push(rawDataRoot);
+    const dataRoot = await realpath(rawDataRoot);
+    const providerPath = path.join(dataRoot, 'runtime-tools', 'pdf-provider', 'fixture', 'Library', 'bin', 'pdftotext.exe');
+    const runtime = createDesktopRuntime(dataRoot, {
+      pdfProviderInstaller: async () => ({
+        providerPath,
+        version: 'fixture',
+        sourceUrl: 'https://example.invalid/poppler.zip',
+        archiveSha256: 'a'.repeat(64),
+        reused: false,
+      }),
+    });
+    try {
+      await expect(runtime.services.installPdfProvider()).resolves.toMatchObject({
+        providerPath,
+        version: 'fixture',
+        reused: false,
+        restartRequired: false,
+      });
+      expect(runtime.getUserSettings().pdfProviderPath).toBe(providerPath);
+    } finally {
+      await runtime.close();
+    }
+  }, 30_000);
+
   it('applies MCP poll and foreground wait settings live without requiring a runtime restart', async () => {
     const rawDataRoot = await mkdtemp(path.join(os.tmpdir(), 'lnwjud-runtime-live-waits-'));
     temporaryRoots.push(rawDataRoot);

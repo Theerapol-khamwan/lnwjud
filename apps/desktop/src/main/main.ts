@@ -1,4 +1,4 @@
-import { app, BrowserWindow, clipboard, dialog, ipcMain, Menu, nativeImage, shell, Tray, type IpcMainInvokeEvent } from 'electron';
+import { app, BrowserWindow, clipboard, dialog, ipcMain, Menu, nativeImage, net, shell, Tray, type IpcMainInvokeEvent } from 'electron';
 import path from 'node:path';
 import os from 'node:os';
 import { access } from 'node:fs/promises';
@@ -27,6 +27,7 @@ import {
   type IpcResponseMap,
   type LogSnapshot,
   type ManagedBrowserStatus,
+  type PdfProviderInstallResult,
   type McpConnectionStatus,
   type ProcessSummary,
   type RestoreCheckpointRequest,
@@ -57,6 +58,7 @@ import { readSharedActivitySnapshot, startMcpStdio, type HostMutationApprovalReq
 import { DEFAULT_MCP_POLL_WAIT_SECONDS, DEFAULT_SHELL_SYNCHRONOUS_WAIT_SECONDS, MAX_CONFIGURABLE_WAIT_SECONDS, MIN_CONFIGURABLE_WAIT_SECONDS, resolveLnwjudDataPath } from '@lnwjud/shared';
 import { applyPendingSqliteRestoreSync } from '@lnwjud/storage';
 import { createDesktopRuntime, type DesktopRuntime } from './desktop-services.js';
+import { installPdfProvider } from './pdf-provider-installer.js';
 import { DesktopShutdownCoordinator } from './desktop-shutdown.js';
 import { parseOpenExternalSetupPageRequest, resolveExternalSetupUrl } from './external-setup-links.js';
 import { shouldHoldSingleInstanceLock, wantsMcpStdio } from './instance-lock.js';
@@ -112,6 +114,7 @@ export interface DesktopIpcServices {
   setUserSettings(request: SetUserSettingsRequest): Promise<{ readonly settings: UserSettings; readonly restartRequired: boolean }>;
   configureTunnelProfile(request: ConfigureTunnelProfileRequest): Promise<{ readonly configured: boolean; readonly profilePath: string }>;
   launchManagedBrowser(): Promise<ManagedBrowserStatus>;
+  installPdfProvider(): Promise<PdfProviderInstallResult>;
   runDoctor(): Promise<DoctorReport>;
   getToolCatalog(request: GetToolCatalogRequest): Promise<ToolCatalogSnapshot>;
   recheckToolCatalog(request: RecheckToolCatalogRequest): Promise<{ readonly catalog: ToolCatalogSnapshot; readonly doctor: DoctorReport }>;
@@ -254,6 +257,7 @@ const defaultDesktopServices: DesktopIpcServices = {
   setUserSettings: async (request): Promise<{ readonly settings: UserSettings; readonly restartRequired: boolean }> => ({ settings: request.settings, restartRequired: false }),
   configureTunnelProfile: async (): Promise<{ readonly configured: boolean; readonly profilePath: string }> => ({ configured: false, profilePath: '' }),
   launchManagedBrowser: async (): Promise<ManagedBrowserStatus> => ({ ready: false, port: 9222, launched: false }),
+  installPdfProvider: async (): Promise<PdfProviderInstallResult> => { throw new Error('PDF provider installer is not configured'); },
   runDoctor: async (): Promise<DoctorReport> => ({
     checks: [{ id: 'desktop', required: true, status: 'fail', title: 'Desktop services', summary: 'Desktop services are not configured', affectedToolNames: [], checkedAt: new Date(0).toISOString(), durationMs: 0, message: 'Desktop services are not configured' }],
     exitCode: 1,
@@ -457,6 +461,11 @@ export function registerIpcHandlers(
     assertTrustedSender(event, getMainWindow());
     assertNoPayload(payload);
     return services.launchManagedBrowser();
+  });
+  ipcMain.handle(ipcChannels.installPdfProvider, async (event, payload: unknown) => {
+    assertTrustedSender(event, getMainWindow());
+    assertNoPayload(payload);
+    return services.installPdfProvider();
   });
   ipcMain.handle(ipcChannels.runDoctor, async (event, payload: unknown) => {
     assertTrustedSender(event, getMainWindow());
@@ -1481,6 +1490,15 @@ function initAutoUpdater(runtime: DesktopRuntime): void {
   }
 }
 
+function createNativeDesktopRuntime(dataPath: string): DesktopRuntime {
+  return createDesktopRuntime(dataPath, {
+    hostMutationApprovalProvider: requestNativeMutationApproval,
+    pdfProviderInstaller: (rootPath) => installPdfProvider(rootPath, {
+      fetchImpl: (url) => net.fetch(url, { redirect: 'follow' }),
+    }),
+  });
+}
+
 function bootstrapDesktop(): void {
   if (windowsCompatibility.disableHardwareAcceleration) app.disableHardwareAcceleration();
   const dataPath = configureDataPath();
@@ -1491,7 +1509,7 @@ function bootstrapDesktop(): void {
     );
 
     prependBundledRuntimeToolsToPath();
-    const runtime = createDesktopRuntime(dataPath, { hostMutationApprovalProvider: requestNativeMutationApproval });
+    const runtime = createNativeDesktopRuntime(dataPath);
     desktopRuntime = runtime;
     setDesktopLocale(runtime.getLocale());
     applyDesktopUserSettings(runtime.getUserSettings());
@@ -1526,7 +1544,7 @@ function bootstrapLogViewerOnly(): void {
   void app.whenReady().then(async () => {
     app.setAppUserModelId('com.lnwjud.desktop');
     prependBundledRuntimeToolsToPath();
-    const runtime = createDesktopRuntime(dataPath, { hostMutationApprovalProvider: requestNativeMutationApproval });
+    const runtime = createNativeDesktopRuntime(dataPath);
     desktopRuntime = runtime;
     configureDesktopShutdown(runtime);
     runtime.logHub.setOnLine((line) => broadcastToAllWindows(pushChannels.logEvent, line));

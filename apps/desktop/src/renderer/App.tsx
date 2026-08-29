@@ -9,6 +9,7 @@ import type {
   LogLine,
   LogSource,
   PermissionProfileName,
+  PdfProviderInstallResult,
   UiLocale,
   UpdateStatus,
   UserSettings,
@@ -545,6 +546,20 @@ export function App(): ReactElement {
     return result.clientPath;
   }
 
+  async function installPdfProvider(): Promise<PdfProviderInstallResult> {
+    setError(null);
+    try {
+      const result = await window.lnwjud.installPdfProvider();
+      await refresh();
+      await loadToolCatalog(['local_pdf_provider']);
+      return result;
+    } catch (cause: unknown) {
+      const message = errorMessage(cause, propsText(locale, 'ดาวน์โหลดหรือติดตั้ง PDF Provider ไม่สำเร็จ', 'Could not download or install the PDF Provider'));
+      setError(message);
+      throw cause instanceof Error ? cause : new Error(message);
+    }
+  }
+
   async function configureTunnelProfile(tunnelId: string): Promise<string> {
     const result = await window.lnwjud.configureTunnelProfile({ tunnelId });
     await refresh();
@@ -585,6 +600,7 @@ export function App(): ReactElement {
       }
       return;
     }
+    if (action.kind === 'install_pdf_provider') { await installPdfProvider(); return; }
     if (action.kind === 'set_user_setting') {
       if (dashboard === null) return;
       const restartRequired = await setUserSettings({ ...dashboard.settings, [action.setting]: action.value });
@@ -766,6 +782,7 @@ export function App(): ReactElement {
           onSaveTunnelApiKey={saveTunnelApiKey}
           onSetTunnelClientPath={setTunnelClientPath}
           onUserSettingsChange={setUserSettings}
+          onInstallPdfProvider={installPdfProvider}
           onChooseTunnelClientPath={chooseTunnelClientPath}
           onConfigureTunnelProfile={configureTunnelProfile}
           onStartTunnel={startTunnelWithStatus}
