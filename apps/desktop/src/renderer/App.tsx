@@ -25,7 +25,7 @@ import { WorkLogPage } from './features/worklog/WorkLogPage.js';
 import { LiveLogsPage } from './features/live/LiveLogsPage.js';
 import type { LogScopeSelection } from './features/live/LogStreamPanel.js';
 import { applyLogSnapshot } from './features/live/log-buffer.js';
-import { SettingsPage, type SettingsSection } from './features/settings/SettingsPage.js';
+import { SettingsPage, type SettingsFocusTarget, type SettingsSection } from './features/settings/SettingsPage.js';
 import { DoctorPanel } from './features/doctor/DoctorPanel.js';
 import { ToolsPage } from './features/tools/ToolsPage.js';
 import { remediationNavigationForTarget } from './features/tools/remediation-navigation.js';
@@ -66,7 +66,7 @@ export function App(): ReactElement {
   const [firstRunTunnelTipOpen, setFirstRunTunnelTipOpen] = useState(false);
   const [guidedTunnelSetupOpen, setGuidedTunnelSetupOpen] = useState(false);
   const [startupDoctorReady, setStartupDoctorReady] = useState(false);
-  const [requestedSettingsSection, setRequestedSettingsSection] = useState<{ readonly section: SettingsSection; readonly requestId: number } | undefined>(undefined);
+  const [requestedSettingsSection, setRequestedSettingsSection] = useState<{ readonly section: SettingsSection; readonly focus?: SettingsFocusTarget; readonly requestId: number } | undefined>(undefined);
   const incidentBusyRef = useRef(false);
   const logIds = useRef<Set<number>>(new Set());
   const guidedTunnelLaunchSignature = useRef<string | null>(null);
@@ -267,9 +267,9 @@ export function App(): ReactElement {
     });
   }, [appVersion, locale]);
 
-  function requestSettingsSection(section: SettingsSection): void {
+  function requestSettingsSection(section: SettingsSection, focus?: SettingsFocusTarget): void {
     settingsRequestId.current += 1;
-    setRequestedSettingsSection({ section, requestId: settingsRequestId.current });
+    setRequestedSettingsSection({ section, ...(focus === undefined ? {} : { focus }), requestId: settingsRequestId.current });
     setError(null);
     setScreen('settings');
   }
@@ -570,15 +570,38 @@ export function App(): ReactElement {
 
   async function handleToolRemediation(action: ResolvedRemediation['actions'][number]): Promise<void> {
     if (action.kind === 'recheck') { await loadToolCatalog(action.requirementIds); return; }
-    if (action.kind === 'open_official_url') { await window.lnwjud.openToolSetupTarget({ target: action.target }); return; }
+    if (action.kind === 'open_official_url' || action.kind === 'open_system_settings') { await window.lnwjud.openToolSetupTarget({ target: action.target }); return; }
     if (action.kind === 'copy_command') { await window.lnwjud.copyToolCommand({ commandId: action.commandId }); return; }
+    if (action.kind === 'launch_managed_browser') {
+      await window.lnwjud.launchManagedBrowser();
+      await loadToolCatalog(['browser_cdp']);
+      return;
+    }
+    if (action.kind === 'set_user_setting') {
+      if (dashboard === null) return;
+      const restartRequired = await setUserSettings({ ...dashboard.settings, [action.setting]: action.value });
+      if (restartRequired) {
+        try {
+          setMcpBusy(true);
+          await window.lnwjud.restartMcp();
+          await refresh();
+        } catch (cause: unknown) {
+          setError(errorMessage(cause, t('error.mcpRestart')));
+          return;
+        } finally {
+          setMcpBusy(false);
+        }
+      }
+      await loadToolCatalog(action.setting === 'codexToolsEnabled' ? ['codex_runtime'] : undefined);
+      return;
+    }
     const navigation = remediationNavigationForTarget(action.target);
     if (navigation === null) {
       setError(propsText(locale, `ไม่รู้จักเป้าหมายการตั้งค่า: ${action.target}`, `Unknown settings target: ${action.target}`));
       return;
     }
     if (navigation.screen === 'projects') { setScreen('projects'); return; }
-    requestSettingsSection(navigation.section);
+    requestSettingsSection(navigation.section, navigation.focus);
   }
 
   async function runDoctor(): Promise<void> {

@@ -79,6 +79,44 @@ describe('Tools and Doctor UX', () => {
     expect(markup).toContain('862 ms');
   });
 
+  it('renders actionable system/browser remediation labels instead of a generic settings button', () => {
+    const browserRemediation: ResolvedRemediation = {
+      id: 'configure_browser_cdp',
+      title: 'เปิดเบราว์เซอร์ที่ lnwjud จัดการ',
+      explanation: 'เปิด Managed Browser',
+      steps: ['กดเปิด Managed Browser'],
+      actions: [{ kind: 'launch_managed_browser' }],
+    };
+    const browserTool: ToolCatalogItem = { ...tool, name: 'browser_debug_context', remediationIds: ['configure_browser_cdp'] };
+    const toolMarkup = renderToStaticMarkup(createElement(ToolDetailModal, {
+      locale: 'th', item: browserTool, remediations: [browserRemediation], onClose: () => undefined, onRemediation: () => undefined,
+    }));
+    expect(toolMarkup).toContain('เปิด Managed Browser');
+
+    const sandboxRemediation: ResolvedRemediation = {
+      id: 'configure_windows_sandbox',
+      title: 'เปิดใช้ Windows Sandbox',
+      explanation: 'Windows Sandbox เป็น Optional Feature ของ Windows',
+      steps: ['เปิด Turn Windows features on or off'],
+      actions: [{ kind: 'open_system_settings', target: 'windows_optional_features' }],
+    };
+    const sandboxReport: DoctorReport = { exitCode: 0, checks: [{ ...doctor.checks[0]!, id: 'windows_sandbox', title: 'ตรวจ windows_sandbox', remediationId: 'configure_windows_sandbox' }] };
+    const doctorMarkup = renderToStaticMarkup(createElement(DoctorPanel, {
+      locale: 'th', report: sandboxReport, remediations: [sandboxRemediation], onRunDoctor: async () => undefined, onRemediation: async () => undefined,
+    }));
+    expect(doctorMarkup).toContain('เปิด Windows Optional Features');
+    expect(doctorMarkup).not.toContain('>เปิดการตั้งค่า<');
+  });
+
+  it('shows an honest fallback when Doctor has an issue with no safe automatic remediation', () => {
+    const report: DoctorReport = { exitCode: 0, checks: [{ ...doctor.checks[0]!, remediationId: undefined }] };
+    const markup = renderToStaticMarkup(createElement(DoctorPanel, {
+      locale: 'th', report, remediations: [], onRunDoctor: async () => undefined,
+    }));
+    expect(markup).toContain('ไม่มีการตั้งค่าอัตโนมัติที่ปลอดภัย');
+    expect(markup).toContain('จะไม่พาไปหน้า Settings ที่ไม่เกี่ยวข้อง');
+  });
+
   it('anchors the tool modal to document.body and constrains scrolling to the viewport-safe modal body', () => {
     const source = readFileSync(new URL('../src/renderer/features/tools/ToolDetailModal.tsx', import.meta.url), 'utf8');
     const styles = readFileSync(new URL('../src/renderer/styles.css', import.meta.url), 'utf8');

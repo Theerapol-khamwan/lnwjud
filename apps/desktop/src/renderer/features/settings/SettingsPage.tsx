@@ -32,10 +32,11 @@ interface SettingsPageProps {
   readonly onGuidedTunnelSetupOpenChange: (open: boolean) => void;
   readonly onGuidedTunnelLocalComplete: () => void;
   readonly initialSection?: SettingsSection;
-  readonly requestedSection?: { readonly section: SettingsSection; readonly requestId: number } | undefined;
+  readonly requestedSection?: { readonly section: SettingsSection; readonly focus?: SettingsFocusTarget; readonly requestId: number } | undefined;
 }
 
 export type SettingsSection = 'general' | 'security' | 'tools' | 'mcp' | 'tunnel' | 'backup';
+export type SettingsFocusTarget = 'security-profile' | 'tools-codex' | 'tools-local-providers' | 'mcp-servers';
 type DestructiveApprovalKey = keyof DestructiveDeletePolicy['approvals'];
 
 export function SettingsPage(props: SettingsPageProps): ReactElement {
@@ -68,6 +69,17 @@ export function SettingsPage(props: SettingsPageProps): ReactElement {
     if (props.requestedSection === undefined) return;
     setActiveSection(props.requestedSection.section);
   }, [props.requestedSection]);
+
+  useEffect(() => {
+    const request = props.requestedSection;
+    if (request?.focus === undefined || activeSection !== request.section) return;
+    const frame = window.requestAnimationFrame(() => {
+      const target = document.querySelector<HTMLElement>(`[data-settings-focus="${request.focus}"]`);
+      target?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      target?.focus({ preventScroll: true });
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [activeSection, props.requestedSection]);
 
   const persistedRootsText = props.dashboard.stdioAllowedRoots.join('\n');
   useEffect(() => {
@@ -320,7 +332,7 @@ export function SettingsPage(props: SettingsPageProps): ReactElement {
 
           {activeSection === 'security' ? (
             <>
-              <section className="panel settings-card settings-card-polished" aria-label={t('settings.securityTitle')}>
+              <section className="panel settings-card settings-card-polished" aria-label={t('settings.securityTitle')} data-settings-focus="security-profile" tabIndex={-1}>
                 <SettingsCardHeading icon="◇" title={t('settings.securityTitle')} subtitle={profileHint(props.locale, props.dashboard.permissionProfile)} badge={props.dashboard.permissionProfile.toUpperCase()} />
                 <div className="setting-field max-field-width">
                   <label className="field-label" htmlFor="permission-profile">{t('settings.permissions')}</label>

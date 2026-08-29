@@ -18,6 +18,8 @@ One user request starts one durable chain: acquire the goal, arm one cloud succe
 
 ## Start or resume
 
+`run_goal` defaults to `scheduledContinuation: auto`. When its result contains `continuationDirective.mode: auto`, the client MUST apply this skill automatically even when the user did not name `$lnwjud-scheduled-continuation`. The directive is the durable-goal opt-in signal: never require another user prompt to resume an unfinished goal. Use `scheduledContinuation: off` only when the user explicitly disables future scheduling; that disables the successor, not the current goal work.
+
 1. Call `run_goal` with a stable workspace and goal key using the normal **600-second (10-minute) lease**. Never override this workflow to an hour-long lease. Keep the returned lease token and generation private. The lease is a short crash-recovery window, not the expected work duration; real checkpoint/fenced-mutation activity renews it while work is actually alive.
 2. Read the durable checkpoint and do the next useful work. Record real milestones with `checkpoint_goal`; do not checkpoint merely because time elapsed.
 3. After the first checkpoint, call `prepare_scheduled_continuation` and create exactly one native one-time task from its `scheduleRequest`. Record `created` with the real native task ID and `runsOn: cloud` before relying on it.

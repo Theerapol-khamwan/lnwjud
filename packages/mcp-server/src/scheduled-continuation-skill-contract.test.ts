@@ -10,6 +10,9 @@ describe('scheduled continuation skill contract', () => {
     expect(skill).toContain('25 minutes is the maximum watchdog, not a fixed cadence');
     expect(skill).toContain('A request to stop scheduling cancels only the successor');
     expect(skill).toContain('Never send a completion report while `get_goal` reports `active`');
+    expect(skill).toContain('`run_goal` defaults to `scheduledContinuation: auto`');
+    expect(skill).toContain('the client MUST apply this skill automatically');
+    expect(skill).toContain('never require another user prompt to resume an unfinished goal');
     expect(skill).toContain('wait for every active task ID to reach a terminal state');
     expect(skill).toContain('finish_goal');
     expect(skill).toContain('same native task');

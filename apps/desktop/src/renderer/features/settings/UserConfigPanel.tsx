@@ -227,7 +227,7 @@ export function UserConfigPanel({ locale, permissionProfile, stdioPermissionProf
 
       {section === 'tools' ? (
         <>
-          <section className="panel settings-card settings-card-polished" aria-label="Codex delegation tools">
+          <section className="panel settings-card settings-card-polished" aria-label="Codex delegation tools" data-settings-focus="tools-codex" tabIndex={-1}>
             <CardHeading icon="◎" title={locale === 'th' ? 'Codex Delegation' : 'Codex Delegation'} subtitle={locale === 'th' ? 'ป้องกัน agent ใช้โควต้า Codex โดยไม่ตั้งใจ' : 'Protect Codex quota from accidental agent delegation'} badge={draft.codexToolsEnabled ? 'ENABLED' : 'DEFAULT OFF'} />
             <SettingSwitch
               checked={draft.codexToolsEnabled}
@@ -263,7 +263,7 @@ export function UserConfigPanel({ locale, permissionProfile, stdioPermissionProf
             <p className="hint">{locale === 'th' ? 'ใช้กับ Shell, Office, Screen Record และ WSL โดยไม่ต้องแก้ environment variable เอง' : 'Used by Shell, Office, screen recording, and WSL without editing environment variables.'}</p>
           </section>
 
-          <section className="panel settings-card settings-card-polished" aria-label="Local providers">
+          <section className="panel settings-card settings-card-polished" aria-label="Local providers" data-settings-focus="tools-local-providers" tabIndex={-1}>
             <CardHeading icon="◫" title={locale === 'th' ? 'Local Providers' : 'Local Providers'} subtitle={locale === 'th' ? 'ตั้งค่า PDF และ Language Server โดยไม่ต้องแก้ Environment Variable' : 'Configure PDF and language-server providers without environment variables'} badge="ADVANCED" />
             <div className="setting-grid two-col">
               <Field
@@ -286,7 +286,7 @@ export function UserConfigPanel({ locale, permissionProfile, stdioPermissionProf
       ) : null}
 
       {section === 'mcp' ? (
-        <section className="panel settings-card settings-card-polished" aria-label="Extensions and MCP servers">
+        <section className="panel settings-card settings-card-polished" aria-label="Extensions and MCP servers" data-settings-focus="mcp-servers" tabIndex={-1}>
           <CardHeading
             icon="⬡"
             title={locale === 'th' ? 'Extensions, Skills และ MCP Servers' : 'Extensions, Skills & MCP Servers'}

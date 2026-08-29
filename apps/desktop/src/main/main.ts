@@ -474,6 +474,12 @@ export function registerIpcHandlers(
   ipcMain.handle(ipcChannels.openToolSetupTarget, async (event, payload: unknown) => {
     assertTrustedSender(event, getMainWindow());
     const request = parseOpenToolSetupTargetRequest(payload);
+    if (request.target === 'windows_optional_features') {
+      const windowsRoot = process.env.SystemRoot ?? process.env.WINDIR ?? 'C:\\Windows';
+      const openError = await shell.openPath(path.join(windowsRoot, 'System32', 'OptionalFeatures.exe'));
+      if (openError.length > 0) throw new Error(`Could not open Windows Optional Features: ${openError}`);
+      return { opened: true as const };
+    }
     const url = OFFICIAL_URL_TARGETS[request.target as keyof typeof OFFICIAL_URL_TARGETS];
     if (url === undefined) throw new Error('Unknown tool setup target');
     await shell.openExternal(url);

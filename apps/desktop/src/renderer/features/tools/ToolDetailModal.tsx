@@ -68,6 +68,7 @@ export function ToolDetailModal({ locale, item, remediations, onClose, onRemedia
           {item.requirements.length > 0 ? <section className="tool-modal-section"><h3>{locale === 'th' ? 'ข้อกำหนด' : 'Requirements'}</h3><ul className="tool-requirement-list">{item.requirements.map((requirement) => <li key={requirement.id}><div><strong>{requirement.id}</strong><span className={`doctor-status-badge doctor-status-${requirement.status}`}>{requirement.status}</span></div>{requirement.detail ? <p>{requirement.detail}</p> : null}</li>)}</ul></section> : null}
           {item.inputSchema !== null ? <details className="tool-schema-details"><summary>{locale === 'th' ? 'Input schema' : 'Input schema'}</summary><pre>{JSON.stringify(item.inputSchema, null, 2)}</pre></details> : null}
           {relevantRemediations.map((remediation) => <section key={remediation.id} className="tool-remediation"><h3>{remediation.title}</h3><p>{remediation.explanation}</p><ol>{remediation.steps.map((step) => <li key={step}>{step}</li>)}</ol><div className="tool-action-row">{remediation.actions.map((action, index) => <button type="button" key={`${remediation.id}-${index}`} onClick={() => onRemediation(action)}>{actionLabel(locale, action)}</button>)}</div></section>)}
+          {item.readiness !== 'ready' && relevantRemediations.length === 0 ? <section className="tool-remediation tool-remediation-fallback" role="note"><h3>{locale === 'th' ? 'รายการนี้ยังไม่มีปุ่มแก้อัตโนมัติ' : 'No automatic repair is available for this item'}</h3><p>{locale === 'th' ? 'ดูรายละเอียดในข้อกำหนดด้านบน สถานะนี้ไม่ได้หมายความว่ามีสวิตช์ซ่อนอยู่ใน Settings หาก runtime ยังไม่มี remediation ที่ปลอดภัย lnwjud จะไม่พาไปตั้งค่าที่ไม่เกี่ยวข้อง' : 'Use the requirement details above. This status does not imply there is a hidden Settings switch; when no safe remediation exists, lnwjud will not send you to an unrelated setting.'}</p></section> : null}
         </div>
       </section>
     </div>
@@ -97,7 +98,21 @@ function nullableBooleanLabel(locale: UiLocale, value: boolean | null): string {
 
 function actionLabel(locale: UiLocale, action: ResolvedRemediation['actions'][number]): string {
   if (action.kind === 'recheck') return locale === 'th' ? 'ตรวจใหม่' : 'Recheck';
-  if (action.kind === 'open_settings') return locale === 'th' ? 'เปิดการตั้งค่า' : 'Open settings';
+  if (action.kind === 'launch_managed_browser') return locale === 'th' ? 'เปิด Managed Browser' : 'Start managed browser';
+  if (action.kind === 'set_user_setting') return locale === 'th' ? 'เปิด codex_* และ Restart MCP' : 'Enable codex_* and restart MCP';
+  if (action.kind === 'open_system_settings') return locale === 'th' ? 'เปิด Windows Optional Features' : 'Open Windows Optional Features';
+  if (action.kind === 'open_settings') {
+    const labels: Readonly<Record<string, readonly [string, string]>> = {
+      projects: ['ไปหน้าโปรเจกต์', 'Open Projects'],
+      tools_codex: ['ไปที่ Codex Delegation', 'Open Codex Delegation'],
+      tools_local_providers: ['ไปที่ Local Providers', 'Open Local Providers'],
+      mcp_servers: ['ไปที่ MCP Servers', 'Open MCP Servers'],
+      tunnel: ['ไปที่ Secure Tunnel', 'Open Secure Tunnel'],
+      security_profile: ['ไปที่ Security / Permissions', 'Open Security / Permissions'],
+    };
+    const label = labels[action.target];
+    return label === undefined ? (locale === 'th' ? 'เปิดการตั้งค่า' : 'Open settings') : label[locale === 'th' ? 0 : 1];
+  }
   if (action.kind === 'open_official_url') return locale === 'th' ? 'เปิดเว็บทางการ' : 'Open official site';
   return locale === 'th' ? 'คัดลอกคำสั่ง' : 'Copy command';
 }

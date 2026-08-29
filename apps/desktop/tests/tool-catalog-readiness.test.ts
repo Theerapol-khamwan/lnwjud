@@ -38,10 +38,19 @@ describe('tool catalog readiness aggregation', () => {
     expect((await unsupported.catalog.getSnapshot('en')).items.find((item) => item.name === 'accessibility')?.readiness).toBe('unsupported');
 
     const blocked = service({}, { profileDecision: 'DENY' });
-    expect((await blocked.catalog.getSnapshot('en')).items.find((item) => item.name === 'read_file')?.readiness).toBe('blocked');
+    const blockedItem = (await blocked.catalog.getSnapshot('en')).items.find((item) => item.name === 'read_file');
+    expect(blockedItem?.readiness).toBe('blocked');
+    expect(blockedItem?.remediationIds).toContain('configure_permissions');
 
     const disabled = service({}, { codexEnabled: false });
-    expect((await disabled.catalog.getSnapshot('en')).items.find((item) => item.name === 'codex_run')?.readiness).toBe('disabled');
+    const disabledCodex = (await disabled.catalog.getSnapshot('en')).items.find((item) => item.name === 'codex_run');
+    expect(disabledCodex?.readiness).toBe('disabled');
+    expect(disabledCodex?.remediationIds).toContain('configure_codex');
+
+    const featureDisabled = service({}, { codexEnabled: true });
+    const delegateStatus = (await featureDisabled.catalog.getSnapshot('en')).items.find((item) => item.name === 'delegate_status');
+    expect(delegateStatus?.readiness).toBe('disabled');
+    expect(delegateStatus?.remediationIds).toContain('feature_not_available');
   });
 
   it('never reports READY when an optional-for-startup dependency used by the tool is warning', async () => {
@@ -53,6 +62,13 @@ describe('tool catalog readiness aggregation', () => {
 
     const lspMissing = service({ configured_lsp: 'warn' });
     expect((await lspMissing.catalog.getSnapshot('en')).items.find((item) => item.name === 'lsp_diagnostics')?.readiness).toBe('needs_setup');
+  });
+
+  it('does not offer setup remediation for requirements that already pass', async () => {
+    const ready = service({ executable_git: 'pass' });
+    const git = (await ready.catalog.getSnapshot('en')).items.find((item) => item.name === 'git');
+    expect(git?.readiness).toBe('ready');
+    expect(git?.remediationIds).not.toContain('install_git');
   });
 
   it('shares cached/in-flight probes and locale changes do not reprobe', async () => {

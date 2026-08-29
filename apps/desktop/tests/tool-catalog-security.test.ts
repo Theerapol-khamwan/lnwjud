@@ -9,12 +9,29 @@ describe('tool catalog security boundaries', () => {
     const resolved = registry.resolve('en');
     for (const remediation of resolved) {
       for (const action of remediation.actions) {
-        expect(['open_settings', 'open_official_url', 'copy_command', 'recheck']).toContain(action.kind);
+        expect(['open_settings', 'open_official_url', 'open_system_settings', 'copy_command', 'launch_managed_browser', 'set_user_setting', 'recheck']).toContain(action.kind);
         if (action.kind === 'open_official_url') expect(action.target in OFFICIAL_URL_TARGETS).toBe(true);
+        if (action.kind === 'open_system_settings') expect(action.target).toBe('windows_optional_features');
         if (action.kind === 'copy_command') expect(action.commandId in COPY_COMMANDS).toBe(true);
+        if (action.kind === 'set_user_setting') expect(action).toMatchObject({ setting: 'codexToolsEnabled', value: true });
         if (action.kind === 'open_settings') expect(action.target).not.toMatch(/^https?:/i);
       }
     }
+  });
+
+  it('keeps system and runtime remediations explicit instead of sending users to unrelated app settings', () => {
+    const registry = new RemediationRegistry();
+    const sandbox = registry.resolve('th', ['configure_windows_sandbox'])[0]!;
+    expect(sandbox.actions).toContainEqual({ kind: 'open_system_settings', target: 'windows_optional_features' });
+    expect(sandbox.actions).not.toContainEqual({ kind: 'open_settings', target: 'tools' });
+    expect(sandbox.steps.join(' ')).toContain('Windows Sandbox');
+
+    const browser = registry.resolve('th', ['configure_browser_cdp'])[0]!;
+    expect(browser.actions).toContainEqual({ kind: 'launch_managed_browser' });
+
+    const codex = registry.resolve('th', ['configure_codex'])[0]!;
+    expect(codex.actions).toContainEqual({ kind: 'set_user_setting', setting: 'codexToolsEnabled', value: true });
+    expect(codex.actions).toContainEqual({ kind: 'open_settings', target: 'tools_codex' });
   });
 
   it('rejects unknown remediation ids instead of trusting renderer text', () => {

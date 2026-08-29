@@ -28,8 +28,12 @@ describe('durable goal MCP tools', () => {
     expect(byName.get('finish_goal')?.description).toContain('must be called before any completion report');
     expect(byName.get('finish_goal')?.description).toContain('even when scheduling was disabled');
     expect(byName.get('cancel_goal')?.description).toContain('aborts in-flight fenced MCP requests');
+    expect(byName.get('run_goal')?.description).toContain('scheduledContinuation=auto');
+    expect(byName.get('run_goal')?.description).toContain('without waiting for the user to type continue/ทำต่อ');
+    expect(byName.get('checkpoint_goal')?.description).toContain('exactly one native one-time cloud successor');
 
-    expect(byName.get('run_goal')?.parse({ workspaceId: 'workspace-1', goalKey: 'stable-key' })).toMatchObject({ ok: true });
+    expect(byName.get('run_goal')?.parse({ workspaceId: 'workspace-1', goalKey: 'stable-key' })).toMatchObject({ ok: true, value: { scheduledContinuation: 'auto' } });
+    expect(byName.get('run_goal')?.parse({ workspaceId: 'workspace-1', goalKey: 'stable-key', scheduledContinuation: 'off' })).toMatchObject({ ok: true, value: { scheduledContinuation: 'off' } });
     expect(byName.get('run_goal')?.parse({ workspaceId: 'workspace-1', goalKey: 'stable-key', leaseSeconds: 5 })).toMatchObject({ ok: false });
     expect(byName.get('run_goal')?.parse({ workspaceId: 'workspace-1', goalKey: 'stable-key', leaseSeconds: 600 })).toMatchObject({ ok: true });
     expect(byName.get('run_goal')?.parse({ workspaceId: 'workspace-1', goalKey: 'stable-key', leaseSeconds: 601 })).toMatchObject({ ok: false });
@@ -71,12 +75,56 @@ describe('durable goal MCP tools', () => {
     const startedAt = performance.now();
     const result = await tool(context, 'run_goal').execute({ workspaceId: 'workspace-1', goalKey: 'stable-key', objective: 'Do work' }, new AbortController().signal);
     const elapsedMs = performance.now() - startedAt;
-    expect(result).toMatchObject({ ok: true, value: { acquired: true, goalId: 'goal-1' } });
+    expect(result).toMatchObject({
+      ok: true,
+      value: {
+        acquired: true,
+        goalId: 'goal-1',
+        continuationDirective: {
+          mode: 'auto',
+          skillId: 'workspace-agents-skills/lnwjud-scheduled-continuation',
+          nativeTaskHostRequired: true,
+          userMustPromptAgain: false,
+          nextRequiredAction: 'checkpoint_then_ensure_one_cloud_successor',
+        },
+      },
+    });
     expect(runs).toBe(1);
     expect(processStarts).toBe(0);
     expect(capabilityRuns).toBe(0);
     expect(elapsedMs).toBeLessThan(100);
     expect(tool(context, 'run_goal').description).toMatch(/Immediate-return/i);
+  });
+
+  it('lets an explicit scheduling opt-out disable only the successor directive', async () => {
+    const context = {
+      actor,
+      contextEconomy: new ContextEconomyRuntime(),
+      services: {
+        goals: {
+          async runGoal() {
+            return ok({
+              goalId: 'goal-off', goalKey: 'stable-key', status: 'active', revision: 2, acquired: true,
+              leaseToken: 'lease-secret', leaseExpiresAt: '2026-08-26T00:10:00.000Z', currentPhase: 'work',
+              plan: { steps: [] }, completedSteps: [], pendingSteps: [], nextAction: 'Keep working.', blockers: [], activeTaskIds: [], lastCheckpoint: { id: 'cp-1' },
+            });
+          },
+        },
+      },
+    } as unknown as McpToolContext;
+
+    const result = await tool(context, 'run_goal').execute({ workspaceId: 'workspace-1', goalKey: 'stable-key', scheduledContinuation: 'off' }, new AbortController().signal);
+    expect(result).toMatchObject({
+      ok: true,
+      value: {
+        status: 'active',
+        continuationDirective: {
+          mode: 'off',
+          userMustPromptAgain: false,
+          nextRequiredAction: 'continue_current_run_without_successor',
+        },
+      },
+    });
   });
 
   it('passes exact pending-native-task cancellation guidance through finish_goal', async () => {
@@ -173,6 +221,7 @@ describe('durable goal MCP tools', () => {
     const checkpointSchema = registry.describeSchema('checkpoint_goal');
     expect(JSON.stringify(runSchema)).toContain('goalKey');
     expect(JSON.stringify(runSchema)).toContain('leaseSeconds');
+    expect(JSON.stringify(runSchema)).toContain('scheduledContinuation');
     expect(JSON.stringify(checkpointSchema)).toContain('expectedRevision');
     expect(JSON.stringify(checkpointSchema)).toContain('releaseLease');
     const runJsonSchema = registry.describeInputJsonSchema('run_goal');

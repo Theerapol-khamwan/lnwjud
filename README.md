@@ -54,10 +54,11 @@ capabilities are additive.
 
 - Adds a canonical bilingual **Tools Catalog** derived from the live `ToolRegistry`, with category, permission, delivery, readiness, requirement, dry-run/cancel support, and searchable schema metadata for every first-party definition.
 - Adds a status-first **Tools** page and issue-first **Doctor** flow that share one cached requirement snapshot, expose affected tools, and support selected rechecks without invoking the underlying tool runtime.
-- Adds typed, allowlisted remediation actions (`open_settings`, `open_official_url`, `copy_command`, `recheck`) so the renderer cannot inject arbitrary URLs, commands, or settings targets.
+- Adds typed, allowlisted remediation actions for exact app settings, Windows Optional Features, official URLs, copyable commands, managed-browser startup, the constrained Codex opt-in, and rechecks; renderer/server text still cannot inject arbitrary URLs, commands, or settings targets.
 - Separates External MCP tools from first-party tools and keeps unverifiable permission/readiness fields honest instead of fabricating support.
 - Tightens runtime truthfulness across all **231 tool definitions**, removing fake-success paths and keeping planned/disabled capabilities out of normal advertisement until a real implementation exists.
 - Changes durable-goal and scheduled-wake leases to a **600-second maximum**, with sliding renewal only while real fenced work/checkpoints are active and with renewal capped by the scheduled handoff deadline.
+- Makes `run_goal` opt into autonomous cloud continuation by default (`scheduledContinuation: auto`): active goal results return a machine-readable directive to auto-load the bundled `lnwjud-scheduled-continuation` skill, keep one host-owned one-time cloud successor, and never require the user to type “continue/ทำต่อ”; callers can explicitly set `off` when future scheduling is not wanted.
 - Synchronizes the v4.29.0 release contract to **231 total definitions / 195 advertised by default / 201 with Codex delegation enabled**, with Setup/Portable parity and Doctor/Tools acceptance coverage.
 
 Current v4 highlights include:
@@ -603,7 +604,7 @@ The Desktop **Tools** page is generated from the live first-party `ToolRegistry`
 
 Readiness probes are read-only/owned status checks with bounded timeouts and caching. They never prove readiness by invoking the tool, creating project files, controlling user input, opening an Office document, or running a project command. Changing language reuses the same cached requirement snapshot rather than reprobeing the machine.
 
-**Doctor** uses the same requirement/remediation snapshot as Tools. Failed, unknown, and warning checks are shown before passed checks, affected tool names are listed, and selected **Recheck** refreshes both Doctor and Tools together. Required `fail` or `unknown` startup checks do not count as a successful startup gate; optional failures remain visible without blocking onboarding. Remediation actions are limited to main-process allowlisted settings targets, official URLs, copyable commands, and rechecks—renderer/server text cannot inject an arbitrary URL or command.
+**Doctor** uses the same requirement/remediation snapshot as Tools. Failed, unknown, and warning checks are shown before passed checks, affected tool names are listed, and selected **Recheck** refreshes both Doctor and Tools together. Required `fail` or `unknown` startup checks do not count as a successful startup gate; optional failures remain visible without blocking onboarding. Remediation actions are typed and allowlisted: they can navigate to the exact app setting, open Windows Optional Features, open an official URL, copy an allowlisted command, start lnwjud's managed browser, enable only the explicit Codex opt-in, or recheck selected requirements. Disabled/planned tools that are not actually enable-able say so instead of pointing at an unrelated setting; renderer/server text cannot inject an arbitrary URL or command.
 
 External MCP tools stay in their own origin/tab. When lnwjud cannot verify a child server's internal permission, cancellation, dry-run, or readiness semantics, those fields remain `UNKNOWN` instead of inheriting first-party claims.
 

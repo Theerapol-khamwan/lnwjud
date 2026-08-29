@@ -4,6 +4,7 @@ import {
   MAX_GOAL_LEASE_SECONDS,
   MIN_GOAL_LEASE_SECONDS,
 } from '@lnwjud/application';
+import { ok } from '@lnwjud/domain';
 import { defineTool, missingService, type McpToolContext, type McpToolDefinition } from './tool-types.js';
 
 const goalKey = z.string().min(1).max(128).regex(/^[A-Za-z0-9][A-Za-z0-9._:-]*$/);
@@ -32,6 +33,7 @@ const runGoalSchema = z.object({
   objective: z.string().min(1).max(4096).optional(),
   plan: plan.optional(),
   leaseSeconds: z.number().int().min(MIN_GOAL_LEASE_SECONDS).max(MAX_GOAL_LEASE_SECONDS).default(DEFAULT_GOAL_LEASE_SECONDS),
+  scheduledContinuation: z.enum(['auto', 'off']).default('auto'),
 }).strict();
 
 const getGoalSchema = z.union([
@@ -81,17 +83,42 @@ export function goalTools(context: McpToolContext): McpToolDefinition[] {
   return [
     defineTool({
       name: 'run_goal',
-      description: 'Immediate-return durable goal create/resume and lease acquisition. It never runs a model or waits for foreground work.',
+      description: 'Immediate-return durable goal create/resume and lease acquisition. Unfinished goals default to scheduledContinuation=auto: the client must automatically load/follow the bundled lnwjud-scheduled-continuation skill, keep exactly one native one-time cloud successor after a real checkpoint, continue useful work without waiting for the user to type continue/ทำต่อ, and stop scheduling only when the goal is terminal or scheduling is explicitly disabled. Native ChatGPT task creation remains host-owned; this tool never claims that a task was created.',
       permission: 'WRITE',
       annotations: { readOnlyHint: false, destructiveHint: false },
       inputSchema: runGoalSchema,
-      handler: async (input) => context.services.goals?.runGoal(context.actor, {
-        workspaceId: input.workspaceId,
-        goalKey: input.goalKey,
-        leaseSeconds: input.leaseSeconds,
-        ...(input.objective === undefined ? {} : { objective: input.objective }),
-        ...(input.plan === undefined ? {} : { plan: input.plan }),
-      }) ?? missingService(),
+      handler: async (input) => {
+        const goals = context.services.goals;
+        if (goals === undefined) return missingService();
+        const result = await goals.runGoal(context.actor, {
+          workspaceId: input.workspaceId,
+          goalKey: input.goalKey,
+          leaseSeconds: input.leaseSeconds,
+          ...(input.objective === undefined ? {} : { objective: input.objective }),
+          ...(input.plan === undefined ? {} : { plan: input.plan }),
+        });
+        if (!result.ok) return result;
+        const active = result.value.status === 'active';
+        const scheduledContinuation = input.scheduledContinuation ?? 'auto';
+        const auto = scheduledContinuation === 'auto';
+        return ok({
+          ...result.value,
+          continuationDirective: {
+            mode: scheduledContinuation,
+            skillId: 'workspace-agents-skills/lnwjud-scheduled-continuation',
+            nativeTaskHostRequired: true,
+            userMustPromptAgain: false,
+            nextRequiredAction: !active
+              ? 'terminal_noop'
+              : !auto
+                ? 'continue_current_run_without_successor'
+                : result.value.acquired
+                  ? (result.value.lastCheckpoint === null ? 'checkpoint_then_ensure_one_cloud_successor' : 'ensure_one_cloud_successor_then_continue')
+                  : 'do_not_mutate_retry_or_use_existing_successor',
+            stopOnlyWhen: 'goal_terminal_or_scheduling_explicitly_disabled',
+          },
+        });
+      },
     }),
     defineTool({
       name: 'get_goal',
@@ -103,7 +130,7 @@ export function goalTools(context: McpToolContext): McpToolDefinition[] {
     }),
     defineTool({
       name: 'checkpoint_goal',
-      description: 'Atomically checkpoint durable goal progress using the current lease and expected revision.',
+      description: 'Atomically checkpoint durable goal progress using the current lease and expected revision. For an active goal using the default automatic continuation contract, a successful real checkpoint is the handoff point where the client must ensure exactly one native one-time cloud successor through lnwjud-scheduled-continuation before yielding; never wait for the user to type continue/ทำต่อ.',
       permission: 'WRITE',
       annotations: { readOnlyHint: false, destructiveHint: false },
       inputSchema: checkpointGoalSchema,

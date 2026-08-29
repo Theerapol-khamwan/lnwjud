@@ -585,7 +585,10 @@ function resolvedRemediation(value: unknown): ResolvedRemediation {
     if (!isRecord(action)) throw new Error('Invalid IPC response');
     if (action.kind === 'open_settings' && typeof action.target === 'string') return { kind: 'open_settings' as const, target: action.target };
     if (action.kind === 'open_official_url' && typeof action.target === 'string') return { kind: 'open_official_url' as const, target: action.target };
+    if (action.kind === 'open_system_settings' && action.target === 'windows_optional_features') return { kind: 'open_system_settings' as const, target: 'windows_optional_features' as const };
     if (action.kind === 'copy_command' && typeof action.commandId === 'string') return { kind: 'copy_command' as const, commandId: action.commandId };
+    if (action.kind === 'launch_managed_browser') return { kind: 'launch_managed_browser' as const };
+    if (action.kind === 'set_user_setting' && action.setting === 'codexToolsEnabled' && typeof action.value === 'boolean') return { kind: 'set_user_setting' as const, setting: 'codexToolsEnabled' as const, value: action.value };
     if (action.kind === 'recheck' && Array.isArray(action.requirementIds) && action.requirementIds.every((entry) => typeof entry === 'string')) return { kind: 'recheck' as const, requirementIds: action.requirementIds as string[] };
     throw new Error('Invalid IPC response');
   });

@@ -120,7 +120,10 @@ export interface RequirementResult {
 export type RemediationAction =
   | { readonly kind: 'open_settings'; readonly target: string }
   | { readonly kind: 'open_official_url'; readonly target: string }
+  | { readonly kind: 'open_system_settings'; readonly target: 'windows_optional_features' }
   | { readonly kind: 'copy_command'; readonly commandId: string }
+  | { readonly kind: 'launch_managed_browser' }
+  | { readonly kind: 'set_user_setting'; readonly setting: 'codexToolsEnabled'; readonly value: boolean }
   | { readonly kind: 'recheck'; readonly requirementIds: readonly string[] };
 
 export interface ToolCatalogItem {

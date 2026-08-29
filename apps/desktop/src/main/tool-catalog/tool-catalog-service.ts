@@ -90,8 +90,19 @@ export class ToolCatalogService {
       const delivery = upgradeCatalogEntry(definition.name)?.deliveryState;
       const codexDisabled = definition.name.startsWith('codex_') && this.#options.codexEnabled?.() === false;
       const readiness = computeReadiness(requirementResults, profileDecision, delivery, codexDisabled);
-      const remediationIds = [...new Set(requirementResults.flatMap((result) => result.remediationId === undefined ? [] : [result.remediationId]))]
-        .filter((id) => this.#remediations.has(id));
+      const requirementRemediationIds = requirementResults.flatMap((result) => result.status === 'pass' || result.remediationId === undefined ? [] : [result.remediationId]);
+      const primaryRemediationIds = readiness === 'disabled'
+        ? codexDisabled
+          ? ['configure_codex']
+          : delivery === 'planned'
+            ? ['feature_planned']
+            : ['feature_not_available']
+        : readiness === 'blocked'
+          ? ['configure_permissions']
+          : readiness === 'needs_setup' || readiness === 'unknown'
+            ? requirementRemediationIds
+            : [];
+      const remediationIds = [...new Set(primaryRemediationIds)].filter((id) => this.#remediations.has(id));
       const stale = definition.requirementIds.some((id) => this.#requirements.stale(id));
       return {
         name: definition.name,

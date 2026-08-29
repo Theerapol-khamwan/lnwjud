@@ -44,7 +44,14 @@ export function DoctorPanel({
         <p className="doctor-check-summary">{check.summary || check.message}</p>
         {check.detail === undefined ? null : <p className="doctor-check-detail">{check.detail}</p>}
         {check.affectedToolNames.length === 0 ? null : <p className="doctor-affected-tools"><strong>{locale === 'th' ? 'กระทบเครื่องมือ:' : 'Affected tools:'}</strong> {check.affectedToolNames.join(', ')}</p>}
-        {remediation === undefined ? null : (
+        {remediation === undefined ? (check.status === 'pass' ? null : (
+          <div className="doctor-remediation doctor-remediation-fallback" role="note">
+            <div className="doctor-remediation-copy">
+              <strong>{locale === 'th' ? 'รายการนี้ไม่มีการตั้งค่าอัตโนมัติที่ปลอดภัย' : 'No safe automatic remediation is available'}</strong>
+              <p>{locale === 'th' ? 'ใช้รายละเอียดด้านบนเป็นข้อมูลอ้างอิง รายการนี้อาจขึ้นกับ Windows, hardware, runtime input หรือ capability ที่ยังไม่สามารถแก้ด้วยสวิตช์ใน lnwjud ได้ จึงจะไม่พาไปหน้า Settings ที่ไม่เกี่ยวข้อง' : 'Use the detail above as the source of truth. This check may depend on Windows, hardware, runtime input, or a capability that cannot be repaired by an lnwjud toggle, so the app will not send you to an unrelated Settings page.'}</p>
+            </div>
+          </div>
+        )) : (
           <div className="doctor-remediation">
             <div className="doctor-remediation-copy"><strong>{remediation.title}</strong><p>{remediation.explanation}</p></div>
             {remediation.steps.length === 0 ? null : <ol>{remediation.steps.map((step) => <li key={step}>{step}</li>)}</ol>}
@@ -88,7 +95,22 @@ function statusLabel(locale: UiLocale, status: DoctorCheck['status']): string {
 
 function actionLabel(locale: UiLocale, action: RemediationAction): string {
   if (action.kind === 'recheck') return locale === 'th' ? 'ตรวจใหม่' : 'Recheck';
+  if (action.kind === 'launch_managed_browser') return locale === 'th' ? 'เปิด Managed Browser' : 'Start managed browser';
+  if (action.kind === 'set_user_setting') return locale === 'th' ? 'เปิด codex_* และ Restart MCP' : 'Enable codex_* and restart MCP';
+  if (action.kind === 'open_system_settings') return locale === 'th' ? 'เปิด Windows Optional Features' : 'Open Windows Optional Features';
   if (action.kind === 'copy_command') return locale === 'th' ? 'คัดลอกคำสั่ง' : 'Copy command';
   if (action.kind === 'open_official_url') return locale === 'th' ? 'เปิดเว็บทางการ' : 'Open official site';
-  return locale === 'th' ? 'เปิดการตั้งค่า' : 'Open settings';
+  if (action.kind === 'open_settings') {
+    const labels: Readonly<Record<string, readonly [string, string]>> = {
+      projects: ['ไปหน้าโปรเจกต์', 'Open Projects'],
+      tools_codex: ['ไปที่ Codex Delegation', 'Open Codex Delegation'],
+      tools_local_providers: ['ไปที่ Local Providers', 'Open Local Providers'],
+      mcp_servers: ['ไปที่ MCP Servers', 'Open MCP Servers'],
+      tunnel: ['ไปที่ Secure Tunnel', 'Open Secure Tunnel'],
+      security_profile: ['ไปที่ Security / Permissions', 'Open Security / Permissions'],
+    };
+    const label = labels[action.target];
+    return label === undefined ? (locale === 'th' ? 'เปิดการตั้งค่า' : 'Open settings') : label[locale === 'th' ? 0 : 1];
+  }
+  return locale === 'th' ? 'ดำเนินการ' : 'Apply';
 }
