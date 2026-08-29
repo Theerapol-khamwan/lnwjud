@@ -134,12 +134,12 @@ const DEFINITIONS: readonly RemediationDefinition[] = [
     ['เปิด Security', 'เลือก Profile หรือ Custom decision ที่อนุญาตสิทธิ์ตามที่เครื่องมือประกาศ เมื่อคุณยอมรับความเสี่ยงนั้น', 'กลับหน้า Tools แล้วตรวจใหม่'],
   ),
   remediation(
-    'feature_not_available', 'Not enable-able in this build', 'ยังเปิดใช้งานไม่ได้ใน build นี้',
-    'This tool is intentionally reported as disabled because its runtime/provider is not shipped or wired in this build. There is no Settings switch that can make it operational right now.',
-    'เครื่องมือนี้รายงาน Disabled ตามจริง เพราะ runtime/provider ยังไม่ได้รวม/เชื่อมใน build นี้ ตอนนี้ไม่มีสวิตช์ใน Settings ที่กดแล้วทำให้ใช้งานได้',
+    'feature_not_available', 'Runtime backend is not included in this version', 'เวอร์ชันนี้ยังไม่มีส่วนทำงานของเครื่องมือนี้',
+    'The tool is listed so its delivery state is visible, but this installed lnwjud version does not include the runtime/provider that executes it. This is not a missing Windows or user setting, and there is no Settings switch to turn it on.',
+    'รายการนี้ยังแสดงไว้เพื่อบอกสถานะตามจริง แต่ lnwjud เวอร์ชันที่ติดตั้งยังไม่มี runtime/provider ที่ใช้ทำงานจริง ไม่ใช่การตั้งค่า Windows หรือการตั้งค่าของคุณที่ขาด และไม่มีสวิตช์ใน Settings ที่เปิดแล้วจะใช้งานได้',
     [],
-    ['No local setup is missing.', 'Do not change unrelated settings; this tool requires a future implementation/build before it can become Ready.'],
-    ['ไม่ได้ขาดการตั้งค่าบนเครื่องของคุณ', 'ไม่ต้องไปเปิดค่าที่ไม่เกี่ยวข้อง เครื่องมือนี้ต้องรอ implementation/build ที่รองรับก่อนจึงจะเป็น Ready'],
+    ['Check the feature_delivery requirement above for the exact backend/provider this tool needs.', 'Do not change unrelated local settings.', 'When a lnwjud version containing that runtime/provider is installed, recheck the tool catalog.'],
+    ['ดูข้อกำหนด feature_delivery ด้านบนเพื่อดูชื่อ backend/provider ที่เครื่องมือนี้ยังขาด', 'ไม่ต้องเปลี่ยน Settings หรือการตั้งค่าของ Windows ที่ไม่เกี่ยวข้อง', 'เมื่อใช้ lnwjud รุ่นที่รวม runtime/provider นั้นแล้ว ให้กดตรวจใหม่อีกครั้ง'],
   ),
   remediation(
     'feature_planned', 'Planned tool — not available yet', 'เครื่องมือที่วางแผนไว้ — ยังใช้ไม่ได้',

@@ -117,6 +117,19 @@ describe('Tools and Doctor UX', () => {
     expect(markup).toContain('จะไม่พาไปหน้า Settings ที่ไม่เกี่ยวข้อง');
   });
 
+  it('keeps Managed Browser remediation responsive and refreshes the selected tool from the latest catalog', () => {
+    const modalSource = readFileSync(new URL('../src/renderer/features/tools/ToolDetailModal.tsx', import.meta.url), 'utf8');
+    const toolsPageSource = readFileSync(new URL('../src/renderer/features/tools/ToolsPage.tsx', import.meta.url), 'utf8');
+    const desktopServicesSource = readFileSync(new URL('../src/main/desktop-services.ts', import.meta.url), 'utf8');
+    const remediationSource = readFileSync(new URL('../src/main/tool-catalog/remediation-registry.ts', import.meta.url), 'utf8');
+    expect(modalSource).toContain('กำลังเปิด Managed Browser…');
+    expect(modalSource).toContain('disabled={busyActionKey !== null}');
+    expect(toolsPageSource).toContain('items.find((item) => toolKey(item) === selectedKey)');
+    expect(desktopServicesSource).toContain("{ action: 'launch', userConfirmed: true }");
+    expect(remediationSource).not.toContain('implementation/build');
+    expect(remediationSource).toContain('เวอร์ชันนี้ยังไม่มีส่วนทำงานของเครื่องมือนี้');
+  });
+
   it('anchors the tool modal to document.body and constrains scrolling to the viewport-safe modal body', () => {
     const source = readFileSync(new URL('../src/renderer/features/tools/ToolDetailModal.tsx', import.meta.url), 'utf8');
     const styles = readFileSync(new URL('../src/renderer/styles.css', import.meta.url), 'utf8');

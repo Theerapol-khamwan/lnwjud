@@ -957,7 +957,10 @@ export function createDesktopRuntime(dataPath: string, options: DesktopRuntimeOp
       return { configured: true, profilePath };
     },
     launchManagedBrowser: async (): Promise<ManagedBrowserStatus> => {
-      const result = await capabilityRuntime.service.execute('dom_cdp', { action: 'launch' });
+      // This path is invoked only by the user clicking the desktop UI action.
+      // Preserve the normal MCP authorization boundary while carrying that explicit click
+      // through to the capability backend so launch is not rejected as unconfirmed.
+      const result = await capabilityRuntime.service.execute('dom_cdp', { action: 'launch', userConfirmed: true });
       return toManagedBrowserStatus(unwrap(result, 'Managed Chrome could not be started'));
     },
     runDoctor: async (): Promise<DoctorReport> => buildFullDoctorReport(readLocale(settingsRepository)),

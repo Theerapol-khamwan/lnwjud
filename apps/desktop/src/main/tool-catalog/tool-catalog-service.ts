@@ -81,13 +81,18 @@ export class ToolCatalogService {
     const requirements = await this.#requirements.probe(requirementIds, force);
     const firstParty = Object.values(catalogDefinitions).map((definition): ToolCatalogItem => {
       const runtime = definitionByName.get(definition.name);
+      const upgrade = upgradeCatalogEntry(definition.name);
+      const delivery = upgrade?.deliveryState;
       const declaredPermission = normalizePermission(runtime?.permission);
       const profileDecision = this.#options.profileDecision?.(declaredPermission, definition.name) ?? 'UNKNOWN';
       const requirementResults = definition.requirementIds.flatMap((id): RequirementResult[] => {
         const result = requirements.get(id);
-        return result === undefined ? [] : [stripDuration(result)];
+        if (result === undefined) return [];
+        if (id === 'feature_delivery' && (delivery === 'feature_disabled' || delivery === 'planned')) {
+          return [{ ...stripDuration(result), status: 'fail', detail: localizedDeliveryDetail(locale, delivery, upgrade?.requirements ?? []) }];
+        }
+        return [stripDuration(result)];
       });
-      const delivery = upgradeCatalogEntry(definition.name)?.deliveryState;
       const codexDisabled = definition.name.startsWith('codex_') && this.#options.codexEnabled?.() === false;
       const readiness = computeReadiness(requirementResults, profileDecision, delivery, codexDisabled);
       const requirementRemediationIds = requirementResults.flatMap((result) => result.status === 'pass' || result.remediationId === undefined ? [] : [result.remediationId]);
@@ -163,6 +168,15 @@ function latestCheckedAt(results: readonly RequirementResult[]): string | null {
   return results.map((result) => result.checkedAt).sort().at(-1) ?? null;
 }
 function localizedRequirementTitle(locale: UiLocale, id: string): string { return locale === 'th' ? `ตรวจ ${id}` : `Check ${id}`; }
+function localizedDeliveryDetail(locale: UiLocale, delivery: 'feature_disabled' | 'planned', requirements: readonly string[]): string {
+  const missing = requirements.length === 0 ? (locale === 'th' ? 'runtime/provider ของฟีเจอร์นี้' : 'this feature runtime/provider') : requirements.join(', ');
+  if (delivery === 'planned') return locale === 'th'
+    ? `ฟีเจอร์นี้อยู่ในแผน แต่เวอร์ชันที่ติดตั้งยังไม่มีส่วนทำงานจริง: ${missing}`
+    : `This feature is planned, but the installed version does not yet contain its runtime: ${missing}`;
+  return locale === 'th'
+    ? `เวอร์ชันที่ติดตั้งยังไม่มี backend/provider ที่ต้องใช้: ${missing}`
+    : `The installed version does not include the required backend/provider: ${missing}`;
+}
 function localizedRequirementSummary(locale: UiLocale, result: RequirementSnapshot): string {
   const status = result.status.toUpperCase();
   return locale === 'th' ? `${status}: ${result.summaryKey}` : `${status}: ${result.summaryKey}`;

@@ -51,6 +51,10 @@ describe('tool catalog readiness aggregation', () => {
     const delegateStatus = (await featureDisabled.catalog.getSnapshot('en')).items.find((item) => item.name === 'delegate_status');
     expect(delegateStatus?.readiness).toBe('disabled');
     expect(delegateStatus?.remediationIds).toContain('feature_not_available');
+    expect(delegateStatus?.requirements.find((requirement) => requirement.id === 'feature_delivery')).toMatchObject({
+      status: 'fail',
+      detail: expect.stringContaining('subagent provider'),
+    });
   });
 
   it('never reports READY when an optional-for-startup dependency used by the tool is warning', async () => {

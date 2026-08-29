@@ -1,4 +1,4 @@
-import { useEffect, useRef, type ReactElement } from 'react';
+import { useEffect, useRef, useState, type ReactElement } from 'react';
 import { createPortal } from 'react-dom';
 import type { ResolvedRemediation, ToolCatalogItem, UiLocale } from '@lnwjud/ipc-contracts';
 import { formatDateTime } from '../../date-time.js';
@@ -8,13 +8,15 @@ interface ToolDetailModalProps {
   readonly item: ToolCatalogItem;
   readonly remediations: readonly ResolvedRemediation[];
   readonly onClose: () => void;
-  readonly onRemediation: (action: ResolvedRemediation['actions'][number]) => void;
+  readonly onRemediation: (action: ResolvedRemediation['actions'][number]) => Promise<void>;
 }
 
 export function ToolDetailModal({ locale, item, remediations, onClose, onRemediation }: ToolDetailModalProps): ReactElement {
   const dialogRef = useRef<HTMLElement>(null);
   const titleRef = useRef<HTMLHeadingElement>(null);
   const closeRef = useRef<HTMLButtonElement>(null);
+  const [busyActionKey, setBusyActionKey] = useState<string | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
   useEffect(() => {
     const previous = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     titleRef.current?.focus();
@@ -34,6 +36,19 @@ export function ToolDetailModal({ locale, item, remediations, onClose, onRemedia
     document.addEventListener('keydown', onKeyDown);
     return (): void => { document.removeEventListener('keydown', onKeyDown); previous?.focus(); };
   }, [onClose]);
+
+  const runRemediation = async (action: ResolvedRemediation['actions'][number], key: string): Promise<void> => {
+    if (busyActionKey !== null) return;
+    setBusyActionKey(key);
+    setActionError(null);
+    try {
+      await onRemediation(action);
+    } catch (cause: unknown) {
+      setActionError(cause instanceof Error ? cause.message : (locale === 'th' ? 'ดำเนินการไม่สำเร็จ โปรดลองอีกครั้ง' : 'The action failed. Please try again.'));
+    } finally {
+      setBusyActionKey(null);
+    }
+  };
 
   const relevantRemediations = remediations.filter((remediation) => item.remediationIds.includes(remediation.id));
   const notChecked = locale === 'th' ? 'ยังไม่มีผลตรวจ' : 'Not checked';
@@ -67,7 +82,8 @@ export function ToolDetailModal({ locale, item, remediations, onClose, onRemedia
           {item.stale ? <p role="status" className="tool-stale-caveat">{locale === 'th' ? 'ผล readiness นี้เกินอายุ cache แล้ว ควรตรวจใหม่ก่อนพึ่งพาสถานะ' : 'This readiness result is stale; recheck before relying on it.'}</p> : null}
           {item.requirements.length > 0 ? <section className="tool-modal-section"><h3>{locale === 'th' ? 'ข้อกำหนด' : 'Requirements'}</h3><ul className="tool-requirement-list">{item.requirements.map((requirement) => <li key={requirement.id}><div><strong>{requirement.id}</strong><span className={`doctor-status-badge doctor-status-${requirement.status}`}>{requirement.status}</span></div>{requirement.detail ? <p>{requirement.detail}</p> : null}</li>)}</ul></section> : null}
           {item.inputSchema !== null ? <details className="tool-schema-details"><summary>{locale === 'th' ? 'Input schema' : 'Input schema'}</summary><pre>{JSON.stringify(item.inputSchema, null, 2)}</pre></details> : null}
-          {relevantRemediations.map((remediation) => <section key={remediation.id} className="tool-remediation"><h3>{remediation.title}</h3><p>{remediation.explanation}</p><ol>{remediation.steps.map((step) => <li key={step}>{step}</li>)}</ol><div className="tool-action-row">{remediation.actions.map((action, index) => <button type="button" key={`${remediation.id}-${index}`} onClick={() => onRemediation(action)}>{actionLabel(locale, action)}</button>)}</div></section>)}
+          {actionError === null ? null : <p className="tool-action-error" role="alert">{actionError}</p>}
+          {relevantRemediations.map((remediation) => <section key={remediation.id} className="tool-remediation"><h3>{remediation.title}</h3><p>{remediation.explanation}</p><ol>{remediation.steps.map((step) => <li key={step}>{step}</li>)}</ol><div className="tool-action-row">{remediation.actions.map((action, index) => { const key = `${remediation.id}-${index}`; return <button type="button" key={key} disabled={busyActionKey !== null} onClick={() => { void runRemediation(action, key); }}>{busyActionKey === key ? busyActionLabel(locale, action) : actionLabel(locale, action)}</button>; })}</div></section>)}
           {item.readiness !== 'ready' && relevantRemediations.length === 0 ? <section className="tool-remediation tool-remediation-fallback" role="note"><h3>{locale === 'th' ? 'รายการนี้ยังไม่มีปุ่มแก้อัตโนมัติ' : 'No automatic repair is available for this item'}</h3><p>{locale === 'th' ? 'ดูรายละเอียดในข้อกำหนดด้านบน สถานะนี้ไม่ได้หมายความว่ามีสวิตช์ซ่อนอยู่ใน Settings หาก runtime ยังไม่มี remediation ที่ปลอดภัย lnwjud จะไม่พาไปตั้งค่าที่ไม่เกี่ยวข้อง' : 'Use the requirement details above. This status does not imply there is a hidden Settings switch; when no safe remediation exists, lnwjud will not send you to an unrelated setting.'}</p></section> : null}
         </div>
       </section>
@@ -94,6 +110,11 @@ function booleanLabel(locale: UiLocale, value: boolean): string {
 
 function nullableBooleanLabel(locale: UiLocale, value: boolean | null): string {
   return value === null ? (locale === 'th' ? 'ไม่ทราบ' : 'Unknown') : booleanLabel(locale, value);
+}
+
+function busyActionLabel(locale: UiLocale, action: ResolvedRemediation['actions'][number]): string {
+  if (action.kind === 'launch_managed_browser') return locale === 'th' ? 'กำลังเปิด Managed Browser…' : 'Starting managed browser…';
+  return locale === 'th' ? 'กำลังดำเนินการ…' : 'Working…';
 }
 
 function actionLabel(locale: UiLocale, action: ResolvedRemediation['actions'][number]): string {

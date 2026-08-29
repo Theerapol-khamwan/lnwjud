@@ -573,8 +573,16 @@ export function App(): ReactElement {
     if (action.kind === 'open_official_url' || action.kind === 'open_system_settings') { await window.lnwjud.openToolSetupTarget({ target: action.target }); return; }
     if (action.kind === 'copy_command') { await window.lnwjud.copyToolCommand({ commandId: action.commandId }); return; }
     if (action.kind === 'launch_managed_browser') {
-      await window.lnwjud.launchManagedBrowser();
-      await loadToolCatalog(['browser_cdp']);
+      setError(null);
+      try {
+        const status = await window.lnwjud.launchManagedBrowser();
+        if (!status.ready) throw new Error(propsText(locale, 'Managed Browser เปิดแล้วแต่ CDP ยังไม่พร้อม', 'Managed Browser started but CDP is not ready'));
+        await loadToolCatalog(['browser_cdp']);
+      } catch (cause: unknown) {
+        const message = errorMessage(cause, propsText(locale, 'ไม่สามารถเปิด Managed Browser ได้', 'Could not start Managed Browser'));
+        setError(message);
+        throw cause instanceof Error ? cause : new Error(message);
+      }
       return;
     }
     if (action.kind === 'set_user_setting') {

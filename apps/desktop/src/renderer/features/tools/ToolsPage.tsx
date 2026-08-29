@@ -23,8 +23,9 @@ export function ToolsPage({ locale, snapshot, loading, onRefresh, onRemediation 
   const [category, setCategory] = useState<ToolCategory | 'all'>('all');
   const [permission, setPermission] = useState<ToolDeclaredPermission | 'all'>('all');
   const [profileDecision, setProfileDecision] = useState<ToolProfileDecision | 'all'>('all');
-  const [selected, setSelected] = useState<ToolCatalogItem | null>(null);
+  const [selectedKey, setSelectedKey] = useState<string | null>(null);
   const items = snapshot?.items ?? [];
+  const selected = selectedKey === null ? null : items.find((item) => toolKey(item) === selectedKey) ?? null;
   const filters: ToolCatalogFilters = { origin, query, readiness, category, permission, profileDecision };
   const visible = useMemo(() => filterAndSortTools(items, filters), [items, origin, query, readiness, category, permission, profileDecision]);
   const originItems = items.filter((item) => item.origin === origin);
@@ -46,10 +47,14 @@ export function ToolsPage({ locale, snapshot, loading, onRefresh, onRemediation 
         <select value={profileDecision} onChange={(event) => setProfileDecision(event.currentTarget.value as ToolProfileDecision | 'all')} aria-label={locale === 'th' ? 'ผลโปรไฟล์' : 'Profile decision'}><option value="all">{locale === 'th' ? 'ทุกผลโปรไฟล์' : 'All decisions'}</option>{decisions.map((value) => <option key={value} value={value}>{value}</option>)}</select>
         <button type="button" onClick={() => { setQuery(''); setReadiness('all'); setCategory('all'); setPermission('all'); setProfileDecision('all'); }}>{locale === 'th' ? 'ล้างตัวกรอง' : 'Clear filters'}</button>
       </div>
-      {snapshot === null ? <div className="doctor-empty-state"><p>{locale === 'th' ? 'ยังไม่ได้โหลดข้อมูลเครื่องมือ' : 'Tool catalog has not been loaded yet.'}</p></div> : visible.length === 0 ? <div className="doctor-empty-state"><p>{locale === 'th' ? 'ไม่พบเครื่องมือที่ตรงกับตัวกรอง' : 'No tools match the current filters.'}</p></div> : <div className="tool-card-list">{visible.map((item) => <button type="button" className={`tool-card tool-${item.readiness}`} key={`${item.origin}:${item.serverName ?? ''}:${item.name}`} onClick={() => setSelected(item)}><span className="tool-status-dot" aria-hidden="true"/><span className="tool-card-main"><span><strong>{item.title}</strong><code>{item.name}</code></span><small>{item.shortDescription}</small>{item.readiness === 'ready' ? null : <small className="tool-card-remediation-hint">↳ {remediationHint(locale, item, remediationById)}</small>}</span><span className="tool-card-meta"><span>{item.readiness}</span><span>{item.declaredPermission}</span><span>{item.profileDecision}</span></span></button>)}</div>}
-      {selected !== null && snapshot !== null ? <ToolDetailModal locale={locale} item={selected} remediations={snapshot.remediations} onClose={() => setSelected(null)} onRemediation={(action) => { void onRemediation(action); }} /> : null}
+      {snapshot === null ? <div className="doctor-empty-state"><p>{locale === 'th' ? 'ยังไม่ได้โหลดข้อมูลเครื่องมือ' : 'Tool catalog has not been loaded yet.'}</p></div> : visible.length === 0 ? <div className="doctor-empty-state"><p>{locale === 'th' ? 'ไม่พบเครื่องมือที่ตรงกับตัวกรอง' : 'No tools match the current filters.'}</p></div> : <div className="tool-card-list">{visible.map((item) => <button type="button" className={`tool-card tool-${item.readiness}`} key={`${item.origin}:${item.serverName ?? ''}:${item.name}`} onClick={() => setSelectedKey(toolKey(item))}><span className="tool-status-dot" aria-hidden="true"/><span className="tool-card-main"><span><strong>{item.title}</strong><code>{item.name}</code></span><small>{item.shortDescription}</small>{item.readiness === 'ready' ? null : <small className="tool-card-remediation-hint">↳ {remediationHint(locale, item, remediationById)}</small>}</span><span className="tool-card-meta"><span>{item.readiness}</span><span>{item.declaredPermission}</span><span>{item.profileDecision}</span></span></button>)}</div>}
+      {selected !== null && snapshot !== null ? <ToolDetailModal locale={locale} item={selected} remediations={snapshot.remediations} onClose={() => setSelectedKey(null)} onRemediation={onRemediation} /> : null}
     </section>
   );
+}
+
+function toolKey(item: ToolCatalogItem): string {
+  return `${item.origin}:${item.serverName ?? ''}:${item.name}`;
 }
 
 function remediationHint(locale: UiLocale, item: ToolCatalogItem, remediations: ReadonlyMap<string, ResolvedRemediation>): string {
