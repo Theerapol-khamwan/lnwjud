@@ -129,9 +129,10 @@ describe('WorkspacePathGuard', () => {
     const guard = new WorkspacePathGuard();
     const authorization = { mode: 'full_bypass', applicationApproved: true, bypassApplicationAuthorization: true, source: 'full_bypass' } as const;
 
+    const outsideRealFile = await realpath(outsideFile);
     await expect(guard.resolveForRead(workspace, outsideFile, authorization)).resolves.toMatchObject({
       ok: true,
-      value: { outsideWorkspace: true, realPath: outsideFile },
+      value: { outsideWorkspace: true, realPath: outsideRealFile },
     });
     await expect(guard.resolveForWrite(workspace, outsideNewFile, authorization)).resolves.toMatchObject({
       ok: true,
