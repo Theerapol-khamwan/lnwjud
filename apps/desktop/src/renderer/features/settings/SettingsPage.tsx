@@ -78,7 +78,7 @@ export function SettingsPage(props: SettingsPageProps): ReactElement {
       target?.scrollIntoView({ behavior: 'smooth', block: 'center' });
       target?.focus({ preventScroll: true });
     });
-    return () => window.cancelAnimationFrame(frame);
+    return (): void => { window.cancelAnimationFrame(frame); };
   }, [activeSection, props.requestedSection]);
 
   const persistedRootsText = props.dashboard.stdioAllowedRoots.join('\n');
