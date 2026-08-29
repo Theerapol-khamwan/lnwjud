@@ -19,7 +19,9 @@ describe('scheduled continuation skill contract', () => {
     expect(skill).toContain('finish_goal');
     expect(skill).toContain('same native task');
     expect(skill).toContain('+2 minutes');
-    expect(skill).toContain('without a retry limit');
+    expect(skill).toContain('successor_required');
+    expect(skill).toContain('fresh disposable +2-minute successor ticket');
+    expect(skill).toContain('must not be reused');
     expect(skill).toContain('runsOn: cloud');
     expect(skill).toContain('claim_scheduled_continuation');
     expect(skill).toContain('expedite_scheduled_continuation');

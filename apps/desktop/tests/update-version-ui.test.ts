@@ -19,6 +19,8 @@ describe('titlebar update notification', () => {
     expect(main).toContain('confirmTunnelStopForUpdate');
     expect(main).toContain('runtime.services.stopTunnel()');
     expect(main).toContain('updaterTunnelStopConfirm');
+    expect(main.indexOf('await stopTunnelForUpdateInstall(runtime)')).toBeLessThan(main.indexOf("phase: 'installing'"));
+    expect(main).toContain('maxWaitMs: 5_000');
     expect(styles).toContain('.titlebar-version.update-ready');
     expect(styles).toContain('@keyframes update-ready-pulse');
   });

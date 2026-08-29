@@ -122,11 +122,12 @@ export type ClaimScheduledContinuationResult =
       readonly acquisition: 'normal' | 'expired_lease' | 'orphan_recovered';
     }
   | {
-      readonly outcome: 'reschedule_required';
+      readonly outcome: 'successor_required';
       readonly continuation: ScheduledContinuationSnapshot;
+      readonly successor: ScheduledContinuationSnapshot;
       readonly goal: GoalSnapshot;
       readonly retryAfterSeconds: 120;
-      readonly taskUpdateRequest: ScheduledContinuationTaskUpdateRequest;
+      readonly scheduleRequest: ScheduledContinuationRequest;
     }
   | {
       readonly outcome: 'receipt_required';
@@ -375,9 +376,13 @@ export class ScheduledContinuationService {
       const currentContinuation = await this.goals.getScheduledContinuation({ continuationId });
       if (currentContinuation === null) throw new GoalStateError('not_found', 'Scheduled continuation was not found');
       const currentGoal = await this.requireOwnedGoal(actor, currentContinuation.goalId);
-      const now = this.now().toISOString();
+      const nowDate = this.now();
+      const now = nowDate.toISOString();
       const liveness = await this.workerLiveness.observe(currentGoal.id, currentGoal.activeTaskIds);
       const leaseToken = randomBytes(32).toString('base64url');
+      const collisionIdentity = createHash('sha256')
+        .update(`collision-successor-v1\0${continuationId}`)
+        .digest('hex');
       const claimed = await this.goals.claimScheduledContinuation({
         continuationId,
         ownerClientId: owner(actor),
@@ -386,6 +391,9 @@ export class ScheduledContinuationService {
         leaseSeconds,
         earlyToleranceSeconds: SCHEDULED_WAKE_EARLY_TOLERANCE_SECONDS,
         liveness,
+        collisionSuccessorId: `wake-${collisionIdentity.slice(0, 48)}`,
+        collisionSuccessorDueAt: new Date(nowDate.getTime() + COLLISION_RESCHEDULE_MINUTES * 60_000).toISOString(),
+        collisionSuccessorRequestFingerprint: collisionIdentity,
         now,
       });
       const continuation = toPublicContinuation(claimed.continuation);
@@ -400,13 +408,15 @@ export class ScheduledContinuationService {
           acquisition: claimed.acquisition,
         });
       }
-      if (claimed.outcome === 'reschedule_required') {
+      if (claimed.outcome === 'successor_required') {
+        const successor = toPublicContinuation(claimed.successor);
         return ok({
-          outcome: 'reschedule_required',
+          outcome: 'successor_required',
           continuation,
+          successor,
           goal,
           retryAfterSeconds: 120,
-          taskUpdateRequest: buildTaskUpdateRequest(continuation, claimed.goal.workspaceId),
+          scheduleRequest: buildScheduleRequest(successor, claimed.goal.workspaceId),
         });
       }
       if (claimed.outcome === 'receipt_required') {
@@ -544,7 +554,7 @@ export class ScheduledContinuationService {
 }
 
 function buildScheduleRequest(continuation: ScheduledContinuationSnapshot, workspaceId: string): ScheduledContinuationRequest {
-  const prompt = `Call claim_scheduled_continuation first for continuation ${continuation.continuationId}, goal ${continuation.goalId}, workspace ${workspaceId}; native wake jitter up to 120 seconds early is accepted. If exact host metadata later proves this native task already ran without claim completing, reconcile it as consumed with the exact host run receipt; consumed never means the goal work completed, and an active goal must reserve a fresh successor. If acquired, immediately arm exactly one cloud successor using an adaptive delay between 2 and 25 minutes and record its receipt before continuing the durable goal. Omitted delay fails safe to +2 minutes; use 5/10/25 minutes only as an explicit watchdog while this run will genuinely keep executing. If this turn will end while unfinished or no worker will remain after the response, leave the successor at +2 or move the same confirmed native task to now+2 through expedite_scheduled_continuation. Keep working or waiting on active task IDs until their terminal results are inspected. Never send a completion response while get_goal still reports active. When acceptance evidence is complete, call finish_goal even if the user disabled further scheduling, then require get_goal to be terminal. Delete the exact distinct pending successor through the native ChatGPT Scheduled Task host only when scheduledTaskCancellation requests it, record cancelled only with the native host deletion receipt, then read the continuation back and require status cancelled. If claim returns terminal_noop or this current one-time wake has already fired, do not delete, disable, pause, or reschedule the current host task; return naturally so the host can mark the one-time run completed. Never use pause/disable as deletion or completion proof. Never report cancellation as successful while deletion is failed, uncertain, or unverified. If the goal is terminal, stop and do not schedule again. Never use Windows Task Scheduler.`;
+  const prompt = `Call claim_scheduled_continuation first for continuation ${continuation.continuationId}, goal ${continuation.goalId}, workspace ${workspaceId}; native wake jitter up to 120 seconds early is accepted. A one-time task that is firing now is a consumed wake ticket and must never be reused as a future successor. If claim returns successor_required, create the fresh one-time cloud task exactly from the returned scheduleRequest, record created for the returned successor immediately, then let this current wake return naturally; do not update or re-arm the firing native task. If exact host metadata later proves a native task ran without claim completing, reconcile it as consumed with the exact host run receipt; consumed never means the goal work completed, and an active goal must reserve a fresh successor. If acquired, immediately arm exactly one cloud successor using an adaptive delay between 2 and 25 minutes and record its receipt before continuing the durable goal. Omitted delay fails safe to +2 minutes; use 5/10/25 minutes only as an explicit watchdog while this run will genuinely keep executing. If an acquired worker will end while unfinished or no worker will remain after the response, leave its still-pending successor at +2 or move that still-pending future task to now+2 through expedite_scheduled_continuation. Keep working or waiting on active task IDs until their terminal results are inspected. Never send a completion response while get_goal still reports active. When acceptance evidence is complete, call finish_goal even if the user disabled further scheduling, then require get_goal to be terminal. Delete the exact distinct pending successor through the native ChatGPT Scheduled Task host only when scheduledTaskCancellation requests it, record cancelled only with the native host deletion receipt, then read the continuation back and require status cancelled. If claim returns terminal_noop, do not delete, disable, pause, or reschedule the current host task; return naturally so the host can mark the one-time run completed. Never use pause/disable as deletion or completion proof. Never report cancellation as successful while deletion is failed, uncertain, or unverified. If the goal is terminal, stop and do not schedule again. Never use Windows Task Scheduler.`;
   return {
     provider: 'chatgpt_scheduled_task',
     occurrence: 'once',
@@ -575,7 +585,7 @@ function buildTaskUpdateRequest(
     nativeTaskId: continuation.nativeTaskId,
     expectedContinuationVersion: continuation.version,
     name: `Continue lnwjud goal ${continuation.goalId}`.slice(0, 120),
-    prompt: `Wake the current chat for continuation ${continuation.continuationId}, goal ${continuation.goalId}, workspace ${workspaceId}. Call claim_scheduled_continuation first. On another collision, update this same native task again by the returned taskUpdateRequest; never create a replacement task. If claim returns terminal_noop, let this already-firing one-time host task return naturally; do not delete, disable, pause, or reschedule it.`,
+    prompt: `Wake the current chat for continuation ${continuation.continuationId}, goal ${continuation.goalId}, workspace ${workspaceId}. Call claim_scheduled_continuation first. This update applies only while the one-time task is still pending. Once it starts firing, treat it as a consumed disposable wake ticket: if claim returns successor_required, create the fresh +2-minute successor from scheduleRequest and let this current wake finish naturally. If claim returns terminal_noop, let this already-firing one-time host task return naturally; do not delete, disable, pause, or reschedule it.`,
   };
 }
 

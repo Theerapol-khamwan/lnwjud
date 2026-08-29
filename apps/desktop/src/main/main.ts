@@ -1124,6 +1124,9 @@ async function requestUpdateInstall(): Promise<{ readonly accepted: boolean; rea
     });
     if (!approved) return { accepted: false, status: currentUpdateStatus };
 
+    const tunnelStopped = await stopTunnelForUpdateInstall(runtime);
+    if (!tunnelStopped) return { accepted: false, status: currentUpdateStatus };
+
     const status = patchUpdateStatus({
       phase: 'installing',
       message: nativeMessages(desktopLocale).updaterInstallWaiting,
@@ -1334,6 +1337,7 @@ function initAutoUpdater(runtime: DesktopRuntime): void {
           ? { state: 'available', activeCallCount: snapshot.activeCount, revision: snapshot.revision, ownerKey: snapshot.ownerKey }
           : { state: snapshot.state, reason: snapshot.reason };
       },
+      maxWaitMs: 5_000,
       install: (): void => {
         void stopTunnelForUpdateInstall(runtime).then((tunnelStopped) => {
           if (!tunnelStopped) return;

@@ -58,17 +58,18 @@ If the user asks to cancel the goal, call `cancel_goal` with the latest expected
    - `already_claimed`: another run consumed it; do not mutate.
    - `not_due`: do not mutate or create a replacement. Update the same host task to the returned/known due time when the host permits it.
    - `receipt_required`: reconcile the exact native task first; record `created`, `create_failed`, or `create_uncertain` truthfully.
-   - `reschedule_required`: update `taskUpdateRequest.nativeTaskId`, the **same native task**, to its +2-minute due time, record the receipt, and end this wake. Repeat collisions **without a retry limit**.
+   - `successor_required`: this one-time wake is already firing, so it is a consumed ticket and must not be reused. Create the **fresh successor** exactly from the returned `scheduleRequest`, record `created` for the returned successor immediately, then let the current wake return naturally. Never update or re-arm the currently firing native task.
    - `acquired`, including `orphan_recovered`: use the new lease token/generation as `goalLease`, arm the next adaptive successor before long work, then continue from the durable checkpoint without waiting for user input.
 
-3. If exact ChatGPT host metadata later proves that the recorded native one-time task already **ran/was consumed** but the durable continuation is still in a pending/live state because claim never completed, reconcile it with `record_scheduled_continuation_receipt(outcome: consumed)` and the exact native host run receipt. `consumed` means only that the host task is no longer pending; it does **not** mean the goal work completed. If the goal is still active, reserve and create a fresh successor after reconciliation. This is host-consumption recovery, not a worker collision; real collisions must still update the same live native task to +2 minutes.
+3. If exact ChatGPT host metadata later proves that the recorded native one-time task already **ran/was consumed** but the durable continuation is still in a pending/live state because claim never completed, reconcile it with `record_scheduled_continuation_receipt(outcome: consumed)` and the exact native host run receipt. `consumed` means only that the host task is no longer pending; it does **not** mean the goal work completed. If the goal is still active, reserve and create a fresh successor after reconciliation. This is crash recovery for a missed claim; normal worker collisions are handled directly by `successor_required`, which reserves a fresh disposable successor instead of reusing the firing task.
 
 ## Collision and orphan safety
 
-- Collision never calls `finish_goal`, marks the goal blocked, creates a replacement task, or changes `nativeTaskId`.
+- Collision never calls `finish_goal` or marks the goal blocked. The currently firing one-time native task is terminalized as a consumed/superseded wake ticket, and lnwjud atomically reserves exactly one fresh +2-minute successor generation before the wake returns.
+- Never count an already-firing one-time task as a future successor, even if the native host accepted a schedule update while that run was in progress. Same-task updates are only for a still-pending future successor, such as `expedite_scheduled_continuation` before it fires.
 - Live fenced calls and managed task/process states are worker-liveness evidence. MCP session equality and elapsed time are not.
-- Active or unknown liveness fails closed into the same-task +2-minute update.
-- Orphan takeover requires two unchanged trustworthy no-worker probes at least 120 seconds apart, the same revision/generation/activity sequence, no live fenced calls, and all tracked tasks terminal or absent. Recovery uses CAS and increments lease generation.
+- Active or unknown liveness fails closed into a fresh disposable +2-minute successor ticket.
+- Orphan takeover requires two unchanged trustworthy no-worker probes at least 120 seconds apart, the same revision/generation/activity sequence, no live fenced calls, and all tracked tasks terminal or absent. The orphan probe state carries forward across disposable successor generations; recovery uses CAS and increments lease generation.
 - Full Bypass may skip application-level `goalLease` enforcement, but this workflow still requires claim and current proof as its cooperative ownership protocol.
 
 ## Verified completion
