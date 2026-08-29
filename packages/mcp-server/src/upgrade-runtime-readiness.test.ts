@@ -88,31 +88,43 @@ describe('upgrade runtime readiness facades', () => {
     ]);
   });
 
-  it('dispatches browser and visual facades to read-only DOM/CDP primitives', async () => {
-    const calls: string[] = [];
+  it('pins browser and visual facades to the caller-selected DOM/CDP tab', async () => {
+    const calls: Array<{ tool: string; input: Record<string, unknown> }> = [];
     const services = {
       capabilities: {
         async execute(tool: string, input: unknown) {
-          const action = (input as { action?: string }).action ?? 'unknown';
-          calls.push(`${tool}:${action}`);
-          if (action === 'status') return ok({ ready: true, port: 9222 });
-          if (action === 'list_tabs') return ok({ tabs: [{ id: 'tab-1', title: 'App', url: 'http://localhost' }] });
-          if (action === 'query') return ok({ ok: true, tag: 'BODY', text: 'hello', frame: { x: 0, y: 0, width: 100, height: 100 } });
-          if (action === 'screenshot') return ok({ format: 'png', data_base64: 'aGVsbG8=' });
+          const record = input as Record<string, unknown>;
+          calls.push({ tool, input: record });
+          if (record.action === 'status') return ok({ ready: true, port: 9222 });
+          if (record.action === 'list_tabs') return ok({ tabs: [{ id: 'tab-1', title: 'App', url: 'http://localhost' }] });
+          if (record.action === 'query') return ok({ ok: true, tag: 'BODY', text: 'hello', frame: { x: 0, y: 0, width: 100, height: 100 } });
+          if (record.action === 'screenshot') return ok({ format: 'png', data_base64: 'aGVsbG8=' });
           return ok({});
         },
       },
     } as unknown as McpApplicationServices;
     const runtime = new UpgradeRuntimeService(services, actor);
 
-    await expect(runtime.execute('inspect_web_app', {})).resolves.toMatchObject({ ok: true, value: { executed: true, status: 'ready' } });
-    await expect(runtime.execute('capture_ui_state', {})).resolves.toMatchObject({ ok: true, value: { executed: true, screenshot: expect.any(Object) } });
-    await expect(runtime.execute('capture_screenshot', {})).resolves.toMatchObject({ ok: true, value: { executed: true, screenshot: { data_base64: 'aGVsbG8=' } } });
-    await expect(runtime.execute('dom_snapshot', {})).resolves.toMatchObject({ ok: true, value: { executed: true, snapshot: expect.any(Object) } });
-    expect(calls).toContain('dom_cdp:status');
-    expect(calls).toContain('dom_cdp:list_tabs');
-    expect(calls).toContain('dom_cdp:query');
-    expect(calls).toContain('dom_cdp:screenshot');
+    await expect(runtime.execute('inspect_web_app', { tab_id: 'tab-1' }))
+      .resolves.toMatchObject({ ok: true, value: { executed: true, status: 'ready' } });
+    await expect(runtime.execute('capture_ui_state', { tab_id: 'tab-1' }))
+      .resolves.toMatchObject({ ok: true, value: { executed: true } });
+    await expect(runtime.execute('capture_screenshot', { tab_id: 'tab-1' }))
+      .resolves.toMatchObject({ ok: true, value: { executed: true } });
+    await expect(runtime.execute('dom_snapshot', { tab_id: 'tab-1' }))
+      .resolves.toMatchObject({ ok: true, value: { executed: true } });
+
+    const pageCalls = calls.filter((call) => ['query', 'screenshot'].includes(String(call.input.action)));
+    expect(pageCalls.length).toBeGreaterThan(0);
+    expect(pageCalls.every((call) => call.input.tab_id === 'tab-1')).toBe(true);
+
+    const callCountBeforeMissingTarget = calls.length;
+    await expect(runtime.execute('inspect_web_app', {}))
+      .resolves.toMatchObject({ ok: false, error: { code: 'INVALID_INPUT', message: expect.stringContaining('tab_id') } });
+    await expect(runtime.execute('capture_screenshot', {}))
+      .resolves.toMatchObject({ ok: false, error: { code: 'INVALID_INPUT', message: expect.stringContaining('tab_id') } });
+    const missingTargetCalls = calls.slice(callCountBeforeMissingTarget);
+    expect(missingTargetCalls.some((call) => ['query', 'screenshot'].includes(String(call.input.action)))).toBe(false);
   });
 
   it('does not fake browser console/network history when the backend has no retained event stream', async () => {

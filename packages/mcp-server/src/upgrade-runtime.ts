@@ -971,8 +971,10 @@ export class UpgradeRuntimeService {
     if (name === 'network_context') return ok(truthfulUnavailable(name, 'needs_setup', ['CDP network event subscription and retained event stream']));
     if (name === 'console_context') return ok(truthfulUnavailable(name, 'needs_setup', ['CDP Runtime/Log event subscription and retained event stream']));
     if (capabilities === undefined) return ok(truthfulUnavailable(name, 'needs_setup', ['DOM/CDP capability']));
-    const tabId = readString(input, 'tab_id') ?? readString(input, 'tabId');
-    const invoke = (action: string, parameters: Record<string, unknown> = {}): Promise<Result<unknown>> => capabilities.execute('dom_cdp', { action, parameters, ...(tabId === undefined ? {} : { tab_id: tabId }) }, signal, authorization);
+    const target = requireBrowserTabId(name, input);
+    if (!target.ok) return target;
+    const tabId = target.value;
+    const invoke = (action: string, parameters: Record<string, unknown> = {}): Promise<Result<unknown>> => capabilities.execute('dom_cdp', { action, parameters, tab_id: tabId }, signal, authorization);
     const status = await invoke('status');
     if (!status.ok) return status;
 
@@ -1007,8 +1009,10 @@ export class UpgradeRuntimeService {
     }
     const capabilities = this.services.capabilities;
     if (capabilities === undefined) return ok({ tool: name, status: 'optional', available: false, ready: false, executed: false, requirements: ['DOM/CDP capability'] });
-    const tabId = readString(input, 'tab_id') ?? readString(input, 'tabId');
-    const invoke = (action: string, parameters: Record<string, unknown> = {}): Promise<Result<unknown>> => capabilities.execute('dom_cdp', { action, parameters, ...(tabId === undefined ? {} : { tab_id: tabId }) }, signal, authorization);
+    const target = requireBrowserTabId(name, input);
+    if (!target.ok) return target;
+    const tabId = target.value;
+    const invoke = (action: string, parameters: Record<string, unknown> = {}): Promise<Result<unknown>> => capabilities.execute('dom_cdp', { action, parameters, tab_id: tabId }, signal, authorization);
     if (name === 'capture_screenshot') {
       const screenshot = await invoke('screenshot');
       return screenshot.ok ? ok({ tool: name, status: 'ready', available: true, ready: true, executed: true, screenshot: screenshot.value }) : screenshot;
@@ -1244,6 +1248,14 @@ function runBoundedProcess(
 function readString(input: Record<string, unknown>, key: string): string | undefined {
   const value = input[key];
   return typeof value === 'string' ? value : undefined;
+}
+
+function requireBrowserTabId(toolName: string, input: Record<string, unknown>): Result<string> {
+  const tabId = readString(input, 'tab_id') ?? readString(input, 'tabId');
+  if (tabId === undefined || tabId.trim().length === 0) {
+    return err(appError('INVALID_INPUT', `${toolName} requires tab_id; call dom_cdp list_tabs or new_tab first`));
+  }
+  return ok(tabId.trim());
 }
 
 function digest(input: unknown): string {
