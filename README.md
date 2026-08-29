@@ -41,17 +41,19 @@ over outbound HTTPS, forwards MCP work to lnwjud's Desktop loopback HTTP MCP,
 and returns the response without opening a public inbound port on the Windows
 machine.
 
-## Current version: v4.29.0
+## Current version: v4.30.0
 
-The v4.29.0 release target and runtime contract contain **231 total MCP tool definitions**,
+The v4.30.0 release target and runtime contract contain **231 total MCP tool definitions**,
 with **195 advertised by default** and **201 advertised when the six `codex_*`
 delegation tools are enabled**. Planned and feature-disabled definitions remain in
 the complete inventory without appearing in `tools/list`. The earlier 184-tool snapshot remains
 only as the compatibility baseline used by the v4 architecture; new v4 gateway
 capabilities are additive.
 
-### What's new in v4.29.0
+### What's new in v4.30.0
 
+- Fixes autonomous scheduled-continuation handoff so a one-time ChatGPT wake that has started firing is treated as a consumed disposable ticket; worker collisions atomically reserve a fresh +2-minute successor instead of falsely re-arming a host task that can auto-disable after the run.
+- Fixes Windows auto-update installation: after the user confirms **Stop Tunnel and Install**, lnwjud stops and verifies Secure Tunnel immediately, prevents reconnect, allows only a short bounded drain for in-flight work, then closes the runtime and launches the installer automatically instead of remaining stuck on “installing”.
 - Adds a canonical bilingual **Tools Catalog** derived from the live `ToolRegistry`, with category, permission, delivery, readiness, requirement, dry-run/cancel support, and searchable schema metadata for every first-party definition.
 - Adds a status-first **Tools** page and issue-first **Doctor** flow that share one cached requirement snapshot, expose affected tools, and support selected rechecks without invoking the underlying tool runtime.
 - Adds typed, allowlisted remediation actions for exact app settings, Windows Optional Features, official URLs, copyable commands, managed-browser startup, the constrained Codex opt-in, and rechecks; renderer/server text still cannot inject arbitrary URLs, commands, or settings targets.
@@ -61,7 +63,7 @@ capabilities are additive.
 - Tightens runtime truthfulness across all **231 tool definitions**, removing fake-success paths and keeping planned/disabled capabilities out of normal advertisement until a real implementation exists.
 - Changes durable-goal and scheduled-wake leases to a **600-second maximum**, with sliding renewal only while real fenced work/checkpoints are active and with renewal capped by the scheduled handoff deadline.
 - Makes `run_goal` opt into autonomous cloud continuation by default (`scheduledContinuation: auto`): active goal results return a machine-readable directive to auto-load the bundled `lnwjud-scheduled-continuation` skill, keep one host-owned one-time cloud successor, and never require the user to type “continue/ทำต่อ”; callers can explicitly set `off` when future scheduling is not wanted.
-- Synchronizes the v4.29.0 release contract to **231 total definitions / 195 advertised by default / 201 with Codex delegation enabled**, with Setup/Portable parity and Doctor/Tools acceptance coverage.
+- Synchronizes the v4.30.0 release contract to **231 total definitions / 195 advertised by default / 201 with Codex delegation enabled**, with Setup/Portable parity and Doctor/Tools acceptance coverage.
 
 Current v4 highlights include:
 
@@ -158,13 +160,13 @@ stops the current local HTTP listener.
 
 1. Download the latest published installer from
    [GitHub Releases](https://github.com/engasnm111/lnwjud/releases/latest).
-   Current Windows 10/11 x64 artifacts are `lnwjud-Setup-4.29.0.exe` (recommended installer) and `lnwjud-Portable-4.29.0.exe` (no installation required).
+   Current Windows 10/11 x64 artifacts are `lnwjud-Setup-4.30.0.exe` (recommended installer) and `lnwjud-Portable-4.30.0.exe` (no installation required).
 2. Run the NSIS installer and launch **lnwjud Agent Control Center**.
 3. Add or select the project/workspace you want lnwjud to operate on.
 4. Review **Settings** before attaching an AI client, especially Permission
    Profile and Unrestricted Mode.
 
-If you prefer not to install the app, run `lnwjud-Portable-4.29.0.exe` directly.
+If you prefer not to install the app, run `lnwjud-Portable-4.30.0.exe` directly.
 Portable mode uses the same per-user lnwjud data/settings location as the installer;
 it is a portable executable, not a keep-all-data-next-to-the-EXE mode.
 Automatic updates preserve the distribution you chose. Installer users read
@@ -317,8 +319,8 @@ Secure Tunnel จะส่งงานเข้าที่ Desktop loopback HTT
 
 ### 1. ติดตั้ง lnwjud หรือใช้ Portable
 
-1. แบบแนะนำ: ดาวน์โหลด `lnwjud-Setup-4.29.0.exe` แล้วติดตั้งตามปกติ
-2. ถ้าไม่ต้องการติดตั้ง: ดาวน์โหลด `lnwjud-Portable-4.29.0.exe` แล้วเปิดได้ทันที
+1. แบบแนะนำ: ดาวน์โหลด `lnwjud-Setup-4.30.0.exe` แล้วติดตั้งตามปกติ
+2. ถ้าไม่ต้องการติดตั้ง: ดาวน์โหลด `lnwjud-Portable-4.30.0.exe` แล้วเปิดได้ทันที
 3. เปิด **lnwjud Agent Control Center**
 4. เพิ่มหรือเลือก Project/Workspace ที่ต้องการให้ ChatGPT ทำงานด้วย
 
@@ -333,7 +335,7 @@ Portable ใช้ Settings/ข้อมูลต่อผู้ใช้ Window
 
 ### 3. tunnel-client มากับตัวติดตั้งแล้ว
 
-ถ้าใช้ `lnwjud-Setup-4.29.0.exe` หรือ `lnwjud-Portable-4.29.0.exe` บน Windows x64 **ไม่ต้องดาวน์โหลด
+ถ้าใช้ `lnwjud-Setup-4.30.0.exe` หรือ `lnwjud-Portable-4.30.0.exe` บน Windows x64 **ไม่ต้องดาวน์โหลด
 `tunnel-client.exe` เอง** ตัว release รวม official OpenAI
 `tunnel-client v0.0.12` มาให้และ lnwjud จะเลือกใช้ให้อัตโนมัติ
 
@@ -578,8 +580,8 @@ corepack pnpm@10.15.0 package:windows
 The Windows 10/11 x64 artifacts are written to:
 
 ```text
-apps/desktop/dist/installers/lnwjud-Setup-4.29.0.exe
-apps/desktop/dist/installers/lnwjud-Portable-4.29.0.exe
+apps/desktop/dist/installers/lnwjud-Setup-4.30.0.exe
+apps/desktop/dist/installers/lnwjud-Portable-4.30.0.exe
 ```
 
 The installer is per-user by default. The portable executable needs no installation but uses the same per-user lnwjud data/settings location. A common installed executable path is:
@@ -1021,7 +1023,7 @@ This complete index is generated from `ToolRegistry.listAll()`, not copied from 
 | 86 | `list_goals` | READ | default | operational | service_dispatch | List a bounded set of durable goals owned by the current stable MCP client, optionally filtered by workspace/status. |
 | 87 | `prepare_scheduled_continuation` | WRITE | default | operational | service_dispatch | Checkpoint and reserve exactly one current-chat cloud successor with an adaptive delay between 2 and 25 minutes. Omitted delay defaults to the fail-safe +2-minute handoff; a healthy current run may explicitly choose a longer 5/10/25-minute watchdog. This workflow never creates or deletes the native task itself. |
 | 88 | `record_scheduled_continuation_receipt` | WRITE | default | operational | service_dispatch | Record host-owned cloud one-time task create, same-task reschedule, consumed-run reconciliation, or cancellation receipts. A consumed receipt requires exact native host run evidence and means only that the one-time task is no longer pending; it does not mean the goal work completed. Cancelled is accepted only with a matching native ChatGPT host deletion receipt; a model assertion is not cancellation proof. The stored native task ID is immutable across reschedules. |
-| 89 | `claim_scheduled_continuation` | WRITE | default | operational | service_dispatch | Scheduled-wake entrypoint. Claim before workspace mutation; a confirmed cloud wake up to 120 seconds early is accepted so native host jitter does not consume the one-time task without handoff. If native task creation was never confirmed, returns receipt_required for reconciliation. On an active-worker collision, update the exact existing native one-time cloud task to now+2 minutes. If the outcome is terminal_noop, let the already-firing one-time host task return naturally so the host can mark it completed; do not delete, disable, pause, or reschedule that current wake. Do not mutate the workspace, create a replacement task, mark the goal terminal, or stop an active durable chain. |
+| 89 | `claim_scheduled_continuation` | WRITE | default | operational | service_dispatch | Scheduled-wake entrypoint. Claim before workspace mutation; a confirmed cloud wake up to 120 seconds early is accepted so native host jitter does not consume the one-time task without handoff. If native task creation was never confirmed, returns receipt_required for reconciliation. A one-time task that is firing is treated as a consumed wake ticket: on an active-worker collision, claim atomically supersedes that ticket and returns successor_required with a fresh +2-minute cloud scheduleRequest. Create that fresh successor and let the current wake finish naturally; never re-arm the firing task. If the outcome is terminal_noop, let the already-firing host task return naturally; do not delete, disable, pause, or reschedule it. Do not mutate the workspace or mark the goal terminal on collision. |
 | 90 | `get_scheduled_continuation` | READ | default | operational | service_dispatch | Read one scheduled-continuation snapshot by continuation ID or the latest record for a goal. A healthy current run keeps its adaptive watchdog unless a real turn-yield signal requires same-task +2 handoff. |
 | 91 | `expedite_scheduled_continuation` | WRITE | default | operational | service_dispatch | For an enumerated handoff-risk signal, including a turn that is about to end while the goal is unfinished, move the exact existing cloud one-time native task to now+2 minutes. No replacement task is created. |
 | 92 | `cancel_scheduled_continuation` | WRITE | default | operational | service_dispatch | Cancel one still-pending scheduled successor independently of its goal. Identify it by continuationId or the latest record for a goal, then use the returned cancellation instruction to delete the exact pending native ChatGPT Scheduled Task and record its host receipt. Never treat pausing/disabling an already-fired current wake as deletion or completion proof. This does not cancel the durable goal or stop its running tasks. |

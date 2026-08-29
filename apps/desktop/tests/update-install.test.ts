@@ -230,6 +230,26 @@ describe('downloaded update installation', () => {
     expect(sharedActivitySnapshot).toHaveBeenCalledTimes(1);
   });
 
+  it('forces installation after a bounded grace period once the user has confirmed an update', async () => {
+    vi.useFakeTimers();
+    const install = vi.fn();
+    const coordinator = new UpdateInstallCoordinator({
+      activeCallCount: (): number => 1,
+      install,
+      maxWaitMs: 50,
+      pollIntervalMs: 10,
+      quietPeriodMs: 20,
+    });
+
+    coordinator.requestInstall();
+    await vi.advanceTimersByTimeAsync(49);
+    expect(install).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(1);
+
+    expect(install).toHaveBeenCalledOnce();
+    expect(coordinator.hasPendingInstall()).toBe(false);
+  });
+
   it('cancels a pending idle wait during shutdown', async () => {
     vi.useFakeTimers();
     const install = vi.fn();

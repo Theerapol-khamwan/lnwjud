@@ -228,6 +228,10 @@ describe('ScheduledContinuationService', () => {
       for (const marker of Object.values(markers)) expect(serialized).not.toContain(marker);
       expect(serialized).not.toContain(started.leaseToken!);
       expect(result.value.scheduleRequest.prompt).toContain('claim_scheduled_continuation');
+      expect(result.value.scheduleRequest.prompt).toContain('successor_required');
+      expect(result.value.scheduleRequest.prompt).toContain('consumed wake ticket');
+      expect(result.value.scheduleRequest.prompt).toContain('must never be reused as a future successor');
+      expect(result.value.scheduleRequest.prompt).toContain('do not update or re-arm the firing native task');
       expect(result.value.scheduleRequest.prompt).toContain('adaptive delay between 2 and 25 minutes');
       expect(result.value.scheduleRequest.prompt).toContain('Omitted delay fails safe to +2 minutes');
       expect(result.value.scheduleRequest.prompt).toContain('5/10/25 minutes only as an explicit watchdog');
@@ -247,7 +251,7 @@ describe('ScheduledContinuationService', () => {
     }
   });
 
-  it('returns a same-native-task +2 minute update when a due wake collides with a still-live lease', async () => {
+  it('consumes a firing one-time wake and returns a fresh +2 successor when a live worker owns the lease', async () => {
     const { database, goals, scheduled, clock } = await fixture();
     const successorActor: FileActor = { ...actor, sessionId: 'scheduled-continuation-successor' };
     try {
@@ -273,16 +277,47 @@ describe('ScheduledContinuationService', () => {
       expect(collision).toMatchObject({
         ok: true,
         value: {
-          outcome: 'reschedule_required',
+          outcome: 'successor_required',
           retryAfterSeconds: 120,
-          taskUpdateRequest: {
-            operation: 'update',
+          continuation: {
+            continuationId: prepared.value.continuation.continuationId,
             nativeTaskId: 'native-task-b',
+            status: 'superseded',
+          },
+          successor: {
+            generation: prepared.value.continuation.generation + 1,
+            status: 'prepared',
             dueAt: '2026-08-27T10:27:00.000Z',
+          },
+          scheduleRequest: {
+            occurrence: 'once',
+            dueAt: '2026-08-27T10:27:00.000Z',
+            destination: 'current_chat',
             executionPreference: 'cloud',
           },
         },
       });
+      if (!collision.ok || collision.value.outcome !== 'successor_required') throw new Error('fresh collision successor missing');
+      expect(collision.value.successor.nativeTaskId).toBeUndefined();
+      expect(collision.value.scheduleRequest.continuationId).toBe(collision.value.successor.continuationId);
+      expect(collision.value.scheduleRequest.prompt).toContain('consumed wake ticket');
+      expect(collision.value.scheduleRequest.prompt).toContain('successor_required');
+      expect(collision.value.scheduleRequest.prompt).toContain('do not update or re-arm the firing native task');
+      expect(JSON.stringify(collision.value.scheduleRequest)).not.toContain('native-task-b');
+
+      const created = await scheduled.recordScheduledContinuationReceipt(successorActor, {
+        continuationId: collision.value.successor.continuationId,
+        expectedVersion: collision.value.successor.version,
+        outcome: 'created',
+        nativeTaskId: 'native-task-c',
+        runsOn: 'cloud',
+      });
+      expect(created).toMatchObject({ ok: true, value: { status: 'scheduled', nativeTaskId: 'native-task-c' } });
+
+      const repeated = await scheduled.claimScheduledContinuation(successorActor, {
+        continuationId: prepared.value.continuation.continuationId,
+      });
+      expect(repeated).toMatchObject({ ok: true, value: { outcome: 'already_claimed' } });
     } finally {
       database.close();
     }
