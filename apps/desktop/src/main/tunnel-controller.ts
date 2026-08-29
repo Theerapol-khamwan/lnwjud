@@ -11,6 +11,7 @@ import { probeProcessStart, type ProcessProbeResult } from '@lnwjud/mcp-server';
 import { formatTunnelExitMessage, tunnelExitHintFromLog } from './tunnel-exit.js';
 import { acquireTunnelLock, readTunnelLock, type TunnelLockAcquisition, type TunnelLockOwner } from './tunnel-lock.js';
 import { extractTunnelId, extractTunnelMcpServerUrl, normalizeLoopbackMcpUrl, rewriteTunnelYamlMcpServerUrl, rewriteTunnelYamlRuntimeApiKeyRef } from './tunnel-profile.js';
+import { protectTunnelSecret, unprotectTunnelSecret } from './tunnel-secret-dpapi.js';
 import { TunnelRuntimeAdapter, type TunnelRuntimeAdapterOptions } from './tunnel-runtime-adapter.js';
 import { TunnelRuntimeReconciler, type TunnelRuntimeDesiredState, type TunnelRuntimeReconcilerAdapter } from './tunnel-runtime-reconciler.js';
 import { TunnelRuntimeSupervisor } from './tunnel-runtime-supervisor.js';
@@ -131,7 +132,7 @@ export class TunnelController {
     const trimmed = apiKey.trim();
     if (trimmed.length === 0) throw new Error('Runtime API key is required');
     await mkdir(this.profileDirectory(), { recursive: true });
-    const encrypted = await encryptWithDpapi(trimmed);
+    const encrypted = await protectTunnelSecret(trimmed);
     await writeFile(this.secretPath(), encrypted, 'utf8');
     this.lastApiKey = trimmed;
     this.runtimeConfigurationDirty = true;
@@ -146,7 +147,7 @@ export class TunnelController {
     const mcpServerUrl = await this.requireMcpServerUrl();
     if (!(await this.hasApiKey())) throw new Error('Save a Runtime API key first');
     const encryptedSecret = await readFile(this.secretPath(), 'utf8');
-    const apiKey = (await (this.options.decryptSecret?.(encryptedSecret) ?? decryptWithDpapi(encryptedSecret))).trim();
+    const apiKey = (await (this.options.decryptSecret?.(encryptedSecret) ?? unprotectTunnelSecret(encryptedSecret))).trim();
     if (apiKey.length === 0) throw new Error('Saved Runtime API key is empty; save it again in Settings');
     await mkdir(this.profileDirectory(), { recursive: true });
     try {
@@ -377,7 +378,7 @@ export class TunnelController {
 
       const encryptedSecret = await readFile(this.secretPath(), 'utf8');
       throwIfStartCancelled(signal);
-      const apiKey = (await (this.options.decryptSecret?.(encryptedSecret) ?? decryptWithDpapi(encryptedSecret))).trim();
+      const apiKey = (await (this.options.decryptSecret?.(encryptedSecret) ?? unprotectTunnelSecret(encryptedSecret))).trim();
       throwIfStartCancelled(signal);
       if (apiKey.length === 0) throw new Error('Saved Runtime API key is empty; save it again in Settings');
       this.lastApiKey = apiKey;
@@ -806,7 +807,7 @@ export class TunnelController {
 
     const encryptedSecret = await readFile(this.secretPath(), 'utf8').catch(() => null);
     if (encryptedSecret === null) return null;
-    const apiKey = (await (this.options.decryptSecret?.(encryptedSecret) ?? decryptWithDpapi(encryptedSecret))).trim();
+    const apiKey = (await (this.options.decryptSecret?.(encryptedSecret) ?? unprotectTunnelSecret(encryptedSecret))).trim();
     throwIfStartCancelled(signal);
     if (apiKey.length === 0) return null;
     this.lastApiKey = apiKey;
@@ -1028,56 +1029,6 @@ export function buildTunnelInitArgs(tunnelId: string, mcpServerUrl: string, prof
     '--health-listen-addr', '127.0.0.1:0',
     '--mcp-server-url', normalizeLoopbackMcpUrl(mcpServerUrl),
   ];
-}
-
-async function encryptWithDpapi(plain: string): Promise<string> {
-  const script = [
-    '$ErrorActionPreference = "Stop"',
-    '$plain = [Console]::In.ReadToEnd()',
-    '$secure = ConvertTo-SecureString -String $plain -AsPlainText -Force',
-    'ConvertFrom-SecureString -SecureString $secure',
-  ].join('; ');
-  return runPowerShellWithStdin(script, plain);
-}
-
-async function decryptWithDpapi(encrypted: string): Promise<string> {
-  const script = [
-    '$ErrorActionPreference = "Stop"',
-    '$encrypted = [Console]::In.ReadToEnd().Trim()',
-    '$secure = ConvertTo-SecureString -String $encrypted',
-    '$bstr = [Runtime.InteropServices.Marshal]::SecureStringToBSTR($secure)',
-    'try { [Runtime.InteropServices.Marshal]::PtrToStringBSTR($bstr) } finally { [Runtime.InteropServices.Marshal]::ZeroFreeBSTR($bstr) }',
-  ].join('; ');
-  return runPowerShellWithStdin(script, encrypted);
-}
-
-function runPowerShellWithStdin(command: string, input: string): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const child = spawn('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', command], {
-      windowsHide: true,
-      stdio: ['pipe', 'pipe', 'pipe'],
-    });
-    let stdout = '';
-    let stderr = '';
-    child.stdout.setEncoding('utf8');
-    child.stderr.setEncoding('utf8');
-    child.stdout.on('data', (chunk: string) => { stdout += chunk; });
-    child.stderr.on('data', (chunk: string) => { stderr += chunk; });
-    child.on('error', reject);
-    child.on('close', (code) => {
-      if (code !== 0) {
-        reject(new Error(stderr.trim() || `PowerShell exited with code ${code ?? 'unknown'}`));
-        return;
-      }
-      const value = stdout.replace(/\r?\n$/, '');
-      if (value.length === 0) {
-        reject(new Error('PowerShell returned an empty result'));
-        return;
-      }
-      resolve(value);
-    });
-    child.stdin.end(input, 'utf8');
-  });
 }
 
 export function tunnelClientEnv(apiKey: string, profileDirectory: string): NodeJS.ProcessEnv {
