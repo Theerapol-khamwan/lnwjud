@@ -17,6 +17,7 @@ type LaunchedDesktop = {
   readonly page: Page;
   readonly dataRoot: string;
   readonly fixtureRoot: string;
+  readonly devToolsPort: number;
 };
 
 test.describe('Tools catalog and Doctor real Electron acceptance', () => {
@@ -196,7 +197,7 @@ async function launchDesktop(options: { readonly dataRoot?: string; readonly fix
   await expect.poll(() => context.pages().length).toBeGreaterThan(0);
   const page = context.pages()[0];
   if (page === undefined) throw new Error('Electron did not create a renderer page');
-  return { process, browser, page, dataRoot, fixtureRoot };
+  return { process, browser, page, dataRoot, fixtureRoot, devToolsPort };
 }
 
 async function openTools(page: Page): Promise<void> {
@@ -268,19 +269,46 @@ async function waitForDevTools(port: number, electronProcess: ChildProcess, stde
   await expect.poll(async () => {
     if (electronProcess.exitCode !== null) throw new Error(`Electron exited with ${electronProcess.exitCode}: ${stderr.join('')}`);
     try { return (await fetch(`http://127.0.0.1:${port}/json/version`)).ok; } catch { return false; }
-  }, { timeout: 20_000, intervals: [50, 100, 250] }).toBe(true);
+  }, { timeout: packagedExecutable === undefined ? 20_000 : 60_000, intervals: [50, 100, 250, 500] }).toBe(true);
 }
 
 async function closeDesktop(app: LaunchedDesktop, keepRoots = false): Promise<void> {
   await app.browser.close().catch(() => undefined);
+  await terminateDevToolsProcess(app.devToolsPort);
   await terminateProcessTree(app.process);
   if (!keepRoots) await Promise.all([removeTemporaryRoot(app.dataRoot), removeTemporaryRoot(app.fixtureRoot)]);
 }
 
+async function terminateDevToolsProcess(port: number): Promise<void> {
+  const output = await new Promise<string>((resolve) => {
+    const netstat = spawn('netstat.exe', ['-ano', '-p', 'tcp'], { shell: false, windowsHide: true });
+    let stdout = '';
+    netstat.stdout?.on('data', (chunk: Buffer) => { stdout += chunk.toString(); });
+    netstat.once('error', () => resolve(''));
+    netstat.once('close', () => resolve(stdout));
+  });
+  const suffix = `:${port}`;
+  const pids = new Set<number>();
+  for (const line of output.split(/\r?\n/u)) {
+    const columns = line.trim().split(/\s+/u);
+    if (columns.length < 5 || !columns[1]?.endsWith(suffix) || columns[3] !== 'LISTENING') continue;
+    const pid = Number.parseInt(columns[4] ?? '', 10);
+    if (Number.isInteger(pid) && pid > 0) pids.add(pid);
+  }
+  await Promise.all([...pids].map((pid) => terminatePidTree(pid)));
+  await expect.poll(async () => {
+    try { return !(await fetch(`http://127.0.0.1:${port}/json/version`)).ok; } catch { return true; }
+  }, { timeout: 10_000, intervals: [50, 100, 250] }).toBe(true);
+}
+
 async function terminateProcessTree(process: ChildProcess): Promise<void> {
-  if (process.exitCode !== null || process.pid === undefined) return;
+  if (process.pid === undefined) return;
+  await terminatePidTree(process.pid);
+}
+
+async function terminatePidTree(pid: number): Promise<void> {
   await new Promise<void>((resolve) => {
-    const killer = spawn('taskkill.exe', ['/PID', String(process.pid), '/T', '/F'], { shell: false, windowsHide: true });
+    const killer = spawn('taskkill.exe', ['/PID', String(pid), '/T', '/F'], { shell: false, windowsHide: true });
     killer.once('error', () => resolve());
     killer.once('close', () => resolve());
   });
