@@ -60,6 +60,10 @@ describe('PowerShellWindowsCapabilityBridge integrity', () => {
     expect(script).not.toContain('elements = @($items)');
     expect(script).toContain('[System.Windows.Automation.AutomationElement]::RootElement');
     expect(script).toContain('[void]$Items.Add');
+    expect(script).toContain('function Get-FiniteUiBounds');
+    expect(script).toContain('[double]::IsInfinity($value)');
+    expect(script).toContain('bounds = $bounds');
+    expect(script).not.toContain('bounds = [ordered]@{ x = [double]$rect.X; y = [double]$rect.Y; width = [double]$rect.Width; height = [double]$rect.Height }');
     expect(script).toContain("$failureMessage = 'Windows native capability failed'");
     expect(script).toContain("$failureMessage = $failureMessage + ': ' + $detail");
   });

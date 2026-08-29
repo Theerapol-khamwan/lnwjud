@@ -30,6 +30,8 @@ extraResources:
     to: tunnel-client
   - from: build/runtime-tools
     to: runtime-tools
+  - from: ../../.agents/skills/lnwjud-scheduled-continuation
+    to: agent-skills/lnwjud-scheduled-continuation
 # Tunnel profile expects these next to lnwjud.exe (not only under resources/).
 extraFiles:
   - from: build/lnwjud-mcp-stdio.cjs

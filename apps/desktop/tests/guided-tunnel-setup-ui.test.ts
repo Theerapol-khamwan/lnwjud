@@ -39,8 +39,8 @@ function guideMarkup(locale: UiLocale, status: TunnelStatus): string {
 
 describe('guided tunnel onboarding UI', () => {
   it('renders the first-run tip in Thai and English without credential fields', () => {
-    const th = renderToStaticMarkup(createElement(FirstRunTunnelTip, { locale: 'th', onStart: noop, onLater: noop }));
-    const en = renderToStaticMarkup(createElement(FirstRunTunnelTip, { locale: 'en', onStart: noop, onLater: noop }));
+    const th = renderToStaticMarkup(createElement(FirstRunTunnelTip, { locale: 'th', permissionProfile: 'balanced', onPermissionProfileChange: noop, onStart: noop, onLater: noop }));
+    const en = renderToStaticMarkup(createElement(FirstRunTunnelTip, { locale: 'en', permissionProfile: 'balanced', onPermissionProfileChange: noop, onStart: noop, onLater: noop }));
 
     expect(th).toContain('ตั้งค่า ChatGPT ให้ใช้ lnwjud');
     expect(th).toContain('Windows DPAPI');
@@ -49,6 +49,9 @@ describe('guided tunnel onboarding UI', () => {
     expect(en).toContain('Connect ChatGPT to lnwjud');
     expect(en).toContain('Start setup');
     expect(en).toContain('Set up later');
+    expect(en).toContain('AI permissions for Desktop / Secure Tunnel');
+    expect(en).toContain('Balanced is the first-run default.');
+    expect(en).toContain('value="balanced" selected=""');
     expect(th).not.toContain('type="password"');
     expect(th).not.toContain('name="apiKey"');
     expect(th).not.toContain('name="tunnelId"');
@@ -114,6 +117,39 @@ describe('guided tunnel onboarding UI', () => {
     expect(running).toContain('Local setup is complete.');
     expect(running).toContain('Open ChatGPT Plugins');
     expect(running).toContain('tunnel_0123********cdef');
+  });
+
+  it('explains that manual Start will restart a mismatched Persistent Tunnel Runtime', () => {
+    const mismatch = guideMarkup('en', tunnel({
+      state: 'error',
+      hasApiKey: true,
+      profileExists: true,
+      message: 'Runtime alias is attached to a different tunnel ID',
+      persistent: {
+        enabled: true,
+        tunnelIdMasked: 'tunnel_old********3456',
+        runtimeAlias: 'lnwjud',
+        mode: 'native-managed',
+        state: 'error',
+        healthy: true,
+        ready: true,
+        pollHealthy: true,
+        reconnectCount: 0,
+        lastConnectedAt: null,
+        lastReconnectAt: null,
+        nextReconnectAt: null,
+        lastErrorCode: 'TUNNEL_ID_MISMATCH',
+        clientVersion: '0.0.12',
+        localMcpUrl: 'http://127.0.0.1:18765/mcp',
+        uiUrl: null,
+        readyBeforeRetire: false,
+        strictZeroDowntime: false,
+        capabilityEvidence: 'fixture',
+      },
+    }));
+    expect(mismatch).toContain('The saved configuration differs from the active Persistent Tunnel Runtime.');
+    expect(mismatch).toContain('Select Start Tunnel');
+    expect(mismatch).toContain('safely stop the previous runtime');
   });
 
   it('never renders a raw runtime key in status or summary markup', () => {

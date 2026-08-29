@@ -1,19 +1,20 @@
 import { describe, expect, it, vi } from 'vitest';
-import { appError, err, ok } from '@lnwjud/domain';
+import { ok } from '@lnwjud/domain';
+import { permissionProfiles } from '@lnwjud/permissions';
 import { ToolRegistry, type McpApplicationServices } from './tool-registry.js';
 
 const actor = { clientId: 'client-1', clientName: 'test', sessionId: 'session-a' };
 
-function blockedAuthorization(): ReturnType<typeof err> {
-  return err(appError('CONFLICT', 'scheduled continuation fence blocked mutation', true));
+function activeFence(): ReturnType<typeof ok> {
+  return ok({ goalId: 'goal-1', leaseGeneration: 2 });
 }
 
 describe('scheduled continuation mutation fence', () => {
-  it('blocks file mutation before the file handler executes', async () => {
-    const authorizeWorkspaceMutation = vi.fn(async () => blockedAuthorization());
-    const writeFile = vi.fn(async () => ok({ path: 'src/file.ts', bytesWritten: 1 }));
+  it('blocks file mutation without the current goalLease proof before the file handler executes', async (): Promise<void> => {
+    const inspectWorkspaceFence = vi.fn().mockResolvedValue(activeFence());
+    const writeFile = vi.fn().mockResolvedValue(ok({ path: 'src/file.ts', bytesWritten: 1 }));
     const services = {
-      scheduledContinuations: { authorizeWorkspaceMutation },
+      goalMutationFence: { inspectWorkspaceFence },
       file: { writeFile },
     } as unknown as McpApplicationServices;
 
@@ -25,15 +26,15 @@ describe('scheduled continuation mutation fence', () => {
 
     expect(response.isError).toBe(true);
     expect(response.structuredContent).toMatchObject({ error: { code: 'CONFLICT' } });
-    expect(authorizeWorkspaceMutation).toHaveBeenCalledWith(actor, 'workspace-1');
+    expect(inspectWorkspaceFence).toHaveBeenCalledWith(actor, 'workspace-1');
     expect(writeFile).not.toHaveBeenCalled();
   });
 
-  it('blocks Git mutation before the Git handler executes', async () => {
-    const authorizeWorkspaceMutation = vi.fn(async () => blockedAuthorization());
-    const run = vi.fn(async () => ok({ exitCode: 0, stdout: '', stderr: '' }));
+  it('blocks Git mutation without the current goalLease proof before the Git handler executes', async (): Promise<void> => {
+    const inspectWorkspaceFence = vi.fn().mockResolvedValue(activeFence());
+    const run = vi.fn().mockResolvedValue(ok({ exitCode: 0, stdout: '', stderr: '' }));
     const services = {
-      scheduledContinuations: { authorizeWorkspaceMutation },
+      goalMutationFence: { inspectWorkspaceFence },
       git: { run },
     } as unknown as McpApplicationServices;
 
@@ -43,15 +44,15 @@ describe('scheduled continuation mutation fence', () => {
     });
 
     expect(response.isError).toBe(true);
-    expect(authorizeWorkspaceMutation).toHaveBeenCalledWith(actor, 'workspace-1');
+    expect(inspectWorkspaceFence).toHaveBeenCalledWith(actor, 'workspace-1');
     expect(run).not.toHaveBeenCalled();
   });
 
-  it('blocks process execution before the process handler executes', async () => {
-    const authorizeWorkspaceMutation = vi.fn(async () => blockedAuthorization());
-    const start = vi.fn(async () => ok({ processId: 'process-1' }));
+  it('blocks process execution without the current goalLease proof before the process handler executes', async (): Promise<void> => {
+    const inspectWorkspaceFence = vi.fn().mockResolvedValue(activeFence());
+    const start = vi.fn().mockResolvedValue(ok({ processId: 'process-1' }));
     const services = {
-      scheduledContinuations: { authorizeWorkspaceMutation },
+      goalMutationFence: { inspectWorkspaceFence },
       process: { start },
     } as unknown as McpApplicationServices;
 
@@ -62,16 +63,16 @@ describe('scheduled continuation mutation fence', () => {
     });
 
     expect(response.isError).toBe(true);
-    expect(authorizeWorkspaceMutation).toHaveBeenCalledWith(actor, 'workspace-1');
+    expect(inspectWorkspaceFence).toHaveBeenCalledWith(actor, 'workspace-1');
     expect(start).not.toHaveBeenCalled();
   });
 
-  it('blocks detected project commands before preview or process start', async () => {
-    const authorizeWorkspaceMutation = vi.fn(async () => blockedAuthorization());
-    const previewProjectCommand = vi.fn(async () => ok({ executable: 'pnpm', args: ['build'] }));
-    const startProjectCommand = vi.fn(async () => ok({ processId: 'process-project' }));
+  it('blocks detected project commands without the current goalLease proof before preview or process start', async (): Promise<void> => {
+    const inspectWorkspaceFence = vi.fn().mockResolvedValue(activeFence());
+    const previewProjectCommand = vi.fn().mockResolvedValue(ok({ executable: 'pnpm', args: ['build'] }));
+    const startProjectCommand = vi.fn().mockResolvedValue(ok({ processId: 'process-project' }));
     const services = {
-      scheduledContinuations: { authorizeWorkspaceMutation },
+      goalMutationFence: { inspectWorkspaceFence },
       process: { previewProjectCommand, startProjectCommand },
     } as unknown as McpApplicationServices;
 
@@ -81,15 +82,15 @@ describe('scheduled continuation mutation fence', () => {
     });
 
     expect(response.isError).toBe(true);
-    expect(authorizeWorkspaceMutation).toHaveBeenCalledWith(actor, 'workspace-1');
+    expect(inspectWorkspaceFence).toHaveBeenCalledWith(actor, 'workspace-1');
     expect(previewProjectCommand).not.toHaveBeenCalled();
     expect(startProjectCommand).not.toHaveBeenCalled();
   });
 
-  it('blocks incremental verification before it can launch a typecheck', async () => {
-    const authorizeWorkspaceMutation = vi.fn(async () => blockedAuthorization());
+  it('blocks incremental verification without the current goalLease proof before it can launch a typecheck', async (): Promise<void> => {
+    const inspectWorkspaceFence = vi.fn().mockResolvedValue(activeFence());
     const services = {
-      scheduledContinuations: { authorizeWorkspaceMutation },
+      goalMutationFence: { inspectWorkspaceFence },
     } as unknown as McpApplicationServices;
 
     const response = await new ToolRegistry(services, actor).invoke('verify_incremental', {
@@ -98,14 +99,14 @@ describe('scheduled continuation mutation fence', () => {
     });
 
     expect(response.isError).toBe(true);
-    expect(authorizeWorkspaceMutation).toHaveBeenCalledWith(actor, 'workspace-1');
+    expect(inspectWorkspaceFence).toHaveBeenCalledWith(actor, 'workspace-1');
   });
 
-  it('blocks delegated Codex mutation before the Codex backend executes', async () => {
-    const authorizeWorkspaceMutation = vi.fn(async () => blockedAuthorization());
-    const run = vi.fn(async () => ok({ codexTaskId: 'codex-1' }));
+  it('blocks delegated Codex mutation without the current goalLease proof before the Codex backend executes', async (): Promise<void> => {
+    const inspectWorkspaceFence = vi.fn().mockResolvedValue(activeFence());
+    const run = vi.fn().mockResolvedValue(ok({ codexTaskId: 'codex-1' }));
     const services = {
-      scheduledContinuations: { authorizeWorkspaceMutation },
+      goalMutationFence: { inspectWorkspaceFence },
       codex: { run },
     } as unknown as McpApplicationServices;
 
@@ -116,15 +117,36 @@ describe('scheduled continuation mutation fence', () => {
     });
 
     expect(response.isError).toBe(true);
-    expect(authorizeWorkspaceMutation).toHaveBeenCalledWith(actor, 'workspace-1');
+    expect(inspectWorkspaceFence).toHaveBeenCalledWith(actor, 'workspace-1');
     expect(run).not.toHaveBeenCalled();
   });
 
-  it('does not fence read-only file access', async () => {
-    const authorizeWorkspaceMutation = vi.fn(async () => blockedAuthorization());
-    const readFile = vi.fn(async () => ok({ path: 'src/file.ts', content: 'ok', startLine: 1, endLine: 1 }));
+  it('blocks Computer Use mutation without the current goalLease proof before any capability executes', async (): Promise<void> => {
+    const inspectWorkspaceFence = vi.fn().mockResolvedValue(activeFence());
+    const execute = vi.fn().mockResolvedValue(ok({ clicked: true }));
     const services = {
-      scheduledContinuations: { authorizeWorkspaceMutation },
+      goalMutationFence: { inspectWorkspaceFence },
+      capabilities: { execute },
+    } as unknown as McpApplicationServices;
+
+    const response = await new ToolRegistry(services, actor).invoke('computer_use', {
+      workspaceId: 'workspace-1',
+      action: 'click',
+      target: { x: 10, y: 20 },
+      userConfirmed: true,
+    });
+
+    expect(response.isError).toBe(true);
+    expect(response.structuredContent).toMatchObject({ error: { code: 'CONFLICT' } });
+    expect(inspectWorkspaceFence).toHaveBeenCalledWith(actor, 'workspace-1');
+    expect(execute).not.toHaveBeenCalled();
+  });
+
+  it('does not fence read-only file access', async (): Promise<void> => {
+    const inspectWorkspaceFence = vi.fn().mockResolvedValue(activeFence());
+    const readFile = vi.fn().mockResolvedValue(ok({ path: 'src/file.ts', content: 'ok', startLine: 1, endLine: 1 }));
+    const services = {
+      goalMutationFence: { inspectWorkspaceFence },
       file: { readFile },
     } as unknown as McpApplicationServices;
 
@@ -135,6 +157,28 @@ describe('scheduled continuation mutation fence', () => {
 
     expect(response.isError).not.toBe(true);
     expect(readFile).toHaveBeenCalled();
-    expect(authorizeWorkspaceMutation).not.toHaveBeenCalled();
+    expect(inspectWorkspaceFence).not.toHaveBeenCalled();
+  });
+
+  it('does not require or inspect a goal lease when Full Bypass is active', async (): Promise<void> => {
+    const inspectWorkspaceFence = vi.fn().mockResolvedValue(activeFence());
+    const writeFile = vi.fn().mockResolvedValue(ok({ path: 'src/file.ts', bytesWritten: 1 }));
+    const services = {
+      goalMutationFence: { inspectWorkspaceFence },
+      file: { writeFile },
+    } as unknown as McpApplicationServices;
+
+    const response = await new ToolRegistry(services, actor, {
+      profileProvider: (): typeof permissionProfiles.full => permissionProfiles.full,
+      authorizationModeProvider: (): 'full_bypass' => 'full_bypass',
+    }).invoke('write_file', {
+      workspaceId: 'workspace-1',
+      path: 'src/file.ts',
+      content: 'x',
+    });
+
+    expect(response.isError).not.toBe(true);
+    expect(inspectWorkspaceFence).not.toHaveBeenCalled();
+    expect(writeFile).toHaveBeenCalledTimes(1);
   });
 });

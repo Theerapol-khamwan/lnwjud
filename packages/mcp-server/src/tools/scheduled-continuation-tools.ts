@@ -1,8 +1,8 @@
 import { z } from 'zod';
 import {
-  DEFAULT_CONTINUATION_DELAY_MINUTES,
-  MAX_CONTINUATION_DELAY_MINUTES,
-  MIN_CONTINUATION_DELAY_MINUTES,
+  DEFAULT_SUCCESSOR_DELAY_MINUTES,
+  MAX_SUCCESSOR_DELAY_MINUTES,
+  MIN_SUCCESSOR_DELAY_MINUTES,
 } from '@lnwjud/application';
 import { defineTool, missingService, type McpToolContext, type McpToolDefinition } from './tool-types.js';
 
@@ -18,11 +18,29 @@ const stepUpdate = z.object({
   status: z.enum(['pending', 'in_progress', 'completed', 'blocked']),
   summary: z.string().max(1024).optional(),
 }).strict();
+const version = z.number().int().min(0);
+const nativeTaskId = z.string().min(1).max(512);
+const dueAt = z.string().datetime({ offset: true });
+const detail = z.string().max(1024).optional();
+const nativeRunReceipt = z.object({
+  provider: z.literal('chatgpt_scheduled_task'),
+  operation: z.literal('run'),
+  nativeTaskId,
+  state: z.literal('consumed'),
+  observedAt: z.string().datetime({ offset: true }),
+}).strict();
+const nativeCancellationReceipt = z.object({
+  provider: z.literal('chatgpt_scheduled_task'),
+  operation: z.literal('delete'),
+  nativeTaskId,
+  state: z.enum(['deleted', 'not_found']),
+  observedAt: z.string().datetime({ offset: true }),
+}).strict();
 
 const prepareSchema = z.object({
   goalId,
   leaseToken,
-  expectedRevision: z.number().int().min(0),
+  expectedRevision: version,
   currentPhase: z.string().min(1).max(256),
   summary: z.string().min(1).max(2048),
   stepUpdates: z.array(stepUpdate).max(100),
@@ -30,64 +48,29 @@ const prepareSchema = z.object({
   blockers: z.array(z.string().min(1).max(512)).max(20),
   evidence: z.array(evidence).max(20),
   activeTaskIds: z.array(z.string().min(1).max(256)).max(50),
-  delayMinutes: z.number().int().min(MIN_CONTINUATION_DELAY_MINUTES).max(MAX_CONTINUATION_DELAY_MINUTES).default(DEFAULT_CONTINUATION_DELAY_MINUTES),
-  executionPreference: z.enum(['auto', 'cloud', 'local']).default('auto'),
+  successorDelayMinutes: z.number().int()
+    .min(MIN_SUCCESSOR_DELAY_MINUTES)
+    .max(MAX_SUCCESSOR_DELAY_MINUTES)
+    .default(DEFAULT_SUCCESSOR_DELAY_MINUTES),
+  executionPreference: z.literal('cloud').default('cloud'),
 }).strict();
 
 const receiptSchema = z.discriminatedUnion('outcome', [
-  z.object({
-    continuationId,
-    expectedVersion: z.number().int().min(0),
-    outcome: z.literal('created'),
-    nativeTaskId: z.string().min(1).max(512),
-    runsOn: z.enum(['cloud', 'local', 'unverified']).optional(),
-    detail: z.string().max(1024).optional(),
-  }).strict(),
-  z.object({
-    continuationId,
-    expectedVersion: z.number().int().min(0),
-    outcome: z.literal('create_failed'),
-    nativeTaskId: z.string().min(1).max(512).optional(),
-    runsOn: z.enum(['cloud', 'local', 'unverified']).optional(),
-    detail: z.string().max(1024).optional(),
-  }).strict(),
-  z.object({
-    continuationId,
-    expectedVersion: z.number().int().min(0),
-    outcome: z.literal('create_uncertain'),
-    nativeTaskId: z.string().min(1).max(512).optional(),
-    runsOn: z.enum(['cloud', 'local', 'unverified']).optional(),
-    detail: z.string().max(1024).optional(),
-  }).strict(),
-  z.object({
-    continuationId,
-    expectedVersion: z.number().int().min(0),
-    outcome: z.literal('cancelled'),
-    nativeTaskId: z.string().min(1).max(512),
-    runsOn: z.enum(['cloud', 'local', 'unverified']).optional(),
-    detail: z.string().max(1024).optional(),
-  }).strict(),
-  z.object({
-    continuationId,
-    expectedVersion: z.number().int().min(0),
-    outcome: z.literal('cancel_failed'),
-    nativeTaskId: z.string().min(1).max(512).optional(),
-    runsOn: z.enum(['cloud', 'local', 'unverified']).optional(),
-    detail: z.string().max(1024).optional(),
-  }).strict(),
-  z.object({
-    continuationId,
-    expectedVersion: z.number().int().min(0),
-    outcome: z.literal('cancel_uncertain'),
-    nativeTaskId: z.string().min(1).max(512).optional(),
-    runsOn: z.enum(['cloud', 'local', 'unverified']).optional(),
-    detail: z.string().max(1024).optional(),
-  }).strict(),
+  z.object({ continuationId, expectedVersion: version, outcome: z.literal('created'), nativeTaskId, runsOn: z.literal('cloud'), detail }).strict(),
+  z.object({ continuationId, expectedVersion: version, outcome: z.literal('create_failed'), nativeTaskId: nativeTaskId.optional(), runsOn: z.literal('cloud').optional(), detail }).strict(),
+  z.object({ continuationId, expectedVersion: version, outcome: z.literal('create_uncertain'), nativeTaskId: nativeTaskId.optional(), runsOn: z.literal('cloud').optional(), detail }).strict(),
+  z.object({ continuationId, expectedVersion: version, outcome: z.literal('rescheduled'), nativeTaskId, dueAt, runsOn: z.literal('cloud').optional(), detail }).strict(),
+  z.object({ continuationId, expectedVersion: version, outcome: z.literal('reschedule_failed'), nativeTaskId, dueAt, runsOn: z.literal('cloud').optional(), detail }).strict(),
+  z.object({ continuationId, expectedVersion: version, outcome: z.literal('reschedule_uncertain'), nativeTaskId, dueAt, runsOn: z.literal('cloud').optional(), detail }).strict(),
+  z.object({ continuationId, expectedVersion: version, outcome: z.literal('consumed'), nativeRunReceipt, detail }).strict(),
+  z.object({ continuationId, expectedVersion: version, outcome: z.literal('cancelled'), nativeCancellationReceipt, detail }).strict(),
+  z.object({ continuationId, expectedVersion: version, outcome: z.literal('cancel_failed'), nativeTaskId: nativeTaskId.optional(), runsOn: z.literal('cloud').optional(), detail }).strict(),
+  z.object({ continuationId, expectedVersion: version, outcome: z.literal('cancel_uncertain'), nativeTaskId: nativeTaskId.optional(), runsOn: z.literal('cloud').optional(), detail }).strict(),
 ]);
 
 const claimSchema = z.object({
   continuationId,
-  leaseSeconds: z.number().int().min(30).max(3600).default(600),
+  leaseSeconds: z.number().int().min(30).max(600).default(600),
 }).strict();
 
 const getSchema = z.union([
@@ -95,18 +78,40 @@ const getSchema = z.union([
   z.object({ goalId, latest: z.literal(true) }).strict(),
 ]);
 
+const expediteSchema = z.object({
+  goalId,
+  continuationId,
+  leaseToken,
+  expectedLeaseGeneration: version,
+  expectedGoalRevision: version,
+  expectedContinuationVersion: version,
+  reason: z.enum([
+    'host_deadline_warning',
+    'host_budget_warning',
+    'tool_access_degradation',
+    'turn_yield_signal',
+  ]),
+}).strict();
+
+const cancelSchema = z.union([
+  z.object({ continuationId, expectedVersion: version }).strict(),
+  z.object({ goalId, latest: z.literal(true), expectedVersion: version }).strict(),
+]);
+
 export const SCHEDULED_CONTINUATION_TOOL_NAMES = [
   'prepare_scheduled_continuation',
   'record_scheduled_continuation_receipt',
   'claim_scheduled_continuation',
   'get_scheduled_continuation',
+  'expedite_scheduled_continuation',
+  'cancel_scheduled_continuation',
 ] as const;
 
 export function scheduledContinuationTools(context: McpToolContext): McpToolDefinition[] {
   return [
     defineTool({
       name: 'prepare_scheduled_continuation',
-      description: 'Checkpoint and reserve exactly one future current-chat successor. The default two minutes is successor lead time, not a work-slice limit; the current run keeps working. This tool never creates or deletes a native task.',
+      description: 'Checkpoint and reserve exactly one current-chat cloud successor with an adaptive delay between 2 and 25 minutes. Omitted delay defaults to the fail-safe +2-minute handoff; a healthy current run may explicitly choose a longer 5/10/25-minute watchdog. This workflow never creates or deletes the native task itself.',
       permission: 'WRITE',
       annotations: { readOnlyHint: false, destructiveHint: false },
       inputSchema: prepareSchema,
@@ -125,13 +130,13 @@ export function scheduledContinuationTools(context: McpToolContext): McpToolDefi
         blockers: input.blockers,
         evidence: input.evidence,
         activeTaskIds: input.activeTaskIds,
-        delayMinutes: input.delayMinutes as 2 | 3 | 4 | 5,
+        successorDelayMinutes: input.successorDelayMinutes,
         executionPreference: input.executionPreference,
       }) ?? missingService(),
     }),
     defineTool({
       name: 'record_scheduled_continuation_receipt',
-      description: 'Record the host-owned ChatGPT Scheduled Task create/cancel receipt. This tool records state only and never creates or deletes a native task itself.',
+      description: 'Record host-owned cloud one-time task create, same-task reschedule, consumed-run reconciliation, or cancellation receipts. A consumed receipt requires exact native host run evidence and means only that the one-time task is no longer pending; it does not mean the goal work completed. Cancelled is accepted only with a matching native ChatGPT host deletion receipt; a model assertion is not cancellation proof. The stored native task ID is immutable across reschedules.',
       permission: 'WRITE',
       annotations: { readOnlyHint: false, destructiveHint: false },
       inputSchema: receiptSchema,
@@ -139,14 +144,17 @@ export function scheduledContinuationTools(context: McpToolContext): McpToolDefi
         continuationId: input.continuationId,
         expectedVersion: input.expectedVersion,
         outcome: input.outcome,
-        ...(input.nativeTaskId === undefined ? {} : { nativeTaskId: input.nativeTaskId }),
-        ...(input.runsOn === undefined ? {} : { runsOn: input.runsOn }),
+        ...('nativeTaskId' in input && input.nativeTaskId !== undefined ? { nativeTaskId: input.nativeTaskId } : {}),
+        ...('dueAt' in input && input.dueAt !== undefined ? { dueAt: input.dueAt } : {}),
+        ...('runsOn' in input && input.runsOn !== undefined ? { runsOn: input.runsOn } : {}),
+        ...('nativeRunReceipt' in input ? { nativeRunReceipt: input.nativeRunReceipt } : {}),
+        ...('nativeCancellationReceipt' in input ? { nativeCancellationReceipt: input.nativeCancellationReceipt } : {}),
         ...(input.detail === undefined ? {} : { detail: input.detail }),
       }) ?? missingService(),
     }),
     defineTool({
       name: 'claim_scheduled_continuation',
-      description: 'Scheduled-wake entrypoint. Atomically claim the continuation lease before doing workspace mutations; a terminal goal becomes a no-op and must not schedule another successor.',
+      description: 'Scheduled-wake entrypoint. Claim before workspace mutation; a confirmed cloud wake up to 120 seconds early is accepted so native host jitter does not consume the one-time task without handoff. If native task creation was never confirmed, returns receipt_required for reconciliation. On an active-worker collision, update the exact existing native one-time cloud task to now+2 minutes. If the outcome is terminal_noop, let the already-firing one-time host task return naturally so the host can mark it completed; do not delete, disable, pause, or reschedule that current wake. Do not mutate the workspace, create a replacement task, mark the goal terminal, or stop an active durable chain.',
       permission: 'WRITE',
       annotations: { readOnlyHint: false, destructiveHint: false },
       inputSchema: claimSchema,
@@ -154,11 +162,27 @@ export function scheduledContinuationTools(context: McpToolContext): McpToolDefi
     }),
     defineTool({
       name: 'get_scheduled_continuation',
-      description: 'Read one scheduled-continuation snapshot by continuation ID or the latest record for a goal. Terminal goal state prevents further continuation scheduling.',
+      description: 'Read one scheduled-continuation snapshot by continuation ID or the latest record for a goal. A healthy current run keeps its adaptive watchdog unless a real turn-yield signal requires same-task +2 handoff.',
       permission: 'READ',
       annotations: { readOnlyHint: true, destructiveHint: false },
       inputSchema: getSchema,
       handler: async (input) => context.services.scheduledContinuations?.getScheduledContinuation(context.actor, input) ?? missingService(),
+    }),
+    defineTool({
+      name: 'expedite_scheduled_continuation',
+      description: 'For an enumerated handoff-risk signal, including a turn that is about to end while the goal is unfinished, move the exact existing cloud one-time native task to now+2 minutes. No replacement task is created.',
+      permission: 'WRITE',
+      annotations: { readOnlyHint: false, destructiveHint: false },
+      inputSchema: expediteSchema,
+      handler: async (input) => context.services.scheduledContinuations?.expediteScheduledContinuation(context.actor, input) ?? missingService(),
+    }),
+    defineTool({
+      name: 'cancel_scheduled_continuation',
+      description: 'Cancel one still-pending scheduled successor independently of its goal. Identify it by continuationId or the latest record for a goal, then use the returned cancellation instruction to delete the exact pending native ChatGPT Scheduled Task and record its host receipt. Never treat pausing/disabling an already-fired current wake as deletion or completion proof. This does not cancel the durable goal or stop its running tasks.',
+      permission: 'WRITE',
+      annotations: { readOnlyHint: false, destructiveHint: true },
+      inputSchema: cancelSchema,
+      handler: async (input) => context.services.scheduledContinuations?.cancelScheduledContinuation(context.actor, input) ?? missingService(),
     }),
   ];
 }

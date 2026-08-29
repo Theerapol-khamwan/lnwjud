@@ -8,11 +8,11 @@ const desktopRoot = path.resolve(import.meta.dirname, '..', '..', 'apps', 'deskt
 const repositoryRoot = path.resolve(desktopRoot, '..', '..');
 
 describe('Windows desktop packaging', () => {
-  it('pins the product release to v4.13.0', async () => {
+  it('pins the product release to v4.29.0', async () => {
     const rootPackage = JSON.parse(await readFile(path.join(repositoryRoot, 'package.json'), 'utf8')) as { version?: unknown };
     const desktopPackage = JSON.parse(await readFile(path.join(desktopRoot, 'package.json'), 'utf8')) as { version?: unknown };
-    expect(rootPackage.version).toBe('4.13.0');
-    expect(desktopPackage.version).toBe('4.13.0');
+    expect(rootPackage.version).toBe('4.29.0');
+    expect(desktopPackage.version).toBe('4.29.0');
   });
 
   it('publishes complete desktop application metadata', async () => {
@@ -23,7 +23,7 @@ describe('Windows desktop packaging', () => {
       repository?: { type?: unknown; url?: unknown };
     };
 
-    expect(desktopPackage.description).toBe('Windows-first local AI-agent runtime and MCP gateway with 227 configurable tools.');
+    expect(desktopPackage.description).toBe('Windows-first local AI-agent runtime and MCP gateway with 231 total tool definitions.');
     expect(desktopPackage.author).toBe('Adisorn');
     expect(desktopPackage.homepage).toBe('https://github.com/engasnm111/lnwjud#readme');
     expect(desktopPackage.repository).toEqual({ type: 'git', url: 'https://github.com/engasnm111/lnwjud.git' });
@@ -61,6 +61,9 @@ describe('Windows desktop packaging', () => {
     expect(config).toContain('to: lnwjud-node.exe');
     expect(config).toContain('build/runtime-tools');
     expect(config).toContain('to: runtime-tools');
+    expect(config).toContain('from: ../../.agents/skills/lnwjud-scheduled-continuation');
+    expect(config).toContain('to: agent-skills/lnwjud-scheduled-continuation');
+    await access(path.join(repositoryRoot, '.agents', 'skills', 'lnwjud-scheduled-continuation', 'SKILL.md'));
     expect(desktopPackage.scripts?.['package:windows']).toContain('prepare-ripgrep.ps1');
     expect(desktopPackage.scripts?.['package:windows']).toContain('../../scripts/prepare-windows-ocr.ps1');
     const prepareOcr = await readFile(path.join(repositoryRoot, 'scripts', 'prepare-windows-ocr.ps1'), 'utf8');
@@ -103,12 +106,17 @@ describe('Windows desktop packaging', () => {
 
   it('pins and verifies the official Windows x64 ripgrep runtime used by packaged search', async () => {
     const prepareRipgrep = await readFile(path.join(desktopRoot, 'scripts', 'prepare-ripgrep.ps1'), 'utf8');
+    const prepareTunnel = await readFile(path.join(desktopRoot, 'scripts', 'prepare-tunnel-client.ps1'), 'utf8');
     expect(prepareRipgrep).toContain("$version = '15.2.0'");
     expect(prepareRipgrep).toContain('ripgrep-$version-x86_64-pc-windows-msvc.zip');
     expect(prepareRipgrep).toContain("$expectedSha256 = '71b2fef860abe467217a538ff31de02f5258807c0129f771846f87bd029aafc5'");
     expect(prepareRipgrep).toContain("'runtime-tools\\ripgrep'");
     expect(prepareRipgrep).toContain("'BUNDLED_RIPGREP.txt'");
     expect(prepareRipgrep).toContain("-Filter 'rg.exe'");
+    for (const script of [prepareRipgrep, prepareTunnel]) {
+      expect(script).toContain('[System.Security.Cryptography.SHA256]::Create()');
+      expect(script).not.toContain('Get-FileHash');
+    }
   });
 
   it('runs the stdio launcher with the bundled Node runtime even when PATH contains no system Node', async () => {

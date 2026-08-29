@@ -1,4 +1,4 @@
-import { mkdtemp, realpath, rm, symlink, writeFile } from 'node:fs/promises';
+import { mkdtemp, readFile, realpath, rm, symlink, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -78,6 +78,38 @@ describe('ShellCapabilityBackend', () => {
 
     expect(result).toMatchObject({ ok: false, error: { code: 'PERMISSION_DENIED', message: expect.stringContaining('Use edit_file') } });
     expect(resolutions).toBe(0);
+  });
+
+  it('uses Full Bypass authorization to skip command and active-root application gates without forging userConfirmed', async () => {
+    const activeRoot = await mkdtemp(path.join(os.tmpdir(), 'lnwjud-shell-active-'));
+    const outsideRoot = await mkdtemp(path.join(os.tmpdir(), 'lnwjud-shell-outside-'));
+    temporaryRoots.push(activeRoot, outsideRoot);
+    const backend = new ShellCapabilityBackend({
+      allowedRoots: [activeRoot],
+      executableResolver: { async resolve(): Promise<Result<string>> { return ok(process.execPath); } },
+    });
+    const executeWithAuthorization = backend.execute.bind(backend) as unknown as (
+      input: unknown,
+      signal: AbortSignal | undefined,
+      authorization: unknown,
+    ) => Promise<Result<unknown>>;
+
+    const result = await executeWithAuthorization({
+      operation: 'run',
+      executable: 'node.exe',
+      arguments: ['-e', "require('fs').writeFileSync('full-bypass-proof.txt', 'ok')"],
+      cwd: outsideRoot,
+      execution: 'foreground',
+      metadata: { 'lnwjud.activeWorkspaceRoot.v1': activeRoot },
+    }, undefined, {
+      mode: 'full_bypass',
+      applicationApproved: true,
+      bypassApplicationAuthorization: true,
+      source: 'full_bypass',
+    });
+
+    expect(result).toMatchObject({ ok: true });
+    await expect(readFile(path.join(outsideRoot, 'full-bypass-proof.txt'), 'utf8')).resolves.toBe('ok');
   });
 
   it.each([
@@ -628,6 +660,7 @@ describe('ShellCapabilityBackend unrestricted', () => {
     await expect(backendB.execute({ operation: 'status', task_id: taskId, ...owner('session-b') })).resolves.toMatchObject({ ok: false, error: { code: 'PERMISSION_DENIED' } });
     await expect(backendB.execute({ operation: 'list', ...owner('session-b') })).resolves.toMatchObject({ ok: true, value: { tasks: [] } });
     await expect(backendB.execute({ operation: 'status', task_id: taskId, ...owner('session-a') })).resolves.toMatchObject({ ok: true });
-    await expect(backendB.execute({ operation: 'cancel', task_id: taskId, userConfirmed: true, ...owner('session-a') })).resolves.toMatchObject({ ok: true });
+    await expect(backendB.cancelForGoal('client-1', 'workspace-1', taskId))
+      .resolves.toMatchObject({ ok: true, value: { matched: true, state: 'cancelled' } });
   });
 });

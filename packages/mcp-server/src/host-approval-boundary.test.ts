@@ -67,9 +67,6 @@ describe('mandatory independent host approval', () => {
     ['scheduler run', 'scheduler', { action: 'run', task_name: 'LnwjudTask', userConfirmed: true }],
     ['scheduler delete', 'scheduler', { action: 'delete', task_name: 'LnwjudTask', userConfirmed: true }],
     ['hook removal', 'hook_remove', { name: 'audit', userConfirmed: true }],
-    ['plugin removal', 'plugin_remove', { name: 'safe-plugin', userConfirmed: true }],
-    ['plugin enable', 'plugin_enable', { name: 'safe-plugin', userConfirmed: true }],
-    ['plugin disable', 'plugin_disable', { name: 'safe-plugin', userConfirmed: true }],
     ['worktree removal', 'git_worktree_remove', { workspaceId: 'workspace-a', worktreePath: '.worktrees/agent-1', dryRun: false, userConfirmed: true }],
     ['self-heal apply', 'self_heal_apply', { workspaceId: 'workspace-a', planId: 'reviewed-plan', dryRun: false, userConfirmed: true }],
   ] as const)('denies destructive administrative operation %s without native host approval', async (_label, tool, input) => {

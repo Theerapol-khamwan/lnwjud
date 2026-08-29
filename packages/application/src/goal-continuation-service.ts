@@ -21,10 +21,17 @@ import {
 } from '@lnwjud/domain';
 import type { WorkspaceRepository } from '@lnwjud/workspace';
 import type { FileActor } from './file-service.js';
+import {
+  failedGoalTaskCancellation,
+  isGoalTaskStopped,
+  type GoalTaskCancellationPort,
+  type GoalTaskCancellationResult,
+} from './goal-task-cancellation-service.js';
+import type { GoalRequestCancellationPort, GoalRequestCancellationResult } from './goal-request-cancellation-service.js';
 
 export const DEFAULT_GOAL_LEASE_SECONDS = 600;
 export const MIN_GOAL_LEASE_SECONDS = 30;
-export const MAX_GOAL_LEASE_SECONDS = 3_600;
+export const MAX_GOAL_LEASE_SECONDS = 600;
 
 const MAX_OWNER_CLIENT_ID = 128;
 const MAX_GOAL_KEY = 128;
@@ -89,6 +96,13 @@ export interface FinishGoalRequest {
   readonly evidence: readonly GoalEvidence[];
 }
 
+export interface CancelGoalRequest {
+  readonly goalId: string;
+  readonly expectedRevision: number;
+  readonly summary: string;
+  readonly evidence: readonly GoalEvidence[];
+}
+
 export interface ListGoalsRequest {
   readonly workspaceId?: string;
   readonly status?: GoalStatus;
@@ -110,6 +124,8 @@ export interface GoalSnapshot {
   readonly blockers: readonly string[];
   readonly activeTaskIds: readonly string[];
   readonly lastCheckpoint: GoalCheckpointRecord | null;
+  readonly leaseGeneration: number;
+  readonly leaseActivitySeq: number;
   readonly leaseExpiresAt?: string;
   readonly createdAt: string;
   readonly updatedAt: string;
@@ -119,6 +135,15 @@ export interface GoalSnapshot {
 }
 
 export interface FinishGoalResult extends GoalSnapshot {
+  readonly scheduledTaskCancellation: ScheduledTaskCancellationInstruction;
+}
+
+export interface CancelGoalResult extends GoalSnapshot {
+  readonly trackedTaskIds: readonly string[];
+  readonly taskCancellations: readonly GoalTaskCancellationResult[];
+  readonly allTasksStopped: boolean;
+  readonly requestCancellation: GoalRequestCancellationResult;
+  readonly allRequestsStopped: boolean;
   readonly scheduledTaskCancellation: ScheduledTaskCancellationInstruction;
 }
 
@@ -135,11 +160,15 @@ export interface ListGoalsResult {
 export interface GoalContinuationServiceOptions {
   readonly now?: () => Date;
   readonly scheduledContinuations?: Pick<ScheduledContinuationRepository, 'markGoalFinishedForScheduledContinuation'>;
+  readonly taskCancellation?: Pick<GoalTaskCancellationPort, 'cancelForGoal'>;
+  readonly requestCancellation?: Pick<GoalRequestCancellationPort, 'cancelForGoal'>;
 }
 
 export class GoalContinuationService {
   private readonly now: () => Date;
   private readonly scheduledContinuations: Pick<ScheduledContinuationRepository, 'markGoalFinishedForScheduledContinuation'> | undefined;
+  private readonly taskCancellation: Pick<GoalTaskCancellationPort, 'cancelForGoal'> | undefined;
+  private readonly requestCancellation: Pick<GoalRequestCancellationPort, 'cancelForGoal'> | undefined;
 
   public constructor(
     private readonly workspaces: WorkspaceRepository,
@@ -148,6 +177,8 @@ export class GoalContinuationService {
   ) {
     this.now = options.now ?? ((): Date => new Date());
     this.scheduledContinuations = options.scheduledContinuations;
+    this.taskCancellation = options.taskCancellation;
+    this.requestCancellation = options.requestCancellation;
   }
 
   public async runGoal(actor: FileActor, request: RunGoalRequest): Promise<Result<RunGoalResult>> {
@@ -288,6 +319,54 @@ export class GoalContinuationService {
     }
   }
 
+  public async cancelGoal(actor: FileActor, request: CancelGoalRequest): Promise<Result<CancelGoalResult>> {
+    try {
+      const ownerClientId = stableOwnerClientId(actor);
+      const goalId = requiredBounded(request.goalId, 'goalId', 128);
+      const current = await this.goals.getById(goalId);
+      if (current === null) return err(appError('INVALID_INPUT', 'Goal was not found'));
+      if (current.ownerClientId !== ownerClientId) return err(appError('PERMISSION_DENIED', 'Goal belongs to another client'));
+      if (!Number.isInteger(request.expectedRevision) || request.expectedRevision < 0) return err(appError('INVALID_INPUT', 'expectedRevision is invalid'));
+      const now = this.now().toISOString();
+      const cancelled = await this.goals.cancel({
+        checkpointId: randomUUID(),
+        goalId,
+        ownerClientId,
+        expectedRevision: request.expectedRevision,
+        summary: safeText(request.summary, MAX_SUMMARY, 'summary'),
+        evidence: normalizeEvidence(request.evidence),
+        now,
+      });
+      const [requestCancellation, taskCancellations] = await Promise.all([
+        this.cancelInFlightRequests(goalId),
+        this.cancelTrackedTasks(ownerClientId, cancelled.goal.workspaceId, cancelled.trackedTaskIds),
+      ]);
+      let scheduledTaskCancellation: ScheduledTaskCancellationInstruction = {
+        action: 'none',
+        reason: 'no_live_task',
+      };
+      if (this.scheduledContinuations !== undefined) {
+        try {
+          const marked = await this.scheduledContinuations.markGoalFinishedForScheduledContinuation(goalId, now);
+          scheduledTaskCancellation = cancellationInstruction(marked.continuation);
+        } catch {
+          scheduledTaskCancellation = { action: 'none', reason: 'native_task_unverified' };
+        }
+      }
+      return ok({
+        ...toSnapshot(cancelled.goal),
+        trackedTaskIds: cancelled.trackedTaskIds,
+        taskCancellations,
+        allTasksStopped: taskCancellations.every((entry) => isGoalTaskStopped(entry.status)),
+        requestCancellation,
+        allRequestsStopped: requestCancellation.remaining === 0,
+        scheduledTaskCancellation,
+      });
+    } catch (error: unknown) {
+      return this.mapError(error);
+    }
+  }
+
   public async listGoals(actor: FileActor, request: ListGoalsRequest): Promise<Result<ListGoalsResult>> {
     try {
       const ownerClientId = stableOwnerClientId(actor);
@@ -324,21 +403,65 @@ export class GoalContinuationService {
     if (error instanceof Error) return err(appError('INVALID_INPUT', 'Durable goal input is invalid'));
     return err(appError('INTERNAL_ERROR', 'Durable goal operation failed'));
   }
+
+  private async cancelTrackedTasks(
+    ownerClientId: string,
+    workspaceId: string,
+    taskIds: readonly string[],
+  ): Promise<readonly GoalTaskCancellationResult[]> {
+    if (taskIds.length === 0) return [];
+    if (this.taskCancellation === undefined) {
+      return taskIds.map((taskId) => failedGoalTaskCancellation(taskId, 'Goal task cancellation service is unavailable'));
+    }
+    try {
+      const results = await this.taskCancellation.cancelForGoal(ownerClientId, workspaceId, taskIds);
+      const byTaskId = new Map(results.map((entry) => [entry.taskId, entry]));
+      return taskIds.map((taskId) => byTaskId.get(taskId) ?? failedGoalTaskCancellation(taskId, 'Task cancellation provider omitted a tracked task'));
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : 'Goal task cancellation failed';
+      return taskIds.map((taskId) => failedGoalTaskCancellation(taskId, message));
+    }
+  }
+
+  private async cancelInFlightRequests(goalId: string): Promise<GoalRequestCancellationResult> {
+    if (this.requestCancellation === undefined) {
+      return { goalId, requested: 0, stopped: 0, remaining: 0, timedOut: false, requestIds: [] };
+    }
+    try {
+      return await this.requestCancellation.cancelForGoal(goalId);
+    } catch {
+      return { goalId, requested: 0, stopped: 0, remaining: 0, timedOut: true, requestIds: [] };
+    }
+  }
 }
 
 function cancellationInstruction(continuation: ScheduledContinuationRecord | null): ScheduledTaskCancellationInstruction {
   if (continuation === null || continuation.status === 'superseded') {
     return { action: 'none', reason: 'no_live_task' };
   }
-  if ((continuation.status === 'cancel_required' || continuation.status === 'cancel_failed') && continuation.nativeTaskId !== undefined) {
+  if (
+    (continuation.status === 'cancel_required' || continuation.status === 'cancel_failed' || continuation.status === 'cancel_uncertain')
+    && continuation.nativeTaskId !== undefined
+  ) {
     return {
       action: 'delete_native_task',
       continuationId: continuation.continuationId,
       nativeTaskId: continuation.nativeTaskId,
+      provider: 'chatgpt_scheduled_task',
+      expectedContinuationVersion: continuation.version,
+      receiptRequired: true,
       reason: 'live_task_confirmed',
     };
   }
-  if (continuation.status === 'claimed' || continuation.status === 'terminal_noop' || continuation.status === 'cancelled') {
+  if (continuation.status === 'cancelled') {
+    return {
+      action: 'none',
+      continuationId: continuation.continuationId,
+      ...(continuation.nativeTaskId === undefined ? {} : { nativeTaskId: continuation.nativeTaskId }),
+      reason: 'already_cancelled',
+    };
+  }
+  if (continuation.status === 'claimed' || continuation.status === 'terminal_noop') {
     return {
       action: 'none',
       continuationId: continuation.continuationId,
@@ -369,6 +492,8 @@ function toRunSnapshot(goal: GoalRecord): Omit<RunGoalResult, 'acquired' | 'leas
     blockers: snapshot.blockers,
     activeTaskIds: snapshot.activeTaskIds,
     lastCheckpoint: snapshot.lastCheckpoint,
+    leaseGeneration: snapshot.leaseGeneration,
+    leaseActivitySeq: snapshot.leaseActivitySeq,
     ...(snapshot.leaseExpiresAt === undefined ? {} : { leaseExpiresAt: snapshot.leaseExpiresAt }),
   };
 }
@@ -389,6 +514,8 @@ function toSnapshot(goal: GoalRecord): GoalSnapshot {
     blockers: goal.blockers,
     activeTaskIds: goal.activeTaskIds,
     lastCheckpoint: goal.checkpoints.at(-1) ?? null,
+    leaseGeneration: goal.leaseGeneration,
+    leaseActivitySeq: goal.leaseActivitySeq,
     ...(goal.leaseExpiresAt === undefined ? {} : { leaseExpiresAt: goal.leaseExpiresAt }),
     createdAt: goal.createdAt,
     updatedAt: goal.updatedAt,

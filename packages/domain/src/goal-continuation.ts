@@ -1,7 +1,15 @@
-export type GoalStatus = 'active' | 'completed' | 'failed' | 'blocked';
-export type GoalTerminalStatus = Exclude<GoalStatus, 'active'>;
+export type GoalStatus = 'active' | 'completed' | 'failed' | 'blocked' | 'cancelled';
+export type GoalTerminalStatus = 'completed' | 'failed' | 'blocked';
 export type GoalStepStatus = 'pending' | 'in_progress' | 'completed' | 'blocked';
 export type GoalEvidenceKind = 'path' | 'hash' | 'task' | 'note';
+
+export type GoalTaskCancellationState = 'cancelled' | 'already_terminal' | 'not_found' | 'termination_unverified';
+
+export interface GoalTaskCancellationObservation {
+  readonly matched: boolean;
+  readonly state: GoalTaskCancellationState;
+  readonly detail?: string;
+}
 
 export interface GoalPlanStep {
   readonly id: string;
@@ -23,6 +31,12 @@ export interface GoalStepUpdate {
 export interface GoalEvidence {
   readonly kind: GoalEvidenceKind;
   readonly value: string;
+}
+
+export interface GoalLeaseProof {
+  readonly goalId: string;
+  readonly leaseToken: string;
+  readonly leaseGeneration: number;
 }
 
 export interface GoalCheckpointRecord {
@@ -57,6 +71,8 @@ export interface GoalRecord {
   readonly leaseOwnerSessionId?: string;
   readonly leaseTokenHash?: string;
   readonly leaseDurationSeconds?: number;
+  readonly leaseGeneration: number;
+  readonly leaseActivitySeq: number;
   readonly leaseHeartbeatAt?: string;
   readonly leaseExpiresAt?: string;
   readonly createdAt: string;
@@ -133,6 +149,21 @@ export interface FinishGoalRecordRequest {
   readonly now: string;
 }
 
+export interface CancelGoalRecordRequest {
+  readonly checkpointId: string;
+  readonly goalId: string;
+  readonly ownerClientId: string;
+  readonly expectedRevision: number;
+  readonly summary: string;
+  readonly evidence: readonly GoalEvidence[];
+  readonly now: string;
+}
+
+export interface CancelGoalRecordResult {
+  readonly goal: GoalRecord;
+  readonly trackedTaskIds: readonly string[];
+}
+
 export interface ListGoalRecordsRequest {
   readonly ownerClientId: string;
   readonly workspaceId?: string;
@@ -144,7 +175,10 @@ export interface ScheduledTaskCancellationInstruction {
   readonly action: 'delete_native_task' | 'none';
   readonly continuationId?: string;
   readonly nativeTaskId?: string;
-  readonly reason: 'live_task_confirmed' | 'no_live_task' | 'already_fired' | 'native_task_unverified';
+  readonly provider?: 'chatgpt_scheduled_task';
+  readonly expectedContinuationVersion?: number;
+  readonly receiptRequired?: true;
+  readonly reason: 'live_task_confirmed' | 'no_live_task' | 'already_fired' | 'already_cancelled' | 'native_task_unverified';
 }
 
 export interface GoalRepository {
@@ -154,4 +188,5 @@ export interface GoalRepository {
   list(request: ListGoalRecordsRequest): Promise<readonly GoalRecord[]>;
   checkpoint(request: CheckpointGoalRecordRequest): Promise<GoalRecord>;
   finish(request: FinishGoalRecordRequest): Promise<GoalRecord>;
+  cancel(request: CancelGoalRecordRequest): Promise<CancelGoalRecordResult>;
 }
