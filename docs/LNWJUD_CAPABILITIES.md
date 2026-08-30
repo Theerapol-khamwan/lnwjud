@@ -1,6 +1,6 @@
 # lnwjud — สรุปความสามารถทั้งหมด
 
-สถานะเอกสาร: สรุปจาก source และ runtime contract ปัจจุบันของ lnwjud v4.8.31 (มีทั้งหมด 231 definitions; advertise 195 tools โดยปริยาย และ 201 tools เมื่อเปิด Codex delegation)
+สถานะเอกสาร: สรุปจาก source และ runtime contract ปัจจุบันของ lnwjud v4.31.0 (มีทั้งหมด 231 definitions; advertise 195 tools โดยปริยาย และ 201 tools เมื่อเปิด Codex delegation)
 ขอบเขต: ความสามารถของ gateway, MCP tools, การเชื่อมต่อ AI, สิทธิ์, Live Logs และข้อจำกัดในการใช้งาน
 เอกสารนี้ถูกติดตามใน repository และต้องสอดคล้องกับ source, runtime contract และ release ปัจจุบัน
 
