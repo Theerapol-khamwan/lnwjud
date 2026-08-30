@@ -15,7 +15,15 @@ function service(statuses: Readonly<Record<string, 'pass' | 'warn' | 'fail' | 'u
     id,
     required: id !== 'codex_runtime' && id !== 'external_mcp_connection' && id !== 'feature_delivery',
     summaryKey: `requirement.${id}`,
-    remediationId: id === 'executable_git' ? 'install_git' : id === 'executable_ripgrep' ? 'install_ripgrep' : 'recheck_runtime',
+    ...(id === 'executable_git'
+      ? { remediationId: 'install_git' }
+      : id === 'executable_ripgrep'
+        ? { remediationId: 'install_ripgrep' }
+        : id === 'browser_cdp'
+          ? { remediationId: 'configure_browser_cdp' }
+          : id.startsWith('windows_')
+            ? {}
+            : { remediationId: 'recheck_runtime' }),
     probe: probes[id]!,
   })), { ttlMs: 60_000 });
   const catalog = new ToolCatalogService(registry, new RemediationRegistry(), {
@@ -26,35 +34,94 @@ function service(statuses: Readonly<Record<string, 'pass' | 'warn' | 'fail' | 'u
 }
 
 describe('tool catalog readiness aggregation', () => {
-  it('projects required fail, unknown, unsupported, permission deny, and feature disable truthfully', async () => {
+  it('separates setup, probe, permission, platform, delivery, and safety-policy reasons', async () => {
     const failed = service({ executable_git: 'fail' });
     const snapshot = await failed.catalog.getSnapshot('en');
-    expect(snapshot.items.find((item) => item.name === 'git')?.readiness).toBe('needs_setup');
+    expect(snapshot.items.find((item) => item.name === 'git')).toMatchObject({
+      readiness: 'needs_setup', readinessReason: 'setup_required', deliveryState: 'dependency_gated', available: false,
+    });
 
     const unknown = service({ executable_git: 'unknown' });
-    expect((await unknown.catalog.getSnapshot('en')).items.find((item) => item.name === 'git')?.readiness).toBe('unknown');
+    const unknownGit = (await unknown.catalog.getSnapshot('en')).items.find((item) => item.name === 'git');
+    expect(unknownGit).toMatchObject({
+      readiness: 'unknown', readinessReason: 'probe_failed', deliveryState: 'dependency_gated',
+    });
+    expect(unknownGit?.available).toBeUndefined();
 
     const unsupported = service({ platform_windows: 'fail' });
-    expect((await unsupported.catalog.getSnapshot('en')).items.find((item) => item.name === 'accessibility')?.readiness).toBe('unsupported');
+    expect((await unsupported.catalog.getSnapshot('en')).items.find((item) => item.name === 'accessibility')).toMatchObject({
+      readiness: 'unsupported', readinessReason: 'unsupported_platform', deliveryState: 'unsupported', available: false,
+    });
 
     const blocked = service({}, { profileDecision: 'DENY' });
     const blockedItem = (await blocked.catalog.getSnapshot('en')).items.find((item) => item.name === 'read_file');
-    expect(blockedItem?.readiness).toBe('blocked');
+    expect(blockedItem).toMatchObject({
+      readiness: 'blocked', readinessReason: 'permission_denied', deliveryState: 'blocked_by_safety_policy', available: true,
+    });
     expect(blockedItem?.remediationIds).toContain('configure_permissions');
+
+    const blockedMissingRuntime = service({ executable_git: 'fail' }, { profileDecision: 'DENY' });
+    expect((await blockedMissingRuntime.catalog.getSnapshot('en')).items.find((item) => item.name === 'git')).toMatchObject({
+      readiness: 'blocked', readinessReason: 'permission_denied', deliveryState: 'blocked_by_safety_policy', available: false,
+    });
 
     const disabled = service({}, { codexEnabled: false });
     const disabledCodex = (await disabled.catalog.getSnapshot('en')).items.find((item) => item.name === 'codex_run');
-    expect(disabledCodex?.readiness).toBe('disabled');
+    expect(disabledCodex).toMatchObject({
+      readiness: 'disabled', readinessReason: 'feature_disabled', deliveryState: 'feature_disabled', available: false,
+    });
     expect(disabledCodex?.remediationIds).toContain('configure_codex');
 
     const featureDisabled = service({}, { codexEnabled: true });
     const delegateStatus = (await featureDisabled.catalog.getSnapshot('en')).items.find((item) => item.name === 'delegate_status');
-    expect(delegateStatus?.readiness).toBe('disabled');
+    expect(delegateStatus).toMatchObject({
+      readiness: 'disabled', readinessReason: 'feature_disabled', deliveryState: 'feature_disabled', available: false,
+    });
     expect(delegateStatus?.remediationIds).toContain('feature_not_available');
     expect(delegateStatus?.requirements.find((requirement) => requirement.id === 'feature_delivery')).toMatchObject({
       status: 'fail',
       detail: expect.stringContaining('subagent provider'),
     });
+
+    const planned = (await featureDisabled.catalog.getSnapshot('en')).items.find((item) => item.name === 'agent_swarm_run');
+    expect(planned).toMatchObject({
+      readiness: 'disabled', readinessReason: 'planned', deliveryState: 'planned', available: false,
+    });
+    expect(planned?.remediationIds).toContain('feature_planned');
+  });
+
+  it('treats a stopped managed browser as available runtime that must be started, not installed', async () => {
+    const stopped = service({ browser_cdp: 'fail' }, { codexEnabled: true });
+    const browser = (await stopped.catalog.getSnapshot('th')).items.find((item) => item.name === 'dom_cdp');
+
+    expect(browser).toMatchObject({
+      readiness: 'needs_setup', readinessReason: 'runtime_not_ready', deliveryState: 'operational', available: true,
+      remediationIds: ['configure_browser_cdp'],
+    });
+  });
+
+  it('lists each failed backing requirement for composite desktop automation tools', async () => {
+    const composites = service({ windows_ui_automation: 'fail', windows_input: 'fail', windows_window: 'fail', windows_ocr: 'fail' }, { codexEnabled: true });
+    const snapshot = await composites.catalog.getSnapshot('en');
+    const requirements = (name: string): readonly string[] => snapshot.items.find((item) => item.name === name)?.requirements
+      .filter((requirement) => requirement.status !== 'pass')
+      .map((requirement) => requirement.id) ?? [];
+
+    expect(requirements('accessibility')).toEqual(['windows_ui_automation']);
+    expect(requirements('computer_use')).toEqual(['windows_ui_automation', 'windows_input', 'windows_window', 'windows_ocr']);
+    expect(requirements('ui_target_action')).toEqual(['windows_ui_automation', 'windows_ocr']);
+
+    const computerUse = snapshot.items.find((item) => item.name === 'computer_use');
+    expect(computerUse?.remediationIds).toEqual([
+      'repair_windows_ui_automation', 'repair_windows_input', 'repair_windows_window', 'repair_windows_ocr',
+    ]);
+    const remediationTitles = snapshot.remediations
+      .filter((remediation) => computerUse?.remediationIds.includes(remediation.id))
+      .map((remediation) => remediation.title);
+    expect(remediationTitles).toEqual([
+      'Repair Windows UI Automation bridge', 'Restore native input access', 'Restore native window access', 'Restore Windows vision/OCR',
+    ]);
+    expect(remediationTitles.join(' ')).not.toContain('Chrome');
   });
 
   it('never reports READY when an optional-for-startup dependency used by the tool is warning', async () => {

@@ -557,12 +557,18 @@ function toolCatalogItem(value: unknown): ToolCatalogItem {
   const profileDecision = value.profileDecision;
   const riskMode = value.riskMode;
   const readiness = value.readiness;
+  const readinessReason = value.readinessReason;
+  const deliveryState = value.deliveryState;
+  const available = value.available;
   if (origin !== 'lnwjud' && origin !== 'external_mcp') throw new Error('Invalid IPC response');
   if (!['workspace','files','search_context','git','process','browser_desktop','system','office_media','automation','agent_goals','extensions'].includes(String(category))) throw new Error('Invalid IPC response');
   if (!['READ','WRITE','EXECUTE','DANGEROUS','UNKNOWN'].includes(String(declaredPermission))) throw new Error('Invalid IPC response');
   if (!['ALLOW','ASK','DENY','UNKNOWN'].includes(String(profileDecision))) throw new Error('Invalid IPC response');
   if (!['fixed','input_dependent','external_unknown'].includes(String(riskMode))) throw new Error('Invalid IPC response');
   if (!['ready','needs_setup','blocked','disabled','unsupported','unknown'].includes(String(readiness))) throw new Error('Invalid IPC response');
+  if (readinessReason !== undefined && !['setup_required','runtime_not_ready','probe_failed','permission_denied','unsupported_platform','feature_disabled','planned','external_unknown'].includes(String(readinessReason))) throw new Error('Invalid IPC response');
+  if (deliveryState !== undefined && !['operational','dependency_gated','feature_disabled','blocked_by_safety_policy','planned','unsupported','external_unknown'].includes(String(deliveryState))) throw new Error('Invalid IPC response');
+  if (available !== undefined && typeof available !== 'boolean') throw new Error('Invalid IPC response');
   const supportsCancel = value.supportsCancel;
   const supportsDryRun = value.supportsDryRun;
   if (supportsCancel !== null && typeof supportsCancel !== 'boolean') throw new Error('Invalid IPC response');
@@ -581,6 +587,9 @@ function toolCatalogItem(value: unknown): ToolCatalogItem {
     profileDecision: profileDecision as ToolCatalogItem['profileDecision'],
     riskMode: riskMode as ToolCatalogItem['riskMode'],
     readiness: readiness as ToolCatalogItem['readiness'],
+    ...(readinessReason === undefined ? {} : { readinessReason: readinessReason as NonNullable<ToolCatalogItem['readinessReason']> }),
+    ...(deliveryState === undefined ? {} : { deliveryState: deliveryState as NonNullable<ToolCatalogItem['deliveryState']> }),
+    ...(available === undefined ? {} : { available }),
     stale: booleanField(value, 'stale'),
     checkedAt: nullableString(value.checkedAt),
     supportsCancel,

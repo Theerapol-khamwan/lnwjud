@@ -8,6 +8,20 @@ export type MessageKey =
   | 'nav.live'
   | 'nav.settings'
   | 'nav.doctor'
+  | 'tools.filter.actionRequired'
+  | 'tools.filter.blocked'
+  | 'tools.filter.disabled'
+  | 'tools.filter.unsupported'
+  | 'tools.filter.unknown'
+  | 'tools.readiness.ready'
+  | 'tools.readiness.setupRequired'
+  | 'tools.readiness.startRequired'
+  | 'tools.readiness.probeFailed'
+  | 'tools.readiness.permissionDenied'
+  | 'tools.readiness.unsupportedPlatform'
+  | 'tools.readiness.featureDisabled'
+  | 'tools.readiness.planned'
+  | 'tools.readiness.externalUnknown'
   | 'footer.connected'
   | 'footer.disconnected'
   | 'home.title'
@@ -217,6 +231,20 @@ export const th: Messages = {
   'nav.live': 'Live Logs',
   'nav.settings': 'ตั้งค่า',
   'nav.doctor': 'Doctor',
+  'tools.filter.actionRequired': 'ต้องดำเนินการ',
+  'tools.filter.blocked': 'ถูกบล็อก',
+  'tools.filter.disabled': 'ปิดใช้งาน',
+  'tools.filter.unsupported': 'ไม่รองรับ',
+  'tools.filter.unknown': 'ไม่ทราบ',
+  'tools.readiness.ready': 'พร้อม',
+  'tools.readiness.setupRequired': 'ต้องตั้งค่า',
+  'tools.readiness.startRequired': 'ต้องเปิดใช้งาน',
+  'tools.readiness.probeFailed': 'ตรวจสอบไม่สำเร็จ',
+  'tools.readiness.permissionDenied': 'ไม่ได้รับอนุญาต',
+  'tools.readiness.unsupportedPlatform': 'แพลตฟอร์มไม่รองรับ',
+  'tools.readiness.featureDisabled': 'ยังไม่มีส่วนทำงาน',
+  'tools.readiness.planned': 'อยู่ในแผน',
+  'tools.readiness.externalUnknown': 'สถานะ External ยังไม่ยืนยัน',
   'footer.connected': 'เชื่อมต่อแล้ว',
   'footer.disconnected': 'ยังไม่เชื่อมต่อ',
   'home.title': 'ศูนย์ควบคุม Agent',
@@ -425,6 +453,20 @@ export const en: Messages = {
   'nav.live': 'Live Logs',
   'nav.settings': 'Settings',
   'nav.doctor': 'Doctor',
+  'tools.filter.actionRequired': 'Action required',
+  'tools.filter.blocked': 'Blocked',
+  'tools.filter.disabled': 'Disabled',
+  'tools.filter.unsupported': 'Unsupported',
+  'tools.filter.unknown': 'Unknown',
+  'tools.readiness.ready': 'Ready',
+  'tools.readiness.setupRequired': 'Needs setup',
+  'tools.readiness.startRequired': 'Start required',
+  'tools.readiness.probeFailed': 'Check failed',
+  'tools.readiness.permissionDenied': 'Permission denied',
+  'tools.readiness.unsupportedPlatform': 'Unsupported platform',
+  'tools.readiness.featureDisabled': 'Runtime not included',
+  'tools.readiness.planned': 'Planned',
+  'tools.readiness.externalUnknown': 'External status unverified',
   'footer.connected': 'Connected',
   'footer.disconnected': 'Disconnected',
   'home.title': 'Agent Control Center',

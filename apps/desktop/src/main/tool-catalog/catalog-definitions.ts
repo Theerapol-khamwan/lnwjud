@@ -100,7 +100,15 @@ function requirementsFor(name: string, category: ToolCategory): readonly string[
   if (/^wsl_/.test(name)) ids.add('wsl_runtime');
   if (/^(mcp_|mcp_hub$)/.test(name)) ids.add('external_mcp_connection');
   if (/^(dom_cdp$|inspect_web_app$|debug_ui$|capture_ui_state$|form_context$|network_context$|console_context$|browser_debug_context$|capture_screenshot$|dom_snapshot$|layout_metadata$|visual_context$)/.test(name)) ids.add('browser_cdp');
-  if (/^(accessibility$|computer_use$|ui_target_action$)/.test(name)) { ids.add('platform_windows'); ids.add('windows_ui_automation'); }
+  if (name === 'accessibility') { ids.add('platform_windows'); ids.add('windows_ui_automation'); }
+  if (name === 'computer_use') {
+    ids.add('platform_windows');
+    ids.add('windows_ui_automation');
+    ids.add('windows_input');
+    ids.add('windows_window');
+    ids.add('windows_ocr');
+  }
+  if (name === 'ui_target_action') { ids.add('platform_windows'); ids.add('windows_ui_automation'); ids.add('windows_ocr'); }
   if (/^input_event$/.test(name)) { ids.add('platform_windows'); ids.add('windows_input'); }
   if (/^window$/.test(name)) { ids.add('platform_windows'); ids.add('windows_window'); }
   if (/^vision/.test(name)) { ids.add('platform_windows'); ids.add('windows_ocr'); }

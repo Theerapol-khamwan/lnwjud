@@ -5,7 +5,9 @@ import type {
   ToolCatalogItem,
   ToolCatalogSnapshot,
   ToolDeclaredPermission,
+  ToolDeliveryState,
   ToolProfileDecision,
+  ToolReadinessReason,
   ToolReadinessStatus,
   UiLocale,
 } from '@lnwjud/ipc-contracts';
@@ -26,6 +28,12 @@ const actor = { clientId: 'desktop-tool-catalog-service', clientName: 'Desktop T
 const liveRegistry = new ToolRegistry({}, actor, { codexToolsEnabled: true });
 const liveDefinitions = liveRegistry.listAll();
 const definitionByName = new Map(liveDefinitions.map((definition) => [definition.name, definition] as const));
+const requirementRemediationIds: Readonly<Record<string, string>> = {
+  windows_ui_automation: 'repair_windows_ui_automation',
+  windows_input: 'repair_windows_input',
+  windows_window: 'repair_windows_window',
+  windows_ocr: 'repair_windows_ocr',
+};
 
 export class ToolCatalogService {
   readonly #requirements: RequirementRegistry;
@@ -94,18 +102,25 @@ export class ToolCatalogService {
         return [stripDuration(result)];
       });
       const codexDisabled = definition.name.startsWith('codex_') && this.#options.codexEnabled?.() === false;
-      const readiness = computeReadiness(requirementResults, profileDecision, delivery, codexDisabled);
-      const requirementRemediationIds = requirementResults.flatMap((result) => result.status === 'pass' || result.remediationId === undefined ? [] : [result.remediationId]);
-      const primaryRemediationIds = readiness === 'disabled'
+      const readinessState = computeReadiness(requirementResults, profileDecision, delivery, codexDisabled);
+      const { readiness, readinessReason, deliveryState, available } = readinessState;
+      const failedRequirementRemediationIds = requirementResults.flatMap((result) => {
+        if (result.status === 'pass') return [];
+        const remediationId = result.remediationId ?? requirementRemediationIds[result.id];
+        return remediationId === undefined ? [] : [remediationId];
+      });
+      const primaryRemediationIds = readinessReason === 'feature_disabled'
         ? codexDisabled
           ? ['configure_codex']
-          : delivery === 'planned'
-            ? ['feature_planned']
-            : ['feature_not_available']
-        : readiness === 'blocked'
+          : ['feature_not_available']
+        : readinessReason === 'planned'
+          ? ['feature_planned']
+        : readinessReason === 'permission_denied'
           ? ['configure_permissions']
-          : readiness === 'needs_setup' || readiness === 'unknown'
-            ? requirementRemediationIds
+          : readinessReason === 'probe_failed'
+            ? ['recheck_runtime']
+          : readinessReason === 'setup_required' || readinessReason === 'runtime_not_ready'
+            ? failedRequirementRemediationIds
             : [];
       const remediationIds = [...new Set(primaryRemediationIds)].filter((id) => this.#remediations.has(id));
       const stale = definition.requirementIds.some((id) => this.#requirements.stale(id));
@@ -120,6 +135,9 @@ export class ToolCatalogService {
         profileDecision,
         riskMode: definition.riskMode,
         readiness,
+        ...(readinessReason === undefined ? {} : { readinessReason }),
+        deliveryState,
+        ...(available === undefined ? {} : { available }),
         stale,
         checkedAt: latestCheckedAt(requirementResults),
         supportsCancel: definition.supportsCancel,
@@ -146,13 +164,45 @@ export class ToolCatalogService {
   }
 }
 
-function computeReadiness(requirements: readonly RequirementResult[], profileDecision: ToolProfileDecision, delivery: string | undefined, codexDisabled: boolean): ToolReadinessStatus {
-  if (delivery === 'feature_disabled' || delivery === 'planned' || codexDisabled) return 'disabled';
-  if (profileDecision === 'DENY') return 'blocked';
-  if (requirements.some((result) => result.id === 'platform_windows' && result.status === 'fail')) return 'unsupported';
-  if (requirements.some((result) => result.status === 'unknown')) return 'unknown';
-  if (requirements.some((result) => result.status === 'fail' || result.status === 'warn')) return 'needs_setup';
-  return 'ready';
+interface ComputedReadiness {
+  readonly readiness: ToolReadinessStatus;
+  readonly readinessReason?: ToolReadinessReason;
+  readonly deliveryState: ToolDeliveryState;
+  readonly available?: boolean;
+}
+
+function computeReadiness(requirements: readonly RequirementResult[], profileDecision: ToolProfileDecision, delivery: string | undefined, codexDisabled: boolean): ComputedReadiness {
+  if (delivery === 'planned') return { readiness: 'disabled', readinessReason: 'planned', deliveryState: 'planned', available: false };
+  if (delivery === 'feature_disabled' || codexDisabled) return { readiness: 'disabled', readinessReason: 'feature_disabled', deliveryState: 'feature_disabled', available: false };
+  if (profileDecision === 'DENY') {
+    const available = inferRuntimeAvailability(requirements);
+    return {
+      readiness: 'blocked',
+      readinessReason: 'permission_denied',
+      deliveryState: 'blocked_by_safety_policy',
+      ...(available === undefined ? {} : { available }),
+    };
+  }
+  if (requirements.some((result) => result.id === 'platform_windows' && result.status === 'fail')) {
+    return { readiness: 'unsupported', readinessReason: 'unsupported_platform', deliveryState: 'unsupported', available: false };
+  }
+  if (requirements.some((result) => result.status === 'unknown')) {
+    return { readiness: 'unknown', readinessReason: 'probe_failed', deliveryState: 'dependency_gated' };
+  }
+  if (requirements.some((result) => result.id === 'browser_cdp' && (result.status === 'fail' || result.status === 'warn'))) {
+    return { readiness: 'needs_setup', readinessReason: 'runtime_not_ready', deliveryState: 'operational', available: true };
+  }
+  if (requirements.some((result) => result.status === 'fail' || result.status === 'warn')) {
+    return { readiness: 'needs_setup', readinessReason: 'setup_required', deliveryState: 'dependency_gated', available: false };
+  }
+  return { readiness: 'ready', deliveryState: delivery === 'dependency_gated' ? 'dependency_gated' : 'operational', available: true };
+}
+
+function inferRuntimeAvailability(requirements: readonly RequirementResult[]): boolean | undefined {
+  if (requirements.some((result) => result.status === 'unknown')) return undefined;
+  if (requirements.some((result) => result.id === 'platform_windows' && result.status === 'fail')) return false;
+  if (requirements.some((result) => result.id !== 'browser_cdp' && (result.status === 'fail' || result.status === 'warn'))) return false;
+  return true;
 }
 
 function normalizePermission(value: unknown): ToolDeclaredPermission {

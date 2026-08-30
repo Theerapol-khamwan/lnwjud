@@ -93,6 +93,23 @@ export type ToolCategory =
   | 'extensions';
 export type ToolRiskMode = 'fixed' | 'input_dependent';
 export type ToolReadinessStatus = 'ready' | 'needs_setup' | 'blocked' | 'disabled' | 'unsupported' | 'unknown';
+export type ToolReadinessReason =
+  | 'setup_required'
+  | 'runtime_not_ready'
+  | 'probe_failed'
+  | 'permission_denied'
+  | 'unsupported_platform'
+  | 'feature_disabled'
+  | 'planned'
+  | 'external_unknown';
+export type ToolDeliveryState =
+  | 'operational'
+  | 'dependency_gated'
+  | 'feature_disabled'
+  | 'blocked_by_safety_policy'
+  | 'planned'
+  | 'unsupported'
+  | 'external_unknown';
 export type ToolDeclaredPermission = 'READ' | 'WRITE' | 'EXECUTE' | 'DANGEROUS' | 'UNKNOWN';
 export type ToolProfileDecision = 'ALLOW' | 'ASK' | 'DENY' | 'UNKNOWN';
 
@@ -141,6 +158,12 @@ export interface ToolCatalogItem {
   readonly profileDecision: ToolProfileDecision;
   readonly riskMode: ToolRiskMode | 'external_unknown';
   readonly readiness: ToolReadinessStatus;
+  /** More precise cause for non-ready states. Older senders may omit it. */
+  readonly readinessReason?: ToolReadinessReason;
+  /** Whether the runtime is shipped, gated, unavailable, or externally unverifiable. */
+  readonly deliveryState?: ToolDeliveryState;
+  /** Runtime presence, separate from readiness. Omitted when a probe cannot establish presence. */
+  readonly available?: boolean;
   readonly stale: boolean;
   readonly checkedAt: string | null;
   readonly supportsCancel: boolean | null;
