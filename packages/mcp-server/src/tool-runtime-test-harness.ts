@@ -81,6 +81,11 @@ export function createRuntimeSuccessServices(calls: string[]): McpApplicationSer
       return processSnapshot;
     }),
     codex: serviceProxy('codex', calls, (method) => method === 'list' ? [] : { ...processSnapshot, codexTaskId: 'codex-1' }),
+    agentSwarm: serviceProxy('agentSwarm', calls, (method) => {
+      if (method === 'list') return { items: [] };
+      if (method === 'result') return { swarmId: '00000000-0000-4000-8000-000000000001', taskId: 'inspect', state: 'completed', text: '', eof: true, outputTruncated: false };
+      return { swarmId: '00000000-0000-4000-8000-000000000001', state: method === 'cancel' ? 'cancelled' : 'running', tasks: [] };
+    }),
     goals: serviceProxy('goals', calls, (method) => method === 'listGoals' ? [] : { goalId: 'goal-1', status: 'active', acquired: true, leaseToken: 'lease-token' }),
     scheduledContinuations: serviceProxy('scheduledContinuations', calls, (method) => method === 'authorizeWorkspaceMutation'
       ? { allowed: true }

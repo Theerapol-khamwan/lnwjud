@@ -3,6 +3,7 @@ import { existsSync } from 'node:fs';
 import { open, rename, rm } from 'node:fs/promises';
 import path from 'node:path';
 import {
+  AgentSwarmService,
   CheckpointService,
   CodexService,
   FileService,
@@ -87,7 +88,7 @@ import {
   loadCheckpointEncryptionKey,
   type DestructiveAutoApprovalPolicy,
 } from '@lnwjud/shared';
-import { AesGcmCheckpointCipher, SqliteAuditRepository, SqliteBackupService, SqliteCheckpointRepository, SqliteDatabase, SqliteSettingsRepository, SqliteWorkspaceRepository, type BackupReason, type BackupSummary } from '@lnwjud/storage';
+import { AesGcmCheckpointCipher, SqliteAgentSwarmRepository, SqliteAuditRepository, SqliteBackupService, SqliteCheckpointRepository, SqliteDatabase, SqliteSettingsRepository, SqliteWorkspaceRepository, type BackupReason, type BackupSummary } from '@lnwjud/storage';
 import { SqliteGoalRepository } from '@lnwjud/storage';
 import type { Workspace } from '@lnwjud/workspace';
 import { isDriveRoot, SecretPolicy, WorkspacePathGuard, WorkspaceService } from '@lnwjud/workspace';
@@ -275,6 +276,7 @@ export function createDesktopRuntime(dataPath: string, options: DesktopRuntimeOp
     auditService,
     profileProvider: activePermissionProfile,
   });
+  const agentSwarmService = new AgentSwarmService(new SqliteAgentSwarmRepository(database), codexService);
   const capabilityRuntime = createLocalCapabilityRuntime(dataPath, async (): Promise<readonly string[]> => (
     (await workspaceRepository.list())
       .filter((workspace) => !isDriveRoot(workspace.realRootPath) && !isDriveRoot(workspace.rootPath))
@@ -335,6 +337,7 @@ export function createDesktopRuntime(dataPath: string, options: DesktopRuntimeOp
     git: gitService,
     process: processService,
     codex: codexService,
+    agentSwarm: agentSwarmService,
   };
   const activityLogPath = mcpActivityLogPath(dataPath);
   let activityLogDiagnostic: ((key: string, message: string) => void) | null = null;

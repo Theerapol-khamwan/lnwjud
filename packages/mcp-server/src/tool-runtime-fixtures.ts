@@ -341,7 +341,7 @@ export const PHASE_34_TO_46_TOOL_RUNTIME_FIXTURES = {
   self_heal_plan: service({}, 'capabilities.shell'),
   self_heal_apply: service({}, 'capabilities.shell'),
   skills_import: unavailable({}, 'disabled'),
-  agent_swarm_run: unavailable({}, 'disabled'),
+  agent_swarm_run: service({ operation: 'list', workspaceId }, 'agentSwarm.list'),
 } as const satisfies Readonly<Record<string, ToolRuntimeFixture>>;
 
 export const TOOL_RUNTIME_FIXTURES: Readonly<Record<string, ToolRuntimeFixture>> = Object.freeze({

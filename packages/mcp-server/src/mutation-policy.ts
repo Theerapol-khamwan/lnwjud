@@ -126,6 +126,12 @@ export function inspectMutationOperation(
       return inspectDirectExecution(value, toolName);
     case 'process_stop':
       return execute('process_stop interrupts only an exact process handle owned by the current client/session/workspace');
+    case 'agent_swarm_run': {
+      const operation = normalized(value.operation);
+      return ['status', 'result', 'list'].includes(operation)
+        ? read(`agent_swarm_run ${operation} is an owner-scoped read`)
+        : opaque(`agent_swarm_run ${operation || 'unknown'} starts or interrupts quota-consuming owned Codex work`);
+    }
     case 'codex_run':
     case 'codex_stop':
     case 'cancel_goal':

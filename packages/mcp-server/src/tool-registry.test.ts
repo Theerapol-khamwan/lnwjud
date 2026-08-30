@@ -42,7 +42,9 @@ describe('MCP tool registry', () => {
       'session_handoff', 'verify_incremental',
       'run_goal', 'get_goal', 'checkpoint_goal', 'finish_goal', 'cancel_goal', 'list_goals',
       'prepare_scheduled_continuation', 'record_scheduled_continuation_receipt', 'claim_scheduled_continuation', 'get_scheduled_continuation', 'expedite_scheduled_continuation', 'cancel_scheduled_continuation',
-      ...UPGRADE_TOOL_CATALOG.filter((entry) => isAdvertisedDeliveryState(entry.deliveryState)).map((entry) => entry.name),
+      ...UPGRADE_TOOL_CATALOG
+        .filter((entry) => entry.name !== 'agent_swarm_run' && isAdvertisedDeliveryState(entry.deliveryState))
+        .map((entry) => entry.name),
       'tool_batch',
     ]);
   });
@@ -66,12 +68,23 @@ describe('MCP tool registry', () => {
     }
   });
 
-  it('hides Codex delegation tools by default and exposes them only when explicitly enabled', () => {
-    const hidden = new ToolRegistry({}, actor);
-    const enabled = new ToolRegistry({}, actor, { codexToolsEnabled: true });
+  it('hides quota-consuming Codex tools and agent swarm by default and exposes them only when explicitly enabled', () => {
+    const services = {
+      agentSwarm: {
+        async start(): Promise<ReturnType<typeof ok>> { return ok({ swarmId: '00000000-0000-4000-8000-000000000001', state: 'running', tasks: [] }); },
+        async status(): Promise<ReturnType<typeof ok>> { return ok({ swarmId: '00000000-0000-4000-8000-000000000001', state: 'running', tasks: [] }); },
+        async result(): Promise<ReturnType<typeof ok>> { return ok({ swarmId: '00000000-0000-4000-8000-000000000001', taskId: 'a', state: 'completed', text: '', eof: true, outputTruncated: false }); },
+        async cancel(): Promise<ReturnType<typeof ok>> { return ok({ swarmId: '00000000-0000-4000-8000-000000000001', state: 'cancelled', tasks: [] }); },
+        async list(): Promise<ReturnType<typeof ok>> { return ok({ items: [] }); },
+      },
+    } as unknown as McpApplicationServices;
+    const hidden = new ToolRegistry(services, actor);
+    const enabled = new ToolRegistry(services, actor, { codexToolsEnabled: true });
     expect(hidden.list().filter((tool) => tool.name.startsWith('codex_'))).toHaveLength(0);
+    expect(hidden.list().map((tool) => tool.name)).not.toContain('agent_swarm_run');
     expect(enabled.list().filter((tool) => tool.name.startsWith('codex_')).map((tool) => tool.name)).toEqual([...CODEX_TOOL_NAMES]);
-    expect(enabled.list()).toHaveLength(hidden.list().length + CODEX_TOOL_NAMES.length);
+    expect(enabled.list().map((tool) => tool.name)).toContain('agent_swarm_run');
+    expect(enabled.list()).toHaveLength(hidden.list().length + CODEX_TOOL_NAMES.length + 1);
   });
 
   it('does not advertise a fixed drive letter in workspace registration metadata', () => {

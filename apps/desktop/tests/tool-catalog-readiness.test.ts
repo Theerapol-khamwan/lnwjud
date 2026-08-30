@@ -83,11 +83,14 @@ describe('tool catalog readiness aggregation', () => {
       detail: expect.stringContaining('subagent provider'),
     });
 
-    const planned = (await featureDisabled.catalog.getSnapshot('en')).items.find((item) => item.name === 'agent_swarm_run');
-    expect(planned).toMatchObject({
-      readiness: 'disabled', readinessReason: 'planned', deliveryState: 'planned', available: false,
+    const disabledSwarm = (await disabled.catalog.getSnapshot('en')).items.find((item) => item.name === 'agent_swarm_run');
+    expect(disabledSwarm).toMatchObject({
+      readiness: 'disabled', readinessReason: 'feature_disabled', deliveryState: 'feature_disabled', available: false,
     });
-    expect(planned?.remediationIds).toContain('feature_planned');
+    expect(disabledSwarm?.remediationIds).toContain('configure_codex');
+
+    const readySwarm = (await featureDisabled.catalog.getSnapshot('en')).items.find((item) => item.name === 'agent_swarm_run');
+    expect(readySwarm).toMatchObject({ readiness: 'ready', deliveryState: 'dependency_gated', available: true });
   });
 
   it('treats a stopped managed browser as available runtime that must be started, not installed', async () => {

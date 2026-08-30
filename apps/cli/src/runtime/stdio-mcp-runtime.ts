@@ -2,6 +2,7 @@ import { existsSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
+  AgentSwarmService,
   CheckpointService,
   CodexService,
   FileService,
@@ -52,6 +53,7 @@ import { ActivityTracker, RuntimeGoalManagedTaskStateReader, SharedActivitySnaps
 import { permissionProfiles, type PermissionProfile, type PermissionProfileName } from '@lnwjud/permissions';
 import {
   AesGcmCheckpointCipher,
+  SqliteAgentSwarmRepository,
   SqliteAuditRepository,
   SqliteCheckpointRepository,
   SqliteDatabase,
@@ -148,6 +150,7 @@ export function createStdioMcpRuntime(
     auditService,
     profileProvider,
   });
+  const agentSwarmService = new AgentSwarmService(new SqliteAgentSwarmRepository(database), codexService);
   const capabilityRuntime = createStdioCapabilityService(dataPath, workspace.realRootPath, async () => {
     const listed = await workspaceRepository.list();
     const roots = listed
@@ -247,6 +250,7 @@ export function createStdioMcpRuntime(
     git: gitService,
     process: processService,
     codex: codexService,
+    agentSwarm: agentSwarmService,
   };
 
   return {

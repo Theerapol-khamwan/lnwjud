@@ -96,7 +96,7 @@ function requirementsFor(name: string, category: ToolCategory): readonly string[
   if (['files', 'git', 'process'].includes(category) && !/^(read_|search_|git_status$|git_diff$|git_log$|process_list$|process_status$|process_logs$)/.test(name)) ids.add('active_project');
   if (/^git(?:_|$)/.test(name)) ids.add('executable_git');
   if (/^(search_files|search_text|search_all)$/.test(name)) ids.add('executable_ripgrep');
-  if (/^codex_/.test(name)) ids.add('codex_runtime');
+  if (/^codex_/.test(name) || name === 'agent_swarm_run') ids.add('codex_runtime');
   if (/^wsl_/.test(name)) ids.add('wsl_runtime');
   if (/^(mcp_|mcp_hub$)/.test(name)) ids.add('external_mcp_connection');
   if (/^(dom_cdp$|inspect_web_app$|debug_ui$|capture_ui_state$|form_context$|network_context$|console_context$|browser_debug_context$|capture_screenshot$|dom_snapshot$|layout_metadata$|visual_context$)/.test(name)) ids.add('browser_cdp');

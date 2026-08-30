@@ -12,6 +12,7 @@ describe('mandatory independent host approval', () => {
   it.each([
     ['write_file overwrite', 'write_file', { workspaceId: 'workspace-a', path: 'existing.txt', content: 'next', overwriteExisting: true, userConfirmed: true }],
     ['codex_run', 'codex_run', { workspaceId: 'workspace-a', instruction: 'edit the project', userConfirmed: true }],
+    ['agent_swarm_run start', 'agent_swarm_run', { operation: 'start', workspaceId: 'workspace-a', idempotencyKey: '22222222-2222-4222-8222-222222222222', accessMode: 'read_only', tasks: [{ id: 'inspect', prompt: 'Inspect only.' }], userConfirmed: true }],
     ['mcp_call', 'mcp_call', { server: 'child', tool: 'write', arguments: { path: 'x' }, userConfirmed: true }],
   ] as const)('denies %s when no trusted host approval provider exists', async (_label, tool, input) => {
     const calls: string[] = [];
@@ -115,6 +116,13 @@ function servicesWithCalls(calls: string[]): McpApplicationServices {
     codex: {
       async run(): Promise<ReturnType<typeof ok>> { calls.push('codex_run'); return ok({ codexTaskId: 'codex-1' }); },
     } as McpApplicationServices['codex'],
+    agentSwarm: {
+      async start(): Promise<ReturnType<typeof ok>> { calls.push('agent_swarm_run'); return ok({ swarmId: '11111111-1111-4111-8111-111111111111', state: 'running', tasks: [] }); },
+      async status(): Promise<ReturnType<typeof ok>> { return ok({ swarmId: '11111111-1111-4111-8111-111111111111', state: 'running', tasks: [] }); },
+      async result(): Promise<ReturnType<typeof ok>> { return ok({ swarmId: '11111111-1111-4111-8111-111111111111', taskId: 'inspect', state: 'completed', text: '', eof: true, outputTruncated: false }); },
+      async cancel(): Promise<ReturnType<typeof ok>> { calls.push('agent_swarm_run'); return ok({ swarmId: '11111111-1111-4111-8111-111111111111', state: 'cancelled', tasks: [] }); },
+      async list(): Promise<ReturnType<typeof ok>> { return ok({ items: [] }); },
+    } as McpApplicationServices['agentSwarm'],
     capabilities: {
       async execute(tool): Promise<ReturnType<typeof ok>> { calls.push(tool); return ok({ task_id: 'task-1', state: 'running' }); },
     },

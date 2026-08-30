@@ -2,6 +2,7 @@ import { err, ok, type InvocationAuthorization, type Result } from '@lnwjud/doma
 import type { CapabilityService } from '@lnwjud/capabilities';
 import type { ExtensionsService } from '@lnwjud/extensions';
 import type {
+  AgentSwarmService,
   ApplyPatchRequest,
   CheckpointService,
   CodexService,
@@ -69,6 +70,7 @@ export interface McpApplicationServices {
   readonly git?: Pick<GitService, 'status' | 'diff' | 'log' | 'run'>;
   readonly process?: Pick<ProcessService, 'start' | 'list' | 'status' | 'logs' | 'stop' | 'previewProjectCommand' | 'startProjectCommand'>;
   readonly codex?: Pick<CodexService, 'status' | 'run' | 'list' | 'taskStatus' | 'taskLogs' | 'stop'>;
+  readonly agentSwarm?: Pick<AgentSwarmService, 'start' | 'status' | 'result' | 'cancel' | 'list'>;
 }
 
 export interface McpToolAnnotations {

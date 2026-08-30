@@ -101,7 +101,7 @@ export class ToolCatalogService {
         }
         return [stripDuration(result)];
       });
-      const codexDisabled = definition.name.startsWith('codex_') && this.#options.codexEnabled?.() === false;
+      const codexDisabled = (definition.name.startsWith('codex_') || definition.name === 'agent_swarm_run') && this.#options.codexEnabled?.() === false;
       const readinessState = computeReadiness(requirementResults, profileDecision, delivery, codexDisabled);
       const { readiness, readinessReason, deliveryState, available } = readinessState;
       const failedRequirementRemediationIds = requirementResults.flatMap((result) => {
