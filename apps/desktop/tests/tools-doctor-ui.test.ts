@@ -173,6 +173,18 @@ describe('Tools and Doctor UX', () => {
     expect(markup).toContain('จะไม่พาไปหน้า Settings ที่ไม่เกี่ยวข้อง');
   });
 
+  it('exposes status filters as pressed-state toggles and keeps selected labels/focus legible', () => {
+    const snapshot = { generatedAt: checkedAt, locale: 'en' as const, items: [tool], remediations: [] };
+    const markup = renderToStaticMarkup(createElement(ToolsPage, {
+      locale: 'en', snapshot, loading: false, onRefresh: async () => undefined, onRemediation: async () => undefined,
+    }));
+    const styles = readFileSync(new URL('../src/renderer/styles.css', import.meta.url), 'utf8');
+    expect(markup).toContain('aria-pressed="false"');
+    expect(styles).toContain('.tool-status-strip button.active span { color: currentColor; }');
+    expect(styles).toContain('.tool-status-strip button.active strong { color: currentColor; }');
+    expect(styles).toContain('.tool-status-strip button:focus-visible');
+  });
+
   it('keeps Managed Browser remediation responsive and refreshes the selected tool from the latest catalog', () => {
     const modalSource = readFileSync(new URL('../src/renderer/features/tools/ToolDetailModal.tsx', import.meta.url), 'utf8');
     const toolsPageSource = readFileSync(new URL('../src/renderer/features/tools/ToolsPage.tsx', import.meta.url), 'utf8');
