@@ -4,6 +4,7 @@ import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import process from 'node:process';
 import { fileURLToPath } from 'node:url';
+import { verifyCapabilityBridgeArtifacts } from './verify-capability-bridge-artifacts.mjs';
 
 const desktopRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const installerDirectory = path.join(desktopRoot, 'dist', 'installers');
@@ -24,6 +25,16 @@ if (process.env.LNWJUD_REQUIRE_CLEAN_PROVENANCE === '1' && provenance.source.dir
   throw new Error('Public release provenance must be built from a clean tracked source tree');
 }
 
+const verifiedCapabilityBridge = await verifyCapabilityBridgeArtifacts({
+  packagedBridgePath: path.join(installerDirectory, 'win-unpacked', 'resources', 'windows-capability-bridge.ps1'),
+  compiledBundlePath: path.join(desktopRoot, 'dist', 'main', 'main.js'),
+});
+if (!isCapabilityBridgeIdentity(provenance.capabilityBridge)
+  || provenance.capabilityBridge.sha256 !== verifiedCapabilityBridge.sha256
+  || provenance.capabilityBridge.sizeBytes !== verifiedCapabilityBridge.sizeBytes) {
+  throw new Error('Provenance capability bridge identity does not match verified packaged bytes');
+}
+
 if (!Array.isArray(provenance.artifacts) || provenance.artifacts.length < 5) throw new Error('Provenance artifact list is incomplete');
 for (const artifact of provenance.artifacts) {
   validateEntry(artifact, 'artifact');
@@ -41,6 +52,9 @@ const requiredRuntime = new Set([
   'lnwjud-mcp-stdio.cjs',
   'lnwjud-mcp-stdio.cmd',
   'lnwjud-node.exe',
+  'resources/windows-capability-bridge.ps1',
+  'resources/windows-capability-bridge.sha256',
+  'resources/windows-capability-bridge.integrity.json',
   'resources/runtime-tools/ripgrep/rg.exe',
   'resources/tunnel-client/tunnel-client.exe',
 ]);
@@ -51,10 +65,24 @@ for (const runtime of provenance.runtime) {
   requiredRuntime.delete(runtime.relativePath);
   const sumName = `installed/${runtime.relativePath}`;
   if (sums.get(sumName) !== runtime.sha256) throw new Error(`SHA256SUMS mismatch for ${sumName}`);
+  if (runtime.relativePath === 'resources/windows-capability-bridge.ps1'
+    && (runtime.sha256 !== verifiedCapabilityBridge.sha256 || runtime.sizeBytes !== verifiedCapabilityBridge.sizeBytes)) {
+    throw new Error('Runtime provenance capability bridge entry does not match verified packaged bytes');
+  }
 }
 if (requiredRuntime.size > 0) throw new Error(`Runtime provenance is incomplete: ${[...requiredRuntime].join(', ')}`);
 
 process.stdout.write(`Release evidence verified for lnwjud ${provenance.version} commit ${provenance.source.commit}\n`);
+
+function isCapabilityBridgeIdentity(value) {
+  return value !== null
+    && typeof value === 'object'
+    && value.fileName === 'windows-capability-bridge.ps1'
+    && Number.isSafeInteger(value.sizeBytes)
+    && value.sizeBytes > 0
+    && typeof value.sha256 === 'string'
+    && /^[0-9a-f]{64}$/.test(value.sha256);
+}
 
 function validateEntry(entry, kind) {
   if (!entry || typeof entry !== 'object') throw new Error(`Invalid ${kind} provenance entry`);

@@ -77,7 +77,10 @@ describe('Windows desktop packaging', () => {
     expect(installerScript).toContain('SetOutPath "$INSTDIR"');
     expect(installerScript).not.toMatch(/[A-Z]:\\Users\\[^\r\n]+/i);
     expect(config).toContain('extraResources:');
-    expect(config).toContain('windows-capability-bridge.ps1');
+    expect(config).toContain('from: build/capability-bridge/windows-capability-bridge.ps1');
+    expect(config).toContain('from: build/capability-bridge/windows-capability-bridge.sha256');
+    expect(config).toContain('from: build/capability-bridge/windows-capability-bridge.integrity.json');
+    expect(config).not.toContain('from: ../../packages/capabilities/src/windows-capability-bridge.ps1');
     expect(config).toContain('build/lnwjud-node.exe');
     expect(config).toContain('to: lnwjud-node.exe');
     expect(config).toContain('build/runtime-tools');

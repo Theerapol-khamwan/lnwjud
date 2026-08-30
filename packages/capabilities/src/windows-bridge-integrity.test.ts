@@ -40,6 +40,24 @@ describe('PowerShellWindowsCapabilityBridge integrity', () => {
     });
   }, 15_000);
 
+  it('fails closed when the bridge byte count differs from the embedded expectation', async () => {
+    const root = await temporaryRoot();
+    const scriptPath = path.join(root, 'bridge.ps1');
+    const trusted = '$input | Out-Null; Write-Output \'{"ok":true,"value":{"trusted":true}}\'';
+    await writeFile(scriptPath, trusted, 'utf8');
+    const bridge = new PowerShellWindowsCapabilityBridge({
+      scriptPath,
+      expectedScriptSha256: sha256(trusted),
+      expectedScriptSizeBytes: Buffer.byteLength(trusted, 'utf8') + 1,
+      platform: 'win32',
+    });
+
+    await expect(bridge.execute({ capability: 'system_info', input: {} })).resolves.toMatchObject({
+      ok: false,
+      error: { code: 'INTERNAL_ERROR', message: 'Windows bridge script integrity check failed' },
+    });
+  });
+
   it('never quits the user Outlook instance from read-only bridge actions', async () => {
     const scriptPath = path.join(path.dirname(fileURLToPath(import.meta.url)), 'windows-capability-bridge.ps1');
     const script = await readFile(scriptPath, 'utf8');

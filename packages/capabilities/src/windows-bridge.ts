@@ -14,6 +14,7 @@ export interface PowerShellWindowsBridgeOptions {
   readonly terminator?: ProcessTreeTerminator;
   readonly terminationRetryMs?: number;
   readonly expectedScriptSha256?: string;
+  readonly expectedScriptSizeBytes?: number;
 }
 
 const DEFAULT_TIMEOUT_SECONDS = 600;
@@ -34,6 +35,7 @@ export class PowerShellWindowsCapabilityBridge implements WindowsCapabilityBridg
   private readonly terminator: ProcessTreeTerminator;
   private readonly terminationRetryMs: number;
   private readonly expectedScriptSha256: string | undefined;
+  private readonly expectedScriptSizeBytes: number | undefined;
 
   public constructor(options: PowerShellWindowsBridgeOptions) {
     this.scriptPath = path.resolve(options.scriptPath);
@@ -43,6 +45,7 @@ export class PowerShellWindowsCapabilityBridge implements WindowsCapabilityBridg
     this.terminator = options.terminator ?? new WindowsProcessTree();
     this.terminationRetryMs = Math.max(1, options.terminationRetryMs ?? DEFAULT_TERMINATION_RETRY_MS);
     this.expectedScriptSha256 = options.expectedScriptSha256?.trim().toLowerCase();
+    this.expectedScriptSizeBytes = options.expectedScriptSizeBytes;
   }
 
   public async execute(request: { readonly capability: WindowsCapabilityName; readonly input: unknown }, signal?: AbortSignal): Promise<Result<unknown>> {
@@ -122,7 +125,8 @@ export class PowerShellWindowsCapabilityBridge implements WindowsCapabilityBridg
 
   private async verifyIntegrity(): Promise<Result<void>> {
     if (this.expectedScriptSha256 === undefined) return ok(undefined);
-    if (!/^[0-9a-f]{64}$/.test(this.expectedScriptSha256)) {
+    if (!/^[0-9a-f]{64}$/.test(this.expectedScriptSha256)
+      || (this.expectedScriptSizeBytes !== undefined && (!Number.isSafeInteger(this.expectedScriptSizeBytes) || this.expectedScriptSizeBytes < 1))) {
       return err(appError('INTERNAL_ERROR', 'Windows bridge integrity manifest is missing or invalid'));
     }
     try {
@@ -134,7 +138,11 @@ export class PowerShellWindowsCapabilityBridge implements WindowsCapabilityBridg
         : canonical !== this.scriptPath) {
         return err(appError('INTERNAL_ERROR', 'Windows bridge script path resolves through a link or reparse point'));
       }
-      const digest = createHash('sha256').update(await readFile(this.scriptPath)).digest('hex');
+      const bytes = await readFile(this.scriptPath);
+      if (this.expectedScriptSizeBytes !== undefined && bytes.byteLength !== this.expectedScriptSizeBytes) {
+        return err(appError('INTERNAL_ERROR', 'Windows bridge script integrity check failed'));
+      }
+      const digest = createHash('sha256').update(bytes).digest('hex');
       if (digest !== this.expectedScriptSha256) return err(appError('INTERNAL_ERROR', 'Windows bridge script integrity check failed'));
       return ok(undefined);
     } catch (error) {

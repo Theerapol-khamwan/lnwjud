@@ -17,6 +17,7 @@ import {
   WindowsOcrProcessBridge,
   createOcrPackageIdentityProbe,
   WINDOWS_CAPABILITY_BRIDGE_SHA256,
+  WINDOWS_CAPABILITY_BRIDGE_SIZE_BYTES,
   WslCapabilityBackend,
   WslFilesystemCapabilityBackend,
 } from '@lnwjud/capabilities';
@@ -57,7 +58,12 @@ export function createLocalCapabilityRuntime(
   });
   const windowsBridgeScript = capabilityBridgeScriptPath();
   const expectedScriptSha256 = capabilityBridgeExpectedSha256();
-  const windowsBridge = new PowerShellWindowsCapabilityBridge({ scriptPath: windowsBridgeScript, expectedScriptSha256 });
+  const expectedScriptSizeBytes = capabilityBridgeExpectedSizeBytes();
+  const windowsBridge = new PowerShellWindowsCapabilityBridge({
+    scriptPath: windowsBridgeScript,
+    expectedScriptSha256,
+    ...(expectedScriptSizeBytes === undefined ? {} : { expectedScriptSizeBytes }),
+  });
   const nativeOptions = { allowedRootsProvider: capabilityRootsProvider, unrestricted };
   const accessibilityBackend = new WindowsNativeCapabilityBackend('accessibility', windowsBridge);
   const inputEventBackend = new WindowsNativeCapabilityBackend('input_event', windowsBridge);
@@ -157,6 +163,13 @@ function capabilityBridgeExpectedSha256(): string {
   if (configuredScript === undefined || configuredScript.trim().length === 0) return WINDOWS_CAPABILITY_BRIDGE_SHA256;
   const configuredHash = process.env.LNWJUD_CAPABILITY_BRIDGE_SHA256?.trim().toLowerCase();
   return configuredHash !== undefined && /^[0-9a-f]{64}$/.test(configuredHash) ? configuredHash : 'missing';
+}
+
+function capabilityBridgeExpectedSizeBytes(): number | undefined {
+  const configuredScript = process.env.LNWJUD_CAPABILITY_BRIDGE_SCRIPT;
+  if (configuredScript === undefined || configuredScript.trim().length === 0) return WINDOWS_CAPABILITY_BRIDGE_SIZE_BYTES;
+  const configuredSize = Number.parseInt(process.env.LNWJUD_CAPABILITY_BRIDGE_SIZE_BYTES ?? '', 10);
+  return Number.isSafeInteger(configuredSize) && configuredSize > 0 ? configuredSize : undefined;
 }
 
 function windowsOcrHelperPath(): string | undefined {

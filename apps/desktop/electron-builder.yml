@@ -20,10 +20,12 @@ publish:
 afterPack: scripts/capture-packaged-runtime-evidence.mjs
 afterSign: scripts/capture-packaged-runtime-evidence.mjs
 extraResources:
-  - from: ../../packages/capabilities/src/windows-capability-bridge.ps1
+  - from: build/capability-bridge/windows-capability-bridge.ps1
     to: windows-capability-bridge.ps1
-  - from: build/windows-capability-bridge.sha256
+  - from: build/capability-bridge/windows-capability-bridge.sha256
     to: windows-capability-bridge.sha256
+  - from: build/capability-bridge/windows-capability-bridge.integrity.json
+    to: windows-capability-bridge.integrity.json
   - from: ../../native/windows-ocr/bin
     to: windows-ocr
   - from: build/tunnel-client

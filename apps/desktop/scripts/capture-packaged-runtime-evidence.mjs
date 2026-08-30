@@ -4,6 +4,7 @@ import { mkdir, stat, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import process from 'node:process';
 import { fileURLToPath } from 'node:url';
+import { verifyCapabilityBridgeArtifacts } from './verify-capability-bridge-artifacts.mjs';
 
 const desktopRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const outputPath = path.join(desktopRoot, 'build', 'packaged-runtime-evidence.json');
@@ -13,6 +14,9 @@ const packagedRuntimeFiles = Object.freeze([
   { name: 'lnwjud-mcp-stdio.cjs', relativePath: 'lnwjud-mcp-stdio.cjs' },
   { name: 'lnwjud-mcp-stdio.cmd', relativePath: 'lnwjud-mcp-stdio.cmd' },
   { name: 'lnwjud-node.exe', relativePath: 'lnwjud-node.exe' },
+  { name: 'windows-capability-bridge.ps1', relativePath: 'resources/windows-capability-bridge.ps1' },
+  { name: 'windows-capability-bridge.sha256', relativePath: 'resources/windows-capability-bridge.sha256' },
+  { name: 'windows-capability-bridge.integrity.json', relativePath: 'resources/windows-capability-bridge.integrity.json' },
   { name: 'rg.exe', relativePath: 'resources/runtime-tools/ripgrep/rg.exe' },
   { name: 'tunnel-client.exe', relativePath: 'resources/tunnel-client/tunnel-client.exe' },
 ]);
@@ -21,6 +25,11 @@ export default async function capturePackagedRuntimeEvidence(context) {
   if (context?.electronPlatformName !== 'win32') return;
   const appOutDir = context.appOutDir;
   if (typeof appOutDir !== 'string' || appOutDir.length === 0) throw new Error('Windows packaged app directory is unavailable');
+
+  const capabilityBridge = await verifyCapabilityBridgeArtifacts({
+    packagedBridgePath: path.join(appOutDir, 'resources', 'windows-capability-bridge.ps1'),
+    compiledBundlePath: path.join(desktopRoot, 'dist', 'main', 'main.js'),
+  });
 
   const files = [];
   for (const entry of packagedRuntimeFiles) {
@@ -36,7 +45,7 @@ export default async function capturePackagedRuntimeEvidence(context) {
   }
 
   await mkdir(path.dirname(outputPath), { recursive: true });
-  await writeFile(outputPath, `${JSON.stringify({ schemaVersion: 1, platform: 'win32', arch: process.arch, files }, null, 2)}\n`, 'utf8');
+  await writeFile(outputPath, `${JSON.stringify({ schemaVersion: 1, platform: 'win32', arch: process.arch, capabilityBridge, files }, null, 2)}\n`, 'utf8');
 }
 
 function sha256File(filePath) {
