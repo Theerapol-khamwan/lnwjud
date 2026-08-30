@@ -28,6 +28,8 @@ describe('durable goal MCP tools', () => {
     expect(byName.get('finish_goal')?.description).toContain('must be called before any completion report');
     expect(byName.get('finish_goal')?.description).toContain('even when scheduling was disabled');
     expect(byName.get('cancel_goal')?.description).toContain('aborts in-flight fenced MCP requests');
+    expect(byName.get('cancel_goal')?.description).toContain('status=skipped');
+    expect(byName.get('cancel_goal')?.description).toContain('provider that is unavailable');
     expect(byName.get('run_goal')?.description).toContain('scheduledContinuation=auto');
     expect(byName.get('run_goal')?.description).toContain('without waiting for the user to type continue/ทำต่อ');
     expect(byName.get('checkpoint_goal')?.description).toContain('exactly one native one-time cloud successor');

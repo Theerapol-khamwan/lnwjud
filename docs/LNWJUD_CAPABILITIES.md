@@ -125,7 +125,7 @@ Bridge นี้ทำให้ lnwjud เป็น MCP gateway ได้ แต
 4. เรียก tool จริง เช่น workspace_list หรือ workspace_info
 5. ตรวจผลใน Live Logs, process logs หรือ tunnel log
 
-สำหรับ runtime contract ปัจจุบัน full registry มี 214 tools และค่า default โฆษณา 208 tools เพราะ `codex_*` 6 tools เป็น opt-in; การเห็น catalog เป็นหลักฐานของ runtime ที่ทดสอบ ไม่ได้ยืนยันว่า tunnel หรือ client ภายนอกกำลังเชื่อมอยู่ในขณะนั้น
+สำหรับ runtime contract ปัจจุบัน full registry มี 231 tool definitions; ค่า default โฆษณา 195 tools และ 201 tools เมื่อเปิด `codex_*` 6 tools แบบ opt-in. การเห็น catalog เป็นหลักฐานของ runtime ที่ทดสอบ ไม่ได้ยืนยันว่า tunnel หรือ client ภายนอกกำลังเชื่อมอยู่ในขณะนั้น
 
 ถ้า Start Tunnel เชื่อมแล้วหลุดวน:
 

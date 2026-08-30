@@ -155,6 +155,7 @@ v4.11.0 เพิ่มเครื่องมือ `run_goal`, `get_goal`, `c
 - lease มีเวลาหมดอายุและ takeover ได้หลัง expiry; raw lease token ไม่ถูกเก็บลงฐานข้อมูล มีเฉพาะ SHA-256 hash
 - owner ผูกกับ stable MCP `clientId` จึง resume ต่อได้แม้ session/tunnel reconnect เปลี่ยนไป แต่ client อื่นไม่สามารถแย่ง goal ได้
 - `trackedTasks` เป็นรูปแบบใหม่ที่เก็บความสัมพันธ์ระหว่าง goal กับงานพื้นหลัง โดยแต่ละรายการมี `taskId`, `provider` (`process`/`codex`/`shell`), `role` (`blocking_job` หรือ `supporting_service`) และ `cancelWithGoal`. เฉพาะ `blocking_job` เท่านั้นที่ใช้ตัดสิน liveness; service กลาง เช่น MariaDB ไม่ block continuation และไม่ถูกยกเลิกเว้นแต่ระบุว่า goal เป็นเจ้าของ lifecycle. `activeTaskIds` ยังรับได้เพื่อ backward compatibility และจะถูก decode เป็น legacy blocking job แบบ conservative
+- `cancel_goal` เก็บ binding เดิมไว้ใน checkpoint และคืน `taskCancellations` ครบทุก task: รายการที่ `cancelWithGoal=false` จะเป็น `status=skipped` และยังทำงานต่อโดยเจตนา ส่วน provider ที่ระบุแต่ไม่มี backend หรือยืนยันการหยุดไม่ได้จะเป็น `status=failed`; ดังนั้น `allTasksStopped` จะเป็น `false` จนกว่าจะตรวจงานค้างเหล่านั้น
 - `finish_goal` ปิด goal เป็น `completed`, `failed` หรือ `blocked`; goal ที่จบแล้วจะไม่ถูกเปิดกลับเอง
 - ข้อมูล summary/evidence ที่เข้าข่าย token/password/API key ถูก redact ก่อน persist/log
 

@@ -406,8 +406,28 @@ describe('durable goal continuation persistence', () => {
         summary: 'Stop the goal-owned job.',
         evidence: [],
       });
-      expect(cancelled).toMatchObject({ ok: true, value: { trackedTaskIds: ['owned-job'], taskCancellations: [{ taskId: 'owned-job', status: 'cancelled' }] } });
+      expect(cancelled).toMatchObject({
+        ok: true,
+        value: {
+          trackedTaskIds: ['owned-job', 'shared-db'],
+          trackedTasks: [
+            { taskId: 'owned-job', provider: 'shell', role: 'blocking_job', cancelWithGoal: true },
+            { taskId: 'shared-db', provider: 'process', role: 'supporting_service', cancelWithGoal: false },
+          ],
+          taskCancellations: [
+            { taskId: 'owned-job', status: 'cancelled' },
+            { taskId: 'shared-db', status: 'skipped', error: 'Task remains running because cancelWithGoal=false' },
+          ],
+          allTasksStopped: false,
+        },
+      });
       expect(calls).toEqual(['owned-job']);
+      expect((await runtime.repository.getById(created.value.goalId))?.checkpoints.at(-1)).toMatchObject({
+        trackedTasks: [
+          { taskId: 'owned-job', provider: 'shell', role: 'blocking_job', cancelWithGoal: true },
+          { taskId: 'shared-db', provider: 'process', role: 'supporting_service', cancelWithGoal: false },
+        ],
+      });
     } finally {
       runtime.database.close();
     }

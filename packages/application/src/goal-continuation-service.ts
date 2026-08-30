@@ -25,6 +25,7 @@ import type { FileActor } from './file-service.js';
 import {
   failedGoalTaskCancellation,
   isGoalTaskStopped,
+  skippedGoalTaskCancellation,
   type GoalTaskCancellationPort,
   type GoalTaskCancellationResult,
 } from './goal-task-cancellation-service.js';
@@ -417,20 +418,27 @@ export class GoalContinuationService {
     trackedTasks: readonly GoalTrackedTask[],
   ): Promise<readonly GoalTaskCancellationResult[]> {
     const cancellationTargets = trackedTasks.filter((task) => task.cancelWithGoal);
-    if (cancellationTargets.length === 0) return [];
+    const skippedTasks = trackedTasks.filter((task) => !task.cancelWithGoal);
     if (this.taskCancellation === undefined) {
-      return cancellationTargets.map((task) => failedGoalTaskCancellation(task.taskId, 'Goal task cancellation service is unavailable'));
+      return trackedTasks.map((task) => task.cancelWithGoal
+        ? failedGoalTaskCancellation(task.taskId, 'Goal task cancellation service is unavailable', task.provider)
+        : skippedGoalTaskCancellation(task));
     }
+    if (cancellationTargets.length === 0) return skippedTasks.map(skippedGoalTaskCancellation);
     try {
       const cancellationInputs = cancellationTargets.map((task) => task.provider === 'legacy_auto' ? task.taskId : task);
       const results = await this.taskCancellation.cancelForGoal(ownerClientId, workspaceId, cancellationInputs);
       const byTask = new Map(results.map((entry) => [`${entry.provider ?? 'legacy_auto'}\0${entry.taskId}`, entry]));
-      return cancellationTargets.map((task) => byTask.get(`${task.provider}\0${task.taskId}`)
-        ?? byTask.get(`legacy_auto\0${task.taskId}`)
-        ?? failedGoalTaskCancellation(task.taskId, 'Task cancellation provider omitted a tracked task'));
+      return trackedTasks.map((task) => task.cancelWithGoal
+        ? byTask.get(`${task.provider}\0${task.taskId}`)
+          ?? byTask.get(`legacy_auto\0${task.taskId}`)
+          ?? failedGoalTaskCancellation(task.taskId, 'Task cancellation provider omitted a tracked task', task.provider)
+        : skippedGoalTaskCancellation(task));
     } catch (error: unknown) {
       const message = error instanceof Error ? error.message : 'Goal task cancellation failed';
-      return cancellationTargets.map((task) => failedGoalTaskCancellation(task.taskId, message));
+      return trackedTasks.map((task) => task.cancelWithGoal
+        ? failedGoalTaskCancellation(task.taskId, message, task.provider)
+        : skippedGoalTaskCancellation(task));
     }
   }
 

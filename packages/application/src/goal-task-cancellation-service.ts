@@ -16,7 +16,7 @@ export interface GoalTaskCancellationProviderResult extends GoalTaskCancellation
   readonly error?: string;
 }
 
-export type GoalTaskCancellationResultStatus = 'cancelled' | 'already_terminal' | 'not_found' | 'failed';
+export type GoalTaskCancellationResultStatus = 'cancelled' | 'already_terminal' | 'not_found' | 'skipped' | 'failed';
 
 export interface GoalTaskCancellationResult {
   readonly taskId: string;
@@ -38,16 +38,20 @@ export class GoalTaskCancellationService implements GoalTaskCancellationPort {
     workspaceId: string,
     tasks: readonly (GoalTrackedTask | string)[],
   ): Promise<readonly GoalTaskCancellationResult[]> {
-    return Promise.all(tasks.filter((task) => typeof task === 'string' || task.cancelWithGoal)
-      .map((task) => typeof task === 'string'
-        ? this.cancelTask(ownerClientId, workspaceId, task, 'legacy_auto')
-        : this.cancelTask(ownerClientId, workspaceId, task.taskId, task.provider)));
+    return Promise.all(tasks.map((task) => typeof task === 'string'
+      ? this.cancelTask(ownerClientId, workspaceId, task, 'legacy_auto')
+      : task.cancelWithGoal
+        ? this.cancelTask(ownerClientId, workspaceId, task.taskId, task.provider)
+        : skippedGoalTaskCancellation(task)));
   }
 
   private async cancelTask(ownerClientId: string, workspaceId: string, taskId: string, bindingProvider: GoalTaskProvider): Promise<GoalTaskCancellationResult> {
     const selectedProviders = bindingProvider === 'legacy_auto'
       ? this.providers
       : this.providers.filter((provider) => provider.provider === bindingProvider);
+    if (selectedProviders.length === 0) {
+      return failedGoalTaskCancellation(taskId, `Task cancellation provider is unavailable: ${bindingProvider}`, bindingProvider);
+    }
     const providers = await Promise.all(selectedProviders.map(async (provider): Promise<GoalTaskCancellationProviderResult> => {
       try {
         const result = await provider.cancelForGoal(ownerClientId, workspaceId, taskId);
@@ -82,8 +86,18 @@ export class GoalTaskCancellationService implements GoalTaskCancellationPort {
   }
 }
 
-export function failedGoalTaskCancellation(taskId: string, message: string): GoalTaskCancellationResult {
-  return { taskId, status: 'failed', providers: [], error: message };
+export function failedGoalTaskCancellation(taskId: string, message: string, provider?: GoalTaskProvider): GoalTaskCancellationResult {
+  return { taskId, ...(provider === undefined ? {} : { provider }), status: 'failed', providers: [], error: message };
+}
+
+export function skippedGoalTaskCancellation(task: GoalTrackedTask): GoalTaskCancellationResult {
+  return {
+    taskId: task.taskId,
+    provider: task.provider,
+    status: 'skipped',
+    providers: [],
+    error: 'Task remains running because cancelWithGoal=false',
+  };
 }
 
 export function isGoalTaskStopped(status: GoalTaskCancellationResultStatus): boolean {

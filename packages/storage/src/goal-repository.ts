@@ -41,6 +41,8 @@ import {
 } from '@lnwjud/domain';
 import type { SqliteDatabase } from './database.js';
 
+const MAX_TRACKED_TASKS = 50;
+
 interface GoalRow {
   readonly id: string;
   readonly workspace_id: string;
@@ -358,12 +360,12 @@ export class SqliteGoalRepository implements GoalRepository, ScheduledContinuati
           SET completed_at = COALESCE(completed_at, ?)
           WHERE goal_id = ? AND completed_at IS NULL
         `).run(request.now, request.goalId);
-        const trackedTasks = cancellationTasks(current);
+        const trackedTasks = trackedTasksAtCancellation(current);
         return { goal: current, trackedTaskIds: trackedTasks.map((task) => task.taskId), trackedTasks };
       }
       if (current.status !== 'active') throw new GoalStateError('terminal', 'Goal is already terminal');
 
-      const trackedTasks = cancellationTasks(current);
+      const trackedTasks = trackedTasksAtCancellation(current);
       const trackedTaskIds = trackedTasks.map((task) => task.taskId);
       const revision = current.revision + 1;
       const changed = this.database.connection.prepare(`
@@ -1689,10 +1691,10 @@ function parseGoalStatus(value: string): GoalStatus {
   throw corrupt('Goal status is invalid');
 }
 
-function cancellationTasks(goal: GoalRecord): readonly GoalTrackedTask[] {
+function trackedTasksAtCancellation(goal: GoalRecord): readonly GoalTrackedTask[] {
   const latest = goal.checkpoints.at(-1);
   const tracked = latest?.trackedTasks ?? latest?.activeTaskIds.map((taskId) => legacyTrackedTask(taskId)) ?? [];
-  return tracked.filter((task) => task.cancelWithGoal);
+  return tracked;
 }
 
 function normalizeTrackedTasks(
@@ -1717,9 +1719,14 @@ function parseTrackedTasks(
   legacyActiveTaskIds: string,
   label: string,
 ): readonly GoalTrackedTask[] {
-  if (serialized === null) return parseStringArray(legacyActiveTaskIds, `${label} legacy active tasks`).map((taskId) => legacyTrackedTask(taskId));
+  if (serialized === null) {
+    const legacy = parseStringArray(legacyActiveTaskIds, `${label} legacy active tasks`);
+    if (legacy.length > MAX_TRACKED_TASKS) throw corrupt(`${label} exceeds the maximum task count`);
+    return legacy.map((taskId) => legacyTrackedTask(taskId));
+  }
   const value = parseJson(serialized, label);
   if (!Array.isArray(value)) throw corrupt(`${label} is invalid`);
+  if (value.length > MAX_TRACKED_TASKS) throw corrupt(`${label} exceeds the maximum task count`);
   const seen = new Set<string>();
   return value.map((entry) => {
     const task = validateTrackedTask(entry, label);
