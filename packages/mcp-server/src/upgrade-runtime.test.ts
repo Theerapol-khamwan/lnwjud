@@ -26,6 +26,9 @@ describe('upgrade runtime', () => {
     expect(UPGRADE_TOOL_CATALOG.some((entry) => entry.name === 'context_economy_stats')).toBe(true);
   });
 
+  // The registry smoke invokes the complete phase catalog through every normal
+  // boundary. Keep enough headroom for slower Windows/CI runners while still
+  // failing a genuinely stuck registry invocation.
   it('smoke-invokes every phase tool through the normal registry boundary', async () => {
     const registry = new ToolRegistry({}, actor);
     for (const entry of UPGRADE_TOOL_CATALOG) {
@@ -33,7 +36,7 @@ describe('upgrade runtime', () => {
       expect(response).toBeDefined();
       expect(response.structuredContent).toBeDefined();
     }
-  }, 20_000);
+  }, 60_000);
 
   it('routes prompts and searches capabilities without an LLM', async () => {
     const runtime = new UpgradeRuntimeService({}, actor);
