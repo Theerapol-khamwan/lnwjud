@@ -48,6 +48,8 @@ export interface McpRuntimeTiming {
 export interface McpApplicationServices {
   readonly runtimeStatePath?: string;
   readonly runtimeTiming?: () => McpRuntimeTiming;
+  /** Test-only deterministic override for Windows Sandbox discovery; production runtimes leave this undefined. */
+  readonly sandboxRuntimeOptions?: { readonly platform?: NodeJS.Platform; readonly sandboxExecutable?: string };
   readonly localProviders?: () => { readonly pdfProvider?: string; readonly lspCommands?: Readonly<Record<string, string>> };
   readonly capabilities?: CapabilityService;
   readonly extensions?: ExtensionsService;

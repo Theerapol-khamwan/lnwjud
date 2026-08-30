@@ -29,6 +29,10 @@ export function createRuntimeSuccessServices(calls: string[]): McpApplicationSer
   const png = { format: 'png', mime_type: 'image/png', data_base64: 'cG5n', width: 640, height: 480, origin_x: 0, origin_y: 0 };
 
   return {
+    sandboxRuntimeOptions: {
+      platform: process.platform,
+      sandboxExecutable: '__lnwjud_runtime_contract_missing_windows_sandbox__.exe',
+    },
     workspaceInfo: serviceProxy('workspaceInfo', calls, (method) => method === 'list'
       ? [{ id: 'workspace-1', path: process.cwd(), realRootPath: process.cwd() }]
       : { id: 'workspace-1', path: process.cwd(), realRootPath: process.cwd() }),

@@ -144,7 +144,7 @@ export class UpgradeRuntimeService {
     this.contextEconomy = contextEconomy;
     this.contextEngine = new ContextEngine(services, actor, contextEconomy);
     this.eventLog = new EventLogCapabilityBackend();
-    this.sandbox = new SandboxRuntimeService(services, actor);
+    this.sandbox = new SandboxRuntimeService(services, actor, services.sandboxRuntimeOptions);
     this.database = new DatabaseRuntimeService(services, actor);
     this.lsp = new LspRuntimeService(services, actor);
     this.documents = new DocumentRuntimeService(services, actor);
