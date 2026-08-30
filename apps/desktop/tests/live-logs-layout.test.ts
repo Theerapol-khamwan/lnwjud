@@ -4,11 +4,41 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
 import { LiveLogsPage } from '../src/renderer/features/live/LiveLogsPage.js';
 import { filterLogLinesByScope, formatLogCopyText, logDisplayParts, LogStreamPanel, visibleLogLines } from '../src/renderer/features/live/LogStreamPanel.js';
+import * as logStreamPanelModule from '../src/renderer/features/live/LogStreamPanel.js';
 import { StandaloneLogViewer } from '../src/renderer/features/live/StandaloneLogViewer.js';
 
 const noop = async (): Promise<void> => undefined;
 
 describe('viewport-sized log and list layout', () => {
+  it('keeps only the newest normalized hidden-detail search result during an async race', async () => {
+    const createState = (logStreamPanelModule as unknown as { createDetailSearchState?: () => unknown }).createDetailSearchState;
+    const reduce = (logStreamPanelModule as unknown as { reduceDetailSearchState?: (state: unknown, action: unknown) => unknown }).reduceDetailSearchState;
+    const activeIds = (logStreamPanelModule as unknown as { activeDetailMatchIds?: (state: unknown, query: string) => ReadonlySet<string> }).activeDetailMatchIds;
+    expect(typeof reduce).toBe('function');
+    let state = createState!();
+    const first = deferred<readonly string[]>();
+    const second = deferred<readonly string[]>();
+    const run = async (generation: number, query: string, result: Promise<readonly string[]>): Promise<void> => {
+      state = reduce!(state, { type: 'start', generation, query });
+      const matchingIds = await result;
+      state = reduce!(state, { type: 'success', generation, query, matchingIds });
+    };
+    const firstRun = run(1, 'first', first.promise);
+    const secondRun = run(2, ' SECOND ', second.promise);
+    second.resolve(['line:2']);
+    await secondRun;
+    first.resolve(['line:1']);
+    await firstRun;
+
+    const currentMatches = activeIds!(state, 'second');
+    expect([...currentMatches]).toEqual(['line:2']);
+    expect(activeIds!(state, 'first').size).toBe(0);
+    expect(visibleLogLines([
+      { id: 1, source: 'mcp', timestamp: '2026-08-30T00:00:01.000Z', level: 'info', text: 'unrelated-one', workspaceId: null, sessionId: null },
+      { id: 2, source: 'mcp', timestamp: '2026-08-30T00:00:02.000Z', level: 'info', text: 'unrelated-two', workspaceId: null, sessionId: null },
+    ], { workspaceId: null, sessionId: null }, 'second', [], currentMatches).map((line) => line.id)).toEqual([2]);
+  });
+
   it('marks both embedded and pop-out viewers with dedicated fixed viewport containers', () => {
     const embedded = renderToStaticMarkup(createElement(LiveLogsPage, {
       locale: 'en', lines: [], tunnelLogPath: null, tunnelLogExists: false,
@@ -182,3 +212,8 @@ describe('viewport-sized log and list layout', () => {
     expect(css).toMatch(/\.git-switch-list\s*\{[^}]*flex:\s*1[^}]*min-height:\s*0[^}]*overflow-y:\s*auto/s);
   });
 });
+
+function deferred<T>(): { readonly promise: Promise<T>; readonly resolve: (value: T) => void } {
+  let resolve!: (value: T) => void;
+  return { promise: new Promise<T>((done) => { resolve = done; }), resolve };
+}

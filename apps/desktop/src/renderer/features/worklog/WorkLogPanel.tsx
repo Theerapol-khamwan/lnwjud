@@ -1,9 +1,10 @@
-import { useEffect, useMemo, useState, type ComponentProps, type ReactElement } from 'react';
+import { useEffect, useMemo, useReducer, useRef, useState, type ComponentProps, type ReactElement } from 'react';
 import { canonicalWorkspaceScopeId, workspaceScopeMatches, type ActivityTargetDetail, type InFlightWorkItem, type WorkLogEntry, type WorkspaceSummary } from '@lnwjud/ipc-contracts';
 import { copyTextToClipboard } from '../../clipboard.js';
 import type { MessageKey } from '../../i18n/messages.js';
 import { formatLogExportDateTime, formatLogUiTime } from '../../log-timestamp.js';
 import { ExpandableTargetDetail } from '../logs/ExpandableTargetDetail.js';
+import { activeDetailMatchIds, createDetailSearchState, normalizeDetailSearchQuery, reduceDetailSearchState } from '../logs/detail-search-state.js';
 
 export type WorkLogFilter = 'all' | 'error';
 
@@ -58,8 +59,8 @@ export function WorkLogPanel(props: WorkLogPanelProps): ReactElement {
   const [copyErrorId, setCopyErrorId] = useState<string | null>(null);
   const [workspaceId, setWorkspaceId] = useState<string | null>(props.defaultWorkspaceId ?? null);
   const [sessionId, setSessionId] = useState<string | null>(null);
-  const [hiddenMatches, setHiddenMatches] = useState<ReadonlySet<string>>(new Set());
-  const [detailSearchState, setDetailSearchState] = useState<'idle' | 'loading' | 'error'>('idle');
+  const [detailSearchState, dispatchDetailSearch] = useReducer(reduceDetailSearchState, undefined, createDetailSearchState);
+  const detailSearchGeneration = useRef(0);
   const workspaceOptions = useMemo(() => collectWorkspaceOptions(props.entries, props.inFlight, props.workspaces), [props.entries, props.inFlight, props.workspaces]);
   const sessionOptions = useMemo(() => collectSessionOptions(props.entries, props.inFlight, workspaceId, props.workspaces), [props.entries, props.inFlight, workspaceId, props.workspaces]);
   useEffect(() => {
@@ -74,33 +75,24 @@ export function WorkLogPanel(props: WorkLogPanelProps): ReactElement {
     [props.entries, props.inFlight, props.filter, scope, props.workspaces],
   );
   useEffect(() => {
-    const query = search.trim();
+    const query = normalizeDetailSearchQuery(search);
+    const generation = ++detailSearchGeneration.current;
     if (query.length === 0 || props.onSearchTargetDetails === undefined) {
-      setHiddenMatches(new Set());
-      setDetailSearchState('idle');
+      dispatchDetailSearch({ type: 'reset', generation });
       return;
     }
-    let disposed = false;
-    setDetailSearchState('loading');
+    dispatchDetailSearch({ type: 'start', generation, query });
     const timeout = window.setTimeout(() => {
       const searchCandidates = candidates.map((row) => ({ id: workLogRowIdentity(row), detailRef: row.item.targetDetail.detailRef }));
       void props.onSearchTargetDetails?.(query, searchCandidates).then((ids) => {
-        if (!disposed) {
-          setHiddenMatches(new Set(ids));
-          setDetailSearchState('idle');
-        }
+        dispatchDetailSearch({ type: 'success', generation, query, matchingIds: ids });
       }).catch(() => {
-        if (!disposed) {
-          setHiddenMatches(new Set());
-          setDetailSearchState('error');
-        }
+        dispatchDetailSearch({ type: 'failure', generation, query });
       });
     }, 180);
-    return (): void => {
-      disposed = true;
-      window.clearTimeout(timeout);
-    };
+    return (): void => window.clearTimeout(timeout);
   }, [candidates, props.onSearchTargetDetails, search]);
+  const hiddenMatches = activeDetailMatchIds(detailSearchState, search);
   const rows = useMemo(
     () => newestFirstWorkLogRows(props.entries, props.inFlight, props.filter, search, scope, props.workspaces, hiddenMatches),
     [props.entries, props.inFlight, props.filter, search, scope, props.workspaces, hiddenMatches],
@@ -171,8 +163,8 @@ export function WorkLogPanel(props: WorkLogPanelProps): ReactElement {
         value={search}
         onChange={(event) => setSearch(event.target.value)}
       />
-      {detailSearchState === 'loading' ? <p className="log-detail-search-status" role="status">{props.detailLoadingLabel ?? 'Searching complete details…'}</p> : null}
-      {detailSearchState === 'error' ? <p className="log-detail-search-status log-detail-error" role="alert">{props.detailErrorLabel ?? 'Complete details could not be searched.'}</p> : null}
+      {detailSearchState.status === 'loading' ? <p className="log-detail-search-status" role="status">{props.detailLoadingLabel ?? 'Searching complete details…'}</p> : null}
+      {detailSearchState.status === 'error' ? <p className="log-detail-search-status log-detail-error" role="alert">{props.detailErrorLabel ?? 'Complete details could not be searched.'}</p> : null}
       <div className="worklog-stream" data-testid="work-log">
         {visible.length === 0 ? <p>{props.emptyLabel}</p> : null}
         {visible.map((row) => row.kind === 'inflight' ? (
@@ -410,3 +402,4 @@ function tagFor(kind: WorkLogEntry['kind']): string {
 }
 
 export type { MessageKey };
+export { activeDetailMatchIds, createDetailSearchState, reduceDetailSearchState };

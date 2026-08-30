@@ -29,6 +29,11 @@ type ResolveWorkLogExportRows = (
 
 type WriteSerializedLogRows = (filePath: string, rows: readonly string[]) => Promise<void>;
 
+type StreamWorkLogExportRows = (
+  repository: SqliteAuditRepository,
+  identities: readonly string[],
+) => AsyncIterable<string>;
+
 describe('complete log detail resolution and export', () => {
   it('searches hidden SQLite detail and returns matching row identities only', async () => {
     const fixture = await createAuditFixture('search-call', ['visible-a.ts', 'visible-b.ts', 'visible-c.ts', 'hidden-needle.ts', 'e.ts', 'f.ts', 'g.ts']);
@@ -112,6 +117,55 @@ describe('complete log detail resolution and export', () => {
     const filePath = path.join(root, 'complete-log.txt');
     await writeRows!(filePath, ['row\r\nFiles:\r\n- a.ts\r\n- hidden-nine.ts']);
     expect(await readFile(filePath, 'utf8')).toBe('row\r\nFiles:\r\n- a.ts\r\n- hidden-nine.ts\r\n');
+  });
+
+  it('resolves the next Work Log detail only after the writer consumes the previous yield', async () => {
+    const fixture = await createAuditFixture('backpressure-call', ['a.ts', 'b.ts', 'c.ts', 'd.ts']);
+    const events = await fixture.repository.listActivityScoped({ actionPrefix: 'mcp_tool:' }, 10);
+    const started = events.find((event) => event.phase === 'started')!;
+    const streamRows = (desktopServices as unknown as { streamWorkLogExportRows?: StreamWorkLogExportRows }).streamWorkLogExportRows;
+    const writeRows = (desktopServices as unknown as { writeSerializedLogRows?: (filePath: string, rows: AsyncIterable<string>) => Promise<void> }).writeSerializedLogRows;
+    expect(typeof streamRows).toBe('function');
+    let detailResolutions = 0;
+    let consumedRows = 0;
+    const repository = {
+      resolveActivityEvent: (...args: Parameters<SqliteAuditRepository['resolveActivityEvent']>) => fixture.repository.resolveActivityEvent(...args),
+      resolveActivityTargetDetail: async (...args: Parameters<SqliteAuditRepository['resolveActivityTargetDetail']>) => {
+        detailResolutions += 1;
+        if (detailResolutions > 1 && consumedRows === 0) throw new Error('second detail resolved before writer backpressure');
+        return fixture.repository.resolveActivityTargetDetail(...args);
+      },
+    } as SqliteAuditRepository;
+    async function* observeConsumption(): AsyncIterable<string> {
+      for await (const row of streamRows!(repository, [`audit:${started.id}`, `audit:${started.id}`])) {
+        yield row;
+        consumedRows += 1;
+      }
+    }
+    const root = await mkdtemp(path.join(os.tmpdir(), 'lnwjud-log-export-backpressure-'));
+    temporaryRoots.push(root);
+    await writeRows!(path.join(root, 'streamed.txt'), observeConsumption());
+    expect(detailResolutions).toBe(2);
+    expect(consumedRows).toBe(2);
+    fixture.database.close();
+  });
+
+  it('marks a legacy (+N) export incomplete without mislabeling a complete compact legacy row', async () => {
+    const fixture = await createAuditFixture('legacy-export-call', ['a.ts', 'b.ts', 'c.ts', 'd.ts']);
+    const started = (await fixture.repository.listActivityScoped({ actionPrefix: 'mcp_tool:' }, 10)).find((event) => event.phase === 'started')!;
+    fixture.database.connection.prepare(
+      "UPDATE audit_events SET target_summary = ?, metadata_json = json_set(json_remove(metadata_json, '$.activityTargetDetail'), '$.targetDetail', json(?)) WHERE id = ?",
+    ).run('a.ts, b.ts, c.ts (+1)', JSON.stringify({ detailRef: null, itemCount: 4, preview: ['a.ts', 'b.ts', 'c.ts'], legacyIncomplete: true }), started.id);
+    const resolveRows = (desktopServices as unknown as { resolveWorkLogExportRows?: ResolveWorkLogExportRows }).resolveWorkLogExportRows;
+    const legacyRows = await resolveRows!(fixture.repository, [`audit:${started.id}`]);
+    expect(legacyRows[0]).toContain('Incomplete legacy history');
+
+    fixture.database.connection.prepare(
+      "UPDATE audit_events SET target_summary = ?, metadata_json = json_set(metadata_json, '$.targetDetail', json(?)) WHERE id = ?",
+    ).run('only.ts', JSON.stringify({ detailRef: null, itemCount: 1, preview: ['only.ts'], legacyIncomplete: true }), started.id);
+    const completeRows = await resolveRows!(fixture.repository, [`audit:${started.id}`]);
+    expect(completeRows[0]).not.toContain('Incomplete legacy history');
+    fixture.database.close();
   });
 });
 

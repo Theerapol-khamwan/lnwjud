@@ -3,6 +3,7 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
 import type { InFlightWorkItem, WorkLogEntry } from '@lnwjud/ipc-contracts';
 import { formatWorkLogCopyText, newestFirstWorkLogRows, WorkLogPanel } from '../src/renderer/features/worklog/WorkLogPanel.js';
+import * as workLogPanelModule from '../src/renderer/features/worklog/WorkLogPanel.js';
 
 const mockInFlight: InFlightWorkItem[] = [
   {
@@ -277,4 +278,35 @@ describe('WorkLogPanel', () => {
     for (const item of ['a.ts', 'b.ts', 'c.ts', 'd.ts', 'e.ts', 'f.ts', 'g.ts']) expect(copied).toContain(item);
   });
 
+  it('keeps only the newest normalized hidden-detail search result during an async race', async () => {
+    const createState = (workLogPanelModule as unknown as { createDetailSearchState?: () => unknown }).createDetailSearchState;
+    const reduce = (workLogPanelModule as unknown as { reduceDetailSearchState?: (state: unknown, action: unknown) => unknown }).reduceDetailSearchState;
+    const activeIds = (workLogPanelModule as unknown as { activeDetailMatchIds?: (state: unknown, query: string) => ReadonlySet<string> }).activeDetailMatchIds;
+    expect(typeof reduce).toBe('function');
+    let state = createState!();
+    const first = deferred<readonly string[]>();
+    const second = deferred<readonly string[]>();
+    const run = async (generation: number, query: string, result: Promise<readonly string[]>): Promise<void> => {
+      state = reduce!(state, { type: 'start', generation, query });
+      const matchingIds = await result;
+      state = reduce!(state, { type: 'success', generation, query, matchingIds });
+    };
+    const firstRun = run(1, 'first', first.promise);
+    const secondRun = run(2, ' SECOND ', second.promise);
+    second.resolve(['audit:entry-1']);
+    await secondRun;
+    first.resolve(['audit:stale']);
+    await firstRun;
+
+    const currentMatches = activeIds!(state, 'second');
+    expect([...currentMatches]).toEqual(['audit:entry-1']);
+    expect(activeIds!(state, 'first').size).toBe(0);
+    expect(newestFirstWorkLogRows(mockEntries, [], 'all', 'second', undefined, undefined, currentMatches).map((row) => row.id)).toEqual(['entry-1']);
+  });
+
 });
+
+function deferred<T>(): { readonly promise: Promise<T>; readonly resolve: (value: T) => void } {
+  let resolve!: (value: T) => void;
+  return { promise: new Promise<T>((done) => { resolve = done; }), resolve };
+}

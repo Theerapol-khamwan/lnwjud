@@ -1,11 +1,15 @@
 import { pathToFileURL } from 'node:url';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { mkdtemp, readFile, rm } from 'node:fs/promises';
+import os from 'node:os';
+import path from 'node:path';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { APP_VERSION, ipcChannels, type TunnelStatus } from '@lnwjud/ipc-contracts';
 
 const electronHarness = vi.hoisted(() => ({
   handlers: new Map<string, (event: unknown, payload?: unknown) => Promise<unknown>>(),
   quit: vi.fn(),
   shellOpenExternal: vi.fn(async () => undefined),
+  showSaveDialog: vi.fn(async () => ({ canceled: true, filePath: undefined as string | undefined })),
 }));
 
 vi.mock('electron', () => ({
@@ -24,7 +28,7 @@ vi.mock('electron', () => ({
     public static getAllWindows(): unknown[] { return []; }
   },
   dialog: {
-    showSaveDialog: vi.fn(async () => ({ canceled: true, filePath: undefined })),
+    showSaveDialog: electronHarness.showSaveDialog,
     showMessageBox: vi.fn(async () => ({ response: 1 })),
   },
   ipcMain: {
@@ -62,11 +66,19 @@ const stoppedTunnel: TunnelStatus = {
   persistent: null,
 };
 
+const temporaryRoots: string[] = [];
+
 describe('production desktop IPC acceptance', () => {
   beforeEach(() => {
     electronHarness.handlers.clear();
     electronHarness.quit.mockClear();
     electronHarness.shellOpenExternal.mockClear();
+    electronHarness.showSaveDialog.mockReset();
+    electronHarness.showSaveDialog.mockResolvedValue({ canceled: true, filePath: undefined });
+  });
+
+  afterEach(async () => {
+    await Promise.all(temporaryRoots.splice(0).map((root) => rm(root, { recursive: true, force: true })));
   });
 
   it('routes critical MCP and tunnel start/stop/status calls through registered production handlers', async () => {
@@ -195,6 +207,23 @@ describe('production desktop IPC acceptance', () => {
     await expect(requiredHandler(ipcChannels.exportWorkLog)(trusted, { rowIds: ['invalid-row-id'] })).rejects.toThrow(/rowIds/);
   });
 
+  it('exports an explicit identity marker instead of dropping a captured Live Log line that is unavailable', async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), 'lnwjud-live-export-missing-'));
+    temporaryRoots.push(root);
+    const filePath = path.join(root, 'live.txt');
+    electronHarness.showSaveDialog.mockResolvedValue({ canceled: false, filePath });
+    const services = desktopServices();
+    registerIpcHandlers(() => ({}) as never, services);
+    const trusted = { senderFrame: { url: pathToFileURL(getRendererEntryPath()).href } };
+
+    await expect(requiredHandler(ipcChannels.exportLogs)(trusted, {
+      source: 'mcp', filePath: '', lines: [{ lineId: 99, correlationRef: 'call-missing' }],
+    })).resolves.toEqual({ exported: true });
+
+    expect(await readFile(filePath, 'utf8')).toContain('line:99');
+    expect(await readFile(filePath, 'utf8')).toContain('unavailable');
+  });
+
   it('enforces the production IPC sender and payload guards before invoking services', async () => {
     const services = desktopServices();
     registerIpcHandlers(() => ({}) as never, services);
@@ -251,7 +280,7 @@ function desktopServices(): DesktopIpcServices {
     clearLogBuffer: vi.fn(async () => ({ cleared: true })),
     resolveActivityTargetDetail: vi.fn(async () => ({ status: 'unavailable' as const, detail: null })),
     searchActivityTargetDetails: vi.fn(async () => []),
-    resolveWorkLogExportRows: vi.fn(async () => []),
+    streamWorkLogExportRows: vi.fn(() => (async function* (): AsyncIterable<string> {})()),
     captureIncident: vi.fn(async () => ({
       schemaVersion: 1,
       capturedAt: new Date(0).toISOString(),

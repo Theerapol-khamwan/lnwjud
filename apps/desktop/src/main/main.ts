@@ -59,7 +59,7 @@ import {
 import { readSharedActivitySnapshot, startMcpStdio, type HostMutationApprovalRequest } from '@lnwjud/mcp-server';
 import { DEFAULT_MCP_POLL_WAIT_SECONDS, DEFAULT_SHELL_SYNCHRONOUS_WAIT_SECONDS, MAX_CONFIGURABLE_WAIT_SECONDS, MIN_CONFIGURABLE_WAIT_SECONDS, resolveLnwjudDataPath } from '@lnwjud/shared';
 import { applyPendingSqliteRestoreSync } from '@lnwjud/storage';
-import { createDesktopRuntime, formatCompleteTargetDetail, writeSerializedLogRows, type DesktopRuntime } from './desktop-services.js';
+import { createDesktopRuntime, formatCompleteTargetDetail, formatIncompleteLegacyHistory, writeSerializedLogRows, type DesktopRuntime } from './desktop-services.js';
 import { installPdfProvider } from './pdf-provider-installer.js';
 import { DesktopShutdownCoordinator } from './desktop-shutdown.js';
 import { parseOpenExternalSetupPageRequest, resolveExternalSetupUrl } from './external-setup-links.js';
@@ -124,7 +124,7 @@ export interface DesktopIpcServices {
   clearLogBuffer(request: ClearLogBufferRequest): Promise<{ readonly cleared: boolean }>;
   resolveActivityTargetDetail(detailRef: string): Promise<{ readonly status: 'complete' | 'unavailable'; readonly detail: ActivityTargetDetail | null }>;
   searchActivityTargetDetails(candidates: readonly ActivityTargetSearchCandidate[], query: string): Promise<readonly string[]>;
-  resolveWorkLogExportRows(rowIds: readonly string[]): Promise<readonly string[]>;
+  streamWorkLogExportRows(rowIds: readonly string[]): AsyncIterable<string>;
   captureIncident(updaterEvents?: readonly string[]): Promise<IncidentReport>;
 }
 
@@ -280,7 +280,7 @@ const defaultDesktopServices: DesktopIpcServices = {
   clearLogBuffer: async (): Promise<{ readonly cleared: boolean }> => ({ cleared: false }),
   resolveActivityTargetDetail: async (): Promise<{ readonly status: 'unavailable'; readonly detail: null }> => ({ status: 'unavailable', detail: null }),
   searchActivityTargetDetails: async (): Promise<readonly string[]> => [],
-  resolveWorkLogExportRows: async (): Promise<readonly string[]> => [],
+  streamWorkLogExportRows: (): AsyncIterable<string> => emptySerializedRows(),
   captureIncident: async (): Promise<IncidentReport> => ({ schemaVersion: 1, capturedAt: new Date().toISOString(), appVersion: APP_VERSION, tunnelClientVersion: null, tunnelClientVersionReason: 'desktop_services_unavailable', classification: 'healthy_or_inconclusive', classificationReasons: ['desktop_services_unavailable'], updaterEventTail: [], tunnel: { state: 'stopped', source: 'desktop', instanceIds: [], requestIds: [], health: { state: 'unavailable', message: 'unavailable' } }, mcpCalls: [], tunnelLogTail: [], processTree: { available: false, entries: [], error: 'unavailable' }, tcpListeners: { available: false, entries: [], error: 'unavailable' } }),
 };
 
@@ -745,6 +745,9 @@ async function exportLogsToFile(
   request: ExportLogsRequest,
 ): Promise<{ readonly exported: boolean }> {
   if (window === null) return { exported: false };
+  const snapshot = await services.getLogSnapshot();
+  const lineById = new Map(snapshot.lines.filter((line) => line.source === request.source).map((line) => [line.id, line] as const));
+  const capturedRows = request.lines.map((reference) => ({ reference, line: lineById.get(reference.lineId) ?? null }));
   const result = await dialog.showSaveDialog(window, {
     title: 'Export lnwjud logs',
     defaultPath: `lnwjud-${request.source}-logs.txt`,
@@ -753,19 +756,27 @@ async function exportLogsToFile(
   if (result.canceled || result.filePath === undefined || result.filePath.length === 0) {
     return { exported: false };
   }
-  const snapshot = await services.getLogSnapshot();
-  const lineById = new Map(snapshot.lines.filter((line) => line.source === request.source).map((line) => [line.id, line] as const));
-  const rows: string[] = [];
-  for (const reference of request.lines) {
-    const line = lineById.get(reference.lineId);
-    if (line === undefined) continue;
-    const authoritativeRef = line.targetDetail?.detailRef ?? (line.correlation?.kind === 'mcp' ? line.correlation.callId : null);
-    const requestedRef = reference.correlationRef === authoritativeRef ? reference.correlationRef : authoritativeRef;
-    const detail = requestedRef === null ? null : (await services.resolveActivityTargetDetail(requestedRef)).detail;
-    const detailExpected = line.targetDetail !== undefined && line.targetDetail.itemCount > line.targetDetail.preview.length;
-    rows.push(formatCompleteTargetDetail(`${formatExportLogTimestamp(line.timestamp)} [${line.level.toUpperCase()}] ${line.text}`, detail, detailExpected));
+  async function* serializedRows(): AsyncIterable<string> {
+    for (const captured of capturedRows) {
+      const { reference, line } = captured;
+      if (line === null) {
+        yield `Live Log row unavailable [line:${reference.lineId}]: the captured identity is no longer present.`;
+        continue;
+      }
+      const base = `${formatExportLogTimestamp(line.timestamp)} [${line.level.toUpperCase()}] ${line.text}`;
+      const targetDetail = line.targetDetail;
+      if (targetDetail?.legacyIncomplete === true && targetDetail.itemCount > targetDetail.preview.length) {
+        yield formatIncompleteLegacyHistory(base);
+        continue;
+      }
+      const authoritativeRef = targetDetail?.detailRef ?? (line.correlation?.kind === 'mcp' ? line.correlation.callId : null);
+      const requestedRef = reference.correlationRef === authoritativeRef ? reference.correlationRef : authoritativeRef;
+      const detail = requestedRef === null ? null : (await services.resolveActivityTargetDetail(requestedRef)).detail;
+      const detailExpected = targetDetail !== undefined && targetDetail.itemCount > targetDetail.preview.length;
+      yield formatCompleteTargetDetail(base, detail, detailExpected);
+    }
   }
-  await writeSerializedLogRows(result.filePath, rows);
+  await writeSerializedLogRows(result.filePath, serializedRows());
   return { exported: true };
 }
 
@@ -777,7 +788,7 @@ async function exportWorkLogToFile(window: BrowserWindow | null, services: Deskt
     filters: [{ name: 'Text', extensions: ['txt', 'log'] }],
   });
   if (result.canceled || result.filePath === undefined || result.filePath.length === 0) return { exported: false };
-  await writeSerializedLogRows(result.filePath, await services.resolveWorkLogExportRows(request.rowIds));
+  await writeSerializedLogRows(result.filePath, services.streamWorkLogExportRows(request.rowIds));
   return { exported: true };
 }
 
@@ -825,6 +836,10 @@ function parseSetTunnelClientPathRequest(payload: unknown): SetTunnelClientPathR
 function parseGetToolCatalogRequest(payload: unknown): GetToolCatalogRequest {
   if (!isRecord(payload) || Object.keys(payload).some((key) => key !== 'locale') || (payload.locale !== 'th' && payload.locale !== 'en')) throw new Error('Invalid tool catalog request');
   return { locale: payload.locale };
+}
+
+async function* emptySerializedRows(): AsyncIterable<string> {
+  // The fallback service intentionally has no export rows.
 }
 function parseRecheckToolCatalogRequest(payload: unknown): RecheckToolCatalogRequest {
   if (!isRecord(payload) || Object.keys(payload).some((key) => key !== 'locale' && key !== 'requirementIds') || (payload.locale !== 'th' && payload.locale !== 'en') || !Array.isArray(payload.requirementIds) || payload.requirementIds.length > 128 || payload.requirementIds.some((id: unknown) => typeof id !== 'string' || id.length === 0 || id.length > 128)) throw new Error('Invalid tool catalog recheck request');

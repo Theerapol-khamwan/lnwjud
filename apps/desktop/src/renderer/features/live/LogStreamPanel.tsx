@@ -1,9 +1,10 @@
-import { useEffect, useMemo, useRef, useState, type ReactElement } from 'react';
+import { useEffect, useMemo, useReducer, useRef, useState, type ReactElement } from 'react';
 import { canonicalWorkspaceScopeId, workspaceScopeMatches, type ActivityTargetDetail, type LiveLogExportReference, type LogLevel, type LogLine, type LogSource, type WorkspaceSummary } from '@lnwjud/ipc-contracts';
 import { copyTextToClipboard } from '../../clipboard.js';
 import type { MessageKey } from '../../i18n/messages.js';
 import { formatLogExportDateTime, formatLogUiTime } from '../../log-timestamp.js';
 import { ExpandableTargetDetail } from '../logs/ExpandableTargetDetail.js';
+import { activeDetailMatchIds, createDetailSearchState, normalizeDetailSearchQuery, reduceDetailSearchState } from '../logs/detail-search-state.js';
 
 export type LogTab = LogSource;
 export type LogEventKind = 'task' | 'result' | 'error';
@@ -56,8 +57,8 @@ export function LogStreamPanel(props: LogStreamPanelProps): ReactElement {
   const [copyErrorId, setCopyErrorId] = useState<number | null>(null);
   const [workspaceId, setWorkspaceId] = useState<string | null>(null);
   const [sessionId, setSessionId] = useState<string | null>(null);
-  const [hiddenMatches, setHiddenMatches] = useState<ReadonlySet<string>>(new Set());
-  const [detailSearchState, setDetailSearchState] = useState<'idle' | 'loading' | 'error'>('idle');
+  const [detailSearchState, dispatchDetailSearch] = useReducer(reduceDetailSearchState, undefined, createDetailSearchState);
+  const detailSearchGeneration = useRef(0);
   const streamRef = useRef<HTMLDivElement | null>(null);
   const workspaceOptions = useMemo(() => collectWorkspaceOptions(props.lines, props.workspaces), [props.lines, props.workspaces]);
   const sessionOptions = useMemo(() => collectSessionOptions(props.lines, workspaceId, props.workspaces), [props.lines, workspaceId, props.workspaces]);
@@ -67,33 +68,24 @@ export function LogStreamPanel(props: LogStreamPanelProps): ReactElement {
   const scope = useMemo<LogScopeSelection>(() => ({ workspaceId, sessionId }), [workspaceId, sessionId]);
   const searchCandidates = useMemo(() => filterLogLinesByScope(props.lines, scope, '', props.workspaces), [props.lines, scope, props.workspaces]);
   useEffect(() => {
-    const query = filter.trim();
+    const query = normalizeDetailSearchQuery(filter);
+    const generation = ++detailSearchGeneration.current;
     if (query.length === 0 || props.onSearchTargetDetails === undefined) {
-      setHiddenMatches(new Set());
-      setDetailSearchState('idle');
+      dispatchDetailSearch({ type: 'reset', generation });
       return;
     }
-    let disposed = false;
-    setDetailSearchState('loading');
+    dispatchDetailSearch({ type: 'start', generation, query });
     const timeout = window.setTimeout(() => {
       const candidates = searchCandidates.map((line) => ({ id: liveLineIdentity(line), detailRef: detailRefForLine(line) }));
       void props.onSearchTargetDetails?.(query, candidates).then((ids) => {
-        if (!disposed) {
-          setHiddenMatches(new Set(ids));
-          setDetailSearchState('idle');
-        }
+        dispatchDetailSearch({ type: 'success', generation, query, matchingIds: ids });
       }).catch(() => {
-        if (!disposed) {
-          setHiddenMatches(new Set());
-          setDetailSearchState('error');
-        }
+        dispatchDetailSearch({ type: 'failure', generation, query });
       });
     }, 180);
-    return (): void => {
-      disposed = true;
-      window.clearTimeout(timeout);
-    };
+    return (): void => window.clearTimeout(timeout);
   }, [filter, props.onSearchTargetDetails, searchCandidates]);
+  const hiddenMatches = activeDetailMatchIds(detailSearchState, filter);
   const visible = useMemo(() => visibleLogLines(props.lines, scope, filter, props.workspaces, hiddenMatches), [props.lines, scope, filter, props.workspaces, hiddenMatches]);
 
   useEffect(() => {
@@ -155,8 +147,8 @@ export function LogStreamPanel(props: LogStreamPanelProps): ReactElement {
         onChange={(event) => setFilter(event.target.value)}
         aria-label={props.filterPlaceholder}
       />
-      {detailSearchState === 'loading' ? <p className="log-detail-search-status" role="status">{props.detailLoadingLabel ?? 'Searching complete details…'}</p> : null}
-      {detailSearchState === 'error' ? <p className="log-detail-search-status log-detail-error" role="alert">{props.detailErrorLabel ?? 'Complete details could not be searched.'}</p> : null}
+      {detailSearchState.status === 'loading' ? <p className="log-detail-search-status" role="status">{props.detailLoadingLabel ?? 'Searching complete details…'}</p> : null}
+      {detailSearchState.status === 'error' ? <p className="log-detail-search-status log-detail-error" role="alert">{props.detailErrorLabel ?? 'Complete details could not be searched.'}</p> : null}
       {props.source === 'tunnel' && !props.tunnelLogExists ? (
         <p className="hint">
           {props.waitingLabel}
@@ -314,3 +306,4 @@ function detailRefForLine(line: LogLine): string | null {
 }
 
 export type { MessageKey };
+export { activeDetailMatchIds, createDetailSearchState, reduceDetailSearchState };

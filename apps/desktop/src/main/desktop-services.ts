@@ -1008,9 +1008,7 @@ export function createDesktopRuntime(dataPath: string, options: DesktopRuntimeOp
     searchActivityTargetDetails: async (candidates, query): Promise<readonly string[]> => (
       searchActivityTargetDetails(auditRepository, candidates, query)
     ),
-    resolveWorkLogExportRows: async (rowIds): Promise<readonly string[]> => (
-      resolveWorkLogExportRows(auditRepository, rowIds)
-    ),
+    streamWorkLogExportRows: (rowIds): AsyncIterable<string> => streamWorkLogExportRows(auditRepository, rowIds),
     captureIncident: async (updaterEvents: readonly string[] = []): Promise<IncidentReport> => {
       const tunnel = await observedTunnelStatus();
       const tunnelClientVersion = await tunnelController.clientVersion();
@@ -1530,31 +1528,42 @@ export async function resolveWorkLogExportRows(
   identities: readonly string[],
 ): Promise<readonly string[]> {
   const rows: string[] = [];
+  for await (const row of streamWorkLogExportRows(repository, identities)) rows.push(row);
+  return rows;
+}
+
+export async function* streamWorkLogExportRows(
+  repository: Pick<SqliteAuditRepository, 'resolveActivityEvent' | 'resolveActivityTargetDetail'>,
+  identities: readonly string[],
+): AsyncIterable<string> {
   for (const identity of identities) {
     const parsed = parseWorkLogIdentity(identity);
     if (parsed === null) continue;
     const event = await repository.resolveActivityEvent(parsed.value, parsed.kind === 'audit' ? 'event' : 'started-call');
     if (event === null) {
-      rows.push('Detail unavailable: the retained audit event no longer exists.');
+      yield 'Detail unavailable: the retained audit event no longer exists.';
+      continue;
+    }
+    if (event.targetDetail.legacyIncomplete && event.targetDetail.itemCount > event.targetDetail.preview.length) {
+      yield formatActivityExportRow(event, null);
       continue;
     }
     const detailRef = event.targetDetail.detailRef ?? event.callId ?? (parsed.kind === 'audit' ? event.id : parsed.value);
     const detail = await repository.resolveActivityTargetDetail(detailRef);
-    rows.push(formatActivityExportRow(event, detail));
+    yield formatActivityExportRow(event, detail);
   }
-  return rows;
 }
 
-export async function writeSerializedLogRows(filePath: string, rows: readonly string[]): Promise<void> {
+export async function writeSerializedLogRows(filePath: string, rows: Iterable<string> | AsyncIterable<string>): Promise<void> {
   const temporaryPath = `${filePath}.tmp-${process.pid}-${Date.now()}`;
-  const handle = await open(temporaryPath, 'wx');
   try {
-    for (const row of rows) await handle.write(`${row}\r\n`, undefined, 'utf8');
-    await handle.sync();
-  } finally {
-    await handle.close();
-  }
-  try {
+    const handle = await open(temporaryPath, 'wx');
+    try {
+      for await (const row of rows) await handle.write(`${row}\r\n`, undefined, 'utf8');
+      await handle.sync();
+    } finally {
+      await handle.close();
+    }
     await rename(temporaryPath, filePath);
   } catch (error: unknown) {
     await rm(temporaryPath, { force: true }).catch(() => undefined);
@@ -1577,8 +1586,15 @@ function formatActivityExportRow(event: ActivityAuditEvent, detail: ActivityTarg
   const summary = event.targetSummary === undefined || event.targetSummary.trim().length === 0 ? '' : ` ${event.targetSummary}`;
   const error = event.errorMessage === undefined || event.errorMessage.trim().length === 0 ? '' : ` — ${event.errorMessage}`;
   const base = `${formatActivityExportTimestamp(event.timestamp)} ${tag} ${event.toolName}${summary}${error}${duration}`.trim();
+  if (event.targetDetail.legacyIncomplete && event.targetDetail.itemCount > event.targetDetail.preview.length) {
+    return formatIncompleteLegacyHistory(base);
+  }
   const detailExpected = event.targetDetail.detailRef !== null && event.targetDetail.itemCount > event.targetDetail.preview.length;
   return formatCompleteTargetDetail(base, detail, detailExpected);
+}
+
+export function formatIncompleteLegacyHistory(base: string): string {
+  return `${base}\r\nIncomplete legacy history: omitted target items were not retained.`;
 }
 
 export function formatCompleteTargetDetail(base: string, detail: ActivityTargetDetail | null, detailExpected = false): string {
