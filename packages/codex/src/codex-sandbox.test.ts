@@ -1,7 +1,26 @@
 import { describe, expect, it } from 'vitest';
 import { CodexInvocationBuilder, capabilitiesFromHelp } from './codex-capabilities.js';
 
-describe('Codex workspace-write sandbox capability', () => {
+describe('Codex sandbox capability', () => {
+  it('discovers read-only support and builds an explicit read-only invocation', () => {
+    const capabilities = capabilitiesFromHelp([
+      'Usage: codex exec [OPTIONS] [PROMPT]',
+      'Commands:',
+      '  exec  run a task',
+      'Options:',
+      '  --sandbox <MODE>  Sandbox policy [possible values: read-only, workspace-write]',
+    ].join('\n'));
+
+    expect(capabilities.names).toEqual(expect.arrayContaining(['exec', 'sandbox', 'read-only']));
+    expect(new CodexInvocationBuilder().build('codex.exe', capabilities, 'review project', 'read-only')).toEqual({
+      ok: true,
+      value: {
+        executable: 'codex.exe',
+        args: ['exec', '--sandbox', 'read-only', 'review project'],
+      },
+    });
+  });
+
   it('discovers --sandbox workspace-write support and builds an explicit sandboxed invocation', () => {
     const capabilities = capabilitiesFromHelp([
       'Usage: codex exec [OPTIONS] [PROMPT]',
