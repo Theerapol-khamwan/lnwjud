@@ -19,7 +19,10 @@ const { ToolRegistry } = await import(pathToFileURL(registryModulePath).href);
 const { upgradeCatalogEntry } = await import(pathToFileURL(upgradeCatalogModulePath).href);
 const { TOOL_RUNTIME_FIXTURES } = await import(pathToFileURL(runtimeFixturesModulePath).href);
 const actor = { clientId: 'catalog-generator', clientName: 'catalog-generator' };
-const codexEnabledRegistry = new ToolRegistry({}, actor, { codexToolsEnabled: true });
+// The real desktop/CLI runtimes wire AgentSwarmService whenever Codex delegation is
+// enabled. Supply a non-invoked placeholder here so generated advertised counts model
+// the production service surface instead of accidentally hiding agent_swarm_run.
+const codexEnabledRegistry = new ToolRegistry({ agentSwarm: {} }, actor, { codexToolsEnabled: true });
 const tools = codexEnabledRegistry.listAll();
 const defaultAdvertisedTools = new ToolRegistry({}, actor).list();
 const codexAdvertisedTools = codexEnabledRegistry.list();

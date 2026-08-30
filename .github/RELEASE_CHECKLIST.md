@@ -2,7 +2,7 @@
 
 Operational release sequencing is defined by [`docs/development/RELEASE_PROCESS.md`](../docs/development/RELEASE_PROCESS.md). This checklist records current-version acceptance evidence and does not override that sequence.
 
-**Current version:** `v4.31.0` - Windows installer `lnwjud-Setup-4.31.0.exe` and portable executable `lnwjud-Portable-4.31.0.exe`; MCP registry **231 total definitions / 195 advertised by default / 201 with Codex enabled**.
+**Current version:** `v4.44.0` - Windows installer `lnwjud-Setup-4.44.0.exe` and portable executable `lnwjud-Portable-4.44.0.exe`; MCP registry **231 total definitions / 195 advertised by default / 202 with Codex delegation plus Agent Swarm enabled**.
 
 Run the release verification from PowerShell at the repository root. The automated gate must fail fast on any non-zero stage and `git diff --check` must pass before packaging or publishing. Pull-request/non-main CI may pass `-SkipWindowsPackaging`; the exact `main` commit that will be tagged must run the full gate and produce the SHA-scoped release artifact.
 
@@ -23,7 +23,7 @@ For GitHub releases, the `main` CI workflow is the single authoritative build: a
 - Distribution-aware updater verification proves Installer uses `latest.yml`/Setup while Portable uses `portable.yml`/Portable, with no channel crossover. Portable replacement must wait for exit, replace the exact outer EXE path, keep rollback backup, restart after success, and restore/restart the old EXE on replacement failure.
 - Multi-workspace and multi-session Desktop MCP acceptance passes with one listener, parallel A/B flows, scoped ownership, logs, and destructive boundaries.
 - Project lifecycle tests verify archive/restore/remove semantics: archived projects leave the active MCP trust boundary, removal preserves project files/history, duplicate paths restore the existing registration, and machine-root workspaces remain protected.
-- Tool catalog synchronization passes with 231 total definitions, 195 advertised by default, and 201 advertised with the six opt-in `codex_*` delegation tools enabled. Tools/Doctor share one cached requirement snapshot, all six readiness states are covered, permission deny projects `blocked`, selected recheck updates both surfaces, and External MCP keeps unverifiable permission/readiness fields `UNKNOWN`.
+- Tool catalog synchronization passes with 231 total definitions, 195 advertised by default, and 202 advertised with the six opt-in `codex_*` delegation tools plus `agent_swarm_run` enabled. Tools/Doctor share one cached requirement snapshot, all six readiness states are covered, permission deny projects `blocked`, selected recheck updates both surfaces, and External MCP keeps unverifiable permission/readiness fields `UNKNOWN`.
 - Readiness probes remain side-effect-free: no tool invocation, project-file creation, project command, input control, or Office-document open is used to prove availability. Remediation URLs/commands/settings targets are main-process allowlisted rather than renderer-controlled.
 - Remediation acceptance proves Managed Browser can be started directly from Tools/Doctor and PDF Provider setup downloads the pinned Poppler archive, verifies SHA-256 before extraction, installs it under app data, and configures `pdftotext.exe` automatically; manual provider configuration remains supported.
 - Issue-first Doctor acceptance covers required `fail` and `unknown` startup blocking, optional failure non-blocking behavior, affected-tool listing, remediation actions, passed-check collapsing, and selected recheck recovery.

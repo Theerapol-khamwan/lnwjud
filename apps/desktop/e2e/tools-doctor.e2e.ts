@@ -29,7 +29,7 @@ test.describe('Tools catalog and Doctor real Electron acceptance', () => {
       await openTools(app.page);
       await expect(app.page.getByRole('tab', { name: /lnwjud \(231\)/ })).toBeVisible();
       await expect(app.page.locator('.tool-card')).toHaveCount(231);
-      await expect(app.page.locator('.tool-status-strip')).toContainText(/ready|needs_setup/);
+      await expect(app.page.locator('.tool-status-strip')).toContainText(/พร้อม|ต้องดำเนินการ|ready|needs_setup/i);
     } finally { await closeDesktop(app); }
   });
 
@@ -38,7 +38,7 @@ test.describe('Tools catalog and Doctor real Electron acceptance', () => {
     try {
       await openTools(app.page);
       const card = toolCard(app.page, 'lsp_diagnostics');
-      await expect(card).toContainText('needs_setup');
+      await expect(card).toHaveClass(/tool-needs_setup/);
       await card.click();
       await expect(app.page.getByRole('dialog')).toContainText('configured_lsp');
       await expect(app.page.getByRole('dialog')).toContainText(/No local language-server command|Language Server/);
@@ -49,7 +49,7 @@ test.describe('Tools catalog and Doctor real Electron acceptance', () => {
     const app = await launchDesktop();
     try {
       await openTools(app.page);
-      await expect(toolCard(app.page, 'lsp_diagnostics')).toContainText('needs_setup');
+      await expect(toolCard(app.page, 'lsp_diagnostics')).toHaveClass(/tool-needs_setup/);
       const nodePath = process.execPath;
       await app.page.evaluate(async (configuredNodePath) => {
         const dashboard = await window.lnwjud.getDashboard();
@@ -64,7 +64,7 @@ test.describe('Tools catalog and Doctor real Electron acceptance', () => {
       await expect(lspCheck).toHaveClass(/doctor-pass/);
       await expect(app.page.getByTestId('doctor-check-persistent_tunnel_identity')).toHaveCount(1);
       await openTools(app.page);
-      await expect(toolCard(app.page, 'lsp_diagnostics')).toContainText('ready');
+      await expect(toolCard(app.page, 'lsp_diagnostics')).toHaveClass(/tool-ready/);
     } finally { await closeDesktop(app); }
   });
 
@@ -75,7 +75,7 @@ test.describe('Tools catalog and Doctor real Electron acceptance', () => {
       const before = await app.page.evaluate(async () => (await window.lnwjud.getDashboard()).auditEventCount);
       await openTools(app.page);
       const card = toolCard(app.page, 'delete_file');
-      await expect(card).toContainText('blocked');
+      await expect(card).toHaveClass(/tool-blocked/);
       await card.click();
       await expect(app.page.getByRole('dialog')).toContainText('DENY');
       await app.page.getByRole('button', { name: /ปิดรายละเอียดเครื่องมือ|Close tool details/ }).click();
@@ -107,7 +107,7 @@ test.describe('Tools catalog and Doctor real Electron acceptance', () => {
       await openTools(second.page);
       await second.page.getByRole('tab', { name: /External MCP \(\d+\)/ }).click();
       const card = toolCard(second.page, '@offline-fixture');
-      await expect(card).toContainText('needs_setup');
+      await expect(card).toHaveClass(/tool-needs_setup/);
       await expect(card).toContainText('UNKNOWN');
     } finally { await closeDesktop(second); }
   });

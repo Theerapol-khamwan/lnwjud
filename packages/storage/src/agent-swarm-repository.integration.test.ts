@@ -3,7 +3,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { SqliteDatabase } from './database.js';
-import { SqliteAgentSwarmRepository } from './agent-swarm-repository.js';
+import { SqliteAgentSwarmRepository, type CreateStoredAgentSwarm } from './agent-swarm-repository.js';
 
 const temporaryRoots: string[] = [];
 
@@ -18,7 +18,7 @@ async function fixture(): Promise<{ database: SqliteDatabase; repository: Sqlite
   return { database, repository: new SqliteAgentSwarmRepository(database) };
 }
 
-function createInput(id = 'swarm-1') {
+function createInput(id = 'swarm-1'): CreateStoredAgentSwarm {
   return {
     id,
     ownerClientId: 'client-a',

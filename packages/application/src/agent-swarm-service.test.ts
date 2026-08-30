@@ -6,6 +6,7 @@ import { appError, err, ok, type InvocationAuthorization } from '@lnwjud/domain'
 import type { ManagedProcess } from '@lnwjud/process';
 import { SqliteAgentSwarmRepository, SqliteDatabase } from '@lnwjud/storage';
 import { AgentSwarmService, type AgentSwarmCodexPort } from './agent-swarm-service.js';
+import type { AgentSwarmStartRequest } from './agent-swarm-types.js';
 import type { FileActor } from './file-service.js';
 
 const temporaryRoots: string[] = [];
@@ -39,7 +40,7 @@ async function fixture(codex: AgentSwarmCodexPort): Promise<{ database: SqliteDa
   return { database, repository, service };
 }
 
-function startRequest(tasks = [{ id: 'inspect', prompt: 'Inspect the repository.' }], maxConcurrency?: number) {
+function startRequest(tasks = [{ id: 'inspect', prompt: 'Inspect the repository.' }], maxConcurrency?: number): AgentSwarmStartRequest {
   return {
     workspaceId: 'workspace-a',
     idempotencyKey: '22222222-2222-4222-8222-222222222222',
@@ -49,7 +50,7 @@ function startRequest(tasks = [{ id: 'inspect', prompt: 'Inspect the repository.
   };
 }
 
-function runningCodex() {
+function runningCodex(): { codex: AgentSwarmCodexPort; run: AgentSwarmCodexPort['run']; stop: AgentSwarmCodexPort['stop'] } {
   let sequence = 0;
   const run = vi.fn<AgentSwarmCodexPort['run']>(async (_actor, _workspaceId, _instruction, _signal, _userConfirmed, _authorization, sandboxMode) => {
     sequence += 1;

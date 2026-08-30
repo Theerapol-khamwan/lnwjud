@@ -509,12 +509,12 @@ describe('ScheduledContinuationService', () => {
   });
 
   it('samples claim time after async worker liveness so a fresh observation is never rejected as from the future', async () => {
-    let setClock: ((value: string) => void) | undefined;
+    const setClockRef: { current?: (value: string) => void } = {};
     let expectedLeaseGeneration = 0;
     let expectedLeaseActivitySeq = 0;
     const workerLiveness: ScheduledContinuationWorkerLivenessPort = {
       observe: async () => {
-        setClock?.('2026-08-27T10:25:00.010Z');
+        setClockRef.current?.('2026-08-27T10:25:00.010Z');
         return {
           trustworthy: true,
           observedAt: '2026-08-27T10:25:00.010Z',
@@ -526,7 +526,7 @@ describe('ScheduledContinuationService', () => {
       },
     };
     const { database, goals, scheduled, clock } = await fixture('2026-08-27T10:00:00.000Z', workerLiveness);
-    setClock = clock.set;
+    setClockRef.current = clock.set;
     try {
       const started = await startGoal(goals);
       expectedLeaseGeneration = started.leaseGeneration;

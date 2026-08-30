@@ -186,7 +186,7 @@ export class AgentSwarmService {
   }
 
   private async tick(swarmId: string, live: LiveSwarm, signal?: AbortSignal): Promise<void> {
-    let swarm = this.repository.getOwned(swarmId, live.actor.clientId, actorSessionId(live.actor), live.workspaceId);
+    const swarm = this.repository.getOwned(swarmId, live.actor.clientId, actorSessionId(live.actor), live.workspaceId);
     if (swarm === undefined) return;
     for (const task of swarm.tasks.filter((entry) => entry.state === 'running' && entry.codexTaskId !== undefined)) {
       const status = await this.codex.taskStatus(live.actor, swarm.workspaceId, task.codexTaskId!);
