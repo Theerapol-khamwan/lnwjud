@@ -8,7 +8,7 @@
 
 lnwjud ไม่ใช่ AI model และไม่ใช่ provider API aggregator แต่เป็น Windows-first local development gateway ที่เปิดความสามารถของเครื่องและ workspace ให้ AI host ที่พูดภาษา Model Context Protocol (MCP) ได้
 
-ความสามารถหลักใน v4.30.0 คือ:
+ความสามารถหลักใน v4.31.0 คือ:
 
 - เปิด workspace และ machine roots ให้ AI อ่าน ค้นหา วิเคราะห์ และแก้ไขไฟล์ได้
 - ใช้ Context Economy Engine ลด I/O/token จากการค้นหาอัตโนมัติ โดยยังอ่าน .env, .git, dist และ node_modules ได้เมื่อร้องขอแบบ explicit และอยู่ในขอบเขตที่ workspace/path policy อนุญาต
