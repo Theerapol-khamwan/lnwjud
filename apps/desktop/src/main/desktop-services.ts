@@ -22,7 +22,7 @@ import {
   type FileActor,
   type DoctorProbeResult,
 } from '@lnwjud/application';
-import { AuditService, type AuditEvent, type AuditEventRepository } from '@lnwjud/audit';
+import { AuditService, decodeActivityTargetReference, type ActivityAuditEvent, type AuditEvent, type AuditEventRepository } from '@lnwjud/audit';
 import { CodexDiscovery, formatCodexDiscoveryError } from '@lnwjud/codex';
 import type { Result } from '@lnwjud/domain';
 import {
@@ -36,7 +36,6 @@ import {
   ActivityTracker,
   LNWJUD_MCP_IDENTITY_PATH,
   RuntimeGoalManagedTaskStateReader,
-  composeActivitySinks,
   createFileActivitySink,
   mcpActivityLogPath,
   type ActivitySinkEvent,
@@ -337,10 +336,17 @@ export function createDesktopRuntime(dataPath: string, options: DesktopRuntimeOp
   };
   const activityLogPath = mcpActivityLogPath(dataPath);
   let activityLogDiagnostic: ((key: string, message: string) => void) | null = null;
-  const activityTracker = new ActivityTracker(composeActivitySinks([
+  const activityTracker = new ActivityTracker(
     createFileActivitySink(activityLogPath),
+    (error, event) => {
+      const message = error instanceof Error ? error.message : String(error);
+      activityLogDiagnostic?.(
+        'activity-sink:' + event.callId + ':' + event.phase + ':' + message,
+        '[ERROR] MCP activity logging failed — ' + message,
+      );
+    },
     {
-      async record(event: ActivitySinkEvent): Promise<void> {
+      async record(event: ActivitySinkEvent, detail): Promise<void> {
         await auditService.recordMcpTool({
           actorId: mcpActor.clientId,
           actorName: mcpActor.clientName,
@@ -350,6 +356,8 @@ export function createDesktopRuntime(dataPath: string, options: DesktopRuntimeOp
           callId: event.callId,
           phase: event.phase,
           ...(event.targetSummary === undefined ? {} : { targetSummary: event.targetSummary }),
+          targetDetail: event.targetDetail ?? decodeActivityTargetReference(undefined, event.targetSummary),
+          ...(detail === undefined ? {} : { activityTargetDetail: detail }),
           resultCode: event.resultCode,
           ...(event.resultMessage === undefined ? {} : { resultMessage: event.resultMessage }),
           ...(event.traceId === undefined ? {} : { traceId: event.traceId }),
@@ -360,13 +368,7 @@ export function createDesktopRuntime(dataPath: string, options: DesktopRuntimeOp
         });
       },
     },
-  ]), (error, event) => {
-    const message = error instanceof Error ? error.message : String(error);
-    activityLogDiagnostic?.(
-      'activity-sink:' + event.callId + ':' + event.phase + ':' + message,
-      '[ERROR] MCP activity logging failed — ' + message,
-    );
-  });
+  );
   const mcpPort = readMcpPort(process.env.LNWJUD_MCP_PORT ?? settingsRepository.get(USER_SETTING_KEYS.mcpHttpPort) ?? undefined);
   const mcpLifecycle = new DesktopMcpLifecycle({
     createServerOptions: (): McpHttpServerOptions => ({
@@ -776,7 +778,7 @@ export function createDesktopRuntime(dataPath: string, options: DesktopRuntimeOp
           checkpoints: unwrap(await checkpointService.list(selectedWorkspace.id), 'Checkpoints could not be listed'),
         };
       }
-      logHub.syncWorkLog(workLog, inFlight.map((item) => ({ callId: item.callId, toolName: item.toolName, targetSummary: item.targetSummary, startedAt: item.startedAt, workspaceId: item.workspaceId, sessionId: item.sessionId })));
+      logHub.syncWorkLog(workLog, inFlight.map((item) => ({ callId: item.callId, toolName: item.toolName, targetSummary: item.targetSummary, targetDetail: item.targetDetail, startedAt: item.startedAt, workspaceId: item.workspaceId, sessionId: item.sessionId })));
       logHub.syncProcesses(processSummaries.map((summary) => ({
         id: summary.id,
         workspaceId: summary.workspaceId,
@@ -980,7 +982,7 @@ export function createDesktopRuntime(dataPath: string, options: DesktopRuntimeOp
       const workLog = await buildWorkLog(auditRepository, workLogViewState);
       const inFlight = activityTracker.listInFlight().map(toInFlightItem);
       const processSummaries = await listTrackedProcesses(processService, trackedProcesses);
-      logHub.syncWorkLog(workLog, inFlight.map((item) => ({ callId: item.callId, toolName: item.toolName, targetSummary: item.targetSummary, startedAt: item.startedAt, workspaceId: item.workspaceId, sessionId: item.sessionId })));
+      logHub.syncWorkLog(workLog, inFlight.map((item) => ({ callId: item.callId, toolName: item.toolName, targetSummary: item.targetSummary, targetDetail: item.targetDetail, startedAt: item.startedAt, workspaceId: item.workspaceId, sessionId: item.sessionId })));
       logHub.syncProcesses(processSummaries.map((summary) => ({
         id: summary.id,
         workspaceId: summary.workspaceId,
@@ -1244,22 +1246,20 @@ async function buildWorkLog(
 ): Promise<readonly WorkLogEntry[]> {
   const events = await listVisibleMcpEvents(repository, viewState, 500);
   return events.map((event) => {
-    const toolName = typeof event.metadata.toolName === 'string' ? event.metadata.toolName : event.action.replace(/^mcp_tool:/, '');
-    const phase = event.metadata.phase === 'started' ? 'started' : 'completed';
-    const kind = classifyMcpWorkLogKind(toolName, phase, event.resultCode);
-    const callId = typeof event.metadata.callId === 'string' ? event.metadata.callId : undefined;
+    const kind = classifyMcpWorkLogKind(event.toolName, event.phase, event.resultCode);
     return {
       id: event.id,
       timestamp: event.timestamp,
       kind,
-      toolName,
+      toolName: event.toolName,
       resultCode: event.resultCode,
-      errorMessage: typeof event.metadata.errorMessage === 'string' ? event.metadata.errorMessage : null,
+      errorMessage: event.errorMessage ?? null,
       targetSummary: event.targetSummary ?? null,
+      targetDetail: event.targetDetail,
       durationMs: event.durationMs,
       workspaceId: event.workspaceId ?? null,
       sessionId: event.sessionId ?? null,
-      ...(callId === undefined ? {} : { callId }),
+      ...(event.callId === undefined ? {} : { callId: event.callId }),
     } satisfies WorkLogEntry;
   });
 }
@@ -1268,8 +1268,8 @@ async function listVisibleMcpEvents(
   repository: AuditEventRepository,
   viewState: WorkLogViewState,
   limit: number,
-): Promise<readonly AuditEvent[]> {
-  const events = await repository.listScoped({ actionPrefix: 'mcp_tool:' }, 500);
+): Promise<readonly ActivityAuditEvent[]> {
+  const events = await repository.listActivityScoped({ actionPrefix: 'mcp_tool:' }, 500);
   return events.filter((event) => viewState.isVisible(event)).slice(0, limit);
 }
 
@@ -1284,12 +1284,13 @@ async function listVisibleAuditEvents(
   return events.filter((event) => event.timestamp > clearedAt);
 }
 
-function toInFlightItem(entry: { callId: string; toolName: string; startedAt: string; targetSummary?: string; workspaceId?: string; sessionId?: string }): InFlightWorkItem {
+function toInFlightItem(entry: { callId: string; toolName: string; startedAt: string; targetSummary?: string; targetDetail: InFlightWorkItem['targetDetail']; workspaceId?: string; sessionId?: string }): InFlightWorkItem {
   return {
     callId: entry.callId,
     toolName: entry.toolName,
     startedAt: entry.startedAt,
     targetSummary: entry.targetSummary ?? null,
+    targetDetail: entry.targetDetail,
     workspaceId: entry.workspaceId ?? null,
     sessionId: entry.sessionId ?? null,
   };

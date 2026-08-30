@@ -257,6 +257,13 @@ export interface CapabilitySummary {
   readonly ready: boolean;
 }
 
+export interface ActivityTargetReference {
+  readonly detailRef: string | null;
+  readonly itemCount: number;
+  readonly preview: readonly string[];
+  readonly legacyIncomplete: boolean;
+}
+
 export interface WorkLogEntry {
   readonly id: string;
   readonly timestamp: string;
@@ -265,6 +272,7 @@ export interface WorkLogEntry {
   readonly resultCode: string;
   readonly errorMessage: string | null;
   readonly targetSummary: string | null;
+  readonly targetDetail: ActivityTargetReference;
   readonly durationMs: number;
   readonly workspaceId: string | null;
   readonly sessionId: string | null;
@@ -276,6 +284,7 @@ export interface InFlightWorkItem {
   readonly toolName: string;
   readonly startedAt: string;
   readonly targetSummary: string | null;
+  readonly targetDetail: ActivityTargetReference;
   readonly workspaceId: string | null;
   readonly sessionId: string | null;
 }
@@ -333,6 +342,7 @@ export interface LogLine {
   readonly timestamp: string;
   readonly level: LogLevel;
   readonly text: string;
+  readonly targetDetail?: ActivityTargetReference;
   readonly workspaceId: string | null;
   readonly sessionId: string | null;
   readonly correlation?: LogCorrelation;

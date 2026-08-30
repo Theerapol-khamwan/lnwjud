@@ -147,6 +147,7 @@ function workLogEntries(value: unknown): readonly WorkLogEntry[] {
       resultCode: stringField(entry, 'resultCode'),
       errorMessage: nullableString(entry.errorMessage),
       targetSummary: nullableString(entry.targetSummary),
+      targetDetail: activityTargetReference(entry.targetDetail, nullableString(entry.targetSummary)),
       durationMs: numberField(entry, 'durationMs'),
       workspaceId: nullableString(entry.workspaceId),
       sessionId: nullableString(entry.sessionId),
@@ -163,6 +164,7 @@ function inFlightItems(value: unknown): readonly InFlightWorkItem[] {
       toolName: stringField(entry, 'toolName'),
       startedAt: stringField(entry, 'startedAt'),
       targetSummary: nullableString(entry.targetSummary),
+      targetDetail: activityTargetReference(entry.targetDetail, nullableString(entry.targetSummary)),
       workspaceId: nullableString(entry.workspaceId),
       sessionId: nullableString(entry.sessionId),
     };
@@ -523,6 +525,24 @@ function toolCatalogSnapshot(value: unknown): ToolCatalogSnapshot {
   const items = value.items.map(toolCatalogItem);
   const remediations = value.remediations.map(resolvedRemediation);
   return { generatedAt: stringField(value, 'generatedAt'), locale, items, remediations };
+}
+
+function activityTargetReference(value: unknown, legacySummary: string | null): WorkLogEntry['targetDetail'] {
+  if (isRecord(value)) {
+    const detailRef = value.detailRef === null ? null : typeof value.detailRef === 'string' ? value.detailRef : null;
+    return {
+      detailRef,
+      itemCount: typeof value.itemCount === 'number' && Number.isInteger(value.itemCount) && value.itemCount >= 0 ? Math.min(value.itemCount, 500) : 0,
+      preview: Array.isArray(value.preview) ? value.preview.filter((item): item is string => typeof item === 'string').slice(0, 3).map((item) => item.slice(0, 256)) : [],
+      legacyIncomplete: value.legacyIncomplete === true,
+    };
+  }
+  if (legacySummary === null || legacySummary.length === 0) return { detailRef: null, itemCount: 0, preview: [], legacyIncomplete: true };
+  const marker = /\s*\(\+(\d+)\)\s*$/.exec(legacySummary);
+  const base = marker === null ? legacySummary : legacySummary.slice(0, marker.index);
+  const baseItems = base.split(base.includes(' + ') ? /\s+\+\s+/ : /\s*,\s*/).filter(Boolean);
+  const preview = baseItems.slice(0, 3).map((item) => item.slice(0, 256));
+  return { detailRef: null, itemCount: Math.min(baseItems.length + (marker === null ? 0 : Number.parseInt(marker[1] ?? '0', 10)), 500), preview, legacyIncomplete: true };
 }
 
 function toolCatalogItem(value: unknown): ToolCatalogItem {
@@ -895,6 +915,7 @@ function logLine(value: unknown): LogLine {
     timestamp: stringField(value, 'timestamp'),
     level: value.level,
     text: stringField(value, 'text'),
+    ...(value.targetDetail === undefined ? {} : { targetDetail: activityTargetReference(value.targetDetail, stringField(value, 'text')) }),
     workspaceId: nullableString(value.workspaceId),
     sessionId: nullableString(value.sessionId),
     ...(correlation === undefined ? {} : { correlation }),

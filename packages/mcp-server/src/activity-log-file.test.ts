@@ -67,4 +67,23 @@ describe('mcp activity log file', () => {
     })).rejects.toThrow('file sink unavailable');
     expect(recorded).toHaveLength(1);
   });
+
+  it('serializes only the compact target reference even if a started event carries full detail', () => {
+    const raw = formatActivityLogLine({
+      callId: 'call-files',
+      toolName: 'read_files',
+      phase: 'started',
+      resultCode: 'STARTED',
+      durationMs: 0,
+      timestamp: '2026-08-30T00:00:00.000Z',
+      targetSummary: 'a.ts, b.ts, c.ts',
+      targetDetail: { detailRef: 'call-files', itemCount: 7, preview: ['a.ts', 'b.ts', 'c.ts'], legacyIncomplete: false },
+      detail: { kind: 'files', items: ['a.ts', 'b.ts', 'c.ts', 'd.ts', 'e.ts', 'f.ts', 'api_key=super-secret'] },
+    } as ActivitySinkEvent & { readonly detail: { readonly kind: 'files'; readonly items: readonly string[] } });
+    const parsed = JSON.parse(raw) as Record<string, unknown>;
+    expect(parsed.targetDetail).toEqual({ detailRef: 'call-files', itemCount: 7, preview: ['a.ts', 'b.ts', 'c.ts'], legacyIncomplete: false });
+    expect(parsed).not.toHaveProperty('detail');
+    expect(raw).not.toContain('super-secret');
+    expect(raw).not.toContain('(+');
+  });
 });

@@ -9,6 +9,7 @@
   },
   "references": [
     { "path": "../application" },
+    { "path": "../audit" },
     { "path": "../capabilities" },
     { "path": "../domain" },
     { "path": "../extensions" },

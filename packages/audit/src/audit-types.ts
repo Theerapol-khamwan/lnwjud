@@ -1,3 +1,16 @@
+export type ActivityTargetDetail =
+  | { readonly kind: 'files'; readonly items: readonly string[] }
+  | { readonly kind: 'tools'; readonly items: readonly string[] };
+
+export interface ActivityTargetReference {
+  /** Immutable started-event/call identifier used for lazy detail resolution. */
+  readonly detailRef: string | null;
+  readonly itemCount: number;
+  readonly preview: readonly string[];
+  /** True when an older record contains only a summary and cannot be losslessly expanded. */
+  readonly legacyIncomplete: boolean;
+}
+
 export interface AuditEventInput {
   readonly timestamp?: string;
   readonly actorId: string;
@@ -35,11 +48,31 @@ export interface AuditEventQuery {
   readonly sessionId?: string | null;
 }
 
+/** Compact row projection for activity feeds. It never contains metadata_json. */
+export interface ActivityAuditEvent {
+  readonly id: string;
+  readonly timestamp: string;
+  readonly workspaceId?: string;
+  readonly sessionId?: string;
+  readonly action: string;
+  readonly targetSummary?: string;
+  readonly resultCode: string;
+  readonly durationMs: number;
+  readonly toolName: string;
+  readonly callId?: string;
+  readonly phase: 'started' | 'completed';
+  readonly errorMessage?: string;
+  readonly targetDetail: ActivityTargetReference;
+}
+
 export interface AuditEventRepository {
   insert(event: AuditEvent): Promise<void>;
   list(limit?: number): Promise<AuditEvent[]>;
   listByActionPrefix(prefix: string, limit?: number): Promise<AuditEvent[]>;
   listScoped(query: AuditEventQuery, limit?: number): Promise<AuditEvent[]>;
+  listActivityScoped(query: AuditEventQuery, limit?: number): Promise<ActivityAuditEvent[]>;
+  /** Resolves at most one started-event detail by exact event ID or call ID. */
+  resolveActivityTargetDetail(idOrCallId: string): Promise<ActivityTargetDetail | null>;
 }
 
 export interface CodexRunAuditInput {
@@ -63,6 +96,9 @@ export interface McpToolAuditInput {
   readonly callId: string;
   readonly phase: 'started' | 'completed';
   readonly targetSummary?: string;
+  readonly targetDetail: ActivityTargetReference;
+  /** Full sanitized detail is accepted only for a started event. */
+  readonly activityTargetDetail?: ActivityTargetDetail;
   readonly resultCode: string;
   readonly resultMessage?: string;
   readonly durationMs: number;

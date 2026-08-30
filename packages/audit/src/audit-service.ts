@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { codexInstructionSummary, Redactor } from './redactor.js';
+import { codexInstructionSummary, decodeActivityTargetReference, redactActivityTargetDetail, Redactor } from './redactor.js';
 import type {
   AuditEvent,
   AuditEventInput,
@@ -23,7 +23,7 @@ export class AuditService {
       ...(input.workspaceId === undefined ? {} : { workspaceId: input.workspaceId }),
       ...(input.sessionId === undefined ? {} : { sessionId: input.sessionId }),
       action: input.action,
-      ...(input.targetSummary === undefined ? {} : { targetSummary: input.targetSummary }),
+      ...(input.targetSummary === undefined ? {} : { targetSummary: this.redactor.redactText(input.targetSummary) }),
       ...(input.permissionDecision === undefined ? {} : { permissionDecision: input.permissionDecision }),
       resultCode: input.resultCode,
       durationMs: input.durationMs,
@@ -60,6 +60,10 @@ export class AuditService {
         toolName: input.toolName,
         callId: input.callId,
         phase: input.phase,
+        targetDetail: decodeActivityTargetReference(input.targetDetail, input.targetSummary),
+        ...(input.phase !== 'started' || input.activityTargetDetail === undefined
+          ? {}
+          : { activityTargetDetail: redactActivityTargetDetail(input.activityTargetDetail, this.redactor) }),
         ...(input.resultMessage === undefined ? {} : { errorMessage: input.resultMessage }),
         ...(input.traceId === undefined ? {} : { traceId: input.traceId }),
         ...(input.traceParent === undefined ? {} : { traceParent: input.traceParent }),

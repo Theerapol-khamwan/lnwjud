@@ -1,5 +1,6 @@
 import { mkdir, appendFile } from 'node:fs/promises';
 import path from 'node:path';
+import { decodeActivityTargetReference, Redactor } from '@lnwjud/audit';
 import type { ActivitySink, ActivitySinkEvent } from './activity-tracker.js';
 
 export function mcpActivityLogPath(dataPath: string): string {
@@ -7,6 +8,7 @@ export function mcpActivityLogPath(dataPath: string): string {
 }
 
 export function formatActivityLogLine(event: ActivitySinkEvent): string {
+  const redactor = new Redactor();
   return `${JSON.stringify({
     callId: event.callId,
     toolName: event.toolName,
@@ -16,8 +18,9 @@ export function formatActivityLogLine(event: ActivitySinkEvent): string {
     timestamp: event.timestamp,
     ...(event.workspaceId === undefined ? {} : { workspaceId: event.workspaceId }),
     ...(event.sessionId === undefined ? {} : { sessionId: event.sessionId }),
-    ...(event.targetSummary === undefined ? {} : { targetSummary: event.targetSummary }),
-    ...(event.resultMessage === undefined ? {} : { resultMessage: event.resultMessage }),
+    ...(event.targetSummary === undefined ? {} : { targetSummary: redactor.redactText(event.targetSummary) }),
+    targetDetail: decodeActivityTargetReference(event.targetDetail, event.targetSummary),
+    ...(event.resultMessage === undefined ? {} : { resultMessage: redactor.redactText(event.resultMessage) }),
     ...(event.traceId === undefined ? {} : { traceId: event.traceId }),
     ...(event.traceParent === undefined ? {} : { traceParent: event.traceParent }),
   })}\n`;

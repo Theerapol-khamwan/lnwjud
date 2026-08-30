@@ -2,6 +2,7 @@ import { closeSync, existsSync, openSync, readSync, statSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import { StringDecoder } from 'node:string_decoder';
 import type { AppErrorCode } from '@lnwjud/domain';
+import { decodeActivityTargetReference, type ActivityTargetReference } from '@lnwjud/audit';
 import { workspaceScopeMatches, type LogCorrelation, type LogLevel, type LogLine, type LogScopeRequest, type LogSnapshot, type LogSource, type TunnelLifecycleCategory, type WorkspaceSummary } from '@lnwjud/ipc-contracts';
 
 const MAX_LINES_PER_SOURCE = 10_000;
@@ -71,13 +72,13 @@ export class LogHub {
     this.closeFd(this.mcpFile);
   }
 
-  public feed(source: LogSource, level: LogLevel, text: string, correlation?: LogCorrelation, timestamp?: string, scope?: LogScope): void {
+  public feed(source: LogSource, level: LogLevel, text: string, correlation?: LogCorrelation, timestamp?: string, scope?: LogScope, targetDetail?: ActivityTargetReference): void {
     const trimmed = text.replace(/\r?\n$/, '');
     if (trimmed.length === 0) return;
     const normalizedCorrelation = source === 'tunnel'
       ? tunnelCorrelation(trimmed, correlation)
       : correlation;
-    this.append(source, { level, text: trimmed, ...(normalizedCorrelation === undefined ? {} : { correlation: normalizedCorrelation }), ...(timestamp === undefined ? {} : { timestamp }), ...(scope?.workspaceId === undefined ? {} : { workspaceId: scope.workspaceId }), ...(scope?.sessionId === undefined ? {} : { sessionId: scope.sessionId }) });
+    this.append(source, { level, text: trimmed, ...(normalizedCorrelation === undefined ? {} : { correlation: normalizedCorrelation }), ...(timestamp === undefined ? {} : { timestamp }), ...(scope?.workspaceId === undefined ? {} : { workspaceId: scope.workspaceId }), ...(scope?.sessionId === undefined ? {} : { sessionId: scope.sessionId }), ...(targetDetail === undefined ? {} : { targetDetail }) });
   }
 
   public feedIfNew(source: LogSource, key: string, level: LogLevel, text: string, correlation?: LogCorrelation, timestamp?: string, scope?: LogScope): void {
@@ -113,6 +114,7 @@ export class LogHub {
           { kind: 'mcp', phase: 'started', callId: entry.callId, toolName: entry.toolName, resultCode: null },
           entry.startedAt,
           { workspaceId: entry.workspaceId, sessionId: entry.sessionId },
+          entry.targetDetail,
         );
         continue;
       }
@@ -125,6 +127,7 @@ export class LogHub {
         { kind: 'mcp', phase: event.phase, callId: entry.callId ?? entry.id, toolName: entry.toolName, resultCode: event.phase === 'started' ? null : normalizeMcpResultCode(entry.resultCode) },
         entry.timestamp,
         { workspaceId: entry.workspaceId, sessionId: entry.sessionId },
+        entry.targetDetail,
       );
     }
   }
@@ -171,6 +174,7 @@ export class LogHub {
     correlation: McpLogCorrelation,
     timestamp?: string,
     scope?: LogScope,
+    targetDetail?: ActivityTargetReference,
   ): void {
     const scopeIdentity = `${scope?.sessionId ?? ''}\0${scope?.workspaceId ?? ''}`;
     const baseDeliveryIdentity = deliverySource === 'work-log' ? deliveryIdentity : `${correlation.callId}\0${deliveryIdentity}`;
@@ -191,10 +195,10 @@ export class LogHub {
       if (oldest === undefined) break;
       this.mcpOccurrences.delete(oldest);
     }
-    if (shouldAppend) this.feed('mcp', level, text, correlation, timestamp, scope);
+    if (shouldAppend) this.feed('mcp', level, text, correlation, timestamp, scope, targetDetail);
   }
 
-  private append(source: LogSource, entry: { readonly level: LogLevel; readonly text: string; readonly workspaceId?: string | null; readonly sessionId?: string | null; readonly correlation?: LogCorrelation; readonly timestamp?: string }): void {
+  private append(source: LogSource, entry: { readonly level: LogLevel; readonly text: string; readonly workspaceId?: string | null; readonly sessionId?: string | null; readonly correlation?: LogCorrelation; readonly timestamp?: string; readonly targetDetail?: ActivityTargetReference }): void {
     const line: LogLine = {
       id: this.nextId,
       source,
@@ -204,6 +208,7 @@ export class LogHub {
       workspaceId: entry.workspaceId ?? null,
       sessionId: entry.sessionId ?? null,
       ...(entry.correlation === undefined ? {} : { correlation: entry.correlation }),
+      ...(entry.targetDetail === undefined ? {} : { targetDetail: entry.targetDetail }),
     };
     this.nextId += 1;
     const buffer = this.lines.get(source) ?? [];
@@ -226,7 +231,7 @@ export class LogHub {
     this.tailPath(activityPath, this.mcpFile, 'mcp', (raw) => {
       const parsed = parseMcpActivityLine(raw);
       if (parsed === null) return;
-      this.feedMcpLifecycle('activity-file', parsed.key, parsed.level, parsed.text, parsed.correlation, parsed.timestamp, { workspaceId: parsed.workspaceId, sessionId: parsed.sessionId });
+      this.feedMcpLifecycle('activity-file', parsed.key, parsed.level, parsed.text, parsed.correlation, parsed.timestamp, { workspaceId: parsed.workspaceId, sessionId: parsed.sessionId }, parsed.targetDetail);
     });
   }
 
@@ -297,6 +302,7 @@ export interface WorkLogFeedEntry {
   readonly resultCode: string;
   readonly errorMessage?: string | null;
   readonly targetSummary: string | null;
+  readonly targetDetail?: ActivityTargetReference;
   readonly workspaceId: string | null;
   readonly sessionId: string | null;
   readonly callId?: string;
@@ -306,6 +312,7 @@ export interface InFlightFeedEntry {
   readonly callId: string;
   readonly toolName: string;
   readonly targetSummary: string | null;
+  readonly targetDetail?: ActivityTargetReference;
   readonly startedAt: string;
   readonly workspaceId: string | null;
   readonly sessionId: string | null;
@@ -381,7 +388,7 @@ function parseTunnelLine(raw: string): { readonly level: LogLevel; readonly text
   };
 }
 
-function parseMcpActivityLine(raw: string): { readonly key: string; readonly level: LogLevel; readonly text: string; readonly workspaceId: string | null; readonly sessionId: string | null; readonly timestamp?: string; readonly correlation: McpLogCorrelation } | null {
+function parseMcpActivityLine(raw: string): { readonly key: string; readonly level: LogLevel; readonly text: string; readonly workspaceId: string | null; readonly sessionId: string | null; readonly timestamp?: string; readonly correlation: McpLogCorrelation; readonly targetDetail: ActivityTargetReference } | null {
   const json = tryParseJson(raw);
   if (json === null || typeof json !== 'object') return null;
   const record = json as Record<string, unknown>;
@@ -390,6 +397,7 @@ function parseMcpActivityLine(raw: string): { readonly key: string; readonly lev
   const phase = record.phase === 'completed' ? 'completed' : 'started';
   const resultCode = typeof record.resultCode === 'string' ? record.resultCode : phase === 'started' ? 'STARTED' : 'UNKNOWN';
   const targetSummary = typeof record.targetSummary === 'string' ? record.targetSummary : null;
+  const targetDetail = decodeActivityTargetReference(record.targetDetail, targetSummary ?? undefined);
   const resultMessage = typeof record.resultMessage === 'string' ? record.resultMessage : null;
   const workspaceId = boundedScopeValue(record.workspaceId);
   const sessionId = boundedScopeValue(record.sessionId);
@@ -412,6 +420,7 @@ function parseMcpActivityLine(raw: string): { readonly key: string; readonly lev
     workspaceId,
     sessionId,
     correlation: { kind: 'mcp', phase, callId, toolName, resultCode: phase === 'started' ? null : normalizeMcpResultCode(resultCode) },
+    targetDetail,
     ...(timestamp === undefined ? {} : { timestamp }),
   };
 }

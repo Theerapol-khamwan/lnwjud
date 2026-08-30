@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { AuditService, type AuditEvent, type AuditEventQuery, type AuditEventRepository } from './audit-service.js';
+import { AuditService, type ActivityAuditEvent, type ActivityTargetDetail, type AuditEvent, type AuditEventQuery, type AuditEventRepository } from './audit-service.js';
 
 class MemoryAuditRepository implements AuditEventRepository {
   public readonly events: AuditEvent[] = [];
@@ -23,6 +23,14 @@ class MemoryAuditRepository implements AuditEventRepository {
       if (query.sessionId !== undefined && (event.sessionId ?? null) !== query.sessionId) return false;
       return true;
     }).reverse().slice(0, limit);
+  }
+
+  public async listActivityScoped(): Promise<ActivityAuditEvent[]> {
+    return [];
+  }
+
+  public async resolveActivityTargetDetail(): Promise<ActivityTargetDetail | null> {
+    return null;
   }
 }
 
@@ -72,6 +80,7 @@ describe('AuditService', () => {
       callId: 'call-1',
       phase: 'completed',
       targetSummary: 'src\\app.ts',
+      targetDetail: { detailRef: null, itemCount: 1, preview: ['src\\app.ts'], legacyIncomplete: false },
       resultCode: 'FILE_NOT_FOUND',
       resultMessage: 'File or directory was not found',
       durationMs: 8,

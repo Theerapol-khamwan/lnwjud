@@ -10,6 +10,7 @@ const mockInFlight: InFlightWorkItem[] = [
     toolName: 'shell',
     startedAt: '2026-08-19T14:00:00.000Z',
     targetSummary: 'npm test',
+    targetDetail: { detailRef: null, itemCount: 1, preview: ['npm test'], legacyIncomplete: false },
     workspaceId: 'workspace-1',
     sessionId: 'session-a',
   },
@@ -24,6 +25,7 @@ const mockEntries: WorkLogEntry[] = [
     resultCode: 'SUCCESS',
     errorMessage: null,
     targetSummary: 'python -c "print(1)"',
+    targetDetail: { detailRef: null, itemCount: 1, preview: ['python -c "print(1)"'], legacyIncomplete: false },
     durationMs: 71,
     workspaceId: 'workspace-1',
     sessionId: 'session-a',
@@ -36,6 +38,7 @@ const mockEntries: WorkLogEntry[] = [
     resultCode: 'PERMISSION_REQUIRED',
     errorMessage: 'Destructive operation requires explicit user confirmation',
     targetSummary: 'powershell -NoProfile -Command Remove-Item test',
+    targetDetail: { detailRef: null, itemCount: 1, preview: ['powershell -NoProfile -Command Remove-Item test'], legacyIncomplete: false },
     durationMs: 12,
     workspaceId: 'workspace-1',
     sessionId: 'session-a',
@@ -43,6 +46,29 @@ const mockEntries: WorkLogEntry[] = [
 ];
 
 describe('WorkLogPanel', () => {
+  it('keeps a 500-row dashboard snapshot compact when every call has 500 maximum-length targets', () => {
+    const maximumLengthPath = `E:\\${'x'.repeat(4_093)}`;
+    const boundedPreview = maximumLengthPath.slice(0, 256);
+    const rows: WorkLogEntry[] = Array.from({ length: 500 }, (_, index) => ({
+      id: `entry-${index}`,
+      timestamp: `2026-08-30T00:${String(Math.floor(index / 60)).padStart(2, '0')}:${String(index % 60).padStart(2, '0')}.000Z`,
+      kind: 'result',
+      toolName: 'read_files',
+      resultCode: 'SUCCESS',
+      errorMessage: null,
+      targetSummary: maximumLengthPath,
+      targetDetail: { detailRef: `call-${index}`, itemCount: 500, preview: [boundedPreview, boundedPreview, boundedPreview], legacyIncomplete: false },
+      durationMs: 1,
+      workspaceId: 'workspace-1',
+      sessionId: 'session-a',
+    }));
+    const snapshot = JSON.stringify(rows);
+    expect(rows).toHaveLength(500);
+    expect(snapshot.match(/"itemCount":500/g)).toHaveLength(500);
+    expect(snapshot).not.toContain('"items"');
+    expect(snapshot.length).toBeLessThan(3_000_000);
+  });
+
   it('renders entries and inFlight items with structured details and duration', () => {
     const markup = renderToStaticMarkup(createElement(WorkLogPanel, {
       title: 'บันทึกการทำงาน',

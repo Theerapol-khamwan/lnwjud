@@ -267,6 +267,9 @@ importers:
       '@lnwjud/application':
         specifier: workspace:*
         version: link:../application
+      '@lnwjud/audit':
+        specifier: workspace:*
+        version: link:../audit
       '@lnwjud/capabilities':
         specifier: workspace:*
         version: link:../capabilities

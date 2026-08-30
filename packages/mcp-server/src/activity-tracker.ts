@@ -1,4 +1,11 @@
 import { randomUUID } from 'node:crypto';
+import {
+  activityTargetReference,
+  redactActivityTargetDetail,
+  Redactor,
+  type ActivityTargetDetail,
+  type ActivityTargetReference,
+} from '@lnwjud/audit';
 
 export interface ActivitySinkEvent {
   readonly callId: string;
@@ -9,6 +16,7 @@ export interface ActivitySinkEvent {
   readonly workspaceId?: string;
   readonly sessionId?: string;
   readonly targetSummary?: string;
+  readonly targetDetail?: ActivityTargetReference;
   readonly resultMessage?: string;
   readonly timestamp: string;
   readonly traceId?: string;
@@ -26,6 +34,10 @@ export interface ActivitySink {
   record(event: ActivitySinkEvent): Promise<void>;
 }
 
+export interface ActivityAuditSink {
+  record(event: ActivitySinkEvent, detail?: ActivityTargetDetail): Promise<void>;
+}
+
 export type ActivityRecordErrorHandler = (error: unknown, event: ActivitySinkEvent) => void;
 
 export interface InFlightToolCall {
@@ -35,6 +47,7 @@ export interface InFlightToolCall {
   readonly workspaceId?: string;
   readonly sessionId?: string;
   readonly targetSummary?: string;
+  readonly targetDetail: ActivityTargetReference;
   readonly traceId?: string;
   readonly traceParent?: string;
   readonly authorizationMode?: 'standard' | 'full_bypass';
@@ -47,6 +60,7 @@ export class ActivityTracker {
   public constructor(
     private readonly sink?: ActivitySink,
     private readonly onRecordError?: ActivityRecordErrorHandler,
+    private readonly auditSink?: ActivityAuditSink,
   ) {}
 
   public listInFlight(): readonly InFlightToolCall[] {
@@ -66,7 +80,9 @@ export class ActivityTracker {
     const callId = randomUUID();
     const timestamp = new Date().toISOString();
     const workspaceId = readWorkspaceId(input);
-    const targetSummary = summarizeToolTarget(toolName, input);
+    const describedTarget = describeToolTarget(toolName, input);
+    const targetSummary = describedTarget.summary;
+    const targetDetail = activityTargetReference(callId, describedTarget.detail, targetSummary);
     const trace = traceContext ?? readTraceContext(input);
     const entry: InFlightToolCall = {
       callId,
@@ -75,6 +91,7 @@ export class ActivityTracker {
       ...(workspaceId === undefined ? {} : { workspaceId }),
       ...(trace.sessionId === undefined ? {} : { sessionId: trace.sessionId }),
       ...(targetSummary === undefined ? {} : { targetSummary }),
+      targetDetail,
       ...(trace.traceId === undefined ? {} : { traceId: trace.traceId }),
       ...(trace.traceParent === undefined ? {} : { traceParent: trace.traceParent }),
       ...(authorizationMode === undefined ? {} : { authorizationMode }),
@@ -91,10 +108,11 @@ export class ActivityTracker {
       ...(workspaceId === undefined ? {} : { workspaceId }),
       ...(trace.sessionId === undefined ? {} : { sessionId: trace.sessionId }),
       ...(targetSummary === undefined ? {} : { targetSummary }),
+      targetDetail,
       ...(trace.traceId === undefined ? {} : { traceId: trace.traceId }),
       ...(trace.traceParent === undefined ? {} : { traceParent: trace.traceParent }),
       ...(authorizationMode === undefined ? {} : { authorizationMode }),
-    });
+    }, describedTarget.detail);
     return callId;
   }
 
@@ -128,6 +146,7 @@ export class ActivityTracker {
       ...(existing?.workspaceId === undefined ? {} : { workspaceId: existing.workspaceId }),
       ...(existing?.sessionId === undefined ? {} : { sessionId: existing.sessionId }),
       ...(existing?.targetSummary === undefined ? {} : { targetSummary: existing.targetSummary }),
+      targetDetail: existing?.targetDetail ?? activityTargetReference(null, undefined, undefined),
       ...(existing?.traceId === undefined ? {} : { traceId: existing.traceId }),
       ...(existing?.traceParent === undefined ? {} : { traceParent: existing.traceParent }),
       ...(existing?.authorizationMode === undefined ? {} : { authorizationMode: existing.authorizationMode }),
@@ -135,22 +154,49 @@ export class ActivityTracker {
     });
   }
 
-  private async safeRecord(event: ActivitySinkEvent): Promise<void> {
-    if (this.sink === undefined) return;
-    try {
-      await this.sink.record(event);
-    } catch (error: unknown) {
-      // Activity recording must never fail tool execution, but failures must remain observable.
+  private async safeRecord(event: ActivitySinkEvent, detail?: ActivityTargetDetail): Promise<void> {
+    const compactRecord = this.sink === undefined ? undefined : (): Promise<void> => this.sink!.record(event);
+    const auditRecord = this.auditSink === undefined ? undefined : (): Promise<void> => this.auditSink!.record(event, detail);
+    // Publish starts promptly, but do not publish completion/idle until durable audit evidence exists.
+    const records = event.phase === 'started' ? [compactRecord, auditRecord] : [auditRecord, compactRecord];
+    for (const record of records) {
+      if (record === undefined) continue;
       try {
-        this.onRecordError?.(error, event);
-      } catch {
-        // Diagnostics must not fail tool execution either.
+        await record();
+      } catch (error: unknown) {
+      // Activity recording must never fail tool execution, but failures must remain observable.
+        try {
+          this.onRecordError?.(error, event);
+        } catch {
+          // Diagnostics must not fail tool execution either.
+        }
       }
     }
   }
 }
 
+export interface DescribedToolTarget {
+  readonly summary?: string;
+  readonly detail?: ActivityTargetDetail;
+}
+
+export function describeToolTarget(toolName: string, input: unknown): DescribedToolTarget {
+  if (isRecord(input)) {
+    const detail = collectionTargetDetail(input);
+    if (detail !== undefined) {
+      const separator = detail.kind === 'files' ? ', ' : ' + ';
+      return { summary: summarizeForLog(detail.items.slice(0, 3).join(separator)), detail };
+    }
+  }
+  const summary = summarizeToolTargetWithoutDetail(toolName, input);
+  return summary === undefined ? {} : { summary };
+}
+
 export function summarizeToolTarget(toolName: string, input: unknown): string | undefined {
+  return describeToolTarget(toolName, input).summary;
+}
+
+function summarizeToolTargetWithoutDetail(toolName: string, input: unknown): string | undefined {
   if (!isRecord(input)) return humanizeToolName(toolName);
 
   const goalTarget = goalActivitySummary(toolName, input);
@@ -162,9 +208,6 @@ export function summarizeToolTarget(toolName: string, input: unknown): string | 
   const sourcePath = firstString(input, ['sourcePath']);
   const destinationPath = firstString(input, ['destinationPath']);
   if (sourcePath !== undefined && destinationPath !== undefined) return summarizeForLog(`${sourcePath} → ${destinationPath}`);
-
-  const pathCollection = pathCollectionSummary(input);
-  if (pathCollection !== undefined) return pathCollection;
 
   const url = firstString(input, ['url']);
   if (url !== undefined) {
@@ -191,14 +234,39 @@ export function summarizeToolTarget(toolName: string, input: unknown): string | 
   const identifier = identifierSummary(input);
   if (identifier !== undefined) return summarizeForLog(identifier);
 
-  const batch = batchSummary(input);
-  if (batch !== undefined) return batch;
-
   const skillId = firstString(input, ['skillId', 'serverId', 'name']);
   if (skillId !== undefined) return summarizeForLog(skillId);
 
   const generic = genericPrimitiveSummary(input);
   return defaultToolSummary(toolName) ?? generic ?? humanizeToolName(toolName);
+}
+
+function collectionTargetDetail(input: Readonly<Record<string, unknown>>): ActivityTargetDetail | undefined {
+  if (Array.isArray(input.files)) {
+    const items = input.files
+      .map((entry) => typeof entry === 'string' ? entry : isRecord(entry) ? firstString(entry, ['path', 'filePath']) : undefined)
+      .filter((value): value is string => value !== undefined);
+    if (items.length > 0) return redactActivityTargetDetail({ kind: 'files', items }, new Redactor());
+  }
+  const items: string[] = [];
+  if (Array.isArray(input.calls)) {
+    for (const entry of input.calls) {
+      if (!isRecord(entry)) continue;
+      const tool = firstString(entry, ['tool']);
+      if (tool !== undefined) items.push(tool);
+    }
+  }
+  if (Array.isArray(input.groups)) {
+    for (const group of input.groups) {
+      if (!isRecord(group) || !Array.isArray(group.calls)) continue;
+      for (const entry of group.calls) {
+        if (!isRecord(entry)) continue;
+        const tool = firstString(entry, ['tool']);
+        if (tool !== undefined) items.push(tool);
+      }
+    }
+  }
+  return items.length === 0 ? undefined : redactActivityTargetDetail({ kind: 'tools', items }, new Redactor());
 }
 
 export function summarizeStructuredResultTarget(value: unknown): string | undefined {
@@ -246,40 +314,6 @@ function commandSummary(toolName: string, input: Readonly<Record<string, unknown
     return summarizeForLog(`${prefix} ${bareArgs.join(' ')}`);
   }
   return undefined;
-}
-
-function pathCollectionSummary(input: Readonly<Record<string, unknown>>): string | undefined {
-  if (!Array.isArray(input.files)) return undefined;
-  const paths = input.files
-    .map((entry) => isRecord(entry) ? firstString(entry, ['path', 'filePath']) : undefined)
-    .filter((value): value is string => value !== undefined);
-  if (paths.length === 0) return undefined;
-  const shown = paths.slice(0, 3);
-  return summarizeForLog(paths.length <= shown.length ? shown.join(', ') : `${shown.join(', ')} (+${paths.length - shown.length})`);
-}
-
-function batchSummary(input: Readonly<Record<string, unknown>>): string | undefined {
-  const calls: string[] = [];
-  if (Array.isArray(input.calls)) {
-    for (const entry of input.calls) {
-      if (!isRecord(entry)) continue;
-      const tool = firstString(entry, ['tool']);
-      if (tool !== undefined) calls.push(tool);
-    }
-  }
-  if (Array.isArray(input.groups)) {
-    for (const group of input.groups) {
-      if (!isRecord(group) || !Array.isArray(group.calls)) continue;
-      for (const entry of group.calls) {
-        if (!isRecord(entry)) continue;
-        const tool = firstString(entry, ['tool']);
-        if (tool !== undefined) calls.push(tool);
-      }
-    }
-  }
-  if (calls.length === 0) return undefined;
-  const shown = calls.slice(0, 4);
-  return summarizeForLog(calls.length <= shown.length ? shown.join(' + ') : `${shown.join(' + ')} (+${calls.length - shown.length})`);
 }
 
 function identifierSummary(input: Readonly<Record<string, unknown>>): string | undefined {

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { ActivityTracker, summarizeStructuredResultTarget, summarizeToolTarget, type ActivitySinkEvent } from './activity-tracker.js';
+import { ActivityTracker, describeToolTarget, summarizeStructuredResultTarget, summarizeToolTarget, type ActivitySinkEvent } from './activity-tracker.js';
 
 describe('ActivityTracker', () => {
   it('tracks in-flight calls and records started/completed sink events', async () => {
@@ -40,6 +40,18 @@ describe('ActivityTracker', () => {
     const callId = await tracker.begin('read_file', { path: 'src\\app.ts' });
     await expect(tracker.end(callId, 'SUCCESS', 2)).resolves.toBeUndefined();
     expect(failures).toEqual(['activity storage unavailable', 'activity storage unavailable']);
+  });
+
+  it('publishes starts first but persists completion audit evidence before publishing idle', async () => {
+    const order: string[] = [];
+    const tracker = new ActivityTracker(
+      { async record(event): Promise<void> { order.push(`compact:${event.phase}`); } },
+      undefined,
+      { async record(event): Promise<void> { order.push(`audit:${event.phase}`); } },
+    );
+    const callId = await tracker.begin('read_file', { path: 'src/app.ts' });
+    await tracker.end(callId, 'SUCCESS', 1);
+    expect(order).toEqual(['compact:started', 'audit:started', 'audit:completed', 'compact:completed']);
   });
 
   it('summarizes common and capability tool targets without leaking payloads', () => {
@@ -108,5 +120,50 @@ describe('ActivityTracker', () => {
     expect(tracker.listInFlight()[0]).toMatchObject({ sessionId: 'session-a', workspaceId: 'ws-1' });
     await tracker.end(callId, 'SUCCESS', 1);
     expect(events).toEqual([expect.objectContaining({ phase: 'started', sessionId: 'session-a' }), expect.objectContaining({ phase: 'completed', sessionId: 'session-a' })]);
+  });
+
+  it('preserves every sanitized file and batched-tool target in original order while snapshots stay compact', async () => {
+    const fileInputs = [
+      'src/alpha.ts',
+      'src/alpha.ts',
+      'เอกสาร/ไฟล์.ts',
+      'src/api_key=super-secret.txt',
+      'src/four.ts',
+      'src/five.ts',
+      'src/six.ts',
+    ];
+    const fileTarget = describeToolTarget('read_files', { files: fileInputs.map((path) => ({ path })) });
+    expect(fileTarget).toEqual({
+      summary: 'src/alpha.ts, src/alpha.ts, เอกสาร/ไฟล์.ts',
+      detail: {
+        kind: 'files',
+        items: ['src/alpha.ts', 'src/alpha.ts', 'เอกสาร/ไฟล์.ts', 'src/api_key=[REDACTED]', 'src/four.ts', 'src/five.ts', 'src/six.ts'],
+      },
+    });
+
+    const toolInputs = ['read_file', 'read_file', 'search_text', 'tool_api_key=super-secret', 'ทดสอบ', 'git_status', 'shell', 'workspace_info', 'read_file'];
+    const toolTarget = describeToolTarget('batch', { calls: toolInputs.map((tool) => ({ tool })) });
+    expect(toolTarget.detail).toEqual({
+      kind: 'tools',
+      items: ['read_file', 'read_file', 'search_text', 'tool_api_key=[REDACTED]', 'ทดสอบ', 'git_status', 'shell', 'workspace_info', 'read_file'],
+    });
+
+    const events: ActivitySinkEvent[] = [];
+    const tracker = new ActivityTracker({ async record(event): Promise<void> { events.push(event); } });
+    const callId = await tracker.begin('read_files', { files: fileInputs.map((path) => ({ path })) });
+    const inFlight = tracker.listInFlight()[0]!;
+    expect(inFlight.targetDetail).toEqual({
+      detailRef: callId,
+      itemCount: 7,
+      preview: ['src/alpha.ts', 'src/alpha.ts', 'เอกสาร/ไฟล์.ts'],
+      legacyIncomplete: false,
+    });
+    expect(inFlight).not.toHaveProperty('detail');
+    await tracker.end(callId, 'SUCCESS', 1);
+    expect(events).toHaveLength(2);
+    expect(events[0]?.targetDetail).toEqual(inFlight.targetDetail);
+    expect(events[1]?.targetDetail).toEqual(inFlight.targetDetail);
+    expect(JSON.stringify(events)).not.toContain('(+');
+    expect(JSON.stringify(events)).not.toContain('src/four.ts');
   });
 });

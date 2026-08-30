@@ -21,7 +21,7 @@ import {
   WorkspaceQueryService,
   type FileActor,
 } from '@lnwjud/application';
-import { AuditService } from '@lnwjud/audit';
+import { AuditService, decodeActivityTargetReference } from '@lnwjud/audit';
 import {
   BrowserCdpBackend,
   HealthCapabilityBackend,
@@ -183,30 +183,7 @@ export function createStdioMcpRuntime(
       await (await sharedActivityLease)?.record(event);
     },
   };
-  const durableActivitySink = composeActivitySinks([
-    createFileActivitySink(mcpActivityLogPath(dataPath)),
-    {
-      async record(event: ActivitySinkEvent): Promise<void> {
-        await auditService.recordMcpTool({
-          actorId: actor.clientId,
-          actorName: actor.clientName,
-          ...(event.workspaceId === undefined ? {} : { workspaceId: event.workspaceId }),
-          ...(event.sessionId === undefined ? {} : { sessionId: event.sessionId }),
-          toolName: event.toolName,
-          callId: event.callId,
-          phase: event.phase,
-          ...(event.targetSummary === undefined ? {} : { targetSummary: event.targetSummary }),
-          resultCode: event.resultCode,
-          ...(event.resultMessage === undefined ? {} : { resultMessage: event.resultMessage }),
-          ...(event.traceId === undefined ? {} : { traceId: event.traceId }),
-          ...(event.traceParent === undefined ? {} : { traceParent: event.traceParent }),
-          ...(event.authorizationMode === undefined ? {} : { authorizationMode: event.authorizationMode }),
-          durationMs: event.durationMs,
-          timestamp: event.timestamp,
-        });
-      },
-    },
-  ]);
+  const durableActivitySink = createFileActivitySink(mcpActivityLogPath(dataPath));
   const activityTracker = new ActivityTracker({
     async record(event: ActivitySinkEvent): Promise<void> {
       // Publish starts before slower durable evidence so updater quiet-time
@@ -214,6 +191,28 @@ export function createStdioMcpRuntime(
       await composeActivitySinks(event.phase === 'started'
         ? [sharedActivitySink, durableActivitySink]
         : [durableActivitySink, sharedActivitySink]).record(event);
+    },
+  }, undefined, {
+    async record(event: ActivitySinkEvent, detail): Promise<void> {
+      await auditService.recordMcpTool({
+        actorId: actor.clientId,
+        actorName: actor.clientName,
+        ...(event.workspaceId === undefined ? {} : { workspaceId: event.workspaceId }),
+        ...(event.sessionId === undefined ? {} : { sessionId: event.sessionId }),
+        toolName: event.toolName,
+        callId: event.callId,
+        phase: event.phase,
+        ...(event.targetSummary === undefined ? {} : { targetSummary: event.targetSummary }),
+        targetDetail: event.targetDetail ?? decodeActivityTargetReference(undefined, event.targetSummary),
+        ...(detail === undefined ? {} : { activityTargetDetail: detail }),
+        resultCode: event.resultCode,
+        ...(event.resultMessage === undefined ? {} : { resultMessage: event.resultMessage }),
+        ...(event.traceId === undefined ? {} : { traceId: event.traceId }),
+        ...(event.traceParent === undefined ? {} : { traceParent: event.traceParent }),
+        ...(event.authorizationMode === undefined ? {} : { authorizationMode: event.authorizationMode }),
+        durationMs: event.durationMs,
+        timestamp: event.timestamp,
+      });
     },
   });
   const services: McpApplicationServices = {
