@@ -23,6 +23,11 @@ describe('scheduled continuation skill contract', () => {
     expect(skill).toContain('fresh disposable +2-minute successor ticket');
     expect(skill).toContain('must not be reused');
     expect(skill).toContain('runsOn: cloud');
+    expect(skill).toContain('`prepared` means **reservation only**');
+    expect(skill).toContain('never a confirmed successor');
+    expect(skill).toContain('`status: scheduled`, a non-empty `nativeTaskId`, and `confirmedRunsOn: cloud`');
+    expect(skill).toContain('`handoffReady: false` / `currentWakeMayReturn: false`');
+    expect(skill).toContain('never silently return with a merely `prepared` successor');
     expect(skill).toContain('claim_scheduled_continuation');
     expect(skill).toContain('expedite_scheduled_continuation');
     expect(skill).toContain('goalLease');

@@ -15,6 +15,7 @@ One user request starts one durable chain: acquire the goal, arm one cloud succe
 - `cancel_goal` and `cancel_scheduled_continuation` are independent controls: the former records the goal as cancelled, aborts in-flight fenced MCP requests, and stops only goal-relative tracked tasks whose `cancelWithGoal` policy is true; shared `supporting_service` entries remain running by default. The latter cancels only the waiting successor. Call both when the user wants both effects.
 - Use one native one-time cloud ChatGPT Scheduled Task in the current chat. Never use recurrence, Windows Task Scheduler, `schtasks.exe`, cron, shell timers, browser automation, or undocumented scheduling APIs.
 - Native task creation, update, and deletion are host-owned. lnwjud stores the reservation, receipts, claim, and cancellation truth.
+- `prepared` means **reservation only**. It is never a confirmed successor, never handoff-ready, and never sufficient recovery coverage. Before any further fenced mutation or turn yield, require `status: scheduled`, a real `nativeTaskId`, and `confirmedRunsOn: cloud`; otherwise create/reconcile the native task and record its host receipt first.
 
 ## Start or resume
 
@@ -43,7 +44,7 @@ If `get_goal` is still `active` and scheduling remains authorized:
 1. Checkpoint the exact next action and every active task ID.
 2. Require one confirmed cloud successor. If none exists yet, prepare it **directly at +2 minutes**, create the native task, and record `created`; do not first create a 25/10/5-minute task when this turn is already ending. Do not create a second task when one already exists.
 3. If a confirmed successor already exists at a later due time, call `expedite_scheduled_continuation` with `turn_yield_signal`, update the **same native task** to **+2 minutes**, and record the reschedule receipt.
-4. Re-read the continuation and require a confirmed/scheduled state at the +2-minute due time. Only then may the current turn yield. A status update is not completion.
+4. Re-read the continuation and require `status: scheduled`, a non-empty `nativeTaskId`, and `confirmedRunsOn: cloud` at the +2-minute due time. `prepared`, `create_uncertain`, or a missing host identity is a hard handoff failure: do not mutate further and do not let the turn yield until the host task is created/reconciled and its receipt is recorded. Only then may the current turn yield. A status update is not completion.
 
 If the user disabled scheduling, call `cancel_scheduled_continuation` for the exact pending successor, delete the exact pending native task, and record its native host deletion receipt. Do not create another successor; remain in the current run, wait for bounded active work, finish verification, and close the goal.
 
@@ -58,7 +59,7 @@ If the user asks to cancel the goal, call `cancel_goal` with the latest expected
    - `already_claimed`: another run consumed it; do not mutate.
    - `not_due`: do not mutate or create a replacement. Update the same host task to the returned/known due time when the host permits it.
    - `receipt_required`: reconcile the exact native task first; record `created`, `create_failed`, or `create_uncertain` truthfully.
-   - `successor_required`: this one-time wake is already firing, so it is a consumed ticket and must not be reused. Create the **fresh successor** exactly from the returned `scheduleRequest`, record `created` for the returned successor immediately, then let the current wake return naturally. Never update or re-arm the currently firing native task.
+   - `successor_required`: this one-time wake is already firing, so it is a consumed ticket and must not be reused. The result is explicitly `handoffReady: false` / `currentWakeMayReturn: false`. Create the **fresh successor** exactly from the returned `scheduleRequest`, record `created` with its real native task ID and `runsOn: cloud`, re-read it as confirmed `scheduled`, and only then let the current wake return naturally. If native creation fails or is uncertain, record that truth and keep the chain fail-closed; never silently return with a merely `prepared` successor. Never update or re-arm the currently firing native task.
    - `acquired`, including `orphan_recovered`: use the new lease token/generation as `goalLease`, arm the next adaptive successor before long work, then continue from the durable checkpoint without waiting for user input.
 
 3. If exact ChatGPT host metadata later proves that the recorded native one-time task already **ran/was consumed** but the durable continuation is still in a pending/live state because claim never completed, reconcile it with `record_scheduled_continuation_receipt(outcome: consumed)` and the exact native host run receipt. `consumed` means only that the host task is no longer pending; it does **not** mean the goal work completed. If the goal is still active, reserve and create a fresh successor after reconciliation. This is crash recovery for a missed claim; normal worker collisions are handled directly by `successor_required`, which reserves a fresh disposable successor instead of reusing the firing task.

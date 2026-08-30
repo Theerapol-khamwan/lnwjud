@@ -83,7 +83,11 @@ export interface PrepareScheduledContinuationResult {
   readonly goal: GoalSnapshot;
   readonly continuation: ScheduledContinuationSnapshot;
   readonly scheduleRequest: ScheduledContinuationRequest;
-  readonly currentRunMayContinue: true;
+  /** A reservation is not recovery coverage until the host task create receipt is recorded. */
+  readonly currentRunMayContinue: false;
+  readonly handoffReady: false;
+  readonly nativeTaskConfirmationRequired: true;
+  readonly nextRequiredAction: 'create_native_task_and_record_receipt_before_mutation_or_yield';
   readonly handoffDeadlineAt: string;
 }
 
@@ -130,12 +134,18 @@ export type ClaimScheduledContinuationResult =
       readonly goal: GoalSnapshot;
       readonly retryAfterSeconds: 120;
       readonly scheduleRequest: ScheduledContinuationRequest;
+      readonly handoffReady: false;
+      readonly currentWakeMayReturn: false;
+      readonly nextRequiredAction: 'create_native_task_and_record_receipt_before_current_wake_returns';
     }
   | {
       readonly outcome: 'receipt_required';
       readonly reason: 'native_task_unconfirmed';
       readonly continuation: ScheduledContinuationSnapshot;
       readonly goal: GoalSnapshot;
+      readonly handoffReady: false;
+      readonly currentWakeMayReturn: false;
+      readonly nextRequiredAction: 'reconcile_native_task_receipt_before_mutation_or_return';
     }
   | {
       readonly outcome: 'already_claimed' | 'terminal_noop';
@@ -277,7 +287,10 @@ export class ScheduledContinuationService {
         goal: toGoalSnapshot(prepared.goal),
         continuation,
         scheduleRequest,
-        currentRunMayContinue: true,
+        currentRunMayContinue: false,
+        handoffReady: false,
+        nativeTaskConfirmationRequired: true,
+        nextRequiredAction: 'create_native_task_and_record_receipt_before_mutation_or_yield',
         handoffDeadlineAt: continuation.dueAt,
       });
     } catch (error: unknown) {
@@ -425,6 +438,9 @@ export class ScheduledContinuationService {
           goal,
           retryAfterSeconds: 120,
           scheduleRequest: buildScheduleRequest(successor, claimed.goal.workspaceId),
+          handoffReady: false,
+          currentWakeMayReturn: false,
+          nextRequiredAction: 'create_native_task_and_record_receipt_before_current_wake_returns',
         });
       }
       if (claimed.outcome === 'receipt_required') {
@@ -433,6 +449,9 @@ export class ScheduledContinuationService {
           reason: claimed.reason,
           continuation,
           goal,
+          handoffReady: false,
+          currentWakeMayReturn: false,
+          nextRequiredAction: 'reconcile_native_task_receipt_before_mutation_or_return',
         });
       }
       if (claimed.outcome === 'already_claimed' || claimed.outcome === 'terminal_noop') {

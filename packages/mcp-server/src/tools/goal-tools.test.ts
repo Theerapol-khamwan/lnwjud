@@ -108,6 +108,86 @@ describe('durable goal MCP tools', () => {
     expect(tool(context, 'run_goal').description).toMatch(/Immediate-return/i);
   });
 
+  it('never treats a prepared reservation as a confirmed cloud successor on resume', async () => {
+    const context = {
+      actor,
+      contextEconomy: new ContextEconomyRuntime(),
+      services: {
+        goals: {
+          async runGoal() {
+            return ok({
+              goalId: 'goal-prepared', goalKey: 'stable-key', status: 'active', revision: 2, acquired: true,
+              leaseToken: 'lease-secret', leaseExpiresAt: '2026-08-26T00:10:00.000Z', currentPhase: 'work',
+              plan: { steps: [] }, completedSteps: [], pendingSteps: [], nextAction: 'Keep working.', blockers: [], activeTaskIds: [], lastCheckpoint: { id: 'cp-1' },
+            });
+          },
+        },
+        scheduledContinuations: {
+          async getScheduledContinuation() {
+            return ok({
+              continuationId: 'continuation-prepared', goalId: 'goal-prepared', generation: 1, sourceGoalRevision: 2,
+              status: 'prepared', occurrence: 'once', destination: 'current_chat', executionPreference: 'cloud',
+              dueAt: '2026-08-26T00:25:00.000Z', rescheduleCount: 0, orphanRecoveryCount: 0, version: 0,
+              createdAt: '2026-08-26T00:00:00.000Z', updatedAt: '2026-08-26T00:00:00.000Z',
+            });
+          },
+        },
+      },
+    } as unknown as McpToolContext;
+
+    const result = await tool(context, 'run_goal').execute({ workspaceId: 'workspace-1', goalKey: 'stable-key' }, new AbortController().signal);
+    expect(result).toMatchObject({
+      ok: true,
+      value: {
+        continuationDirective: {
+          successorHostState: 'prepared_unconfirmed',
+          successorHandoffReady: false,
+          nextRequiredAction: 'create_native_task_and_record_receipt_before_mutation_or_yield',
+        },
+      },
+    });
+  });
+
+  it('recognizes only scheduled native cloud receipts as handoff-ready', async () => {
+    const context = {
+      actor,
+      contextEconomy: new ContextEconomyRuntime(),
+      services: {
+        goals: {
+          async runGoal() {
+            return ok({
+              goalId: 'goal-scheduled', goalKey: 'stable-key', status: 'active', revision: 2, acquired: true,
+              leaseToken: 'lease-secret', leaseExpiresAt: '2026-08-26T00:10:00.000Z', currentPhase: 'work',
+              plan: { steps: [] }, completedSteps: [], pendingSteps: [], nextAction: 'Keep working.', blockers: [], activeTaskIds: [], lastCheckpoint: { id: 'cp-1' },
+            });
+          },
+        },
+        scheduledContinuations: {
+          async getScheduledContinuation() {
+            return ok({
+              continuationId: 'continuation-scheduled', goalId: 'goal-scheduled', generation: 1, sourceGoalRevision: 2,
+              status: 'scheduled', occurrence: 'once', destination: 'current_chat', executionPreference: 'cloud', confirmedRunsOn: 'cloud',
+              dueAt: '2026-08-26T00:25:00.000Z', nativeTaskId: 'native-task-1', rescheduleCount: 0, orphanRecoveryCount: 0, version: 1,
+              createdAt: '2026-08-26T00:00:00.000Z', updatedAt: '2026-08-26T00:00:01.000Z',
+            });
+          },
+        },
+      },
+    } as unknown as McpToolContext;
+
+    const result = await tool(context, 'run_goal').execute({ workspaceId: 'workspace-1', goalKey: 'stable-key' }, new AbortController().signal);
+    expect(result).toMatchObject({
+      ok: true,
+      value: {
+        continuationDirective: {
+          successorHostState: 'confirmed_cloud',
+          successorHandoffReady: true,
+          nextRequiredAction: 'continue_with_confirmed_cloud_successor',
+        },
+      },
+    });
+  });
+
   it('lets an explicit scheduling opt-out disable only the successor directive', async () => {
     const context = {
       actor,

@@ -1152,6 +1152,9 @@ export class SqliteGoalRepository implements GoalRepository, ScheduledContinuati
       }
       const fence = this.selectLiveScheduledContinuation(goal.id);
       if (fence === undefined) throw new GoalStateError('conflict', 'Goal has no live scheduled-continuation fence');
+      if (fence.native_task_id === null || fence.confirmed_runs_on !== 'cloud' || fence.status === 'prepared' || fence.status === 'create_uncertain') {
+        throw new GoalStateError('conflict', 'Goal successor is reserved but has no confirmed native cloud task receipt');
+      }
       const effectiveDueAt = fence.pending_due_at ?? fence.due_at;
       if (parseIso(effectiveDueAt, 'scheduled continuation handoff') <= parseIso(request.startedAt, 'mutation start')) {
         throw new GoalStateError('lease_invalid', 'Goal handoff deadline has passed');
@@ -1216,6 +1219,9 @@ export class SqliteGoalRepository implements GoalRepository, ScheduledContinuati
       if (leaseDurationSeconds === undefined) throw corrupt('Active goal lease duration is missing');
       const fence = this.selectLiveScheduledContinuation(goal.id);
       if (fence === undefined) throw new GoalStateError('conflict', 'Goal has no live scheduled-continuation fence');
+      if (fence.native_task_id === null || fence.confirmed_runs_on !== 'cloud' || fence.status === 'prepared' || fence.status === 'create_uncertain') {
+        throw new GoalStateError('conflict', 'Goal successor is reserved but has no confirmed native cloud task receipt');
+      }
       const effectiveDueAt = fence.pending_due_at ?? fence.due_at;
       if (parseIso(effectiveDueAt, 'scheduled continuation handoff') <= parseIso(heartbeatAt, 'mutation heartbeat')) {
         throw new GoalStateError('lease_invalid', 'Goal handoff deadline has passed');

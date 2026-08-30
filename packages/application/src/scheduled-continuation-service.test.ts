@@ -103,7 +103,10 @@ describe('ScheduledContinuationService', () => {
         ok: true,
         value: {
           outcome: 'prepared',
-          currentRunMayContinue: true,
+          currentRunMayContinue: false,
+          handoffReady: false,
+          nativeTaskConfirmationRequired: true,
+          nextRequiredAction: 'create_native_task_and_record_receipt_before_mutation_or_yield',
           handoffDeadlineAt: '2026-08-27T10:02:00.000Z',
           scheduleRequest: { dueAt: '2026-08-27T10:02:00.000Z' },
           goal: { revision: 1, leaseExpiresAt: '2026-08-27T10:02:00.000Z' },
@@ -123,7 +126,10 @@ describe('ScheduledContinuationService', () => {
         ok: true,
         value: {
           outcome: 'prepared',
-          currentRunMayContinue: true,
+          currentRunMayContinue: false,
+          handoffReady: false,
+          nativeTaskConfirmationRequired: true,
+          nextRequiredAction: 'create_native_task_and_record_receipt_before_mutation_or_yield',
           handoffDeadlineAt: '2026-08-27T10:25:00.000Z',
           scheduleRequest: {
             provider: 'chatgpt_scheduled_task',
@@ -295,6 +301,9 @@ describe('ScheduledContinuationService', () => {
             destination: 'current_chat',
             executionPreference: 'cloud',
           },
+          handoffReady: false,
+          currentWakeMayReturn: false,
+          nextRequiredAction: 'create_native_task_and_record_receipt_before_current_wake_returns',
         },
       });
       if (!collision.ok || collision.value.outcome !== 'successor_required') throw new Error('fresh collision successor missing');
