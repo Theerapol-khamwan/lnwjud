@@ -374,6 +374,7 @@ describe('scheduled continuation repository state machine', () => {
         expectedVersion: prepared.continuation.version,
         outcome: 'created',
         nativeTaskId: 'native-task-original',
+        dueAt: prepared.continuation.dueAt,
         runsOn: 'cloud',
         now: '2026-08-27T00:20:05.000Z',
       });
@@ -384,6 +385,7 @@ describe('scheduled continuation repository state machine', () => {
         expectedVersion: scheduled.version,
         outcome: 'created',
         nativeTaskId: 'native-task-replacement',
+        dueAt: prepared.continuation.dueAt,
         runsOn: 'cloud',
         now: '2026-08-27T00:20:06.000Z',
       })).rejects.toMatchObject({ reason: 'conflict' });
@@ -481,6 +483,7 @@ describe('scheduled continuation repository state machine', () => {
         expectedVersion: preparedB.continuation.version,
         outcome: 'created',
         nativeTaskId: 'native-task-b',
+        dueAt: preparedB.continuation.dueAt,
         runsOn: 'cloud',
         now: '2026-08-27T00:20:05.000Z',
       });
@@ -537,6 +540,7 @@ describe('scheduled continuation repository state machine', () => {
         expectedVersion: preparedC.continuation.version,
         outcome: 'created',
         nativeTaskId: 'native-task-c',
+        dueAt: preparedC.continuation.dueAt,
         runsOn: 'cloud',
         now: '2026-08-27T00:42:05.000Z',
       });
@@ -676,6 +680,7 @@ describe('scheduled continuation repository state machine', () => {
         expectedVersion: prepared.continuation.version,
         outcome: 'created',
         nativeTaskId: 'native-task-claim',
+        dueAt: prepared.continuation.dueAt,
         runsOn: 'cloud',
         now: '2026-08-27T00:20:05.000Z',
       });
@@ -755,6 +760,7 @@ describe('scheduled continuation repository state machine', () => {
         expectedVersion: prepared.continuation.version,
         outcome: 'created',
         nativeTaskId: 'native-task-confirmed-before-mutation',
+        dueAt: prepared.continuation.dueAt,
         runsOn: 'cloud',
         now: '2026-08-27T00:20:02.000Z',
       });
@@ -843,6 +849,7 @@ describe('scheduled continuation repository state machine', () => {
         expectedVersion: prepared.continuation.version,
         outcome: 'created',
         nativeTaskId: 'native-task-busy',
+        dueAt: prepared.continuation.dueAt,
         runsOn: 'cloud',
         now: '2026-08-27T00:20:05.000Z',
       });
@@ -930,6 +937,7 @@ describe('scheduled continuation repository state machine', () => {
         expectedVersion: prepared.continuation.version,
         outcome: 'created',
         nativeTaskId: 'native-task-uncertain',
+        dueAt: prepared.continuation.dueAt,
         runsOn: 'cloud',
         now: '2026-08-27T00:20:05.000Z',
       });
@@ -998,6 +1006,7 @@ describe('scheduled continuation repository state machine', () => {
         expectedVersion: prepared.continuation.version,
         outcome: 'created',
         nativeTaskId: 'native-task-expired-live-job',
+        dueAt: prepared.continuation.dueAt,
         runsOn: 'cloud',
         now: '2026-08-27T00:20:05.000Z',
       });
@@ -1048,6 +1057,7 @@ describe('scheduled continuation repository state machine', () => {
         expectedVersion: prepared.continuation.version,
         outcome: 'created',
         nativeTaskId: 'native-task-orphan',
+        dueAt: prepared.continuation.dueAt,
         runsOn: 'cloud',
         now: '2026-08-27T00:20:05.000Z',
       });
@@ -1095,6 +1105,7 @@ describe('scheduled continuation repository state machine', () => {
         expectedVersion: firstProbe.successor.version,
         outcome: 'created',
         nativeTaskId: 'native-task-orphan-b',
+        dueAt: firstProbe.successor.dueAt,
         runsOn: 'cloud',
         now: '2026-08-27T00:22:05.000Z',
       });
@@ -1129,6 +1140,7 @@ describe('scheduled continuation repository state machine', () => {
         expectedVersion: successor.continuation.version,
         outcome: 'created',
         nativeTaskId: 'native-task-after-orphan',
+        dueAt: successor.continuation.dueAt,
         runsOn: 'cloud',
         now: '2026-08-27T00:24:01.500Z',
       });
@@ -1179,6 +1191,7 @@ describe('scheduled continuation repository state machine', () => {
         expectedVersion: prepared.continuation.version,
         outcome: 'created',
         nativeTaskId: 'native-task-orphan-checkpoint',
+        dueAt: prepared.continuation.dueAt,
         runsOn: 'cloud',
         now: '2026-08-27T00:20:05.000Z',
       });
@@ -1215,6 +1228,7 @@ describe('scheduled continuation repository state machine', () => {
         expectedVersion: firstProbe.successor.version,
         outcome: 'created',
         nativeTaskId: 'native-task-orphan-checkpoint-b',
+        dueAt: firstProbe.successor.dueAt,
         runsOn: 'cloud',
         now: '2026-08-27T00:22:05.000Z',
       });
@@ -1301,6 +1315,7 @@ describe('scheduled continuation repository state machine', () => {
         expectedVersion: prepared.continuation.version,
         outcome: 'created',
         nativeTaskId: 'native-task-sliding-lease',
+        dueAt: prepared.continuation.dueAt,
         runsOn: 'cloud',
         now: '2026-08-27T00:00:01.000Z',
       });

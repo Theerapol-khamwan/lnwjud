@@ -42,6 +42,7 @@ import {
 import type { SqliteDatabase } from './database.js';
 
 const MAX_TRACKED_TASKS = 50;
+const SCHEDULE_RECEIPT_TIME_TOLERANCE_MS = 1_000;
 
 interface GoalRow {
   readonly id: string;
@@ -558,6 +559,9 @@ export class SqliteGoalRepository implements GoalRepository, ScheduledContinuati
         if (request.nativeTaskId === undefined || request.nativeTaskId.length === 0 || request.runsOn !== 'cloud') {
           throw new GoalStateError('conflict', 'Created receipt requires a native task ID and confirmed cloud execution');
         }
+        if (request.dueAt === undefined || !sameScheduledInstant(request.dueAt, currentRow.due_at)) {
+          throw new GoalStateError('conflict', 'Created receipt scheduled time does not match the reserved continuation due time');
+        }
         if (currentRow.native_task_id !== null && currentRow.native_task_id !== request.nativeTaskId) {
           throw new GoalStateError('conflict', 'Created receipt cannot replace the stored native task ID');
         }
@@ -569,19 +573,23 @@ export class SqliteGoalRepository implements GoalRepository, ScheduledContinuati
         }
         nativeTaskId = request.nativeTaskId;
       } else if (request.outcome === 'rescheduled') {
+        const expectedDueAt = currentRow.pending_due_at ?? currentRow.due_at;
         if (
           currentRow.native_task_id === null
           || request.nativeTaskId !== currentRow.native_task_id
-          || currentRow.pending_due_at === null
-          || request.dueAt !== currentRow.pending_due_at
+          || request.dueAt === undefined
+          || !sameScheduledInstant(request.dueAt, expectedDueAt)
         ) {
-          throw new GoalStateError('conflict', 'Rescheduled receipt must match the stored native task ID and pending due time');
+          throw new GoalStateError('conflict', 'Rescheduled receipt must match the stored native task ID and absolute due time');
         }
-        if (!['reschedule_required', 'reschedule_failed', 'reschedule_uncertain'].includes(currentRow.status)) {
-          throw new GoalStateError('conflict', 'Continuation has no pending reschedule to confirm');
+        const confirmsPendingUpdate = currentRow.pending_due_at !== null
+          && ['reschedule_required', 'reschedule_failed', 'reschedule_uncertain'].includes(currentRow.status);
+        const confirmsEarlyFireCorrection = currentRow.pending_due_at === null && currentRow.status === 'scheduled';
+        if (!confirmsPendingUpdate && !confirmsEarlyFireCorrection) {
+          throw new GoalStateError('conflict', 'Continuation has no same-task reschedule to confirm');
         }
         nextStatus = 'scheduled';
-        dueAt = currentRow.pending_due_at;
+        dueAt = expectedDueAt;
         pendingDueAt = null;
         rescheduleReason = null;
         rescheduleCount += 1;
@@ -819,20 +827,22 @@ export class SqliteGoalRepository implements GoalRepository, ScheduledContinuati
       if (!Number.isInteger(earlyToleranceSeconds) || earlyToleranceSeconds < 0 || earlyToleranceSeconds > 300) {
         throw new GoalStateError('corrupt', 'Scheduled continuation early tolerance is invalid');
       }
-      if (nowMs + earlyToleranceSeconds * 1000 < dueMs) {
-        return {
-          outcome: 'not_due',
-          continuation,
-          goal,
-          retryAfterSeconds: Math.max(1, Math.ceil((dueMs - nowMs) / 1000)),
-        };
-      }
+      // prepared is reservation-only regardless of timing. Do not let an early wake hide a
+      // missing native host receipt behind not_due.
       if (continuation.nativeTaskId === undefined || continuation.confirmedRunsOn !== 'cloud') {
         return {
           outcome: 'receipt_required',
           reason: 'native_task_unconfirmed',
           continuation,
           goal,
+        };
+      }
+      if (nowMs + earlyToleranceSeconds * 1000 < dueMs) {
+        return {
+          outcome: 'not_due',
+          continuation,
+          goal,
+          retryAfterSeconds: Math.max(1, Math.ceil((dueMs - nowMs) / 1000)),
         };
       }
 
@@ -1828,6 +1838,10 @@ function addSeconds(now: string, seconds: number): string {
 
 function minIso(left: string, right: string): string {
   return parseIso(left, 'left time') <= parseIso(right, 'right time') ? left : right;
+}
+
+function sameScheduledInstant(left: string, right: string): boolean {
+  return Math.abs(parseIso(left, 'host scheduled time') - parseIso(right, 'reserved scheduled time')) <= SCHEDULE_RECEIPT_TIME_TOLERANCE_MS;
 }
 
 function validateIso(value: string, label: string): void { parseIso(value, label); }

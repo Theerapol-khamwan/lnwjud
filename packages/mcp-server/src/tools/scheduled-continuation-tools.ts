@@ -67,7 +67,7 @@ const prepareSchema = z.object({
 });
 
 const receiptSchema = z.discriminatedUnion('outcome', [
-  z.object({ continuationId, expectedVersion: version, outcome: z.literal('created'), nativeTaskId, runsOn: z.literal('cloud'), detail }).strict(),
+  z.object({ continuationId, expectedVersion: version, outcome: z.literal('created'), nativeTaskId, dueAt, runsOn: z.literal('cloud'), detail }).strict(),
   z.object({ continuationId, expectedVersion: version, outcome: z.literal('create_failed'), nativeTaskId: nativeTaskId.optional(), runsOn: z.literal('cloud').optional(), detail }).strict(),
   z.object({ continuationId, expectedVersion: version, outcome: z.literal('create_uncertain'), nativeTaskId: nativeTaskId.optional(), runsOn: z.literal('cloud').optional(), detail }).strict(),
   z.object({ continuationId, expectedVersion: version, outcome: z.literal('rescheduled'), nativeTaskId, dueAt, runsOn: z.literal('cloud').optional(), detail }).strict(),
@@ -148,7 +148,7 @@ export function scheduledContinuationTools(context: McpToolContext): McpToolDefi
     }),
     defineTool({
       name: 'record_scheduled_continuation_receipt',
-      description: 'Record host-owned cloud one-time task create, same-task reschedule, consumed-run reconciliation, or cancellation receipts. A consumed receipt requires exact native host run evidence and means only that the one-time task is no longer pending; it does not mean the goal work completed. Cancelled is accepted only with a matching native ChatGPT host deletion receipt; a model assertion is not cancellation proof. The stored native task ID is immutable across reschedules.',
+      description: 'Record host-owned cloud one-time task create, same-task reschedule, consumed-run reconciliation, or cancellation receipts. Created/rescheduled receipts must include the host-reported absolute dueAt; equivalent timezone offsets are compared as the same instant, while real schedule drift is rejected. A consumed receipt requires exact native host run evidence and means only that the one-time task is no longer pending; it does not mean the goal work completed. Cancelled is accepted only with a matching native ChatGPT host deletion receipt; a model assertion is not cancellation proof. The stored native task ID is immutable across reschedules.',
       permission: 'WRITE',
       annotations: { readOnlyHint: false, destructiveHint: false },
       inputSchema: receiptSchema,

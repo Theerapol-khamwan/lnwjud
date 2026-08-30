@@ -546,6 +546,7 @@ describe('durable goal continuation persistence', () => {
         expectedVersion: prepared.value.continuation.version,
         outcome: 'created',
         nativeTaskId: 'native-cancel-me',
+        dueAt: prepared.value.continuation.dueAt,
         runsOn: 'cloud',
       });
       expect(scheduled).toMatchObject({ ok: true, value: { status: 'scheduled' } });
