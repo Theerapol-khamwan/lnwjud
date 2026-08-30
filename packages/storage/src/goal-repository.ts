@@ -20,6 +20,7 @@ import {
   type GoalStatus,
   type GoalStepStatus,
   type GoalStepUpdate,
+  type GoalTrackedTask,
   type ListGoalRecordsRequest,
   type ClaimScheduledContinuationRecordRequest,
   type ClaimScheduledContinuationRecordResult,
@@ -53,6 +54,7 @@ interface GoalRow {
   readonly next_action: string;
   readonly blockers_json: string;
   readonly active_task_ids_json: string;
+  readonly tracked_tasks_json: string | null;
   readonly lease_owner_client_id: string | null;
   readonly lease_owner_session_id: string | null;
   readonly lease_token_hash: string | null;
@@ -79,6 +81,7 @@ interface CheckpointRow {
   readonly blockers_json: string;
   readonly evidence_json: string;
   readonly active_task_ids_json: string;
+  readonly tracked_tasks_json: string | null;
   readonly created_at: string;
 }
 
@@ -141,10 +144,10 @@ export class SqliteGoalRepository implements GoalRepository, ScheduledContinuati
         this.database.connection.prepare(`
           INSERT INTO goals (
             id, workspace_id, goal_key, owner_client_id, objective, plan_json, status, revision,
-            current_phase, next_action, blockers_json, active_task_ids_json,
+            current_phase, next_action, blockers_json, active_task_ids_json, tracked_tasks_json,
             lease_owner_client_id, lease_owner_session_id, lease_token_hash, lease_duration_seconds, lease_generation, lease_activity_seq, lease_heartbeat_at, lease_expires_at,
             created_at, updated_at, terminal_summary, terminal_evidence_json, terminal_at
-          ) VALUES (?, ?, ?, ?, ?, ?, 'active', 0, 'created', '', '[]', '[]', ?, ?, ?, ?, 1, 0, ?, ?, ?, ?, NULL, NULL, NULL)
+          ) VALUES (?, ?, ?, ?, ?, ?, 'active', 0, 'created', '', '[]', '[]', '[]', ?, ?, ?, ?, 1, 0, ?, ?, ?, ?, NULL, NULL, NULL)
         `).run(
           request.goalId,
           request.workspaceId,
@@ -245,6 +248,8 @@ export class SqliteGoalRepository implements GoalRepository, ScheduledContinuati
       const leaseDurationSeconds = current.leaseDurationSeconds;
       if (leaseDurationSeconds === undefined) throw corrupt('Active goal lease duration is missing');
       const revision = current.revision + 1;
+      const trackedTasks = normalizeTrackedTasks(request.trackedTasks, request.activeTaskIds);
+      const activeTaskIds = blockingTaskIds(trackedTasks);
       const liveContinuation = this.selectLiveScheduledContinuation(request.goalId);
       const normalLeaseExpiresAt = addSeconds(request.now, leaseDurationSeconds);
       const leaseExpiresAt = request.releaseLease
@@ -254,7 +259,7 @@ export class SqliteGoalRepository implements GoalRepository, ScheduledContinuati
           : minIso(normalLeaseExpiresAt, liveContinuation.pending_due_at ?? liveContinuation.due_at);
       const changed = this.database.connection.prepare(`
         UPDATE goals
-        SET plan_json = ?, revision = ?, current_phase = ?, next_action = ?, blockers_json = ?, active_task_ids_json = ?,
+        SET plan_json = ?, revision = ?, current_phase = ?, next_action = ?, blockers_json = ?, active_task_ids_json = ?, tracked_tasks_json = ?,
             lease_owner_client_id = ?, lease_owner_session_id = ?, lease_token_hash = ?, lease_duration_seconds = ?, lease_heartbeat_at = ?, lease_expires_at = ?,
             lease_activity_seq = lease_activity_seq + 1, updated_at = ?
         WHERE id = ? AND revision = ? AND lease_token_hash = ? AND status = 'active'
@@ -264,7 +269,8 @@ export class SqliteGoalRepository implements GoalRepository, ScheduledContinuati
         request.currentPhase,
         request.nextAction,
         JSON.stringify(request.blockers),
-        JSON.stringify(request.activeTaskIds),
+        JSON.stringify(activeTaskIds),
+        JSON.stringify(trackedTasks),
         request.releaseLease ? null : request.ownerClientId,
         request.releaseLease ? null : request.ownerSessionId,
         request.releaseLease ? null : request.leaseTokenHash,
@@ -287,7 +293,8 @@ export class SqliteGoalRepository implements GoalRepository, ScheduledContinuati
         nextAction: request.nextAction,
         blockers: request.blockers,
         evidence: request.evidence,
-        activeTaskIds: request.activeTaskIds,
+        activeTaskIds,
+        trackedTasks,
         createdAt: request.now,
       });
       return this.requireById(request.goalId);
@@ -302,7 +309,7 @@ export class SqliteGoalRepository implements GoalRepository, ScheduledContinuati
       const revision = current.revision + 1;
       const changed = this.database.connection.prepare(`
         UPDATE goals
-        SET status = ?, revision = ?, current_phase = ?, next_action = '', blockers_json = '[]', active_task_ids_json = '[]',
+        SET status = ?, revision = ?, current_phase = ?, next_action = '', blockers_json = '[]', active_task_ids_json = '[]', tracked_tasks_json = '[]',
             lease_owner_client_id = NULL, lease_owner_session_id = NULL, lease_token_hash = NULL, lease_duration_seconds = NULL,
             lease_heartbeat_at = NULL, lease_expires_at = NULL, updated_at = ?,
             terminal_summary = ?, terminal_evidence_json = ?, terminal_at = ?
@@ -331,6 +338,7 @@ export class SqliteGoalRepository implements GoalRepository, ScheduledContinuati
         blockers: [],
         evidence: request.evidence,
         activeTaskIds: [],
+        trackedTasks: [],
         createdAt: request.now,
       });
       return this.requireById(request.goalId);
@@ -350,15 +358,17 @@ export class SqliteGoalRepository implements GoalRepository, ScheduledContinuati
           SET completed_at = COALESCE(completed_at, ?)
           WHERE goal_id = ? AND completed_at IS NULL
         `).run(request.now, request.goalId);
-        return { goal: current, trackedTaskIds: cancellationTaskIds(current) };
+        const trackedTasks = cancellationTasks(current);
+        return { goal: current, trackedTaskIds: trackedTasks.map((task) => task.taskId), trackedTasks };
       }
       if (current.status !== 'active') throw new GoalStateError('terminal', 'Goal is already terminal');
 
-      const trackedTaskIds = [...current.activeTaskIds];
+      const trackedTasks = cancellationTasks(current);
+      const trackedTaskIds = trackedTasks.map((task) => task.taskId);
       const revision = current.revision + 1;
       const changed = this.database.connection.prepare(`
         UPDATE goals
-        SET status = 'cancelled', revision = ?, current_phase = 'cancelled', next_action = '', blockers_json = '[]', active_task_ids_json = '[]',
+        SET status = 'cancelled', revision = ?, current_phase = 'cancelled', next_action = '', blockers_json = '[]', active_task_ids_json = '[]', tracked_tasks_json = '[]',
             lease_owner_client_id = NULL, lease_owner_session_id = NULL, lease_token_hash = NULL, lease_duration_seconds = NULL,
             lease_heartbeat_at = NULL, lease_expires_at = NULL, updated_at = ?,
             terminal_summary = ?, terminal_evidence_json = ?, terminal_at = ?
@@ -392,10 +402,11 @@ export class SqliteGoalRepository implements GoalRepository, ScheduledContinuati
         nextAction: '',
         blockers: [],
         evidence: request.evidence,
-        activeTaskIds: trackedTaskIds,
+        activeTaskIds: blockingTaskIds(trackedTasks),
+        trackedTasks,
         createdAt: request.now,
       });
-      return { goal: this.requireById(request.goalId), trackedTaskIds };
+      return { goal: this.requireById(request.goalId), trackedTaskIds, trackedTasks };
     });
   }
 
@@ -448,10 +459,12 @@ export class SqliteGoalRepository implements GoalRepository, ScheduledContinuati
       if (leaseDurationSeconds === undefined) throw corrupt('Active goal lease duration is missing');
 
       const revision = current.revision + 1;
+      const trackedTasks = normalizeTrackedTasks(request.trackedTasks, request.activeTaskIds);
+      const activeTaskIds = blockingTaskIds(trackedTasks);
       const leaseExpiresAt = minIso(addSeconds(request.now, leaseDurationSeconds), request.dueAt);
       const changed = this.database.connection.prepare(`
         UPDATE goals
-        SET plan_json = ?, revision = ?, current_phase = ?, next_action = ?, blockers_json = ?, active_task_ids_json = ?,
+        SET plan_json = ?, revision = ?, current_phase = ?, next_action = ?, blockers_json = ?, active_task_ids_json = ?, tracked_tasks_json = ?,
             lease_owner_client_id = ?, lease_owner_session_id = ?, lease_token_hash = ?, lease_duration_seconds = ?, lease_heartbeat_at = ?, lease_expires_at = ?,
             updated_at = ?
         WHERE id = ? AND revision = ? AND lease_token_hash = ? AND status = 'active'
@@ -461,7 +474,8 @@ export class SqliteGoalRepository implements GoalRepository, ScheduledContinuati
         request.currentPhase,
         request.nextAction,
         JSON.stringify(request.blockers),
-        JSON.stringify(request.activeTaskIds),
+        JSON.stringify(activeTaskIds),
+        JSON.stringify(trackedTasks),
         request.ownerClientId,
         request.ownerSessionId,
         request.leaseTokenHash,
@@ -486,7 +500,8 @@ export class SqliteGoalRepository implements GoalRepository, ScheduledContinuati
         nextAction: request.nextAction,
         blockers: request.blockers,
         evidence: request.evidence,
-        activeTaskIds: request.activeTaskIds,
+        activeTaskIds,
+        trackedTasks,
         createdAt: request.now,
       });
 
@@ -819,8 +834,40 @@ export class SqliteGoalRepository implements GoalRepository, ScheduledContinuati
         };
       }
 
+      // Pre-4.31 repository callers did not provide a liveness envelope. Keep
+      // that shape readable during migration, but still treat any durable
+      // blocking task as unknown below (so it cannot be silently bypassed).
+      const liveness = request.liveness ?? {
+        trustworthy: true,
+        observedAt: request.now,
+        leaseGeneration: goal.leaseGeneration,
+        leaseActivitySeq: goal.leaseActivitySeq,
+        liveFencedCallCount: 0,
+        blockingTaskStates: [],
+      };
+      if (liveness.leaseGeneration !== goal.leaseGeneration || liveness.leaseActivitySeq !== goal.leaseActivitySeq) {
+        throw new GoalStateError('conflict', 'Worker-liveness observation is stale relative to the goal lease');
+      }
+      const observedAtMs = parseIso(liveness.observedAt, 'worker liveness observation');
+      if (observedAtMs > nowMs) throw new GoalStateError('conflict', 'Worker-liveness observation cannot be from the future');
+
+      const trackedTasks = goal.trackedTasks ?? legacyTrackedTasks(goal.activeTaskIds);
+      const blockingTasks = trackedTasks.filter((task) => task.role === 'blocking_job');
+      const observedBlockingStates = liveness.blockingTaskStates
+        ?? liveness.activeTaskStates?.map((entry) => ({ ...entry, provider: 'legacy_auto' as const }))
+        ?? [];
+      const stateByBinding = new Map(observedBlockingStates.map((entry) => [`${entry.provider}\0${entry.taskId}`, entry.state]));
+      const expectedTaskStates = blockingTasks.map((task) => stateByBinding.get(`${task.provider}\0${task.taskId}`) ?? 'unknown');
+      const allExpectedInactive = expectedTaskStates.every((state) => state === 'terminal' || state === 'absent');
+      const hasUnknown = !liveness.trustworthy
+        || expectedTaskStates.some((state) => state === 'unknown');
+      const hasLiveWorker = liveness.liveFencedCallCount > 0
+        || expectedTaskStates.some((state) => state === 'running');
+      const confirmedInactive = !hasUnknown && !hasLiveWorker && liveness.liveFencedCallCount === 0 && allExpectedInactive;
+
       const leaseExpiresMs = goal.leaseExpiresAt === undefined ? undefined : parseIso(goal.leaseExpiresAt, 'lease expiry');
       if (leaseExpiresMs === undefined || leaseExpiresMs <= nowMs) {
+        if (!confirmedInactive) return this.prepareFreshCollisionSuccessor(request, continuation, goal, undefined);
         return this.claimContinuationLease(
           request,
           continuation,
@@ -828,24 +875,6 @@ export class SqliteGoalRepository implements GoalRepository, ScheduledContinuati
           leaseExpiresMs === undefined ? 'normal' : 'expired_lease',
         );
       }
-
-      const liveness = request.liveness;
-      if (liveness.leaseGeneration !== goal.leaseGeneration || liveness.leaseActivitySeq !== goal.leaseActivitySeq) {
-        throw new GoalStateError('conflict', 'Worker-liveness observation is stale relative to the goal lease');
-      }
-      const observedAtMs = parseIso(liveness.observedAt, 'worker liveness observation');
-      if (observedAtMs > nowMs) throw new GoalStateError('conflict', 'Worker-liveness observation cannot be from the future');
-
-      const stateByTask = new Map(liveness.activeTaskStates.map((entry) => [entry.taskId, entry.state]));
-      const expectedTaskStates = goal.activeTaskIds.map((taskId) => stateByTask.get(taskId) ?? 'unknown');
-      const allExpectedInactive = expectedTaskStates.every((state) => state === 'terminal' || state === 'absent');
-      const hasUnknown = !liveness.trustworthy
-        || liveness.activeTaskStates.some((entry) => entry.state === 'unknown')
-        || expectedTaskStates.some((state) => state === 'unknown');
-      const hasLiveWorker = liveness.liveFencedCallCount > 0
-        || liveness.activeTaskStates.some((entry) => entry.state === 'running')
-        || expectedTaskStates.some((state) => state === 'running');
-      const confirmedInactive = !hasUnknown && !hasLiveWorker && liveness.liveFencedCallCount === 0 && allExpectedInactive;
 
       const matchingProbe = confirmedInactive
         && continuation.orphanProbeStartedAt !== undefined
@@ -1272,8 +1301,8 @@ export class SqliteGoalRepository implements GoalRepository, ScheduledContinuati
     this.database.connection.prepare(`
       INSERT INTO goal_checkpoints (
         id, goal_id, revision, current_phase, summary, step_updates_json,
-        next_action, blockers_json, evidence_json, active_task_ids_json, created_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        next_action, blockers_json, evidence_json, active_task_ids_json, tracked_tasks_json, created_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
       checkpoint.id,
       checkpoint.goalId,
@@ -1285,6 +1314,7 @@ export class SqliteGoalRepository implements GoalRepository, ScheduledContinuati
       JSON.stringify(checkpoint.blockers),
       JSON.stringify(checkpoint.evidence),
       JSON.stringify(checkpoint.activeTaskIds),
+      JSON.stringify(checkpoint.trackedTasks ?? legacyTrackedTasks(checkpoint.activeTaskIds)),
       checkpoint.createdAt,
     );
   }
@@ -1324,7 +1354,8 @@ export class SqliteGoalRepository implements GoalRepository, ScheduledContinuati
     const status = parseGoalStatus(row.status);
     const plan = parsePlan(row.plan_json);
     const blockers = parseStringArray(row.blockers_json, 'goal blockers');
-    const activeTaskIds = parseStringArray(row.active_task_ids_json, 'goal active tasks');
+    const trackedTasks = parseTrackedTasks(row.tracked_tasks_json, row.active_task_ids_json, 'goal tracked tasks');
+    const activeTaskIds = blockingTaskIds(trackedTasks);
     const terminalEvidence = row.terminal_evidence_json === null ? undefined : parseEvidence(row.terminal_evidence_json, 'terminal evidence');
     const checkpoints = this.database.connection.prepare(
       'SELECT * FROM goal_checkpoints WHERE goal_id = ? ORDER BY revision ASC',
@@ -1353,6 +1384,7 @@ export class SqliteGoalRepository implements GoalRepository, ScheduledContinuati
       nextAction: row.next_action,
       blockers,
       activeTaskIds,
+      trackedTasks,
       ...(row.lease_owner_client_id === null ? {} : { leaseOwnerClientId: row.lease_owner_client_id }),
       ...(row.lease_owner_session_id === null ? {} : { leaseOwnerSessionId: row.lease_owner_session_id }),
       ...(row.lease_token_hash === null ? {} : { leaseTokenHash: row.lease_token_hash }),
@@ -1383,7 +1415,8 @@ export class SqliteGoalRepository implements GoalRepository, ScheduledContinuati
       nextAction: row.next_action,
       blockers: parseStringArray(row.blockers_json, 'checkpoint blockers'),
       evidence: parseEvidence(row.evidence_json, 'checkpoint evidence'),
-      activeTaskIds: parseStringArray(row.active_task_ids_json, 'checkpoint active tasks'),
+      activeTaskIds: blockingTaskIds(parseTrackedTasks(row.tracked_tasks_json, row.active_task_ids_json, 'checkpoint tracked tasks')),
+      trackedTasks: parseTrackedTasks(row.tracked_tasks_json, row.active_task_ids_json, 'checkpoint tracked tasks'),
       createdAt: row.created_at,
     };
   }
@@ -1392,7 +1425,7 @@ export class SqliteGoalRepository implements GoalRepository, ScheduledContinuati
     if (!isRecord(value)) throw corrupt('Goal row is invalid');
     const requiredStrings = ['id','workspace_id','goal_key','owner_client_id','objective','plan_json','status','current_phase','next_action','blockers_json','active_task_ids_json','created_at','updated_at'];
     if (!requiredStrings.every((key) => typeof value[key] === 'string') || typeof value.revision !== 'number') throw corrupt('Goal row fields are invalid');
-    const nullableStrings = ['lease_owner_client_id','lease_owner_session_id','lease_token_hash','lease_heartbeat_at','lease_expires_at','terminal_summary','terminal_evidence_json','terminal_at'];
+    const nullableStrings = ['tracked_tasks_json','lease_owner_client_id','lease_owner_session_id','lease_token_hash','lease_heartbeat_at','lease_expires_at','terminal_summary','terminal_evidence_json','terminal_at'];
     if (!nullableStrings.every((key) => value[key] === null || typeof value[key] === 'string')) throw corrupt('Goal nullable fields are invalid');
     if (value.lease_duration_seconds !== null && typeof value.lease_duration_seconds !== 'number') throw corrupt('Goal lease duration is invalid');
     if (typeof value.lease_generation !== 'number' || !Number.isInteger(value.lease_generation) || value.lease_generation < 0) throw corrupt('Goal lease generation is invalid');
@@ -1403,6 +1436,7 @@ export class SqliteGoalRepository implements GoalRepository, ScheduledContinuati
   private requireCheckpointRow(value: unknown): CheckpointRow {
     if (!isRecord(value)) throw corrupt('Goal checkpoint row is invalid');
     const strings = ['id','goal_id','current_phase','summary','step_updates_json','next_action','blockers_json','evidence_json','active_task_ids_json','created_at'];
+    if (value.tracked_tasks_json !== null && typeof value.tracked_tasks_json !== 'string') throw corrupt('Goal checkpoint tracked tasks are invalid');
     if (!strings.every((key) => typeof value[key] === 'string') || typeof value.revision !== 'number') throw corrupt('Goal checkpoint row fields are invalid');
     return value as unknown as CheckpointRow;
   }
@@ -1655,8 +1689,74 @@ function parseGoalStatus(value: string): GoalStatus {
   throw corrupt('Goal status is invalid');
 }
 
-function cancellationTaskIds(goal: GoalRecord): readonly string[] {
-  return goal.checkpoints.at(-1)?.activeTaskIds ?? [];
+function cancellationTasks(goal: GoalRecord): readonly GoalTrackedTask[] {
+  const latest = goal.checkpoints.at(-1);
+  const tracked = latest?.trackedTasks ?? latest?.activeTaskIds.map((taskId) => legacyTrackedTask(taskId)) ?? [];
+  return tracked.filter((task) => task.cancelWithGoal);
+}
+
+function normalizeTrackedTasks(
+  trackedTasks: readonly GoalTrackedTask[] | undefined,
+  activeTaskIds: readonly string[],
+): readonly GoalTrackedTask[] {
+  if (trackedTasks !== undefined) {
+    const seen = new Set<string>();
+    return trackedTasks.map((task) => {
+      const validated = validateTrackedTask(task);
+      const key = `${validated.provider}\0${validated.taskId}`;
+      if (seen.has(key)) throw corrupt('Tracked task bindings are duplicated');
+      seen.add(key);
+      return validated;
+    });
+  }
+  return activeTaskIds.map((taskId) => legacyTrackedTask(taskId));
+}
+
+function parseTrackedTasks(
+  serialized: string | null,
+  legacyActiveTaskIds: string,
+  label: string,
+): readonly GoalTrackedTask[] {
+  if (serialized === null) return parseStringArray(legacyActiveTaskIds, `${label} legacy active tasks`).map((taskId) => legacyTrackedTask(taskId));
+  const value = parseJson(serialized, label);
+  if (!Array.isArray(value)) throw corrupt(`${label} is invalid`);
+  const seen = new Set<string>();
+  return value.map((entry) => {
+    const task = validateTrackedTask(entry, label);
+    const key = `${task.provider}\0${task.taskId}`;
+    if (seen.has(key)) throw corrupt(`${label} bindings are duplicated`);
+    seen.add(key);
+    return task;
+  });
+}
+
+function validateTrackedTask(value: unknown, label = 'tracked task'): GoalTrackedTask {
+  if (!isRecord(value) || typeof value.taskId !== 'string' || value.taskId.trim().length === 0 || value.taskId.length > 256) throw corrupt(`${label} task ID is invalid`);
+  if (value.provider === 'legacy_auto') {
+    if (value.role !== 'blocking_job' || value.cancelWithGoal !== true) throw corrupt(`${label} legacy binding is invalid`);
+    return { taskId: value.taskId.trim(), provider: 'legacy_auto', role: 'blocking_job', cancelWithGoal: true };
+  }
+  if (value.provider !== 'process' && value.provider !== 'codex' && value.provider !== 'shell') throw corrupt(`${label} provider is invalid`);
+  if (value.role !== 'blocking_job' && value.role !== 'supporting_service') throw corrupt(`${label} role is invalid`);
+  if (typeof value.cancelWithGoal !== 'boolean') throw corrupt(`${label} cancellation policy is invalid`);
+  return {
+    taskId: value.taskId.trim(),
+    provider: value.provider,
+    role: value.role,
+    cancelWithGoal: value.cancelWithGoal,
+  };
+}
+
+function legacyTrackedTask(taskId: string): GoalTrackedTask {
+  return { taskId, provider: 'legacy_auto', role: 'blocking_job', cancelWithGoal: true };
+}
+
+function blockingTaskIds(tasks: readonly GoalTrackedTask[]): readonly string[] {
+  return tasks.filter((task) => task.role === 'blocking_job').map((task) => task.taskId);
+}
+
+function legacyTrackedTasks(activeTaskIds: readonly string[]): readonly GoalTrackedTask[] {
+  return activeTaskIds.map((taskId) => legacyTrackedTask(taskId));
 }
 
 function parsePlan(serialized: string): GoalPlan {

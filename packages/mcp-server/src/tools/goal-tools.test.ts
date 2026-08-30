@@ -39,6 +39,16 @@ describe('durable goal MCP tools', () => {
     expect(byName.get('run_goal')?.parse({ workspaceId: 'workspace-1', goalKey: 'stable-key', leaseSeconds: 601 })).toMatchObject({ ok: false });
     expect(byName.get('run_goal')?.parse({ workspaceId: 'workspace-1', goalKey: 'stable-key', leaseSeconds: 3_600 })).toMatchObject({ ok: false });
     expect(byName.get('checkpoint_goal')?.parse({ goalId: 'goal-1' })).toMatchObject({ ok: false });
+    expect(byName.get('checkpoint_goal')?.parse({
+      goalId: 'goal-1', leaseToken: 'lease-token', expectedRevision: 1, currentPhase: 'verify', summary: 'check',
+      stepUpdates: [], nextAction: 'continue', blockers: [], evidence: [],
+      trackedTasks: [{ taskId: 'job-1', provider: 'shell', role: 'blocking_job', cancelWithGoal: true }],
+    })).toMatchObject({ ok: true });
+    expect(byName.get('checkpoint_goal')?.parse({
+      goalId: 'goal-1', leaseToken: 'lease-token', expectedRevision: 1, currentPhase: 'verify', summary: 'check',
+      stepUpdates: [], nextAction: 'continue', blockers: [], evidence: [], activeTaskIds: ['job-1'],
+      trackedTasks: [{ taskId: 'job-1', provider: 'shell', role: 'blocking_job', cancelWithGoal: true }],
+    })).toMatchObject({ ok: false });
     expect(byName.get('cancel_goal')?.parse({ goalId: 'goal-1', expectedRevision: 1, summary: 'stop', evidence: [] })).toMatchObject({ ok: true });
     expect(byName.get('cancel_goal')?.parse({ goalId: 'goal-1', leaseToken: 'old-token', expectedRevision: 1, summary: 'stop', evidence: [] })).toMatchObject({ ok: false });
     expect(byName.get('get_goal')?.parse({})).toMatchObject({ ok: false });

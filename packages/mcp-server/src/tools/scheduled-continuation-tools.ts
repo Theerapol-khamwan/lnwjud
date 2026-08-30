@@ -18,6 +18,12 @@ const stepUpdate = z.object({
   status: z.enum(['pending', 'in_progress', 'completed', 'blocked']),
   summary: z.string().max(1024).optional(),
 }).strict();
+const trackedTask = z.object({
+  taskId: z.string().min(1).max(256),
+  provider: z.enum(['process', 'codex', 'shell']),
+  role: z.enum(['blocking_job', 'supporting_service']),
+  cancelWithGoal: z.boolean(),
+}).strict();
 const version = z.number().int().min(0);
 const nativeTaskId = z.string().min(1).max(512);
 const dueAt = z.string().datetime({ offset: true });
@@ -47,13 +53,18 @@ const prepareSchema = z.object({
   nextAction: z.string().min(1).max(1024),
   blockers: z.array(z.string().min(1).max(512)).max(20),
   evidence: z.array(evidence).max(20),
-  activeTaskIds: z.array(z.string().min(1).max(256)).max(50),
+  activeTaskIds: z.array(z.string().min(1).max(256)).max(50).optional(),
+  trackedTasks: z.array(trackedTask).max(50).optional(),
   successorDelayMinutes: z.number().int()
     .min(MIN_SUCCESSOR_DELAY_MINUTES)
     .max(MAX_SUCCESSOR_DELAY_MINUTES)
     .default(DEFAULT_SUCCESSOR_DELAY_MINUTES),
   executionPreference: z.literal('cloud').default('cloud'),
-}).strict();
+}).strict().refine((value) => value.activeTaskIds !== undefined || value.trackedTasks !== undefined, {
+  message: 'activeTaskIds or trackedTasks is required',
+}).refine((value) => value.activeTaskIds === undefined || value.trackedTasks === undefined || value.activeTaskIds.length === 0, {
+  message: 'Use trackedTasks or activeTaskIds, not both',
+});
 
 const receiptSchema = z.discriminatedUnion('outcome', [
   z.object({ continuationId, expectedVersion: version, outcome: z.literal('created'), nativeTaskId, runsOn: z.literal('cloud'), detail }).strict(),
@@ -111,7 +122,7 @@ export function scheduledContinuationTools(context: McpToolContext): McpToolDefi
   return [
     defineTool({
       name: 'prepare_scheduled_continuation',
-      description: 'Checkpoint and reserve exactly one current-chat cloud successor with an adaptive delay between 2 and 25 minutes. Omitted delay defaults to the fail-safe +2-minute handoff; a healthy current run may explicitly choose a longer 5/10/25-minute watchdog. This workflow never creates or deletes the native task itself.',
+      description: 'Checkpoint and reserve exactly one current-chat cloud successor with an adaptive delay between 2 and 25 minutes. Use trackedTasks for goal-relative blocking_job/supporting_service roles and explicit provider routing; activeTaskIds remains a legacy compatibility form. Supporting services do not block scheduled-claim liveness and are cancelled only when cancelWithGoal=true. Omitted delay defaults to the fail-safe +2-minute handoff; a healthy current run may explicitly choose a longer 5/10/25-minute watchdog. This workflow never creates or deletes the native task itself.',
       permission: 'WRITE',
       annotations: { readOnlyHint: false, destructiveHint: false },
       inputSchema: prepareSchema,
@@ -129,7 +140,8 @@ export function scheduledContinuationTools(context: McpToolContext): McpToolDefi
         nextAction: input.nextAction,
         blockers: input.blockers,
         evidence: input.evidence,
-        activeTaskIds: input.activeTaskIds,
+        ...(input.activeTaskIds === undefined ? {} : { activeTaskIds: input.activeTaskIds }),
+        ...(input.trackedTasks === undefined ? {} : { trackedTasks: input.trackedTasks }),
         successorDelayMinutes: input.successorDelayMinutes,
         executionPreference: input.executionPreference,
       }) ?? missingService(),

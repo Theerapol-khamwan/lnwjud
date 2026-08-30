@@ -12,7 +12,7 @@ const required = [
 ] as const;
 
 describe('scheduled continuation runtime contract', () => {
-  it('publishes all five scheduling tools with adaptive one-time cloud/same-task semantics', () => {
+  it('publishes all five scheduling tools with adaptive one-time cloud handoff semantics', () => {
     const registry = new ToolRegistry({}, actor);
     const tools = new Map(registry.list().map((tool) => [tool.name, tool]));
     for (const name of required) expect(tools.has(name), name).toBe(true);

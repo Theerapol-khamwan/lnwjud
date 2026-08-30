@@ -1,5 +1,7 @@
 import {
   type GoalTaskCancellationObservation,
+  type GoalTaskProvider,
+  type GoalTrackedTask,
   type Result,
 } from '@lnwjud/domain';
 
@@ -18,13 +20,14 @@ export type GoalTaskCancellationResultStatus = 'cancelled' | 'already_terminal' 
 
 export interface GoalTaskCancellationResult {
   readonly taskId: string;
+  readonly provider?: GoalTaskProvider;
   readonly status: GoalTaskCancellationResultStatus;
   readonly providers: readonly GoalTaskCancellationProviderResult[];
   readonly error?: string;
 }
 
 export interface GoalTaskCancellationPort {
-  cancelForGoal(ownerClientId: string, workspaceId: string, taskIds: readonly string[]): Promise<readonly GoalTaskCancellationResult[]>;
+  cancelForGoal(ownerClientId: string, workspaceId: string, tasks: readonly (GoalTrackedTask | string)[]): Promise<readonly GoalTaskCancellationResult[]>;
 }
 
 export class GoalTaskCancellationService implements GoalTaskCancellationPort {
@@ -33,13 +36,19 @@ export class GoalTaskCancellationService implements GoalTaskCancellationPort {
   public async cancelForGoal(
     ownerClientId: string,
     workspaceId: string,
-    taskIds: readonly string[],
+    tasks: readonly (GoalTrackedTask | string)[],
   ): Promise<readonly GoalTaskCancellationResult[]> {
-    return Promise.all(taskIds.map((taskId) => this.cancelTask(ownerClientId, workspaceId, taskId)));
+    return Promise.all(tasks.filter((task) => typeof task === 'string' || task.cancelWithGoal)
+      .map((task) => typeof task === 'string'
+        ? this.cancelTask(ownerClientId, workspaceId, task, 'legacy_auto')
+        : this.cancelTask(ownerClientId, workspaceId, task.taskId, task.provider)));
   }
 
-  private async cancelTask(ownerClientId: string, workspaceId: string, taskId: string): Promise<GoalTaskCancellationResult> {
-    const providers = await Promise.all(this.providers.map(async (provider): Promise<GoalTaskCancellationProviderResult> => {
+  private async cancelTask(ownerClientId: string, workspaceId: string, taskId: string, bindingProvider: GoalTaskProvider): Promise<GoalTaskCancellationResult> {
+    const selectedProviders = bindingProvider === 'legacy_auto'
+      ? this.providers
+      : this.providers.filter((provider) => provider.provider === bindingProvider);
+    const providers = await Promise.all(selectedProviders.map(async (provider): Promise<GoalTaskCancellationProviderResult> => {
       try {
         const result = await provider.cancelForGoal(ownerClientId, workspaceId, taskId);
         if (result.ok) return { provider: provider.provider, ...result.value };
@@ -69,7 +78,7 @@ export class GoalTaskCancellationService implements GoalTaskCancellationPort {
     else if (matched.some((provider) => provider.state === 'cancelled')) status = 'cancelled';
     else if (matched.some((provider) => provider.state === 'already_terminal')) status = 'already_terminal';
     else status = 'not_found';
-    return { taskId, status, providers };
+    return { taskId, provider: bindingProvider, status, providers };
   }
 }
 

@@ -37,4 +37,21 @@ describe('RuntimeGoalManagedTaskStateReader', () => {
     });
     await expect(unverified.read('workspace-1', 'task-1')).resolves.toBe('unknown');
   });
+
+  it('routes an explicit provider binding without probing unrelated registries', async (): Promise<void> => {
+    const process = { statusForGoalLiveness: vi.fn(async (): Promise<Result<unknown>> => ok({ state: 'running' })) };
+    const codex = { statusForGoalLiveness: vi.fn(async (): Promise<Result<unknown>> => ok({ state: 'running' })) };
+    const shell = { statusForGoalLiveness: vi.fn(async (): Promise<Result<unknown>> => ok({ state: 'completed' })) };
+    const reader = new RuntimeGoalManagedTaskStateReader({ process, codex, shell });
+
+    await expect(reader.read('workspace-1', {
+      taskId: 'same-id',
+      provider: 'shell',
+      role: 'supporting_service',
+      cancelWithGoal: false,
+    } as never)).resolves.toBe('terminal');
+    expect(process.statusForGoalLiveness).not.toHaveBeenCalled();
+    expect(codex.statusForGoalLiveness).not.toHaveBeenCalled();
+    expect(shell.statusForGoalLiveness).toHaveBeenCalledWith('workspace-1', 'same-id');
+  });
 });

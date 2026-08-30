@@ -13,6 +13,7 @@ import {
   type GoalStatus,
   type GoalStepStatus,
   type GoalStepUpdate,
+  type GoalTrackedTask,
   type GoalTerminalStatus,
   type Result,
   type ScheduledContinuationRecord,
@@ -83,7 +84,8 @@ export interface CheckpointGoalRequest {
   readonly nextAction: string;
   readonly blockers: readonly string[];
   readonly evidence: readonly GoalEvidence[];
-  readonly activeTaskIds: readonly string[];
+  readonly activeTaskIds?: readonly string[];
+  readonly trackedTasks?: readonly GoalTrackedTask[];
   readonly releaseLease?: boolean;
 }
 
@@ -123,6 +125,7 @@ export interface GoalSnapshot {
   readonly nextAction: string;
   readonly blockers: readonly string[];
   readonly activeTaskIds: readonly string[];
+  readonly trackedTasks: readonly GoalTrackedTask[];
   readonly lastCheckpoint: GoalCheckpointRecord | null;
   readonly leaseGeneration: number;
   readonly leaseActivitySeq: number;
@@ -140,6 +143,7 @@ export interface FinishGoalResult extends GoalSnapshot {
 
 export interface CancelGoalResult extends GoalSnapshot {
   readonly trackedTaskIds: readonly string[];
+  readonly trackedTasks: readonly GoalTrackedTask[];
   readonly taskCancellations: readonly GoalTaskCancellationResult[];
   readonly allTasksStopped: boolean;
   readonly requestCancellation: GoalRequestCancellationResult;
@@ -255,6 +259,7 @@ export class GoalContinuationService {
       if (!Number.isInteger(request.expectedRevision) || request.expectedRevision < 0) return err(appError('INVALID_INPUT', 'expectedRevision is invalid'));
       const stepUpdates = normalizeStepUpdates(request.stepUpdates, current.plan);
       const updatedPlan = applyStepUpdates(current.plan, stepUpdates);
+      const trackedTasks = normalizeTrackedTasks(request.trackedTasks, request.activeTaskIds);
       const goal = await this.goals.checkpoint({
         checkpointId: randomUUID(),
         goalId,
@@ -269,7 +274,8 @@ export class GoalContinuationService {
         nextAction: safeText(request.nextAction, MAX_NEXT_ACTION, 'nextAction', true),
         blockers: normalizeStrings(request.blockers, MAX_BLOCKERS, MAX_BLOCKER, 'blockers'),
         evidence: normalizeEvidence(request.evidence),
-        activeTaskIds: normalizeTaskIds(request.activeTaskIds),
+        activeTaskIds: blockingTaskIds(trackedTasks),
+        trackedTasks,
         releaseLease: request.releaseLease === true,
         now: this.now().toISOString(),
       });
@@ -339,7 +345,7 @@ export class GoalContinuationService {
       });
       const [requestCancellation, taskCancellations] = await Promise.all([
         this.cancelInFlightRequests(goalId),
-        this.cancelTrackedTasks(ownerClientId, cancelled.goal.workspaceId, cancelled.trackedTaskIds),
+        this.cancelTrackedTasks(ownerClientId, cancelled.goal.workspaceId, cancelled.trackedTasks ?? legacyTrackedTasks(cancelled.trackedTaskIds)),
       ]);
       let scheduledTaskCancellation: ScheduledTaskCancellationInstruction = {
         action: 'none',
@@ -356,6 +362,7 @@ export class GoalContinuationService {
       return ok({
         ...toSnapshot(cancelled.goal),
         trackedTaskIds: cancelled.trackedTaskIds,
+        trackedTasks: cancelled.trackedTasks ?? legacyTrackedTasks(cancelled.trackedTaskIds),
         taskCancellations,
         allTasksStopped: taskCancellations.every((entry) => isGoalTaskStopped(entry.status)),
         requestCancellation,
@@ -407,19 +414,23 @@ export class GoalContinuationService {
   private async cancelTrackedTasks(
     ownerClientId: string,
     workspaceId: string,
-    taskIds: readonly string[],
+    trackedTasks: readonly GoalTrackedTask[],
   ): Promise<readonly GoalTaskCancellationResult[]> {
-    if (taskIds.length === 0) return [];
+    const cancellationTargets = trackedTasks.filter((task) => task.cancelWithGoal);
+    if (cancellationTargets.length === 0) return [];
     if (this.taskCancellation === undefined) {
-      return taskIds.map((taskId) => failedGoalTaskCancellation(taskId, 'Goal task cancellation service is unavailable'));
+      return cancellationTargets.map((task) => failedGoalTaskCancellation(task.taskId, 'Goal task cancellation service is unavailable'));
     }
     try {
-      const results = await this.taskCancellation.cancelForGoal(ownerClientId, workspaceId, taskIds);
-      const byTaskId = new Map(results.map((entry) => [entry.taskId, entry]));
-      return taskIds.map((taskId) => byTaskId.get(taskId) ?? failedGoalTaskCancellation(taskId, 'Task cancellation provider omitted a tracked task'));
+      const cancellationInputs = cancellationTargets.map((task) => task.provider === 'legacy_auto' ? task.taskId : task);
+      const results = await this.taskCancellation.cancelForGoal(ownerClientId, workspaceId, cancellationInputs);
+      const byTask = new Map(results.map((entry) => [`${entry.provider ?? 'legacy_auto'}\0${entry.taskId}`, entry]));
+      return cancellationTargets.map((task) => byTask.get(`${task.provider}\0${task.taskId}`)
+        ?? byTask.get(`legacy_auto\0${task.taskId}`)
+        ?? failedGoalTaskCancellation(task.taskId, 'Task cancellation provider omitted a tracked task'));
     } catch (error: unknown) {
       const message = error instanceof Error ? error.message : 'Goal task cancellation failed';
-      return taskIds.map((taskId) => failedGoalTaskCancellation(taskId, message));
+      return cancellationTargets.map((task) => failedGoalTaskCancellation(task.taskId, message));
     }
   }
 
@@ -491,6 +502,7 @@ function toRunSnapshot(goal: GoalRecord): Omit<RunGoalResult, 'acquired' | 'leas
     nextAction: snapshot.nextAction,
     blockers: snapshot.blockers,
     activeTaskIds: snapshot.activeTaskIds,
+    trackedTasks: snapshot.trackedTasks,
     lastCheckpoint: snapshot.lastCheckpoint,
     leaseGeneration: snapshot.leaseGeneration,
     leaseActivitySeq: snapshot.leaseActivitySeq,
@@ -513,6 +525,7 @@ function toSnapshot(goal: GoalRecord): GoalSnapshot {
     nextAction: goal.nextAction || nextActionFromPlan(goal.plan),
     blockers: goal.blockers,
     activeTaskIds: goal.activeTaskIds,
+    trackedTasks: goal.trackedTasks ?? legacyTrackedTasks(goal.activeTaskIds),
     lastCheckpoint: goal.checkpoints.at(-1) ?? null,
     leaseGeneration: goal.leaseGeneration,
     leaseActivitySeq: goal.leaseActivitySeq,
@@ -574,9 +587,52 @@ function normalizeEvidence(evidence: readonly GoalEvidence[]): readonly GoalEvid
   });
 }
 
-function normalizeTaskIds(values: readonly string[]): readonly string[] {
+function normalizeTaskIds(values: readonly string[] | undefined): readonly string[] {
+  if (values === undefined) return [];
   if (!Array.isArray(values) || values.length > MAX_ACTIVE_TASKS) throw new Error('activeTaskIds are invalid');
   return [...new Set(values.map((value) => requiredBounded(value, 'task id', MAX_TASK_ID)))];
+}
+
+function normalizeTrackedTasks(
+  trackedTasks: readonly GoalTrackedTask[] | undefined,
+  activeTaskIds: readonly string[] | undefined,
+): readonly GoalTrackedTask[] {
+  if (trackedTasks !== undefined && activeTaskIds !== undefined && activeTaskIds.length > 0) {
+    throw new Error('Use trackedTasks or activeTaskIds, not both');
+  }
+  if (trackedTasks !== undefined) {
+    if (!Array.isArray(trackedTasks) || trackedTasks.length > MAX_ACTIVE_TASKS) throw new Error('trackedTasks are invalid');
+    const seen = new Set<string>();
+    return trackedTasks.map((entry) => {
+      if (!isRecord(entry) || typeof entry.taskId !== 'string') throw new Error('tracked task is invalid');
+      const taskId = requiredBounded(entry.taskId, 'task id', MAX_TASK_ID);
+      const provider = entry.provider;
+      if (provider !== 'process' && provider !== 'codex' && provider !== 'shell') throw new Error('tracked task provider is invalid');
+      if (entry.role !== 'blocking_job' && entry.role !== 'supporting_service') throw new Error('tracked task role is invalid');
+      if (typeof entry.cancelWithGoal !== 'boolean') throw new Error('tracked task cancellation policy is invalid');
+      const key = `${provider}\0${taskId}`;
+      if (seen.has(key)) throw new Error('tracked task bindings must be unique');
+      seen.add(key);
+      return { taskId, provider, role: entry.role, cancelWithGoal: entry.cancelWithGoal };
+    });
+  }
+  return normalizeTaskIds(activeTaskIds).map((taskId) => legacyTrackedTask(taskId));
+}
+
+function blockingTaskIds(tasks: readonly GoalTrackedTask[]): readonly string[] {
+  return tasks.filter((task) => task.role === 'blocking_job').map((task) => task.taskId);
+}
+
+function legacyTrackedTask(taskId: string): GoalTrackedTask {
+  return { taskId, provider: 'legacy_auto', role: 'blocking_job', cancelWithGoal: true };
+}
+
+function legacyTrackedTasks(taskIds: readonly string[]): readonly GoalTrackedTask[] {
+  return taskIds.map((taskId) => legacyTrackedTask(taskId));
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
 function normalizeStrings(values: readonly string[], maxItems: number, maxLength: number, label: string): readonly string[] {

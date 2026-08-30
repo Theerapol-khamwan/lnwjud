@@ -69,4 +69,22 @@ describe('GoalMutationFenceService', () => {
     expect(read).toHaveBeenNthCalledWith(1, 'workspace-1', 'running');
     expect(read).toHaveBeenNthCalledWith(2, 'workspace-1', 'unknown');
   });
+
+  it('observes only blocking goal tasks for worker liveness', async (): Promise<void> => {
+    const read = vi.fn(async (_workspaceId: string, task: { taskId: string }): Promise<'running' | 'terminal'> => (
+      task.taskId === 'job-1' ? 'running' : 'terminal'
+    ));
+    const service = new GoalMutationFenceService(repository(), {
+      taskStateReader: { read: read as never },
+    });
+
+    await expect(service.observe('goal-1', [
+      { taskId: 'job-1', provider: 'shell', role: 'blocking_job', cancelWithGoal: true },
+      { taskId: 'db-1', provider: 'shell', role: 'supporting_service', cancelWithGoal: false },
+    ] as never)).resolves.toMatchObject({
+      trustworthy: true,
+      blockingTaskStates: [{ taskId: 'job-1', provider: 'shell', state: 'running' }],
+    });
+    expect(read).toHaveBeenCalledTimes(1);
+  });
 });
