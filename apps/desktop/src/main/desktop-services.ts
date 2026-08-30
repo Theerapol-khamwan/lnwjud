@@ -22,7 +22,7 @@ import {
   type FileActor,
   type DoctorProbeResult,
 } from '@lnwjud/application';
-import { AuditService, decodeActivityTargetReference, type ActivityAuditEvent, type AuditEvent, type AuditEventRepository } from '@lnwjud/audit';
+import { AuditService, decodeActivityTargetReference, type ActivityAuditEvent, type AuditEventRepository, type AuditEventSummaryProjection } from '@lnwjud/audit';
 import { CodexDiscovery, formatCodexDiscoveryError } from '@lnwjud/codex';
 import type { Result } from '@lnwjud/domain';
 import {
@@ -1277,9 +1277,9 @@ async function listVisibleAuditEvents(
   repository: AuditEventRepository,
   settingsRepository: SqliteSettingsRepository,
   limit: number,
-): Promise<readonly AuditEvent[]> {
+): Promise<readonly AuditEventSummaryProjection[]> {
   const clearedAt = settingsRepository.get(workLogClearedSettingKey);
-  const events = await repository.list(limit);
+  const events = await repository.listSummaries(limit);
   if (clearedAt === null) return events;
   return events.filter((event) => event.timestamp > clearedAt);
 }

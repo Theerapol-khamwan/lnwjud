@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { AuditService, type ActivityAuditEvent, type ActivityTargetDetail, type AuditEvent, type AuditEventQuery, type AuditEventRepository } from './audit-service.js';
+import { AuditService, type ActivityAuditEvent, type ActivityTargetDetail, type AuditEvent, type AuditEventQuery, type AuditEventRepository, type AuditEventSummaryProjection } from './audit-service.js';
 
 class MemoryAuditRepository implements AuditEventRepository {
   public readonly events: AuditEvent[] = [];
@@ -23,6 +23,15 @@ class MemoryAuditRepository implements AuditEventRepository {
       if (query.sessionId !== undefined && (event.sessionId ?? null) !== query.sessionId) return false;
       return true;
     }).reverse().slice(0, limit);
+  }
+
+  public async listSummaries(limit = 100): Promise<AuditEventSummaryProjection[]> {
+    return this.events.slice().reverse().slice(0, limit).map((event) => ({
+      id: event.id,
+      timestamp: event.timestamp,
+      action: event.action,
+      resultCode: event.resultCode,
+    }));
   }
 
   public async listActivityScoped(): Promise<ActivityAuditEvent[]> {

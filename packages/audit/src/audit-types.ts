@@ -48,6 +48,13 @@ export interface AuditEventQuery {
   readonly sessionId?: string | null;
 }
 
+export interface AuditEventSummaryProjection {
+  readonly id: string;
+  readonly timestamp: string;
+  readonly action: string;
+  readonly resultCode: string;
+}
+
 /** Compact row projection for activity feeds. It never contains metadata_json. */
 export interface ActivityAuditEvent {
   readonly id: string;
@@ -70,6 +77,7 @@ export interface AuditEventRepository {
   list(limit?: number): Promise<AuditEvent[]>;
   listByActionPrefix(prefix: string, limit?: number): Promise<AuditEvent[]>;
   listScoped(query: AuditEventQuery, limit?: number): Promise<AuditEvent[]>;
+  listSummaries(limit?: number): Promise<AuditEventSummaryProjection[]>;
   listActivityScoped(query: AuditEventQuery, limit?: number): Promise<ActivityAuditEvent[]>;
   /** Resolves at most one started-event detail by exact event ID or call ID. */
   resolveActivityTargetDetail(idOrCallId: string): Promise<ActivityTargetDetail | null>;

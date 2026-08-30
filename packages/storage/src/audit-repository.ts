@@ -6,6 +6,7 @@ import {
   type AuditEvent,
   type AuditEventQuery,
   type AuditEventRepository,
+  type AuditEventSummaryProjection,
 } from '@lnwjud/audit';
 import type { SqliteDatabase } from './database.js';
 
@@ -38,6 +39,13 @@ interface ActivityEventRow {
   readonly phase: string | null;
   readonly error_message: string | null;
   readonly target_detail_json: string | null;
+}
+
+interface AuditSummaryRow {
+  readonly id: string;
+  readonly timestamp: string;
+  readonly action: string;
+  readonly result_code: string;
 }
 
 const AUDIT_SELECT = 'SELECT id, timestamp, actor_id, actor_name, workspace_id, session_id, action, target_summary, permission_decision, result_code, duration_ms, metadata_json FROM audit_events';
@@ -89,6 +97,18 @@ export class SqliteAuditRepository implements AuditEventRepository {
       `${AUDIT_SELECT}${where} ORDER BY timestamp DESC, id DESC LIMIT ?`,
     ).all(...parameters, boundedLimit);
     return this.toEvents(rows);
+  }
+
+  public async listSummaries(limit = 100): Promise<AuditEventSummaryProjection[]> {
+    const rows = this.database.connection.prepare(
+      'SELECT id, timestamp, action, result_code FROM audit_events ORDER BY timestamp DESC, id DESC LIMIT ?',
+    ).all(boundedQueryLimit(limit));
+    return rows.flatMap((row) => isAuditSummaryRow(row) ? [{
+      id: row.id,
+      timestamp: row.timestamp,
+      action: row.action,
+      resultCode: row.result_code,
+    }] : []);
   }
 
   public async listActivityScoped(query: AuditEventQuery, limit = 100): Promise<ActivityAuditEvent[]> {
@@ -234,6 +254,14 @@ function isActivityEventRow(value: unknown): value is ActivityEventRow {
     && (typeof value.phase === 'string' || value.phase === null)
     && (typeof value.error_message === 'string' || value.error_message === null)
     && (typeof value.target_detail_json === 'string' || value.target_detail_json === null);
+}
+
+function isAuditSummaryRow(value: unknown): value is AuditSummaryRow {
+  return isRecord(value)
+    && typeof value.id === 'string'
+    && typeof value.timestamp === 'string'
+    && typeof value.action === 'string'
+    && typeof value.result_code === 'string';
 }
 
 function isMetadataRow(value: unknown): value is { readonly metadata_json: string } {
