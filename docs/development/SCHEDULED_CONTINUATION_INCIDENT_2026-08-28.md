@@ -42,8 +42,8 @@ The database was inspected read-only. The historical stale goal was intentionall
 
 - `successorDelayMinutes` accepts integer values from 2 through 25. Omitted delay now fails safe to **2 minutes**; 5/10/25-minute watchdogs must be chosen explicitly while the current run is genuinely continuing. Twenty-five remains only the maximum watchdog.
 - The current run continues immediately after arming the successor. A schedule is recovery insurance, not permission to stop. If the host turn is already ending or no worker will remain after the response, prepare directly at +2 (or move the same confirmed task to +2) instead of leaving a long-delay successor.
-- If a host turn must end while the goal is still active, the exact same native task is moved to `now+2`; no replacement task is created.
-- Claim accepts native wake jitter up to 120 seconds early. Real worker collisions still fail closed into same-task `now+2` rescheduling.
+- If a host turn must end while the goal is still active, a still-pending future native task may be moved to `now+2`; a task that is already firing is never re-armed and requires a fresh successor after the wake is consumed.
+- Claim accepts native wake jitter up to 120 seconds early. A firing wake is a consumed one-time ticket: real worker collisions, an expired lease with a running `blocking_job`, or unknown blocking-task liveness fail closed into a **fresh** one-time cloud successor at `now+2`; same-task updates are reserved for still-pending future tasks handled by `expedite_scheduled_continuation`.
 - If exact ChatGPT host metadata proves that a native one-time task ran/was consumed while durable state still says pending/live because claim did not complete, record an exact `consumed` host-run receipt. This clears the stale live continuation/fence without claiming goal completion; an active goal then creates a fresh successor.
 - A user request to stop scheduling cancels only the successor. The current run must still wait for recorded background tasks, inspect terminal results, complete acceptance, call `finish_goal`, and confirm `get_goal` is terminal.
 - No completion response is valid while `get_goal` reports `active`.

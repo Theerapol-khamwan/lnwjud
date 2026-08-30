@@ -2,6 +2,8 @@ import type {
   GoalEvidence,
   GoalPlan,
   GoalRecord,
+  GoalTaskProvider,
+  GoalTrackedTask,
   GoalStepUpdate,
 } from './goal-continuation.js';
 
@@ -130,6 +132,8 @@ export interface PrepareScheduledContinuationRecordRequest {
   readonly blockers: readonly string[];
   readonly evidence: readonly GoalEvidence[];
   readonly activeTaskIds: readonly string[];
+  /** Structured goal-relative task bindings. Omitted only by legacy callers. */
+  readonly trackedTasks?: readonly GoalTrackedTask[];
   readonly dueAt: string;
   readonly executionPreference: 'cloud';
   readonly requestFingerprint: string;
@@ -182,14 +186,20 @@ export interface ScheduledContinuationWorkerLiveness {
   readonly leaseGeneration: number;
   readonly leaseActivitySeq: number;
   readonly liveFencedCallCount: number;
-  readonly activeTaskStates: readonly {
+  readonly blockingTaskStates?: readonly {
+    readonly taskId: string;
+    readonly provider: GoalTaskProvider;
+    readonly state: 'running' | 'terminal' | 'absent' | 'unknown';
+  }[];
+  /** @deprecated Pre-4.31 liveness shape; accepted only for migration compatibility. */
+  readonly activeTaskStates?: readonly {
     readonly taskId: string;
     readonly state: 'running' | 'terminal' | 'absent' | 'unknown';
   }[];
 }
 
 export interface ScheduledContinuationWorkerLivenessPort {
-  observe(goalId: string, activeTaskIds: readonly string[]): Promise<ScheduledContinuationWorkerLiveness>;
+  observe(goalId: string, trackedTasks: readonly GoalTrackedTask[]): Promise<ScheduledContinuationWorkerLiveness>;
 }
 
 export interface ClaimScheduledContinuationRecordRequest {

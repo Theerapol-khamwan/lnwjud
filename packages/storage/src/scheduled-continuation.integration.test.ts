@@ -920,6 +920,59 @@ describe('scheduled continuation repository state machine', () => {
     }
   });
 
+  it('does not take over an expired lease while a blocking task is still running', async () => {
+    const database = await openDatabase();
+    const repository = new SqliteGoalRepository(database);
+    try {
+      await acquireGoalLease(repository, '2026-08-27T00:00:00.000Z');
+      const prepared = await repository.prepareScheduledContinuation({
+        ...prepareRequest(
+          '2026-08-27T00:20:00.000Z',
+          '2026-08-27T00:22:00.000Z',
+          0,
+          'expired-live-job-fp',
+          'continuation-expired-live-job',
+        ),
+        trackedTasks: [{ taskId: 'job-1', provider: 'shell', role: 'blocking_job', cancelWithGoal: true }],
+      });
+      await repository.recordScheduledContinuationReceipt({
+        continuationId: prepared.continuation.continuationId,
+        ownerClientId: 'chatgpt-web-client',
+        expectedVersion: prepared.continuation.version,
+        outcome: 'created',
+        nativeTaskId: 'native-task-expired-live-job',
+        runsOn: 'cloud',
+        now: '2026-08-27T00:20:05.000Z',
+      });
+      database.connection.prepare('UPDATE goals SET lease_expires_at = ? WHERE id = ?')
+        .run('2026-08-27T00:21:00.000Z', 'goal-1');
+      const goal = await repository.getById('goal-1');
+      if (goal === null) throw new Error('goal missing');
+      const result = await repository.claimScheduledContinuation({
+        continuationId: prepared.continuation.continuationId,
+        ownerClientId: 'chatgpt-web-client',
+        ownerSessionId: 'session-b',
+        leaseTokenHash: 'lease-hash-b',
+        leaseSeconds: 600,
+        liveness: {
+          trustworthy: true,
+          observedAt: '2026-08-27T00:22:00.000Z',
+          leaseGeneration: goal.leaseGeneration,
+          leaseActivitySeq: goal.leaseActivitySeq,
+          liveFencedCallCount: 0,
+          blockingTaskStates: [{ taskId: 'job-1', provider: 'shell', state: 'running' }],
+        },
+        collisionSuccessorId: 'wake-expired-live-job',
+        collisionSuccessorDueAt: '2026-08-27T00:24:00.000Z',
+        collisionSuccessorRequestFingerprint: 'expired-live-job-successor-fp',
+        now: '2026-08-27T00:22:00.000Z',
+      });
+      expect(result).toMatchObject({ outcome: 'successor_required', continuation: { status: 'superseded' }, successor: { continuationId: 'wake-expired-live-job' } });
+    } finally {
+      database.close();
+    }
+  });
+
   it('recovers an orphan only after two unchanged trustworthy probes and rejects the predecessor generation even on the same session', async () => {
     const database = await openDatabase();
     const repository = new SqliteGoalRepository(database);

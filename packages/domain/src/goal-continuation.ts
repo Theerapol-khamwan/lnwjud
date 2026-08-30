@@ -3,6 +3,28 @@ export type GoalTerminalStatus = 'completed' | 'failed' | 'blocked';
 export type GoalStepStatus = 'pending' | 'in_progress' | 'completed' | 'blocked';
 export type GoalEvidenceKind = 'path' | 'hash' | 'task' | 'note';
 
+export type GoalTaskProvider = 'process' | 'codex' | 'shell' | 'legacy_auto';
+export type GoalTrackedTaskRole = 'blocking_job' | 'supporting_service';
+
+/**
+ * A task binding is goal-relative: the same host task may be a shared service
+ * for one goal and a goal-owned cancellation target for another.
+ * `legacy_auto` is decode-only for pre-structured activeTaskIds rows.
+ */
+export type GoalTrackedTask =
+  | {
+      readonly taskId: string;
+      readonly provider: 'process' | 'codex' | 'shell';
+      readonly role: GoalTrackedTaskRole;
+      readonly cancelWithGoal: boolean;
+    }
+  | {
+      readonly taskId: string;
+      readonly provider: 'legacy_auto';
+      readonly role: 'blocking_job';
+      readonly cancelWithGoal: true;
+    };
+
 export type GoalTaskCancellationState = 'cancelled' | 'already_terminal' | 'not_found' | 'termination_unverified';
 
 export interface GoalTaskCancellationObservation {
@@ -50,6 +72,7 @@ export interface GoalCheckpointRecord {
   readonly blockers: readonly string[];
   readonly evidence: readonly GoalEvidence[];
   readonly activeTaskIds: readonly string[];
+  readonly trackedTasks?: readonly GoalTrackedTask[];
   readonly createdAt: string;
 }
 
@@ -67,6 +90,7 @@ export interface GoalRecord {
   readonly nextAction: string;
   readonly blockers: readonly string[];
   readonly activeTaskIds: readonly string[];
+  readonly trackedTasks?: readonly GoalTrackedTask[];
   readonly leaseOwnerClientId?: string;
   readonly leaseOwnerSessionId?: string;
   readonly leaseTokenHash?: string;
@@ -132,6 +156,7 @@ export interface CheckpointGoalRecordRequest {
   readonly blockers: readonly string[];
   readonly evidence: readonly GoalEvidence[];
   readonly activeTaskIds: readonly string[];
+  readonly trackedTasks?: readonly GoalTrackedTask[];
   readonly releaseLease: boolean;
   readonly now: string;
 }
@@ -162,6 +187,7 @@ export interface CancelGoalRecordRequest {
 export interface CancelGoalRecordResult {
   readonly goal: GoalRecord;
   readonly trackedTaskIds: readonly string[];
+  readonly trackedTasks?: readonly GoalTrackedTask[];
 }
 
 export interface ListGoalRecordsRequest {

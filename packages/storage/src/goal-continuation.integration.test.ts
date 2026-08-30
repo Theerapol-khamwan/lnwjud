@@ -327,7 +327,113 @@ describe('durable goal continuation persistence', () => {
     second.database.close();
   });
 
-  it('cancels an active goal after lease expiry and stops every tracked task across session boundaries', async () => {
+  it('persists goal-relative task roles and provider bindings across restart', async () => {
+    const { filename, workspace } = await fixture();
+    const now = new Date('2026-08-26T00:00:00.000Z');
+    const first = await open(filename, workspace, () => now);
+    const created = await first.service.runGoal(actor('session-a'), createRequest);
+    if (!created.ok || created.value.leaseToken === undefined) throw new Error('goal create failed');
+    const trackedTasks = [
+      { taskId: 'verification-job', provider: 'shell' as const, role: 'blocking_job' as const, cancelWithGoal: true },
+      { taskId: 'xampp-mariadb', provider: 'process' as const, role: 'supporting_service' as const, cancelWithGoal: false },
+    ];
+    const checkpointed = await first.service.checkpointGoal(actor('session-a'), {
+      goalId: created.value.goalId,
+      leaseToken: created.value.leaseToken,
+      expectedRevision: 0,
+      currentPhase: 'verification',
+      summary: 'Track the bounded job separately from the shared database service.',
+      stepUpdates: [],
+      nextAction: 'Wait for the verification job.',
+      blockers: [],
+      evidence: [],
+      trackedTasks,
+    });
+    expect(checkpointed).toMatchObject({
+      ok: true,
+      value: { activeTaskIds: ['verification-job'], trackedTasks },
+    });
+    first.database.close();
+
+    const second = await open(filename, workspace, () => now);
+    try {
+      await expect(second.service.getGoal(actor('session-b'), { goalId: created.value.goalId })).resolves.toMatchObject({
+        ok: true,
+        value: { activeTaskIds: ['verification-job'], trackedTasks },
+      });
+      const raw = second.database.connection.prepare('SELECT tracked_tasks_json, active_task_ids_json FROM goals WHERE id = ?').get(created.value.goalId);
+      expect(raw).toMatchObject({ tracked_tasks_json: JSON.stringify(trackedTasks), active_task_ids_json: JSON.stringify(['verification-job']) });
+    } finally {
+      second.database.close();
+    }
+  });
+
+  it('does not cancel a shared supporting service when cancelling a goal', async () => {
+    const { filename, workspace } = await fixture();
+    const now = new Date('2026-08-26T00:00:00.000Z');
+    const calls: string[] = [];
+    const taskCancellation: GoalTaskCancellationPort = {
+      async cancelForGoal(_ownerClientId, _workspaceId, tasks) {
+        return tasks.map((task) => {
+          const taskId = typeof task === 'string' ? task : task.taskId;
+          calls.push(taskId);
+          return { taskId, status: 'cancelled' as const, providers: [] };
+        });
+      },
+    };
+    const runtime = await open(filename, workspace, () => now, taskCancellation);
+    try {
+      const created = await runtime.service.runGoal(actor('session-a'), createRequest);
+      if (!created.ok || created.value.leaseToken === undefined) throw new Error('goal create failed');
+      await runtime.service.checkpointGoal(actor('session-a'), {
+        goalId: created.value.goalId,
+        leaseToken: created.value.leaseToken,
+        expectedRevision: 0,
+        currentPhase: 'verification',
+        summary: 'Keep the shared database service alive.',
+        stepUpdates: [],
+        nextAction: 'Cancel only goal-owned work.',
+        blockers: [],
+        evidence: [],
+        trackedTasks: [
+          { taskId: 'owned-job', provider: 'shell', role: 'blocking_job', cancelWithGoal: true },
+          { taskId: 'shared-db', provider: 'process', role: 'supporting_service', cancelWithGoal: false },
+        ],
+      });
+      const cancelled = await runtime.service.cancelGoal(actor('session-b'), {
+        goalId: created.value.goalId,
+        expectedRevision: 1,
+        summary: 'Stop the goal-owned job.',
+        evidence: [],
+      });
+      expect(cancelled).toMatchObject({
+        ok: true,
+        value: {
+          trackedTaskIds: ['owned-job', 'shared-db'],
+          trackedTasks: [
+            { taskId: 'owned-job', provider: 'shell', role: 'blocking_job', cancelWithGoal: true },
+            { taskId: 'shared-db', provider: 'process', role: 'supporting_service', cancelWithGoal: false },
+          ],
+          taskCancellations: [
+            { taskId: 'owned-job', status: 'cancelled' },
+            { taskId: 'shared-db', status: 'skipped', error: 'Task remains running because cancelWithGoal=false' },
+          ],
+          allTasksStopped: false,
+        },
+      });
+      expect(calls).toEqual(['owned-job']);
+      expect((await runtime.repository.getById(created.value.goalId))?.checkpoints.at(-1)).toMatchObject({
+        trackedTasks: [
+          { taskId: 'owned-job', provider: 'shell', role: 'blocking_job', cancelWithGoal: true },
+          { taskId: 'shared-db', provider: 'process', role: 'supporting_service', cancelWithGoal: false },
+        ],
+      });
+    } finally {
+      runtime.database.close();
+    }
+  });
+
+  it('cancels an active goal after lease expiry and stops every legacy-tracked task across session boundaries', async () => {
     const { filename, workspace } = await fixture();
     let now = new Date('2026-08-26T00:00:00.000Z');
     const calls: Array<{ ownerClientId: string; workspaceId: string; taskId: string }> = [];

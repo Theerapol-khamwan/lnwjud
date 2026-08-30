@@ -26,6 +26,12 @@ const stepUpdate = z.object({
   status: stepStatus,
   summary: z.string().max(1024).optional(),
 }).strict();
+const trackedTask = z.object({
+  taskId: z.string().min(1).max(256),
+  provider: z.enum(['process', 'codex', 'shell']),
+  role: z.enum(['blocking_job', 'supporting_service']),
+  cancelWithGoal: z.boolean(),
+}).strict();
 
 const runGoalSchema = z.object({
   workspaceId: z.string().min(1).max(128),
@@ -51,9 +57,14 @@ const checkpointGoalSchema = z.object({
   nextAction: z.string().max(1024),
   blockers: z.array(z.string().min(1).max(512)).max(20),
   evidence: z.array(evidence).max(20),
-  activeTaskIds: z.array(z.string().min(1).max(256)).max(50),
+  activeTaskIds: z.array(z.string().min(1).max(256)).max(50).optional(),
+  trackedTasks: z.array(trackedTask).max(50).optional(),
   releaseLease: z.boolean().optional(),
-}).strict();
+}).strict().refine((value) => value.activeTaskIds !== undefined || value.trackedTasks !== undefined, {
+  message: 'activeTaskIds or trackedTasks is required',
+}).refine((value) => value.activeTaskIds === undefined || value.trackedTasks === undefined || value.activeTaskIds.length === 0, {
+  message: 'Use trackedTasks or activeTaskIds, not both',
+});
 
 const finishGoalSchema = z.object({
   goalId,
@@ -130,7 +141,7 @@ export function goalTools(context: McpToolContext): McpToolDefinition[] {
     }),
     defineTool({
       name: 'checkpoint_goal',
-      description: 'Atomically checkpoint durable goal progress using the current lease and expected revision. For an active goal using the default automatic continuation contract, a successful real checkpoint is the handoff point where the client must ensure exactly one native one-time cloud successor through lnwjud-scheduled-continuation before yielding; never wait for the user to type continue/ทำต่อ.',
+      description: 'Atomically checkpoint durable goal progress using the current lease and expected revision. Use trackedTasks for goal-relative blocking_job/supporting_service roles and explicit provider routing; activeTaskIds remains a legacy compatibility form. Supporting services do not block continuation liveness and are cancelled only when cancelWithGoal=true. For an active goal using the default automatic continuation contract, a successful real checkpoint is the handoff point where the client must ensure exactly one native one-time cloud successor through lnwjud-scheduled-continuation before yielding; never wait for the user to type continue/ทำต่อ.',
       permission: 'WRITE',
       annotations: { readOnlyHint: false, destructiveHint: false },
       inputSchema: checkpointGoalSchema,
@@ -148,7 +159,8 @@ export function goalTools(context: McpToolContext): McpToolDefinition[] {
         nextAction: input.nextAction,
         blockers: input.blockers,
         evidence: input.evidence,
-        activeTaskIds: input.activeTaskIds,
+        ...(input.activeTaskIds === undefined ? {} : { activeTaskIds: input.activeTaskIds }),
+        ...(input.trackedTasks === undefined ? {} : { trackedTasks: input.trackedTasks }),
         ...(input.releaseLease === undefined ? {} : { releaseLease: input.releaseLease }),
       }) ?? missingService(),
     }),
@@ -162,7 +174,7 @@ export function goalTools(context: McpToolContext): McpToolDefinition[] {
     }),
     defineTool({
       name: 'cancel_goal',
-      description: 'Cancel a durable goal independently of any scheduled successor. It records the goal as cancelled, aborts in-flight fenced MCP requests for that goal, and attempts to stop every tracked process, Codex task, and shell task across the current runtime and durable task store; inspect requestCancellation, taskCancellations, and allRequestsStopped/allTasksStopped for unresolved work. If scheduledTaskCancellation requests delete_native_task, use cancel_scheduled_continuation separately and complete the exact native ChatGPT host deletion receipt.',
+      description: 'Cancel a durable goal independently of any scheduled successor. It records the goal as cancelled, aborts in-flight fenced MCP requests for that goal, and attempts to stop only tracked tasks whose cancelWithGoal policy is true; shared supporting services remain running by default and are reported as taskCancellations status=skipped. An explicitly bound provider that is unavailable or cannot verify termination is reported as failed, so allTasksStopped remains false until the unresolved task is inspected. Inspect requestCancellation, taskCancellations, and allRequestsStopped/allTasksStopped for unresolved work. If scheduledTaskCancellation requests delete_native_task, use cancel_scheduled_continuation separately and complete the exact native ChatGPT host deletion receipt.',
       permission: 'WRITE',
       annotations: { readOnlyHint: false, destructiveHint: true },
       inputSchema: cancelGoalSchema,

@@ -5,6 +5,7 @@ import {
   err,
   ok,
   type GoalLeaseProof,
+  type GoalTrackedTask,
   type Result,
   type ScheduledContinuationRepository,
   type ScheduledContinuationWorkerLiveness,
@@ -15,7 +16,7 @@ import type { FileActor } from './file-service.js';
 export type ManagedGoalTaskState = 'running' | 'terminal' | 'absent' | 'unknown';
 
 export interface GoalManagedTaskStateReader {
-  read(workspaceId: string, taskId: string): Promise<ManagedGoalTaskState>;
+  read(workspaceId: string, task: GoalTrackedTask | string): Promise<ManagedGoalTaskState>;
 }
 
 export interface GoalMutationFenceServiceOptions {
@@ -101,31 +102,40 @@ export class GoalMutationFenceService implements ScheduledContinuationWorkerLive
     await this.repository.endGoalFencedMutation(callId, this.now().toISOString());
   }
 
-  public async observe(goalId: string, activeTaskIds: readonly string[]): Promise<ScheduledContinuationWorkerLiveness> {
+  public async observe(goalId: string, trackedTasks: readonly (GoalTrackedTask | string)[]): Promise<ScheduledContinuationWorkerLiveness> {
     const observedAt = this.now().toISOString();
     const durable = await this.repository.observeGoalFencedMutations(goalId, observedAt);
-    const activeTaskStates = await Promise.all(activeTaskIds.map(async (taskId) => ({
-      taskId,
-      state: await this.readTaskState(durable.workspaceId, taskId),
+    const normalizedTasks = trackedTasks
+      .map((task) => ({ original: task, binding: typeof task === 'string' ? legacyTrackedTask(task) : task }))
+      .filter((entry) => entry.binding.role === 'blocking_job');
+    const blockingTaskStates = await Promise.all(normalizedTasks.map(async ({ original, binding }) => ({
+      taskId: binding.taskId,
+      provider: binding.provider,
+      state: await this.readTaskState(durable.workspaceId, typeof original === 'string' ? original : binding),
     })));
     return {
-      trustworthy: activeTaskStates.every((entry) => entry.state !== 'unknown'),
+      trustworthy: blockingTaskStates.every((entry) => entry.state !== 'unknown'),
       observedAt,
       leaseGeneration: durable.leaseGeneration,
       leaseActivitySeq: durable.leaseActivitySeq,
       liveFencedCallCount: durable.liveFencedCallCount,
-      activeTaskStates,
+      blockingTaskStates,
+      activeTaskStates: blockingTaskStates.map(({ taskId, state }) => ({ taskId, state })),
     };
   }
 
-  private async readTaskState(workspaceId: string, taskId: string): Promise<ManagedGoalTaskState> {
+  private async readTaskState(workspaceId: string, task: GoalTrackedTask | string): Promise<ManagedGoalTaskState> {
     if (this.taskStateReader === undefined) return 'unknown';
     try {
-      return await this.taskStateReader.read(workspaceId, taskId);
+      return await this.taskStateReader.read(workspaceId, task);
     } catch {
       return 'unknown';
     }
   }
+}
+
+function legacyTrackedTask(taskId: string): GoalTrackedTask {
+  return { taskId, provider: 'legacy_auto', role: 'blocking_job', cancelWithGoal: true };
 }
 
 function normalizeCallLeaseSeconds(value: number | undefined): number {

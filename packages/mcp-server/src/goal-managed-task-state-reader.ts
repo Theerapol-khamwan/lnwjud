@@ -1,5 +1,5 @@
 import type { GoalManagedTaskStateReader, ManagedGoalTaskState } from '@lnwjud/application';
-import type { Result } from '@lnwjud/domain';
+import type { GoalTaskProvider, GoalTrackedTask, Result } from '@lnwjud/domain';
 
 interface GoalTaskStatusProvider {
   statusForGoalLiveness(workspaceId: string, taskId: string): Result<unknown> | Promise<Result<unknown>>;
@@ -14,13 +14,31 @@ export interface RuntimeGoalManagedTaskStateReaderOptions {
 /** Combines every host-owned task registry without treating an unavailable source as absence. */
 export class RuntimeGoalManagedTaskStateReader implements GoalManagedTaskStateReader {
   private readonly providers: readonly GoalTaskStatusProvider[];
+  private readonly byProvider: ReadonlyMap<Exclude<GoalTaskProvider, 'legacy_auto'>, GoalTaskStatusProvider>;
 
   public constructor(options: RuntimeGoalManagedTaskStateReaderOptions) {
     this.providers = [options.process, options.codex, options.shell]
       .filter((provider): provider is GoalTaskStatusProvider => provider !== undefined);
+    this.byProvider = new Map(
+      ([
+        ['process', options.process],
+        ['codex', options.codex],
+        ['shell', options.shell],
+      ] as const).filter((entry): entry is [Exclude<GoalTaskProvider, 'legacy_auto'>, GoalTaskStatusProvider] => entry[1] !== undefined),
+    );
   }
 
-  public async read(workspaceId: string, taskId: string): Promise<ManagedGoalTaskState> {
+  public async read(workspaceId: string, task: GoalTrackedTask | string): Promise<ManagedGoalTaskState> {
+    if (typeof task !== 'string' && task.provider !== 'legacy_auto') {
+      const provider = this.byProvider.get(task.provider);
+      if (provider === undefined) return 'unknown';
+      try {
+        return mapTaskStatus(await provider.statusForGoalLiveness(workspaceId, task.taskId));
+      } catch {
+        return 'unknown';
+      }
+    }
+    const taskId = typeof task === 'string' ? task : task.taskId;
     if (this.providers.length === 0) return 'unknown';
     const states = await Promise.all(this.providers.map(async (provider) => {
       try {

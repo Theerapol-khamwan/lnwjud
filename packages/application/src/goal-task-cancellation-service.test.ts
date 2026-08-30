@@ -56,4 +56,66 @@ describe('GoalTaskCancellationService', () => {
       ],
     }]);
   });
+
+  it('reports a shared supporting service as deliberately skipped when the goal does not own its lifecycle', async () => {
+    const shell = provider('shell', async () => ok({ matched: true, state: 'cancelled' }));
+    const process = provider('process', async () => ok({ matched: false, state: 'not_found' }));
+    const codex = provider('codex', async () => ok({ matched: false, state: 'not_found' }));
+    const service = new GoalTaskCancellationService([process, codex, shell]);
+
+    const result = await service.cancelForGoal('client-1', 'workspace-1', [{
+      taskId: 'shared-db',
+      provider: 'shell',
+      role: 'supporting_service',
+      cancelWithGoal: false,
+    }] as never);
+
+    expect(result).toEqual([{
+      taskId: 'shared-db',
+      provider: 'shell',
+      status: 'skipped',
+      providers: [],
+      error: 'Task remains running because cancelWithGoal=false',
+    }]);
+  });
+
+  it('fails closed when an explicitly bound cancellation provider is unavailable', async () => {
+    const service = new GoalTaskCancellationService([
+      provider('process', async () => ok({ matched: false, state: 'not_found' })),
+    ]);
+
+    const result = await service.cancelForGoal('client-1', 'workspace-1', [{
+      taskId: 'shell-task',
+      provider: 'shell',
+      role: 'blocking_job',
+      cancelWithGoal: true,
+    }]);
+
+    expect(result).toEqual([{
+      taskId: 'shell-task',
+      provider: 'shell',
+      status: 'failed',
+      providers: [],
+      error: 'Task cancellation provider is unavailable: shell',
+    }]);
+  });
+
+  it('routes an explicit provider binding to only that cancellation backend', async () => {
+    const calls: string[] = [];
+    const service = new GoalTaskCancellationService([
+      provider('process', async (taskId) => { calls.push(`process:${taskId}`); return ok({ matched: false, state: 'not_found' }); }),
+      provider('codex', async (taskId) => { calls.push(`codex:${taskId}`); return ok({ matched: false, state: 'not_found' }); }),
+      provider('shell', async (taskId) => { calls.push(`shell:${taskId}`); return ok({ matched: true, state: 'cancelled' }); }),
+    ]);
+
+    const result = await service.cancelForGoal('client-1', 'workspace-1', [{
+      taskId: 'same-id',
+      provider: 'shell',
+      role: 'supporting_service',
+      cancelWithGoal: true,
+    }] as never);
+
+    expect(calls).toEqual(['shell:same-id']);
+    expect(result).toMatchObject([{ taskId: 'same-id', provider: 'shell', status: 'cancelled' }]);
+  });
 });

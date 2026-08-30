@@ -8,6 +8,7 @@ import {
   type GoalPlan,
   type GoalRecord,
   type GoalStepUpdate,
+  type GoalTrackedTask,
   type Result,
   type ScheduledContinuationExecutionPreference,
   type ScheduledContinuationCancellationOutcome,
@@ -46,7 +47,8 @@ export interface PrepareScheduledContinuationRequest {
   readonly nextAction: string;
   readonly blockers: readonly string[];
   readonly evidence: readonly GoalEvidence[];
-  readonly activeTaskIds: readonly string[];
+  readonly activeTaskIds?: readonly string[];
+  readonly trackedTasks?: readonly GoalTrackedTask[];
   readonly successorDelayMinutes?: number;
   readonly executionPreference?: 'cloud';
 }
@@ -191,15 +193,17 @@ export class ScheduledContinuationService {
   ) {
     this.now = options.now ?? ((): Date => new Date());
     this.workerLiveness = options.workerLiveness ?? {
-      observe: async (goalId, activeTaskIds): ReturnType<ScheduledContinuationWorkerLivenessPort['observe']> => {
+      observe: async (goalId, trackedTasks): ReturnType<ScheduledContinuationWorkerLivenessPort['observe']> => {
         const goal = await this.goals.getById(goalId);
         return {
-          trustworthy: false,
+          trustworthy: trackedTasks.every((task) => task.role !== 'blocking_job'),
           observedAt: this.now().toISOString(),
           leaseGeneration: goal?.leaseGeneration ?? 0,
           leaseActivitySeq: goal?.leaseActivitySeq ?? 0,
           liveFencedCallCount: 0,
-          activeTaskStates: activeTaskIds.map((taskId) => ({ taskId, state: 'unknown' as const })),
+          blockingTaskStates: trackedTasks
+            .filter((task) => task.role === 'blocking_job')
+            .map((task) => ({ taskId: task.taskId, provider: task.provider, state: 'unknown' as const })),
         };
       },
     };
@@ -223,7 +227,8 @@ export class ScheduledContinuationService {
       const plan = applyStepUpdates(current.plan, stepUpdates);
       const blockers = normalizeStrings(request.blockers, 20, 512, 'blockers');
       const evidence = normalizeEvidence(request.evidence);
-      const activeTaskIds = normalizeStrings(request.activeTaskIds, 50, 256, 'activeTaskIds');
+      const trackedTasks = normalizeTrackedTasks(request.trackedTasks, request.activeTaskIds);
+      const activeTaskIds = blockingTaskIds(trackedTasks);
       const executionPreference = request.executionPreference ?? 'cloud';
       if (executionPreference !== 'cloud') throw new Error('Scheduled continuation requires cloud execution');
       const now = this.now();
@@ -239,6 +244,7 @@ export class ScheduledContinuationService {
         blockers,
         evidence,
         activeTaskIds,
+        trackedTasks,
         successorDelayMinutes,
         executionPreference,
       })).digest('hex');
@@ -258,6 +264,7 @@ export class ScheduledContinuationService {
         blockers,
         evidence,
         activeTaskIds,
+        trackedTasks,
         dueAt,
         executionPreference,
         requestFingerprint,
@@ -378,7 +385,8 @@ export class ScheduledContinuationService {
       const currentGoal = await this.requireOwnedGoal(actor, currentContinuation.goalId);
       const nowDate = this.now();
       const now = nowDate.toISOString();
-      const liveness = await this.workerLiveness.observe(currentGoal.id, currentGoal.activeTaskIds);
+      const trackedTasks = currentGoal.trackedTasks ?? currentGoal.activeTaskIds.map((taskId) => legacyTrackedTask(taskId));
+      const liveness = await this.workerLiveness.observe(currentGoal.id, trackedTasks);
       const leaseToken = randomBytes(32).toString('base64url');
       const collisionIdentity = createHash('sha256')
         .update(`collision-successor-v1\0${continuationId}`)
@@ -672,6 +680,7 @@ function toGoalSnapshot(goal: GoalRecord): GoalSnapshot {
     nextAction: goal.nextAction,
     blockers: goal.blockers,
     activeTaskIds: goal.activeTaskIds,
+    trackedTasks: goal.trackedTasks ?? goal.activeTaskIds.map((taskId) => legacyTrackedTask(taskId)),
     lastCheckpoint: goal.checkpoints.at(-1) ?? null,
     leaseGeneration: goal.leaseGeneration,
     leaseActivitySeq: goal.leaseActivitySeq,
@@ -697,6 +706,7 @@ function toRunSnapshot(goal: GoalSnapshot): Omit<RunGoalResult, 'leaseToken' | '
     nextAction: goal.nextAction,
     blockers: goal.blockers,
     activeTaskIds: goal.activeTaskIds,
+    trackedTasks: goal.trackedTasks,
     lastCheckpoint: goal.lastCheckpoint,
     leaseGeneration: goal.leaseGeneration,
     leaseActivitySeq: goal.leaseActivitySeq,
@@ -746,6 +756,38 @@ function normalizeEvidence(values: readonly GoalEvidence[]): readonly GoalEviden
 function normalizeStrings(values: readonly string[], maxItems: number, maxLength: number, label: string): readonly string[] {
   if (!Array.isArray(values) || values.length > maxItems) throw new Error(`${label} are invalid`);
   return [...new Set(values.map((value) => safeText(value, maxLength, label)))];
+}
+
+function normalizeTrackedTasks(
+  trackedTasks: readonly GoalTrackedTask[] | undefined,
+  activeTaskIds: readonly string[] | undefined,
+): readonly GoalTrackedTask[] {
+  if (trackedTasks !== undefined && activeTaskIds !== undefined && activeTaskIds.length > 0) {
+    throw new Error('Use trackedTasks or activeTaskIds, not both');
+  }
+  if (trackedTasks !== undefined) {
+    if (!Array.isArray(trackedTasks) || trackedTasks.length > 50) throw new Error('trackedTasks are invalid');
+    const seen = new Set<string>();
+    return trackedTasks.map((entry) => {
+      const taskId = required(entry.taskId, 'task id', 256);
+      if (entry.provider !== 'process' && entry.provider !== 'codex' && entry.provider !== 'shell') throw new Error('tracked task provider is invalid');
+      if (entry.role !== 'blocking_job' && entry.role !== 'supporting_service') throw new Error('tracked task role is invalid');
+      if (typeof entry.cancelWithGoal !== 'boolean') throw new Error('tracked task cancellation policy is invalid');
+      const key = `${entry.provider}\0${taskId}`;
+      if (seen.has(key)) throw new Error('tracked task bindings must be unique');
+      seen.add(key);
+      return { taskId, provider: entry.provider, role: entry.role, cancelWithGoal: entry.cancelWithGoal };
+    });
+  }
+  return normalizeStrings(activeTaskIds ?? [], 50, 256, 'activeTaskIds').map((taskId) => legacyTrackedTask(taskId));
+}
+
+function blockingTaskIds(tasks: readonly GoalTrackedTask[]): readonly string[] {
+  return tasks.filter((task) => task.role === 'blocking_job').map((task) => task.taskId);
+}
+
+function legacyTrackedTask(taskId: string): GoalTrackedTask {
+  return { taskId, provider: 'legacy_auto', role: 'blocking_job', cancelWithGoal: true };
 }
 
 function owner(actor: FileActor): string { return required(actor.clientId, 'client identity', 128); }

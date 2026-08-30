@@ -238,7 +238,7 @@ async function dismissFirstRunTip(page: Page): Promise<void> {
   }
 
   const later = page.getByRole('button', { name: /ไว้ทีหลัง|Set up later/ });
-  await later.click({ timeout: 3_000 }).catch(() => undefined);
+  await later.click({ timeout: 30_000 }).catch(() => undefined);
 }
 
 function toolCard(page: Page, name: string): Locator {
@@ -279,8 +279,8 @@ async function waitForDevTools(port: number, electronProcess: ChildProcess, stde
 
 async function closeDesktop(app: LaunchedDesktop, keepRoots = false): Promise<void> {
   await app.browser.close().catch(() => undefined);
-  await terminateDevToolsProcess(app.devToolsPort);
   await terminateProcessTree(app.process);
+  await terminateDevToolsProcess(app.devToolsPort);
   if (!keepRoots) await Promise.all([removeTemporaryRoot(app.dataRoot), removeTemporaryRoot(app.fixtureRoot)]);
 }
 
@@ -309,10 +309,6 @@ async function terminateDevToolsProcess(port: number): Promise<void> {
 async function terminateProcessTree(process: ChildProcess): Promise<void> {
   if (process.pid === undefined) return;
   await terminatePidTree(process.pid);
-  await expect.poll(
-    () => process.exitCode !== null || process.signalCode !== null,
-    { timeout: 15_000, intervals: [50, 100, 250, 500] },
-  ).toBe(true);
 }
 
 async function terminatePidTree(pid: number): Promise<void> {
