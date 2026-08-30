@@ -133,6 +133,42 @@ describe('viewport-sized log and list layout', () => {
     expect(workLog).toContain('page-content viewport-list-page worklog-page');
   });
 
+  it('keeps a long correlated line collapsed and exposes an accessible localized detail control', () => {
+    const line = {
+      id: 401, source: 'mcp' as const, timestamp: '2026-08-30T00:00:00.000Z', level: 'info' as const,
+      text: '[TASK] read_files STARTED callId=call-live — a.ts, b.ts, c.ts (+6)', workspaceId: null, sessionId: null,
+      correlation: { kind: 'mcp' as const, phase: 'started' as const, callId: 'call-live', toolName: 'read_files', resultCode: null },
+      targetDetail: { detailRef: 'call-live', itemCount: 9, preview: ['a.ts', 'b.ts', 'c.ts'], legacyIncomplete: false },
+    };
+    const markup = renderToStaticMarkup(createElement(LogStreamPanel, {
+      source: 'mcp', title: 'MCP', lines: [line], tunnelLogPath: null, tunnelLogExists: false,
+      filterPlaceholder: 'filter', pauseLabel: 'pause', followLabel: 'follow', clearLabel: 'clear',
+      clearSessionLabel: 'clear session', clearWorkspaceLabel: 'clear workspace', exportLabel: 'export', waitingLabel: 'waiting',
+      showMoreLabel: 'Show more', showLessLabel: 'Show less', detailHeadingLabel: 'Target items',
+      onClear: noop, onExport: noop,
+    }));
+
+    expect(markup).toContain('aria-expanded="false"');
+    expect(markup).toContain('aria-controls="log-detail-');
+    expect(markup).toContain('>Show more<');
+    expect(markup).not.toContain('>Show less<');
+  });
+
+  it('formats every resolved item for copy independently from the collapsed display', () => {
+    const line = {
+      id: 402, source: 'mcp' as const, timestamp: '2026-08-30T00:00:00.000Z', level: 'info' as const,
+      text: '[TASK] read_files STARTED callId=call-live — a.ts, b.ts, c.ts (+6)', workspaceId: null, sessionId: null,
+    };
+    const formatWithDetail = formatLogCopyText as unknown as (
+      value: typeof line,
+      detail: { readonly kind: 'files'; readonly items: readonly string[] },
+    ) => string;
+    const copied = formatWithDetail(line, {
+      kind: 'files', items: ['a.ts', 'b.ts', 'c.ts', 'd.ts', 'e.ts', 'f.ts', 'g.ts', 'h.ts', 'i.ts'],
+    });
+    for (const item of ['a.ts', 'b.ts', 'c.ts', 'd.ts', 'e.ts', 'f.ts', 'g.ts', 'h.ts', 'i.ts']) expect(copied).toContain(item);
+  });
+
   it('uses the same fixed-viewport/internal-scroll pattern for project and Git lists', () => {
     const css = readFileSync(new URL('../src/renderer/styles.css', import.meta.url), 'utf8');
     const projects = readFileSync(new URL('../src/renderer/features/projects/ProjectsPage.tsx', import.meta.url), 'utf8');

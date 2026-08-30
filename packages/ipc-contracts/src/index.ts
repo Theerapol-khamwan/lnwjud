@@ -43,8 +43,9 @@ export const ipcChannels = {
   copyToolCommand: 'lnwjud:copy-tool-command',
   getLogSnapshot: 'lnwjud:get-log-snapshot',
   clearLogBuffer: 'lnwjud:clear-log-buffer',
+  resolveActivityTargetDetail: 'lnwjud:resolve-activity-target-detail',
+  searchActivityTargetDetails: 'lnwjud:search-activity-target-details',
   exportLogs: 'lnwjud:export-logs',
-
   exportWorkLog: 'lnwjud:export-work-log',
   captureIncident: 'lnwjud:capture-incident',
   openLogViewer: 'lnwjud:open-log-viewer',
@@ -264,6 +265,34 @@ export interface ActivityTargetReference {
   readonly legacyIncomplete: boolean;
 }
 
+export type ActivityTargetDetail =
+  | { readonly kind: 'files'; readonly items: readonly string[] }
+  | { readonly kind: 'tools'; readonly items: readonly string[] };
+
+export interface ResolveActivityTargetDetailRequest {
+  readonly detailRef: string;
+}
+
+export interface ResolveActivityTargetDetailResult {
+  readonly status: 'complete' | 'unavailable';
+  readonly detail: ActivityTargetDetail | null;
+}
+
+export interface ActivityTargetSearchCandidate {
+  /** Renderer-owned stable row/line identity; returned verbatim on a match. */
+  readonly id: string;
+  readonly detailRef: string | null;
+}
+
+export interface SearchActivityTargetDetailsRequest {
+  readonly query: string;
+  readonly candidates: readonly ActivityTargetSearchCandidate[];
+}
+
+export interface SearchActivityTargetDetailsResult {
+  readonly matchingIds: readonly string[];
+}
+
 export interface WorkLogEntry {
   readonly id: string;
   readonly timestamp: string;
@@ -375,15 +404,18 @@ export interface ExportLogsRequest extends LogScopeRequest {
   readonly source: LogSource;
   readonly filePath: string;
   readonly query?: string;
-  /** Exact line identities visible in the renderer when Export was clicked. */
-  readonly lineIds?: readonly number[];
-  /** Exact locally formatted rows visible/copyable in the renderer when Export was clicked. */
-  readonly rows?: readonly string[];
+  /** Exact visible order plus correlation references captured when Export was clicked. */
+  readonly lines: readonly LiveLogExportReference[];
+}
+
+export interface LiveLogExportReference {
+  readonly lineId: number;
+  readonly correlationRef: string | null;
 }
 
 export interface ExportWorkLogRequest {
-  /** Exact formatted rows visible in Work Log when Export was clicked. */
-  readonly rows: readonly string[];
+  /** Ordered stable `audit:<eventId>` / `inflight:<callId>` identities captured at click. */
+  readonly rowIds: readonly string[];
 }
 
 /** Normalize legacy path-shaped workspace IDs emitted by older builds. */
@@ -741,6 +773,8 @@ export interface IpcRequestMap {
   readonly [ipcChannels.runDoctor]: undefined;
   readonly [ipcChannels.getLogSnapshot]: undefined;
   readonly [ipcChannels.clearLogBuffer]: ClearLogBufferRequest;
+  readonly [ipcChannels.resolveActivityTargetDetail]: ResolveActivityTargetDetailRequest;
+  readonly [ipcChannels.searchActivityTargetDetails]: SearchActivityTargetDetailsRequest;
   readonly [ipcChannels.exportLogs]: ExportLogsRequest;
   readonly [ipcChannels.exportWorkLog]: ExportWorkLogRequest;
   readonly [ipcChannels.captureIncident]: undefined;
@@ -792,6 +826,8 @@ export interface IpcResponseMap {
   readonly [ipcChannels.copyToolCommand]: { readonly copied: true };
   readonly [ipcChannels.getLogSnapshot]: LogSnapshot;
   readonly [ipcChannels.clearLogBuffer]: { readonly cleared: boolean };
+  readonly [ipcChannels.resolveActivityTargetDetail]: ResolveActivityTargetDetailResult;
+  readonly [ipcChannels.searchActivityTargetDetails]: SearchActivityTargetDetailsResult;
   readonly [ipcChannels.exportLogs]: { readonly exported: boolean };
   readonly [ipcChannels.exportWorkLog]: { readonly exported: boolean };
   readonly [ipcChannels.captureIncident]: IncidentExportResult;
@@ -843,6 +879,8 @@ export interface LnwjudApi {
   copyToolCommand(request: CopyToolCommandRequest): Promise<IpcResponseMap[typeof ipcChannels.copyToolCommand]>;
   getLogSnapshot(): Promise<IpcResponseMap[typeof ipcChannels.getLogSnapshot]>;
   clearLogBuffer(request: ClearLogBufferRequest): Promise<IpcResponseMap[typeof ipcChannels.clearLogBuffer]>;
+  resolveActivityTargetDetail(request: ResolveActivityTargetDetailRequest): Promise<IpcResponseMap[typeof ipcChannels.resolveActivityTargetDetail]>;
+  searchActivityTargetDetails(request: SearchActivityTargetDetailsRequest): Promise<IpcResponseMap[typeof ipcChannels.searchActivityTargetDetails]>;
   exportLogs(request: ExportLogsRequest): Promise<IpcResponseMap[typeof ipcChannels.exportLogs]>;
   exportWorkLog(request: ExportWorkLogRequest): Promise<IpcResponseMap[typeof ipcChannels.exportWorkLog]>;
   captureIncident(): Promise<IpcResponseMap[typeof ipcChannels.captureIncident]>;

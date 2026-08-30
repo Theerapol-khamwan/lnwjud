@@ -5,17 +5,21 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { chromium, expect, test, type Page } from '@playwright/test';
+import { AuditService, redactActivityTargetDetail } from '@lnwjud/audit';
+import { SqliteAuditRepository, SqliteDatabase } from '@lnwjud/storage';
 
 const desktopRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const mainEntry = path.join(desktopRoot, 'dist', 'main', 'main.js');
 const electronExecutable = path.join(desktopRoot, 'node_modules', 'electron', 'dist', 'electron.exe');
 const packagedExecutable = process.env.LNWJUD_PACKAGED_EXECUTABLE;
 
-test('control center auto-starts MCP and supports project + doctor journey', async () => {
+test('control center auto-starts MCP and supports project + doctor journey', async ({ browserName }, testInfo) => {
+  void browserName;
   test.setTimeout(90_000);
   const fixtureRoot = await mkdtemp(path.join(os.tmpdir(), 'lnwjud-dashboard-'));
   const fixtureRealRoot = await realpath(fixtureRoot);
   const dataRoot = await mkdtemp(path.join(os.tmpdir(), 'lnwjud-dashboard-data-'));
+  await seedExpandableWorkLog(dataRoot, fixtureRealRoot);
   const gitCeilingDirectories = [path.dirname(fixtureRoot), path.dirname(fixtureRealRoot)].filter((value, index, values) => values.indexOf(value) === index).join(path.delimiter);
   await writeFile(path.join(fixtureRoot, '.env'), 'SECRET_NOT_FOR_UI=do-not-display\n', 'utf8');
   const devToolsPort = await findEphemeralPort();
@@ -70,6 +74,24 @@ test('control center auto-starts MCP and supports project + doctor journey', asy
 
     await page.getByRole('button', { name: 'บันทึกการทำงาน', exact: true }).click();
     await expect(page.getByTestId('work-log')).toBeVisible();
+    await page.setViewportSize({ width: 1280, height: 800 });
+    const showMore = page.locator('.log-detail-toggle').first();
+    await expect(showMore).toHaveAccessibleName(/ดูเพิ่ม|Show more/);
+    await expect(showMore).toHaveAttribute('aria-expanded', 'false');
+    await expect(page.getByText('hidden-seven.ts', { exact: true })).toBeHidden();
+    await showMore.focus();
+    await page.keyboard.press('Enter');
+    await expect(showMore).toHaveAttribute('aria-expanded', 'true');
+    await expect(page.getByText('hidden-seven.ts', { exact: true })).toBeVisible();
+    const secondToggle = page.locator('.log-detail-toggle').nth(1);
+    await secondToggle.focus();
+    await page.keyboard.press('Enter');
+    await expect(secondToggle).toHaveAttribute('aria-expanded', 'true');
+    await page.screenshot({ path: testInfo.outputPath('work-log-expanded-1280x800.png'), fullPage: false });
+    await showMore.focus();
+    await page.keyboard.press('Space');
+    await expect(showMore).toHaveAttribute('aria-expanded', 'false');
+    await expect(secondToggle).toHaveAttribute('aria-expanded', 'true');
     await expectNoHorizontalOverflow(page);
 
     await page.getByRole('button', { name: 'หน้าหลัก', exact: true }).click();
@@ -113,6 +135,29 @@ test('control center auto-starts MCP and supports project + doctor journey', asy
     ]);
   }
 });
+
+async function seedExpandableWorkLog(dataRoot: string, workspaceId: string): Promise<void> {
+  const database = new SqliteDatabase(path.join(dataRoot, 'lnwjud.sqlite'));
+  try {
+    const repository = new SqliteAuditRepository(database);
+    const audit = new AuditService(repository);
+    const items = ['one.ts', 'two.ts', 'three.ts', 'four.ts', 'five.ts', 'six.ts', 'hidden-seven.ts'];
+    const detail = redactActivityTargetDetail({ kind: 'files', items });
+    const targetDetail = { detailRef: 'e2e-expand-call', itemCount: items.length, preview: items.slice(0, 3), legacyIncomplete: false } as const;
+    await audit.recordMcpTool({
+      actorId: 'e2e', actorName: 'e2e', workspaceId, toolName: 'read_files', callId: 'e2e-expand-call', phase: 'started',
+      targetSummary: 'one.ts, two.ts, three.ts (+4)', targetDetail, activityTargetDetail: detail,
+      resultCode: 'STARTED', durationMs: 0, timestamp: '2026-08-30T00:00:00.000Z',
+    });
+    await audit.recordMcpTool({
+      actorId: 'e2e', actorName: 'e2e', workspaceId, toolName: 'read_files', callId: 'e2e-expand-call', phase: 'completed',
+      targetSummary: 'one.ts, two.ts, three.ts (+4)', targetDetail,
+      resultCode: 'SUCCESS', durationMs: 7, timestamp: '2026-08-30T00:00:01.000Z',
+    });
+  } finally {
+    database.close();
+  }
+}
 
 async function findEphemeralPort(): Promise<number> {
   const server = createServer();

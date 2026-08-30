@@ -184,13 +184,15 @@ describe('production desktop IPC acceptance', () => {
     expect(services.clearLogBuffer).toHaveBeenCalledWith({ source: 'mcp', workspaceId: 'ws-a', sessionId: 'session-a' });
 
     await expect(requiredHandler(ipcChannels.clearLogBuffer)(trusted, { source: 'mcp', sessionId: '' })).rejects.toThrow(/sessionId/);
-    await expect(requiredHandler(ipcChannels.exportLogs)(trusted, { source: 'mcp', filePath: '', workspaceId: 'ws-a', sessionId: 'session-a', query: 'needle', lineIds: [9, 4, 1], rows: ['8/27/2026, 2:30:00 AM [INFO] needle'] })).resolves.toEqual({ exported: false });
+    await expect(requiredHandler(ipcChannels.resolveActivityTargetDetail)(trusted, { detailRef: 'call-9' })).resolves.toEqual({ status: 'unavailable', detail: null });
+    await expect(requiredHandler(ipcChannels.searchActivityTargetDetails)(trusted, { query: 'needle', candidates: [{ id: 'audit:event-9', detailRef: 'call-9' }] })).resolves.toEqual({ matchingIds: [] });
+    await expect(requiredHandler(ipcChannels.exportLogs)(trusted, { source: 'mcp', filePath: '', workspaceId: 'ws-a', sessionId: 'session-a', query: 'needle', lines: [{ lineId: 9, correlationRef: 'call-9' }, { lineId: 4, correlationRef: null }] })).resolves.toEqual({ exported: false });
     await expect(requiredHandler(ipcChannels.exportLogs)(trusted, { source: 'mcp', filePath: '', workspaceId: '' })).rejects.toThrow(/workspaceId/);
-    await expect(requiredHandler(ipcChannels.exportLogs)(trusted, { source: 'mcp', filePath: '', lineIds: [0] })).rejects.toThrow(/lineIds/);
-    await expect(requiredHandler(ipcChannels.exportLogs)(trusted, { source: 'mcp', filePath: '', rows: ['ok', 7] })).rejects.toThrow(/rows/);
+    await expect(requiredHandler(ipcChannels.exportLogs)(trusted, { source: 'mcp', filePath: '', lines: [{ lineId: 0, correlationRef: null }] })).rejects.toThrow(/lines/);
+    await expect(requiredHandler(ipcChannels.exportLogs)(trusted, { source: 'mcp', filePath: '', lines: [{ lineId: 1, correlationRef: 7 }] })).rejects.toThrow(/correlationRef/);
 
-    await expect(requiredHandler(ipcChannels.exportWorkLog)(trusted, { rows: ['first visible row', 'second visible row'] })).resolves.toEqual({ exported: false });
-    await expect(requiredHandler(ipcChannels.exportWorkLog)(trusted, { rows: ['ok', 7] })).rejects.toThrow(/rows/);
+    await expect(requiredHandler(ipcChannels.exportWorkLog)(trusted, { rowIds: ['audit:event-9', 'inflight:call-9'] })).resolves.toEqual({ exported: false });
+    await expect(requiredHandler(ipcChannels.exportWorkLog)(trusted, { rowIds: ['invalid-row-id'] })).rejects.toThrow(/rowIds/);
   });
 
   it('enforces the production IPC sender and payload guards before invoking services', async () => {
@@ -247,6 +249,9 @@ function desktopServices(): DesktopIpcServices {
     runDoctor: vi.fn(async () => ({ checks: [], exitCode: 0 })),
     getLogSnapshot: vi.fn(async () => ({ lines: [], tunnelLogPath: null, tunnelLogExists: false })),
     clearLogBuffer: vi.fn(async () => ({ cleared: true })),
+    resolveActivityTargetDetail: vi.fn(async () => ({ status: 'unavailable' as const, detail: null })),
+    searchActivityTargetDetails: vi.fn(async () => []),
+    resolveWorkLogExportRows: vi.fn(async () => []),
     captureIncident: vi.fn(async () => ({
       schemaVersion: 1,
       capturedAt: new Date(0).toISOString(),

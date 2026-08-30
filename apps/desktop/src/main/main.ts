@@ -12,6 +12,8 @@ import {
   type BackupSummary,
   type ClearLogBufferRequest,
   type ClearWorkLogRequest,
+  type ActivityTargetDetail,
+  type ActivityTargetSearchCandidate,
   type ConfigureTunnelProfileRequest,
   type DeleteWorkspaceRequest,
   type DashboardSnapshot,
@@ -57,7 +59,7 @@ import {
 import { readSharedActivitySnapshot, startMcpStdio, type HostMutationApprovalRequest } from '@lnwjud/mcp-server';
 import { DEFAULT_MCP_POLL_WAIT_SECONDS, DEFAULT_SHELL_SYNCHRONOUS_WAIT_SECONDS, MAX_CONFIGURABLE_WAIT_SECONDS, MIN_CONFIGURABLE_WAIT_SECONDS, resolveLnwjudDataPath } from '@lnwjud/shared';
 import { applyPendingSqliteRestoreSync } from '@lnwjud/storage';
-import { createDesktopRuntime, type DesktopRuntime } from './desktop-services.js';
+import { createDesktopRuntime, formatCompleteTargetDetail, writeSerializedLogRows, type DesktopRuntime } from './desktop-services.js';
 import { installPdfProvider } from './pdf-provider-installer.js';
 import { DesktopShutdownCoordinator } from './desktop-shutdown.js';
 import { parseOpenExternalSetupPageRequest, resolveExternalSetupUrl } from './external-setup-links.js';
@@ -120,6 +122,9 @@ export interface DesktopIpcServices {
   recheckToolCatalog(request: RecheckToolCatalogRequest): Promise<{ readonly catalog: ToolCatalogSnapshot; readonly doctor: DoctorReport }>;
   getLogSnapshot(): Promise<LogSnapshot>;
   clearLogBuffer(request: ClearLogBufferRequest): Promise<{ readonly cleared: boolean }>;
+  resolveActivityTargetDetail(detailRef: string): Promise<{ readonly status: 'complete' | 'unavailable'; readonly detail: ActivityTargetDetail | null }>;
+  searchActivityTargetDetails(candidates: readonly ActivityTargetSearchCandidate[], query: string): Promise<readonly string[]>;
+  resolveWorkLogExportRows(rowIds: readonly string[]): Promise<readonly string[]>;
   captureIncident(updaterEvents?: readonly string[]): Promise<IncidentReport>;
 }
 
@@ -273,6 +278,9 @@ const defaultDesktopServices: DesktopIpcServices = {
     tunnelLogExists: false,
   }),
   clearLogBuffer: async (): Promise<{ readonly cleared: boolean }> => ({ cleared: false }),
+  resolveActivityTargetDetail: async (): Promise<{ readonly status: 'unavailable'; readonly detail: null }> => ({ status: 'unavailable', detail: null }),
+  searchActivityTargetDetails: async (): Promise<readonly string[]> => [],
+  resolveWorkLogExportRows: async (): Promise<readonly string[]> => [],
   captureIncident: async (): Promise<IncidentReport> => ({ schemaVersion: 1, capturedAt: new Date().toISOString(), appVersion: APP_VERSION, tunnelClientVersion: null, tunnelClientVersionReason: 'desktop_services_unavailable', classification: 'healthy_or_inconclusive', classificationReasons: ['desktop_services_unavailable'], updaterEventTail: [], tunnel: { state: 'stopped', source: 'desktop', instanceIds: [], requestIds: [], health: { state: 'unavailable', message: 'unavailable' } }, mcpCalls: [], tunnelLogTail: [], processTree: { available: false, entries: [], error: 'unavailable' }, tcpListeners: { available: false, entries: [], error: 'unavailable' } }),
 };
 
@@ -511,13 +519,22 @@ export function registerIpcHandlers(
     assertTrustedSender(event, getMainWindow());
     return services.clearLogBuffer(parseClearLogBufferRequest(payload));
   });
+  ipcMain.handle(ipcChannels.resolveActivityTargetDetail, async (event, payload: unknown) => {
+    assertTrustedSender(event, getMainWindow());
+    return services.resolveActivityTargetDetail(parseResolveActivityTargetDetailRequest(payload));
+  });
+  ipcMain.handle(ipcChannels.searchActivityTargetDetails, async (event, payload: unknown) => {
+    assertTrustedSender(event, getMainWindow());
+    const request = parseSearchActivityTargetDetailsRequest(payload);
+    return { matchingIds: await services.searchActivityTargetDetails(request.candidates, request.query) };
+  });
   ipcMain.handle(ipcChannels.exportLogs, async (event, payload: unknown) => {
     assertTrustedSender(event, getMainWindow());
     return exportLogsToFile(getMainWindow(), services, parseExportLogsRequest(payload));
   });
   ipcMain.handle(ipcChannels.exportWorkLog, async (event, payload: unknown) => {
     assertTrustedSender(event, getMainWindow());
-    return exportWorkLogToFile(getMainWindow(), parseExportWorkLogRequest(payload));
+    return exportWorkLogToFile(getMainWindow(), services, parseExportWorkLogRequest(payload));
   });
   ipcMain.handle(ipcChannels.captureIncident, async (event, payload: unknown) => {
     assertTrustedSender(event, getMainWindow());
@@ -657,40 +674,60 @@ function parseClearLogBufferRequest(payload: unknown): ClearLogBufferRequest {
   return { source: payload.source, ...(workspaceId === undefined ? {} : { workspaceId }), ...(sessionId === undefined ? {} : { sessionId }) };
 }
 
+function parseResolveActivityTargetDetailRequest(payload: unknown): string {
+  if (!isRecord(payload)) throw new Error('Invalid IPC payload');
+  return boundedNonEmptyString(payload.detailRef, 'detailRef', 512);
+}
+
+function parseSearchActivityTargetDetailsRequest(payload: unknown): { readonly query: string; readonly candidates: readonly ActivityTargetSearchCandidate[] } {
+  if (!isRecord(payload) || !Array.isArray(payload.candidates) || payload.candidates.length > 5_000) throw new Error('Invalid IPC payload');
+  const query = boundedNonEmptyString(payload.query, 'query', 512).trim();
+  const candidates = payload.candidates.map((candidate): ActivityTargetSearchCandidate => {
+    if (!isRecord(candidate)) throw new Error('Invalid IPC payload: candidates');
+    const detailRef = candidate.detailRef === null ? null : boundedNonEmptyString(candidate.detailRef, 'detailRef', 512);
+    return { id: boundedNonEmptyString(candidate.id, 'id', 1_024), detailRef };
+  });
+  return { query, candidates };
+}
+
 function parseExportLogsRequest(payload: unknown): ExportLogsRequest {
   if (!isRecord(payload) || !isLogSource(payload.source)) {
     throw new Error('Invalid IPC payload');
   }
   const workspaceId = optionalScopeId(payload.workspaceId, 'workspaceId');
   const sessionId = optionalScopeId(payload.sessionId, 'sessionId');
-  const lineIds = payload.lineIds;
-  if (lineIds !== undefined && (!Array.isArray(lineIds) || lineIds.length > 5_000 || lineIds.some((id) => !Number.isSafeInteger(id) || Number(id) <= 0))) {
-    throw new Error('Invalid IPC payload: lineIds');
-  }
-  const rows = payload.rows;
-  if (rows !== undefined && (!Array.isArray(rows) || rows.length > 5_000 || rows.some((row) => typeof row !== 'string' || row.length > 16_384))) {
-    throw new Error('Invalid IPC payload: rows');
-  }
+  if (!Array.isArray(payload.lines) || payload.lines.length > 5_000) throw new Error('Invalid IPC payload: lines');
+  const lines = payload.lines.map((line) => {
+    if (!isRecord(line) || !Number.isSafeInteger(line.lineId) || Number(line.lineId) <= 0) throw new Error('Invalid IPC payload: lines');
+    const correlationRef = line.correlationRef === null ? null : boundedNonEmptyString(line.correlationRef, 'correlationRef', 512);
+    return { lineId: Number(line.lineId), correlationRef };
+  });
   return {
     source: payload.source,
     filePath: typeof payload.filePath === 'string' ? payload.filePath : '',
     ...(workspaceId === undefined ? {} : { workspaceId }),
     ...(sessionId === undefined ? {} : { sessionId }),
     ...(typeof payload.query === 'string' && payload.query.trim().length > 0 ? { query: payload.query.trim().slice(0, 512) } : {}),
-    ...(lineIds === undefined ? {} : { lineIds: lineIds as number[] }),
-    ...(rows === undefined ? {} : { rows: rows as string[] }),
+    lines,
   };
 }
 
 function parseExportWorkLogRequest(payload: unknown): ExportWorkLogRequest {
-  if (!isRecord(payload) || !Array.isArray(payload.rows) || payload.rows.length > 5_000) {
-    throw new Error('Invalid IPC payload: rows');
+  if (!isRecord(payload) || !Array.isArray(payload.rowIds) || payload.rowIds.length > 5_000) {
+    throw new Error('Invalid IPC payload: rowIds');
   }
-  const rows = payload.rows.map((row) => {
-    if (typeof row !== 'string' || row.length > 16_384) throw new Error('Invalid IPC payload: rows');
-    return row;
+  const rowIds = payload.rowIds.map((rowId) => {
+    const value = boundedNonEmptyString(rowId, 'rowId', 1_024);
+    if (!/^(audit|inflight):.+$/s.test(value)) throw new Error('Invalid IPC payload: rowIds');
+    return value;
   });
-  return { rows };
+  return { rowIds };
+}
+
+function boundedNonEmptyString(value: unknown, key: string, maximumLength: number): string {
+  const result = nonEmptyString(value, key);
+  if (result.length > maximumLength) throw new Error(`Invalid IPC payload: ${key}`);
+  return result;
 }
 
 function optionalScopeId(value: unknown, key: string): string | undefined {
@@ -716,33 +753,23 @@ async function exportLogsToFile(
   if (result.canceled || result.filePath === undefined || result.filePath.length === 0) {
     return { exported: false };
   }
-  let content: string;
-  if (request.rows !== undefined) {
-    content = request.rows.join('\r\n');
-  } else {
-    const snapshot = await services.getLogSnapshot();
-    const query = request.query?.toLowerCase() ?? '';
-    const requestedLineIds = request.lineIds === undefined ? null : new Set(request.lineIds);
-    content = snapshot.lines
-      .filter((line) => line.source === request.source)
-      .filter((line) => requestedLineIds === null || requestedLineIds.has(line.id))
-      .filter((line) => requestedLineIds !== null || request.workspaceId === undefined || line.workspaceId === request.workspaceId)
-      .filter((line) => requestedLineIds !== null || request.sessionId === undefined || line.sessionId === request.sessionId)
-      .filter((line) => requestedLineIds !== null || query.length === 0 || line.text.toLowerCase().includes(query))
-      .sort((left, right) => {
-        const leftTime = Date.parse(left.timestamp);
-        const rightTime = Date.parse(right.timestamp);
-        if (Number.isFinite(leftTime) && Number.isFinite(rightTime) && leftTime !== rightTime) return rightTime - leftTime;
-        return right.id - left.id;
-      })
-      .map((line) => `${formatExportLogTimestamp(line.timestamp)} [${line.level.toUpperCase()}] ${line.text}`)
-      .join('\r\n');
+  const snapshot = await services.getLogSnapshot();
+  const lineById = new Map(snapshot.lines.filter((line) => line.source === request.source).map((line) => [line.id, line] as const));
+  const rows: string[] = [];
+  for (const reference of request.lines) {
+    const line = lineById.get(reference.lineId);
+    if (line === undefined) continue;
+    const authoritativeRef = line.targetDetail?.detailRef ?? (line.correlation?.kind === 'mcp' ? line.correlation.callId : null);
+    const requestedRef = reference.correlationRef === authoritativeRef ? reference.correlationRef : authoritativeRef;
+    const detail = requestedRef === null ? null : (await services.resolveActivityTargetDetail(requestedRef)).detail;
+    const detailExpected = line.targetDetail !== undefined && line.targetDetail.itemCount > line.targetDetail.preview.length;
+    rows.push(formatCompleteTargetDetail(`${formatExportLogTimestamp(line.timestamp)} [${line.level.toUpperCase()}] ${line.text}`, detail, detailExpected));
   }
-  await atomicWrite(result.filePath, content.length === 0 ? '' : `${content}\r\n`);
+  await writeSerializedLogRows(result.filePath, rows);
   return { exported: true };
 }
 
-async function exportWorkLogToFile(window: BrowserWindow | null, request: ExportWorkLogRequest): Promise<{ readonly exported: boolean }> {
+async function exportWorkLogToFile(window: BrowserWindow | null, services: DesktopIpcServices, request: ExportWorkLogRequest): Promise<{ readonly exported: boolean }> {
   if (window === null) return { exported: false };
   const result = await dialog.showSaveDialog(window, {
     title: 'Export lnwjud work log',
@@ -750,8 +777,7 @@ async function exportWorkLogToFile(window: BrowserWindow | null, request: Export
     filters: [{ name: 'Text', extensions: ['txt', 'log'] }],
   });
   if (result.canceled || result.filePath === undefined || result.filePath.length === 0) return { exported: false };
-  const content = request.rows.join('\r\n');
-  await atomicWrite(result.filePath, content.length === 0 ? '' : `${content}\r\n`);
+  await writeSerializedLogRows(result.filePath, await services.resolveWorkLogExportRows(request.rowIds));
   return { exported: true };
 }
 

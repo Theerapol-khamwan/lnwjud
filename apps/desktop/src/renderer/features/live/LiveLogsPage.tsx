@@ -1,5 +1,5 @@
 import { useState, type ReactElement } from 'react';
-import type { IncidentClassification, LogLine, LogSource, UiLocale, WorkspaceSummary } from '@lnwjud/ipc-contracts';
+import type { IncidentClassification, LiveLogExportReference, LogLine, LogSource, UiLocale, WorkspaceSummary } from '@lnwjud/ipc-contracts';
 import { formatDateTime } from '../../date-time.js';
 import { createTranslator } from '../../i18n/index.js';
 import { LogStreamPanel, type LogScopeSelection } from './LogStreamPanel.js';
@@ -11,7 +11,7 @@ interface LiveLogsPageProps {
   readonly tunnelLogExists: boolean;
   readonly onClear: (source: LogSource, scope: LogScopeSelection) => Promise<void>;
   readonly onClearAll: () => Promise<void>;
-  readonly onExport: (source: LogSource, scope: LogScopeSelection, query: string, lineIds: readonly number[], rows: readonly string[]) => Promise<void>;
+  readonly onExport: (source: LogSource, scope: LogScopeSelection, query: string, lines: readonly LiveLogExportReference[]) => Promise<void>;
   readonly onPopOut: () => Promise<void>;
   readonly onCaptureIncident: () => Promise<void>;
   readonly incidentBusy: boolean;
@@ -75,12 +75,21 @@ export function LiveLogsPage(props: LiveLogsPageProps): ReactElement {
             waitingLabel={source === 'tunnel' ? t('live.waitingTunnel') : t('live.waiting')}
             copyLabel={t('mcp.copy')}
             copiedLabel={t('mcp.copied')}
+            onResolveTargetDetail={async (detailRef) => (await window.lnwjud.resolveActivityTargetDetail({ detailRef })).detail}
+            onSearchTargetDetails={async (query, candidates) => (await window.lnwjud.searchActivityTargetDetails({ query, candidates })).matchingIds}
+            showMoreLabel={t('logDetail.showMore')}
+            showLessLabel={t('logDetail.showLess')}
+            detailHeadingLabel={t('logDetail.heading')}
+            detailLoadingLabel={t('logDetail.loading')}
+            detailErrorLabel={t('logDetail.error')}
+            detailEmptyLabel={t('logDetail.empty')}
+            legacyIncompleteLabel={t('logDetail.legacyIncomplete')}
             workspaces={props.workspaces}
             workspaceLabel={t('scope.workspace')}
             sessionLabel={t('scope.session')}
             scopeAllLabel={t('scope.all')}
             onClear={(scope) => props.onClear(source, scope)}
-            onExport={(scope, query, lineIds, rows) => props.onExport(source, scope, query, lineIds, rows)}
+            onExport={(scope, query, lines) => props.onExport(source, scope, query, lines)}
           />
         ) : null
       ))}

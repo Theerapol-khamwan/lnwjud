@@ -61,6 +61,13 @@ export type MessageKey =
   | 'workLog.filterError'
   | 'workLog.clear'
   | 'workLog.empty'
+  | 'logDetail.showMore'
+  | 'logDetail.showLess'
+  | 'logDetail.heading'
+  | 'logDetail.loading'
+  | 'logDetail.error'
+  | 'logDetail.empty'
+  | 'logDetail.legacyIncomplete'
   | 'scope.all'
   | 'scope.workspace'
   | 'scope.session'
@@ -310,6 +317,13 @@ export const th: Messages = {
   'workLog.filterError': 'เฉพาะ error',
   'workLog.clear': 'ล้างประวัติ',
   'workLog.empty': 'ยังไม่มีกิจกรรม',
+  'logDetail.showMore': 'ดูเพิ่ม',
+  'logDetail.showLess': 'แสดงน้อยลง',
+  'logDetail.heading': 'รายการเป้าหมายทั้งหมด',
+  'logDetail.loading': 'กำลังโหลดรายละเอียดทั้งหมด…',
+  'logDetail.error': 'ไม่พบรายละเอียดทั้งหมด อาจถูกลบตามระยะเวลาเก็บบันทึกแล้ว ย่อและเปิดอีกครั้งเพื่อลองใหม่',
+  'logDetail.empty': 'ไม่มีรายการเป้าหมาย',
+  'logDetail.legacyIncomplete': 'บันทึกรุ่นเก่าเก็บไว้ไม่ครบ จึงไม่สามารถแสดงรายการที่ถูกย่อทั้งหมดได้',
   'scope.all': 'ทั้งหมด',
   'scope.workspace': 'Workspace',
   'scope.session': 'Session',
@@ -511,6 +525,13 @@ export const en: Messages = {
   'workLog.filterError': 'Errors only',
   'workLog.clear': 'Clear history',
   'workLog.empty': 'No activity yet',
+  'logDetail.showMore': 'Show more',
+  'logDetail.showLess': 'Show less',
+  'logDetail.heading': 'All target items',
+  'logDetail.loading': 'Loading complete details…',
+  'logDetail.error': 'Complete details are unavailable and may have expired from retained history. Collapse and expand to retry.',
+  'logDetail.empty': 'No target items.',
+  'logDetail.legacyIncomplete': 'This older log retained only the summary, so omitted items cannot be shown.',
   'scope.all': 'All',
   'scope.workspace': 'Workspace',
   'scope.session': 'Session',

@@ -197,4 +197,84 @@ describe('WorkLogPanel', () => {
     expect(markup).toContain('Export visible');
   });
 
+  it('starts long persisted and in-flight rows collapsed with accessible localized detail controls', () => {
+    const longEntry: WorkLogEntry = {
+      ...mockEntries[0]!,
+      id: 'event-long',
+      callId: 'call-long',
+      targetSummary: 'a.ts, b.ts, c.ts (+4)',
+      targetDetail: { detailRef: 'call-long', itemCount: 7, preview: ['a.ts', 'b.ts', 'c.ts'], legacyIncomplete: false },
+    };
+    const longInFlight: InFlightWorkItem = {
+      ...mockInFlight[0]!,
+      callId: 'call-live',
+      targetSummary: 'one.ts, two.ts, three.ts (+6)',
+      targetDetail: { detailRef: 'call-live', itemCount: 9, preview: ['one.ts', 'two.ts', 'three.ts'], legacyIncomplete: false },
+    };
+    const markup = renderToStaticMarkup(createElement(WorkLogPanel, {
+      title: 'บันทึกการทำงาน', emptyLabel: 'ยังไม่มีกิจกรรม', filterAllLabel: 'ทั้งหมด', filterErrorLabel: 'เฉพาะ error',
+      clearSessionLabel: 'ล้าง Session นี้', clearWorkspaceLabel: 'ล้าง Workspace นี้', clearAllLabel: 'ล้างทั้งหมด',
+      filter: 'all', onFilterChange: () => {}, onClear: async () => {}, entries: [longEntry], inFlight: [longInFlight],
+      showMoreLabel: 'ดูเพิ่ม', showLessLabel: 'แสดงน้อยลง', detailHeadingLabel: 'รายการเป้าหมาย',
+    }));
+
+    expect(markup.match(/aria-expanded="false"/g)).toHaveLength(2);
+    expect(markup.match(/aria-controls="log-detail-/g)).toHaveLength(2);
+    expect(markup.match(/>ดูเพิ่ม</g)).toHaveLength(2);
+    expect(markup).not.toContain('แสดงน้อยลง');
+    expect(markup).not.toContain('<li>d.ts</li>');
+  });
+
+  it('warns truthfully when a legacy (+N) row cannot be expanded losslessly', () => {
+    const legacy: WorkLogEntry = {
+      ...mockEntries[0]!,
+      id: 'legacy-event',
+      targetSummary: 'old-a.ts, old-b.ts (+5)',
+      targetDetail: { detailRef: null, itemCount: 7, preview: ['old-a.ts', 'old-b.ts'], legacyIncomplete: true },
+    };
+    const markup = renderToStaticMarkup(createElement(WorkLogPanel, {
+      title: 'Work log', emptyLabel: 'Empty', filterAllLabel: 'All', filterErrorLabel: 'Errors',
+      clearSessionLabel: 'Clear session', clearWorkspaceLabel: 'Clear workspace', clearAllLabel: 'Clear all',
+      filter: 'all', onFilterChange: () => {}, onClear: async () => {}, entries: [legacy], inFlight: [],
+      legacyIncompleteLabel: 'Older log: the omitted items were not retained.',
+    }));
+
+    expect(markup).toContain('Older log: the omitted items were not retained.');
+    expect(markup).not.toContain('aria-expanded');
+  });
+
+  it('does not claim ordinary legacy summaries lost omitted items', () => {
+    const legacy: WorkLogEntry = {
+      ...mockEntries[0]!,
+      id: 'legacy-complete-event',
+      targetSummary: 'single retained target',
+      targetDetail: { detailRef: null, itemCount: 1, preview: ['single retained target'], legacyIncomplete: true },
+    };
+    const markup = renderToStaticMarkup(createElement(WorkLogPanel, {
+      title: 'Work log', emptyLabel: 'Empty', filterAllLabel: 'All', filterErrorLabel: 'Errors',
+      clearSessionLabel: 'Clear session', clearWorkspaceLabel: 'Clear workspace', clearAllLabel: 'Clear all',
+      filter: 'all', onFilterChange: () => {}, onClear: async () => {}, entries: [legacy], inFlight: [],
+      legacyIncompleteLabel: 'Older log: the omitted items were not retained.',
+    }));
+
+    expect(markup).not.toContain('Older log: the omitted items were not retained.');
+  });
+
+  it('formats all resolved target items for copy even while the row remains collapsed', () => {
+    const row = newestFirstWorkLogRows([{
+      ...mockEntries[0]!, id: 'event-copy', callId: 'call-copy', targetSummary: 'a.ts, b.ts, c.ts (+4)',
+      targetDetail: { detailRef: 'call-copy', itemCount: 7, preview: ['a.ts', 'b.ts', 'c.ts'], legacyIncomplete: false },
+    }], [])[0]!;
+    const formatWithDetail = formatWorkLogCopyText as unknown as (
+      value: typeof row,
+      resolvedTargets: ReadonlyMap<string, string>,
+      detail: { readonly kind: 'files'; readonly items: readonly string[] },
+    ) => string;
+    const copied = formatWithDetail(row, new Map(), {
+      kind: 'files', items: ['a.ts', 'b.ts', 'c.ts', 'd.ts', 'e.ts', 'f.ts', 'g.ts'],
+    });
+
+    for (const item of ['a.ts', 'b.ts', 'c.ts', 'd.ts', 'e.ts', 'f.ts', 'g.ts']) expect(copied).toContain(item);
+  });
+
 });

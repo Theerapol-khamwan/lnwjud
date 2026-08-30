@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState, type ReactElement } from 'react';
-import { workspaceScopeMatches, type LogLine, type LogSource, type WorkspaceSummary } from '@lnwjud/ipc-contracts';
+import { workspaceScopeMatches, type LiveLogExportReference, type LogLine, type LogSource, type WorkspaceSummary } from '@lnwjud/ipc-contracts';
 import { createTranslator } from '../../i18n/index.js';
 import { applyLogSnapshot } from './log-buffer.js';
 import { LogStreamPanel, type LogScopeSelection } from './LogStreamPanel.js';
@@ -67,15 +67,14 @@ export function StandaloneLogViewer(): ReactElement {
     setLines([]);
   }
 
-  async function exportLogs(source: LogSource, scope: LogScopeSelection, query: string, lineIds: readonly number[], rows: readonly string[]): Promise<void> {
+  async function exportLogs(source: LogSource, scope: LogScopeSelection, query: string, lines: readonly LiveLogExportReference[]): Promise<void> {
     await window.lnwjud.exportLogs({
       source,
       filePath: '',
       ...(scope.workspaceId === null ? {} : { workspaceId: scope.workspaceId }),
       ...(scope.sessionId === null ? {} : { sessionId: scope.sessionId }),
       ...(query.trim().length === 0 ? {} : { query: query.trim() }),
-      lineIds,
-      rows,
+      lines,
     }).catch(() => undefined);
   }
 
@@ -129,9 +128,18 @@ export function StandaloneLogViewer(): ReactElement {
           workspaceLabel={t('scope.workspace')}
           sessionLabel={t('scope.session')}
           scopeAllLabel={t('scope.all')}
+          onResolveTargetDetail={async (detailRef) => (await window.lnwjud.resolveActivityTargetDetail({ detailRef })).detail}
+          onSearchTargetDetails={async (query, candidates) => (await window.lnwjud.searchActivityTargetDetails({ query, candidates })).matchingIds}
+          showMoreLabel={t('logDetail.showMore')}
+          showLessLabel={t('logDetail.showLess')}
+          detailHeadingLabel={t('logDetail.heading')}
+          detailLoadingLabel={t('logDetail.loading')}
+          detailErrorLabel={t('logDetail.error')}
+          detailEmptyLabel={t('logDetail.empty')}
+          legacyIncompleteLabel={t('logDetail.legacyIncomplete')}
           workspaces={workspaces}
           onClear={(scope) => clear(tab, scope)}
-          onExport={(scope, query, lineIds, rows) => exportLogs(tab, scope, query, lineIds, rows)}
+          onExport={(scope, query, lines) => exportLogs(tab, scope, query, lines)}
         />
       </div>
     </div>

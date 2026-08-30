@@ -158,6 +158,41 @@ export class SqliteAuditRepository implements AuditEventRepository {
     }
   }
 
+  /** Resolves one compact activity event without loading another row's metadata. */
+  public async resolveActivityEvent(id: string, mode: 'event' | 'started-call' = 'event'): Promise<ActivityAuditEvent | null> {
+    if (id.length === 0 || id.length > 512) return null;
+    const identityClause = mode === 'event'
+      ? 'id = ?'
+      : "json_extract(metadata_json, '$.callId') = ? AND json_extract(metadata_json, '$.phase') = 'started'";
+    const row = this.database.connection.prepare(
+      `SELECT id, timestamp, workspace_id, session_id, action, target_summary, result_code, duration_ms,
+        json_extract(metadata_json, '$.toolName') AS tool_name,
+        json_extract(metadata_json, '$.callId') AS call_id,
+        json_extract(metadata_json, '$.phase') AS phase,
+        json_extract(metadata_json, '$.errorMessage') AS error_message,
+        json_extract(metadata_json, '$.targetDetail') AS target_detail_json
+       FROM audit_events WHERE ${identityClause}
+       ORDER BY timestamp DESC, id DESC LIMIT 1`,
+    ).get(id);
+    return toActivityEvent(row);
+  }
+
+  /** Searches full retained items in SQLite and returns no detail content to the caller. */
+  public async activityTargetDetailMatches(detailRef: string, query: string): Promise<boolean> {
+    const needle = query.trim().toLocaleLowerCase();
+    if (detailRef.length === 0 || detailRef.length > 512 || needle.length === 0 || needle.length > 512) return false;
+    const row = this.database.connection.prepare(
+      `SELECT 1 AS matched
+       FROM audit_events, json_each(audit_events.metadata_json, '$.activityTargetDetail.items') AS item
+       WHERE (audit_events.id = ? OR json_extract(audit_events.metadata_json, '$.callId') = ?)
+         AND json_extract(audit_events.metadata_json, '$.phase') = 'started'
+         AND typeof(item.value) = 'text'
+         AND instr(lower(item.value), ?) > 0
+       LIMIT 1`,
+    ).get(detailRef, detailRef, needle);
+    return isRecord(row) && row.matched === 1;
+  }
+
   private toEvents(rows: unknown[]): AuditEvent[] {
     return rows.flatMap((row) => {
       const event = this.toEvent(row);

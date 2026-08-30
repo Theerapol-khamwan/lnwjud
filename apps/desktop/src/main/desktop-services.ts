@@ -1,5 +1,6 @@
 import { createServer } from 'node:net';
 import { existsSync } from 'node:fs';
+import { open, rename, rm } from 'node:fs/promises';
 import path from 'node:path';
 import {
   CheckpointService,
@@ -22,7 +23,7 @@ import {
   type FileActor,
   type DoctorProbeResult,
 } from '@lnwjud/application';
-import { AuditService, decodeActivityTargetReference, type ActivityAuditEvent, type AuditEventRepository, type AuditEventSummaryProjection } from '@lnwjud/audit';
+import { AuditService, decodeActivityTargetReference, type ActivityAuditEvent, type ActivityTargetDetail, type AuditEventRepository, type AuditEventSummaryProjection } from '@lnwjud/audit';
 import { CodexDiscovery, formatCodexDiscoveryError } from '@lnwjud/codex';
 import type { Result } from '@lnwjud/domain';
 import {
@@ -97,6 +98,7 @@ import {
   type AuditEventSummary,
   type ClearLogBufferRequest,
   type ClearWorkLogRequest,
+  type ActivityTargetSearchCandidate,
   type ConfigureTunnelProfileRequest,
   type DeleteWorkspaceRequest,
   type ConnectionModes,
@@ -211,7 +213,7 @@ export function createDesktopRuntime(dataPath: string, options: DesktopRuntimeOp
   const workspaceIndex = new WorkspaceIndexService(workspaceRepository, new JsonWorkspaceIndexStore(path.join(dataPath, 'workspace-index')));
   const settingsRepository = new SqliteSettingsRepository(database);
   const workLogViewState = new WorkLogViewState(settingsRepository);
-  const auditRepository: AuditEventRepository = new SqliteAuditRepository(database);
+  const auditRepository = new SqliteAuditRepository(database);
   const auditService = new AuditService(auditRepository);
   const checkpointCipher = new AesGcmCheckpointCipher(loadCheckpointEncryptionKey(dataPath));
   const checkpointRepository = new SqliteCheckpointRepository(database, checkpointCipher);
@@ -999,6 +1001,16 @@ export function createDesktopRuntime(dataPath: string, options: DesktopRuntimeOp
       logHub.clear(request.source, request, workspaceSummaries);
       return { cleared: true };
     },
+    resolveActivityTargetDetail: async (detailRef): Promise<{ readonly status: 'complete' | 'unavailable'; readonly detail: ActivityTargetDetail | null }> => {
+      const detail = await auditRepository.resolveActivityTargetDetail(detailRef);
+      return detail === null ? { status: 'unavailable', detail: null } : { status: 'complete', detail };
+    },
+    searchActivityTargetDetails: async (candidates, query): Promise<readonly string[]> => (
+      searchActivityTargetDetails(auditRepository, candidates, query)
+    ),
+    resolveWorkLogExportRows: async (rowIds): Promise<readonly string[]> => (
+      resolveWorkLogExportRows(auditRepository, rowIds)
+    ),
     captureIncident: async (updaterEvents: readonly string[] = []): Promise<IncidentReport> => {
       const tunnel = await observedTunnelStatus();
       const tunnelClientVersion = await tunnelController.clientVersion();
@@ -1490,6 +1502,99 @@ function toStructuredDoctorCheck(id: string, required: boolean, status: DoctorCh
     durationMs: 0,
     message,
   };
+}
+
+export async function searchActivityTargetDetails(
+  repository: SqliteAuditRepository,
+  candidates: readonly ActivityTargetSearchCandidate[],
+  query: string,
+): Promise<readonly string[]> {
+  const needle = query.trim();
+  if (needle.length === 0) return [];
+  const matchesByReference = new Map<string, boolean>();
+  const matchingIds: string[] = [];
+  for (const candidate of candidates) {
+    if (candidate.detailRef === null) continue;
+    let matches = matchesByReference.get(candidate.detailRef);
+    if (matches === undefined) {
+      matches = await repository.activityTargetDetailMatches(candidate.detailRef, needle);
+      matchesByReference.set(candidate.detailRef, matches);
+    }
+    if (matches) matchingIds.push(candidate.id);
+  }
+  return matchingIds;
+}
+
+export async function resolveWorkLogExportRows(
+  repository: SqliteAuditRepository,
+  identities: readonly string[],
+): Promise<readonly string[]> {
+  const rows: string[] = [];
+  for (const identity of identities) {
+    const parsed = parseWorkLogIdentity(identity);
+    if (parsed === null) continue;
+    const event = await repository.resolveActivityEvent(parsed.value, parsed.kind === 'audit' ? 'event' : 'started-call');
+    if (event === null) {
+      rows.push('Detail unavailable: the retained audit event no longer exists.');
+      continue;
+    }
+    const detailRef = event.targetDetail.detailRef ?? event.callId ?? (parsed.kind === 'audit' ? event.id : parsed.value);
+    const detail = await repository.resolveActivityTargetDetail(detailRef);
+    rows.push(formatActivityExportRow(event, detail));
+  }
+  return rows;
+}
+
+export async function writeSerializedLogRows(filePath: string, rows: readonly string[]): Promise<void> {
+  const temporaryPath = `${filePath}.tmp-${process.pid}-${Date.now()}`;
+  const handle = await open(temporaryPath, 'wx');
+  try {
+    for (const row of rows) await handle.write(`${row}\r\n`, undefined, 'utf8');
+    await handle.sync();
+  } finally {
+    await handle.close();
+  }
+  try {
+    await rename(temporaryPath, filePath);
+  } catch (error: unknown) {
+    await rm(temporaryPath, { force: true }).catch(() => undefined);
+    throw error;
+  }
+}
+
+function parseWorkLogIdentity(value: string): { readonly kind: 'audit' | 'inflight'; readonly value: string } | null {
+  const separator = value.indexOf(':');
+  if (separator <= 0 || separator === value.length - 1) return null;
+  const kind = value.slice(0, separator);
+  if (kind !== 'audit' && kind !== 'inflight') return null;
+  return { kind, value: value.slice(separator + 1) };
+}
+
+function formatActivityExportRow(event: ActivityAuditEvent, detail: ActivityTargetDetail | null): string {
+  const kind = classifyMcpWorkLogKind(event.toolName, event.phase, event.resultCode);
+  const tag = kind === 'task' ? '[TASK]' : kind === 'error' ? '[ERROR]' : '[RESULT]';
+  const duration = kind === 'task' ? '' : ` ${event.durationMs}ms`;
+  const summary = event.targetSummary === undefined || event.targetSummary.trim().length === 0 ? '' : ` ${event.targetSummary}`;
+  const error = event.errorMessage === undefined || event.errorMessage.trim().length === 0 ? '' : ` — ${event.errorMessage}`;
+  const base = `${formatActivityExportTimestamp(event.timestamp)} ${tag} ${event.toolName}${summary}${error}${duration}`.trim();
+  const detailExpected = event.targetDetail.detailRef !== null && event.targetDetail.itemCount > event.targetDetail.preview.length;
+  return formatCompleteTargetDetail(base, detail, detailExpected);
+}
+
+export function formatCompleteTargetDetail(base: string, detail: ActivityTargetDetail | null, detailExpected = false): string {
+  if (detail === null) {
+    return detailExpected ? `${base}\r\nComplete target detail unavailable; this row may be incomplete.` : base;
+  }
+  if (detail.items.length === 0) return base;
+  const heading = detail.kind === 'files' ? 'Files' : 'Tools';
+  return `${base}\r\n${heading}:\r\n${detail.items.map((item) => `- ${item}`).join('\r\n')}`;
+}
+
+function formatActivityExportTimestamp(value: string): string {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  const pad = (part: number): string => String(part).padStart(2, '0');
+  return `${pad(date.getDate())}-${pad(date.getMonth() + 1)}-${date.getFullYear()} ${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}`;
 }
 
 export function buildPersistentTunnelDoctorChecks(input: {

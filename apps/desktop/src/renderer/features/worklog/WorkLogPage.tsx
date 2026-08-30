@@ -8,7 +8,7 @@ interface WorkLogPageProps {
   readonly dashboard: DashboardSnapshot;
   readonly workspaces: readonly WorkspaceSummary[];
   readonly onClearWorkLog: (scope: LogScopeSelection) => Promise<void>;
-  readonly onExportWorkLog: (rows: readonly string[]) => Promise<void>;
+  readonly onExportWorkLog: (rowIds: readonly string[]) => Promise<void>;
 }
 
 export function WorkLogPage(props: WorkLogPageProps): ReactElement {
@@ -29,6 +29,8 @@ export function WorkLogPage(props: WorkLogPageProps): ReactElement {
         onClear={props.onClearWorkLog}
         exportLabel={t('live.export')}
         onExport={props.onExportWorkLog}
+        onResolveTargetDetail={async (detailRef) => (await window.lnwjud.resolveActivityTargetDetail({ detailRef })).detail}
+        onSearchTargetDetails={async (query, candidates) => (await window.lnwjud.searchActivityTargetDetails({ query, candidates })).matchingIds}
         entries={props.dashboard.workLog}
         inFlight={props.dashboard.inFlight}
         workspaces={props.workspaces}
@@ -39,6 +41,13 @@ export function WorkLogPage(props: WorkLogPageProps): ReactElement {
         searchPlaceholder={props.locale === 'th' ? 'ค้นหาบันทึกการทำงาน...' : 'Search work log...'}
         copyLabel={t('mcp.copy')}
         copiedLabel={t('mcp.copied')}
+        showMoreLabel={t('logDetail.showMore')}
+        showLessLabel={t('logDetail.showLess')}
+        detailHeadingLabel={t('logDetail.heading')}
+        detailLoadingLabel={t('logDetail.loading')}
+        detailErrorLabel={t('logDetail.error')}
+        detailEmptyLabel={t('logDetail.empty')}
+        legacyIncompleteLabel={t('logDetail.legacyIncomplete')}
       />
     </div>
   );
