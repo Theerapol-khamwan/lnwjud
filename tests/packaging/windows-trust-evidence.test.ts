@@ -44,6 +44,14 @@ describe('Windows release trust evidence', () => {
     }
   });
 
+  it('keeps the integrity-verified bridge bytes stable across Windows checkouts', async () => {
+    const attributes = await readFile(path.join(repositoryRoot, '.gitattributes'), 'utf8');
+    const bridge = await readFile(path.join(repositoryRoot, 'packages', 'capabilities', 'src', 'windows-capability-bridge.ps1'));
+
+    expect(attributes).toContain('packages/capabilities/src/windows-capability-bridge.ps1 text eol=lf');
+    expect(bridge.includes(0x0d)).toBe(false);
+  });
+
   it('uploads trust evidence from CI and verifies Authenticode when production signing is configured', async () => {
     const ci = await readFile(path.join(repositoryRoot, '.github', 'workflows', 'ci.yml'), 'utf8');
     const release = await readFile(path.join(repositoryRoot, '.github', 'workflows', 'release.yml'), 'utf8');
