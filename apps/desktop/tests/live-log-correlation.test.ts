@@ -23,17 +23,27 @@ describe('live log activity target correlation', () => {
     const maximumLengthPath = `E:\\${'x'.repeat(4_093)}`;
     const detail = redactActivityTargetDetail({ kind: 'files', items: Array.from({ length: 500 }, () => maximumLengthPath) });
     const targetDetail = activityTargetReference('call-large', detail, maximumLengthPath);
-    await audit.recordMcpTool({
-      actorId: 'test', actorName: 'test', toolName: 'read_files', callId: 'call-large', phase: 'started',
-      targetSummary: maximumLengthPath, targetDetail, activityTargetDetail: detail,
-      resultCode: 'STARTED', durationMs: 0, timestamp: '2026-08-30T00:00:00.000Z',
-    });
-    for (let index = 1; index < 500; index += 1) {
+
+    // Keep this regression focused on the dashboard projection. Hundreds of
+    // independent WAL commits make the fixture itself dominate on shared CI disks.
+    database.connection.exec('BEGIN;');
+    try {
       await audit.recordMcpTool({
-        actorId: 'test', actorName: 'test', toolName: 'git_status', callId: `call-${index}`, phase: 'completed',
-        targetDetail: { detailRef: null, itemCount: 0, preview: [], legacyIncomplete: false },
-        resultCode: 'SUCCESS', durationMs: 1, timestamp: `2026-08-30T00:${String(Math.floor(index / 60)).padStart(2, '0')}:${String(index % 60).padStart(2, '0')}.000Z`,
+        actorId: 'test', actorName: 'test', toolName: 'read_files', callId: 'call-large', phase: 'started',
+        targetSummary: maximumLengthPath, targetDetail, activityTargetDetail: detail,
+        resultCode: 'STARTED', durationMs: 0, timestamp: '2026-08-30T00:00:00.000Z',
       });
+      for (let index = 1; index < 500; index += 1) {
+        await audit.recordMcpTool({
+          actorId: 'test', actorName: 'test', toolName: 'git_status', callId: `call-${index}`, phase: 'completed',
+          targetDetail: { detailRef: null, itemCount: 0, preview: [], legacyIncomplete: false },
+          resultCode: 'SUCCESS', durationMs: 1, timestamp: `2026-08-30T00:${String(Math.floor(index / 60)).padStart(2, '0')}:${String(index % 60).padStart(2, '0')}.000Z`,
+        });
+      }
+      database.connection.exec('COMMIT;');
+    } catch (error) {
+      database.connection.exec('ROLLBACK;');
+      throw error;
     }
 
     const rows = await repository.listActivityScoped({ actionPrefix: 'mcp_tool:' }, 500);
@@ -45,7 +55,7 @@ describe('live log activity target correlation', () => {
     expect(resolved?.items).toHaveLength(500);
     expect(resolved?.items.every((item) => item.length === 4_096)).toBe(true);
     database.close();
-  });
+  }, 15_000);
 
   it('persists full sanitized detail once and resolves it lazily by event or call ID', async () => {
     const root = await mkdtemp(path.join(os.tmpdir(), 'lnwjud-audit-target-'));
