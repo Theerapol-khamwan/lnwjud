@@ -25,20 +25,25 @@ if (process.env.LNWJUD_REQUIRE_CLEAN_PROVENANCE === '1' && provenance.source.dir
   throw new Error('Public release provenance must be built from a clean tracked source tree');
 }
 
-// The main CI package gate verifies the compiled bundle before uploading the
-// release artifact. The release job intentionally downloads only public
-// installers/evidence, so its artifact-only mode must not require build output.
-const compiledBundlePath = process.env.LNWJUD_RELEASE_ARTIFACT_ONLY === '1'
+// The main CI package gate verifies the compiled bundle and packaged bridge
+// before uploading the release artifact. The release job intentionally
+// downloads only public installers/evidence, so its artifact-only mode must
+// not require either build output.
+const releaseArtifactOnly = process.env.LNWJUD_RELEASE_ARTIFACT_ONLY === '1';
+const packagedBridgePath = releaseArtifactOnly
+  ? undefined
+  : path.join(installerDirectory, 'win-unpacked', 'resources', 'windows-capability-bridge.ps1');
+const compiledBundlePath = releaseArtifactOnly
   ? undefined
   : path.join(desktopRoot, 'dist', 'main', 'main.js');
 const verifiedCapabilityBridge = await verifyCapabilityBridgeArtifacts({
-  packagedBridgePath: path.join(installerDirectory, 'win-unpacked', 'resources', 'windows-capability-bridge.ps1'),
+  packagedBridgePath,
   compiledBundlePath,
 });
 if (!isCapabilityBridgeIdentity(provenance.capabilityBridge)
   || provenance.capabilityBridge.sha256 !== verifiedCapabilityBridge.sha256
   || provenance.capabilityBridge.sizeBytes !== verifiedCapabilityBridge.sizeBytes) {
-  throw new Error('Provenance capability bridge identity does not match verified packaged bytes');
+  throw new Error('Provenance capability bridge identity does not match verified bridge bytes');
 }
 
 if (!Array.isArray(provenance.artifacts) || provenance.artifacts.length < 5) throw new Error('Provenance artifact list is incomplete');
