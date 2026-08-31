@@ -72,16 +72,12 @@ describe('tool catalog readiness aggregation', () => {
     });
     expect(disabledCodex?.remediationIds).toContain('configure_codex');
 
-    const featureDisabled = service({}, { codexEnabled: true });
-    const delegateStatus = (await featureDisabled.catalog.getSnapshot('en')).items.find((item) => item.name === 'delegate_status');
+    const enabledRuntime = service({}, { codexEnabled: true });
+    const delegateStatus = (await enabledRuntime.catalog.getSnapshot('en')).items.find((item) => item.name === 'delegate_status');
     expect(delegateStatus).toMatchObject({
-      readiness: 'disabled', readinessReason: 'feature_disabled', deliveryState: 'feature_disabled', available: false,
+      readiness: 'ready', deliveryState: 'dependency_gated', available: true,
     });
-    expect(delegateStatus?.remediationIds).toContain('feature_not_available');
-    expect(delegateStatus?.requirements.find((requirement) => requirement.id === 'feature_delivery')).toMatchObject({
-      status: 'fail',
-      detail: expect.stringContaining('subagent provider'),
-    });
+    expect(delegateStatus?.remediationIds).not.toContain('feature_not_available');
 
     const disabledSwarm = (await disabled.catalog.getSnapshot('en')).items.find((item) => item.name === 'agent_swarm_run');
     expect(disabledSwarm).toMatchObject({
@@ -89,7 +85,7 @@ describe('tool catalog readiness aggregation', () => {
     });
     expect(disabledSwarm?.remediationIds).toContain('configure_codex');
 
-    const readySwarm = (await featureDisabled.catalog.getSnapshot('en')).items.find((item) => item.name === 'agent_swarm_run');
+    const readySwarm = (await enabledRuntime.catalog.getSnapshot('en')).items.find((item) => item.name === 'agent_swarm_run');
     expect(readySwarm).toMatchObject({ readiness: 'ready', deliveryState: 'dependency_gated', available: true });
   });
 

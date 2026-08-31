@@ -676,7 +676,7 @@ function normalizeHostTimeZone(value: string): string {
 function scheduledTaskCancellationInstruction(record: ScheduledContinuationSnapshot): ScheduledTaskCancellationInstruction {
   if (record.status === 'superseded') return { action: 'none', reason: 'no_live_task' };
   if (
-    (record.status === 'cancel_required' || record.status === 'cancel_failed' || record.status === 'cancel_uncertain')
+    (record.status === 'cancel_required' || record.status === 'cancel_failed')
     && record.nativeTaskId !== undefined
   ) {
     return {

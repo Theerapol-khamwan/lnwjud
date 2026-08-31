@@ -21,7 +21,7 @@ Desktop readiness is a separate presentation contract built from the same live d
 <!-- BEGIN GENERATED TOOL REGISTRY -->
 ## Generated live ToolRegistry index
 
-This complete inventory is generated from `ToolRegistry.listAll()`: **231 total tool definitions**. The runtime advertises **207 tools by default** and **214 tools when Codex delegation is enabled** through `tools/list`.
+This complete inventory is generated from `ToolRegistry.listAll()`: **231 total tool definitions**. The runtime advertises **224 tools by default** and **231 tools when Codex delegation is enabled** through `tools/list`.
 Run `pnpm docs:tools` after intentionally changing the registry; CI runs `pnpm docs:tools:check` and fails on drift.
 
 | # | Tool | Permission | Advertised | Delivery | Runtime evidence | Read-only | Destructive |
@@ -196,23 +196,23 @@ Run `pnpm docs:tools` after intentionally changing the registry; CI runs `pnpm d
 | 168 | `task_cancel` | EXECUTE | default | operational | service_dispatch | no | no |
 | 169 | `task_result` | READ | default | operational | service_dispatch | yes | no |
 | 170 | `task_list` | READ | default | operational | service_dispatch | yes | no |
-| 171 | `delegate` | EXECUTE | no | feature_disabled | truthful_unavailable | no | no |
-| 172 | `delegate_status` | READ | no | feature_disabled | truthful_unavailable | yes | no |
-| 173 | `delegate_cancel` | EXECUTE | no | feature_disabled | truthful_unavailable | no | no |
-| 174 | `delegate_result` | READ | no | feature_disabled | truthful_unavailable | yes | no |
-| 175 | `parallel_delegate` | EXECUTE | no | feature_disabled | truthful_unavailable | no | no |
+| 171 | `delegate` | EXECUTE | default | dependency_gated | service_dispatch | no | no |
+| 172 | `delegate_status` | READ | default | dependency_gated | service_dispatch | yes | no |
+| 173 | `delegate_cancel` | EXECUTE | default | dependency_gated | service_dispatch | no | no |
+| 174 | `delegate_result` | READ | default | dependency_gated | service_dispatch | yes | no |
+| 175 | `parallel_delegate` | EXECUTE | default | dependency_gated | service_dispatch | no | no |
 | 176 | `permission_check` | READ | default | operational | deterministic_operation | yes | no |
 | 177 | `permission_profile` | READ | default | operational | deterministic_operation | yes | no |
 | 178 | `live_logs_query` | READ | default | operational | truthful_unavailable | yes | no |
 | 179 | `live_logs_status` | READ | default | operational | truthful_unavailable | yes | no |
-| 180 | `telemetry_dashboard` | READ | no | feature_disabled | truthful_unavailable | yes | no |
+| 180 | `telemetry_dashboard` | READ | default | operational | deterministic_operation | yes | no |
 | 181 | `context_economy_stats` | READ | default | operational | deterministic_operation | yes | no |
 | 182 | `execution_plan` | READ | default | operational | deterministic_operation | yes | no |
 | 183 | `repo_map` | READ | default | operational | service_dispatch | yes | no |
 | 184 | `context_expand` | READ | default | operational | service_dispatch | yes | no |
 | 185 | `recovery_status` | READ | default | operational | deterministic_operation | yes | no |
 | 186 | `tool_schema_list` | READ | default | operational | deterministic_operation | yes | no |
-| 187 | `tool_schema_register` | WRITE | no | feature_disabled | truthful_unavailable | no | no |
+| 187 | `tool_schema_register` | WRITE | default | operational | deterministic_operation | no | no |
 | 188 | `capabilities` | READ | default | operational | deterministic_operation | yes | no |
 | 189 | `tool_search` | READ | default | operational | deterministic_operation | yes | no |
 | 190 | `tool_dynamic_filter` | READ | default | operational | deterministic_operation | yes | no |
@@ -229,22 +229,22 @@ Run `pnpm docs:tools` after intentionally changing the registry; CI runs `pnpm d
 | 201 | `layout_metadata` | READ | default | operational | service_dispatch | yes | no |
 | 202 | `visual_context` | READ | default | operational | service_dispatch | yes | no |
 | 203 | `inspect_workbook` | READ | default | operational | service_dispatch | yes | no |
-| 204 | `compare_workbook_layout` | READ | no | feature_disabled | truthful_unavailable | yes | no |
-| 205 | `render_excel_preview` | READ | no | feature_disabled | truthful_unavailable | yes | no |
+| 204 | `compare_workbook_layout` | READ | default | dependency_gated | service_dispatch | yes | no |
+| 205 | `render_excel_preview` | READ | default | dependency_gated | service_dispatch | yes | no |
 | 206 | `inspect_pdf` | READ | default | dependency_gated | truthful_unavailable | yes | no |
-| 207 | `compare_pdf_pages` | READ | no | feature_disabled | truthful_unavailable | yes | no |
-| 208 | `project_profile_get` | READ | no | feature_disabled | truthful_unavailable | yes | no |
-| 209 | `project_profile_set` | WRITE | no | feature_disabled | truthful_unavailable | no | no |
+| 207 | `compare_pdf_pages` | READ | default | dependency_gated | truthful_unavailable | yes | no |
+| 208 | `project_profile_get` | READ | default | operational | service_dispatch | yes | no |
+| 209 | `project_profile_set` | WRITE | default | operational | deterministic_operation | no | no |
 | 210 | `handoff_context` | READ | default | operational | service_dispatch | yes | no |
-| 211 | `benchmark_run` | EXECUTE | no | feature_disabled | truthful_unavailable | no | no |
-| 212 | `regression_report` | READ | no | feature_disabled | truthful_unavailable | yes | no |
+| 211 | `benchmark_run` | EXECUTE | default | dependency_gated | service_dispatch | no | no |
+| 212 | `regression_report` | READ | default | operational | deterministic_operation | yes | no |
 | 213 | `sandbox_exec` | EXECUTE | default | dependency_gated | truthful_unavailable | no | no |
 | 214 | `event_watch` | EXECUTE | default | dependency_gated | deterministic_operation | no | no |
 | 215 | `crash_trace` | READ | default | dependency_gated | deterministic_operation | yes | no |
 | 216 | `lsp_diagnostics` | READ | default | dependency_gated | truthful_unavailable | yes | no |
 | 217 | `lsp_rename` | WRITE | default | dependency_gated | truthful_unavailable | no | no |
-| 218 | `debug_attach` | EXECUTE | no | feature_disabled | truthful_unavailable | no | no |
-| 219 | `debug_step` | EXECUTE | no | feature_disabled | truthful_unavailable | no | no |
+| 218 | `debug_attach` | EXECUTE | default | dependency_gated | truthful_unavailable | no | no |
+| 219 | `debug_step` | EXECUTE | default | dependency_gated | truthful_unavailable | no | no |
 | 220 | `git_worktree_spawn` | WRITE | default | dependency_gated | deterministic_operation | no | no |
 | 221 | `git_worktree_remove` | DANGEROUS | default | dependency_gated | deterministic_operation | no | yes |
 | 222 | `db_inspect` | READ | default | dependency_gated | truthful_unavailable | yes | no |
@@ -255,7 +255,7 @@ Run `pnpm docs:tools` after intentionally changing the registry; CI runs `pnpm d
 | 227 | `docx_merge` | WRITE | default | dependency_gated | service_dispatch | no | no |
 | 228 | `self_heal_plan` | READ | default | operational | service_dispatch | yes | no |
 | 229 | `self_heal_apply` | DANGEROUS | default | dependency_gated | service_dispatch | no | yes |
-| 230 | `skills_import` | WRITE | no | feature_disabled | truthful_unavailable | no | no |
+| 230 | `skills_import` | WRITE | default | operational | service_dispatch | no | no |
 | 231 | `tool_batch` | EXECUTE | default | operational | service_dispatch | no | yes |
 <!-- END GENERATED TOOL REGISTRY -->
 

@@ -311,7 +311,7 @@ The stable flow is:
 3. Enter a name/description, choose **Tunnel** under Connection, and select the
    associated `lnwjud` tunnel or enter its `tunnel_id`.
 4. Create the connection and review the discovered tools and metadata.
-5. Confirm that the default runtime exposes **207 tools** (or **214** when Codex delegation is explicitly enabled) and run a read-only
+5. Confirm that the default runtime exposes **224 tools** (or **231** when Codex delegation is explicitly enabled) and run a read-only
    smoke test before trying writes.
 
 Example smoke test:
@@ -939,7 +939,7 @@ For workspace <workspace-id>, show the project snapshot, Git status, and the top
 After changing tool metadata or restarting the tunnel, refresh the connector and continue in the same chat. Start a new chat only if Refresh connector does not clear a stale schema.
 
 <!-- BEGIN GENERATED README TOOL REGISTRY -->
-## Complete MCP tool catalog (231 total definitions; 207 advertised by default; 214 with Codex enabled)
+## Complete MCP tool catalog (231 total definitions; 224 advertised by default; 231 with Codex enabled)
 
 This complete index is generated from `ToolRegistry.listAll()`, not copied from an older release document. The default `tools/list` surface advertises only operational or dependency-gated definitions; planned and feature-disabled definitions remain visible here without being advertised. Enabling Codex delegation adds its six operational definitions to the advertised surface.
 
@@ -1115,23 +1115,23 @@ This complete index is generated from `ToolRegistry.listAll()`, not copied from 
 | 168 | `task_cancel` | EXECUTE | default | operational | service_dispatch | Cancel a durable managed task by taskId using the same verified process-tree termination path as shell tasks. |
 | 169 | `task_result` | READ | default | operational | service_dispatch | Read the current durable managed task result and captured output by taskId. |
 | 170 | `task_list` | READ | default | operational | service_dispatch | List durable managed tasks owned by the current client/session/workspace. |
-| 171 | `delegate` | EXECUTE | no | feature_disabled | truthful_unavailable | Delegate a task through a policy/audit adapter. |
-| 172 | `delegate_status` | READ | no | feature_disabled | truthful_unavailable | Read delegated agent state. |
-| 173 | `delegate_cancel` | EXECUTE | no | feature_disabled | truthful_unavailable | Cancel a delegated agent task. |
-| 174 | `delegate_result` | READ | no | feature_disabled | truthful_unavailable | Read delegated agent result. |
-| 175 | `parallel_delegate` | EXECUTE | no | feature_disabled | truthful_unavailable | Run isolated read-only agent tasks with collision metadata. |
+| 171 | `delegate` | EXECUTE | default | dependency_gated | service_dispatch | Delegate one bounded read-only task through the owned agent-swarm provider when configured. |
+| 172 | `delegate_status` | READ | default | dependency_gated | service_dispatch | Read delegated agent state from the owned agent-swarm provider. |
+| 173 | `delegate_cancel` | EXECUTE | default | dependency_gated | service_dispatch | Cancel an owned delegated agent task. |
+| 174 | `delegate_result` | READ | default | dependency_gated | service_dispatch | Read an owned delegated agent result. |
+| 175 | `parallel_delegate` | EXECUTE | default | dependency_gated | service_dispatch | Run up to four isolated read-only agent tasks through the owned swarm provider with explicit dependency/collision metadata. |
 | 176 | `permission_check` | READ | default | operational | deterministic_operation | Evaluate an action class without limiting allowed context reads. |
 | 177 | `permission_profile` | READ | default | operational | deterministic_operation | Return the active Permission v2 profile. |
 | 178 | `live_logs_query` | READ | default | operational | truthful_unavailable | Query bounded structured MCP activity events with tool, workspace, phase, result, call/trace correlation filters. |
 | 179 | `live_logs_status` | READ | default | operational | truthful_unavailable | Return the built-in MCP activity-log pipeline health and bounded source status. |
-| 180 | `telemetry_dashboard` | READ | no | feature_disabled | truthful_unavailable | Return runtime performance telemetry. |
+| 180 | `telemetry_dashboard` | READ | default | operational | deterministic_operation | Return measured MCP activity, latency, error, cache, and context-economy telemetry from the local runtime. |
 | 181 | `context_economy_stats` | READ | default | operational | deterministic_operation | Return context discovery, deduplication, ledger, and token-efficiency telemetry. |
 | 182 | `execution_plan` | READ | default | operational | deterministic_operation | Return the cheapest deterministic execution plan and reason. |
 | 183 | `repo_map` | READ | default | operational | service_dispatch | Return a traversable repository structural map. |
 | 184 | `context_expand` | READ | default | operational | service_dispatch | Return optional import, caller, type, test, and change references. |
 | 185 | `recovery_status` | READ | default | operational | deterministic_operation | Return reconnect, retry, continuation, cache, and worker recovery state. |
 | 186 | `tool_schema_list` | READ | default | operational | deterministic_operation | List versioned tool schema metadata. |
-| 187 | `tool_schema_register` | WRITE | no | feature_disabled | truthful_unavailable | Register a backward-compatible tool schema descriptor. |
+| 187 | `tool_schema_register` | WRITE | default | operational | deterministic_operation | Register a validated backward-compatible versioned tool schema descriptor in the local runtime registry. |
 | 188 | `capabilities` | READ | default | operational | deterministic_operation | Discover capability categories without requiring every full schema. |
 | 189 | `tool_search` | READ | default | operational | deterministic_operation | Search tools, tags, phases, and descriptions deterministically. |
 | 190 | `tool_dynamic_filter` | READ | default | operational | deterministic_operation | Return a bounded ranked tool set using deterministic scoring with optional local rerank fallback. |
@@ -1148,22 +1148,22 @@ This complete index is generated from `ToolRegistry.listAll()`, not copied from 
 | 201 | `layout_metadata` | READ | default | operational | service_dispatch | Return layout metadata for visual validation. Requires an exact dom_cdp tab_id from list_tabs or new_tab; never uses the active/first tab. |
 | 202 | `visual_context` | READ | default | operational | service_dispatch | Combine screenshot, DOM, layout, console, and network references. Requires an exact dom_cdp tab_id from list_tabs or new_tab; never uses the active/first tab. |
 | 203 | `inspect_workbook` | READ | default | operational | service_dispatch | Inspect workbook sheets, used ranges, and a bounded sample through Excel COM. |
-| 204 | `compare_workbook_layout` | READ | no | feature_disabled | truthful_unavailable | Compare workbook layout metadata through an optional spreadsheet plugin. |
-| 205 | `render_excel_preview` | READ | no | feature_disabled | truthful_unavailable | Render an Excel preview through an optional spreadsheet plugin. |
+| 204 | `compare_workbook_layout` | READ | default | dependency_gated | service_dispatch | Compare two workbook sheet/layout samples through the local Excel/Office provider. |
+| 205 | `render_excel_preview` | READ | default | dependency_gated | service_dispatch | Render a bounded structured Excel preview from sheet names and sampled cell values through the local Excel/Office provider. |
 | 206 | `inspect_pdf` | READ | default | dependency_gated | truthful_unavailable | Inspect PDF page structure and text through the local PDF provider. |
-| 207 | `compare_pdf_pages` | READ | no | feature_disabled | truthful_unavailable | Compare PDF page metadata through an optional PDF plugin. |
-| 208 | `project_profile_get` | READ | no | feature_disabled | truthful_unavailable | Read project intelligence conventions. |
-| 209 | `project_profile_set` | WRITE | no | feature_disabled | truthful_unavailable | Update project intelligence conventions. |
+| 207 | `compare_pdf_pages` | READ | default | dependency_gated | truthful_unavailable | Compare two PDFs by bounded page/text metadata through the local PDF provider. |
+| 208 | `project_profile_get` | READ | default | operational | service_dispatch | Read the validated workspace project-intelligence profile. |
+| 209 | `project_profile_set` | WRITE | default | operational | deterministic_operation | Persist validated workspace project-intelligence conventions through the guarded file boundary. |
 | 210 | `handoff_context` | READ | default | operational | service_dispatch | Build a structured cross-agent handoff bundle from real workspace, Git, and context services. |
-| 211 | `benchmark_run` | EXECUTE | no | feature_disabled | truthful_unavailable | Run or preview a benchmark scenario. |
-| 212 | `regression_report` | READ | no | feature_disabled | truthful_unavailable | Return benchmark and regression results. |
+| 211 | `benchmark_run` | EXECUTE | default | dependency_gated | service_dispatch | Preview or start the detected managed benchmark project command and retain bounded run evidence. |
+| 212 | `regression_report` | READ | default | operational | deterministic_operation | Return retained local benchmark run evidence and regression comparisons for the current runtime session. |
 | 213 | `sandbox_exec` | EXECUTE | default | dependency_gated | truthful_unavailable | Run an artifact-based Windows Sandbox job with networking disabled and read-only mapped input. |
 | 214 | `event_watch` | EXECUTE | default | dependency_gated | deterministic_operation | Watch an allowlisted user-mode ETW or Windows Event Log diagnostic stream. |
 | 215 | `crash_trace` | READ | default | dependency_gated | deterministic_operation | Return bounded crash and service-diagnostic context from allowlisted user-mode sources. |
 | 216 | `lsp_diagnostics` | READ | default | dependency_gated | truthful_unavailable | Read diagnostics from an owned language-server child process. |
 | 217 | `lsp_rename` | WRITE | default | dependency_gated | truthful_unavailable | Create a cross-file LSP rename edit plan before any workspace write. |
-| 218 | `debug_attach` | EXECUTE | no | feature_disabled | truthful_unavailable | Attach a DAP client only to an owned workspace debug adapter. |
-| 219 | `debug_step` | EXECUTE | no | feature_disabled | truthful_unavailable | Perform a bounded DAP stepping/read operation in an owned debug session. |
+| 218 | `debug_attach` | EXECUTE | default | dependency_gated | truthful_unavailable | Validate and register an owned loopback DAP endpoint for a workspace debug session; connection details remain session-scoped. |
+| 219 | `debug_step` | EXECUTE | default | dependency_gated | truthful_unavailable | Perform a bounded DAP request against a registered owned loopback debug session. |
 | 220 | `git_worktree_spawn` | WRITE | default | dependency_gated | deterministic_operation | Create a confined, ledger-owned Git worktree for isolated agent work with collision metadata. |
 | 221 | `git_worktree_remove` | DANGEROUS | default | dependency_gated | deterministic_operation | Remove a ledger-owned Git worktree after dry-run and standard-mode confirmation; trusted Full Bypass skips lnwjud approval. |
 | 222 | `db_inspect` | READ | default | dependency_gated | truthful_unavailable | Inspect a local database schema through a configured, read-only connection. |
@@ -1174,7 +1174,7 @@ This complete index is generated from `ToolRegistry.listAll()`, not copied from 
 | 227 | `docx_merge` | WRITE | default | dependency_gated | service_dispatch | Create a deterministic DOCX merge plan and write only after approval. |
 | 228 | `self_heal_plan` | READ | default | operational | service_dispatch | Propose safe, deterministic, reversible recovery steps without applying mutations. |
 | 229 | `self_heal_apply` | DANGEROUS | default | dependency_gated | service_dispatch | Apply a current reversible recovery plan without automatic destructive retries; standard mode requires confirmation and trusted Full Bypass skips lnwjud approval. |
-| 230 | `skills_import` | WRITE | no | feature_disabled | truthful_unavailable | Import a compatible skill descriptor after validation and permission review. |
+| 230 | `skills_import` | WRITE | default | operational | service_dispatch | Import a validated local SKILL.md into the selected workspace skill catalog through guarded file read/write operations. |
 | 231 | `tool_batch` | EXECUTE | default | operational | service_dispatch | Execute multiple MCP tools with parallel, dependency-aware, timeout, cancellation, and partial-result handling. |
 <!-- END GENERATED README TOOL REGISTRY -->
 

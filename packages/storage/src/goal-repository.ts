@@ -1233,7 +1233,12 @@ export class SqliteGoalRepository implements GoalRepository, ScheduledContinuati
       if (
         row.native_task_id !== null
         && ['scheduled', 'create_uncertain', 'reschedule_required', 'reschedule_failed', 'reschedule_uncertain'].includes(row.status)
-      ) nextStatus = 'cancel_required';
+      ) {
+        const effectiveDueAt = row.pending_due_at ?? row.due_at;
+        nextStatus = new Date(effectiveDueAt).getTime() <= new Date(now).getTime()
+          ? 'cancel_uncertain'
+          : 'cancel_required';
+      }
       else if (row.status === 'cancel_required' || row.status === 'cancel_failed' || row.status === 'cancel_uncertain') {
         return { continuation: this.toScheduledContinuationRecord(row) };
       } else if (row.native_task_id === null && row.status === 'prepared') nextStatus = 'superseded';

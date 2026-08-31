@@ -135,6 +135,80 @@ export class DocumentRuntimeService {
     });
   }
 
+  public async renderWorkbookPreview(input: Record<string, unknown>, authorization?: InvocationAuthorization): Promise<Result<unknown>> {
+    const inspected = await this.inspectWorkbook(input, authorization);
+    if (!inspected.ok) return inspected;
+    const value = inspected.value as { status?: unknown; available?: unknown; workspaceId?: unknown; file?: unknown; sheets?: unknown; sampleRange?: unknown; sample?: unknown; requirements?: unknown; reason?: unknown };
+    if (value.available === false) return inspected;
+    return ok({
+      tool: 'render_excel_preview', status: 'ready', available: true, ready: true, executed: true,
+      workspaceId: value.workspaceId, file: value.file, sheets: value.sheets,
+      preview: { range: value.sampleRange, values: value.sample },
+      format: 'structured_cell_preview', bounded: true,
+    });
+  }
+
+  public async compareWorkbookLayout(input: Record<string, unknown>, authorization?: InvocationAuthorization): Promise<Result<unknown>> {
+    const workspaceId = readString(input.workspaceId);
+    const baseline = readString(input.baseline_path ?? input.baseline ?? input.left_path ?? input.left);
+    const actual = readString(input.actual_path ?? input.actual ?? input.right_path ?? input.right);
+    if (workspaceId === undefined || baseline === undefined || actual === undefined) {
+      return err(appError('INVALID_INPUT', 'compare_workbook_layout requires workspaceId plus baseline_path/actual_path'));
+    }
+    const [left, right] = await Promise.all([
+      this.inspectWorkbook({ workspaceId, file_path: baseline }, authorization),
+      this.inspectWorkbook({ workspaceId, file_path: actual }, authorization),
+    ]);
+    if (!left.ok) return left;
+    if (!right.ok) return right;
+    const leftValue = left.value as Record<string, unknown>;
+    const rightValue = right.value as Record<string, unknown>;
+    if (leftValue.available === false) return left;
+    if (rightValue.available === false) return right;
+    const leftSheets = Array.isArray(leftValue.sheets) ? leftValue.sheets.map(String) : [];
+    const rightSheets = Array.isArray(rightValue.sheets) ? rightValue.sheets.map(String) : [];
+    const sampleEqual = JSON.stringify(leftValue.sample ?? null) === JSON.stringify(rightValue.sample ?? null);
+    return ok({
+      tool: 'compare_workbook_layout', status: 'ready', available: true, ready: true, executed: true,
+      workspaceId, baseline: leftValue.file, actual: rightValue.file,
+      equal: sampleEqual && JSON.stringify(leftSheets) === JSON.stringify(rightSheets),
+      sheetNamesEqual: JSON.stringify(leftSheets) === JSON.stringify(rightSheets),
+      baselineSheets: leftSheets, actualSheets: rightSheets,
+      sampledRange: 'A1:C8', sampledValuesEqual: sampleEqual,
+      bounded: true,
+    });
+  }
+
+  public async comparePdfPages(input: Record<string, unknown>, signal?: AbortSignal, authorization?: InvocationAuthorization): Promise<Result<unknown>> {
+    const workspaceId = readString(input.workspaceId);
+    const baseline = readString(input.baseline_path ?? input.baseline ?? input.left_path ?? input.left);
+    const actual = readString(input.actual_path ?? input.actual ?? input.right_path ?? input.right);
+    if (workspaceId === undefined || baseline === undefined || actual === undefined) {
+      return err(appError('INVALID_INPUT', 'compare_pdf_pages requires workspaceId plus baseline_path/actual_path'));
+    }
+    const [left, right] = await Promise.all([
+      this.inspectPdf({ workspaceId, file_path: baseline }, signal, authorization),
+      this.inspectPdf({ workspaceId, file_path: actual }, signal, authorization),
+    ]);
+    if (!left.ok) return left;
+    if (!right.ok) return right;
+    const leftValue = left.value as Record<string, unknown>;
+    const rightValue = right.value as Record<string, unknown>;
+    if (leftValue.available === false) return left;
+    if (rightValue.available === false) return right;
+    const leftPreview = typeof leftValue.preview === 'string' ? leftValue.preview : '';
+    const rightPreview = typeof rightValue.preview === 'string' ? rightValue.preview : '';
+    return ok({
+      tool: 'compare_pdf_pages', status: 'ready', available: true, ready: true, executed: true,
+      workspaceId, baseline: leftValue.file, actual: rightValue.file,
+      baselinePages: leftValue.pages ?? null, actualPages: rightValue.pages ?? null,
+      pageCountEqual: leftValue.pages === rightValue.pages,
+      previewTextEqual: leftPreview === rightPreview,
+      equal: leftValue.pages === rightValue.pages && leftPreview === rightPreview,
+      boundedPreviewCharacters: 4_000,
+    });
+  }
+
   public async docxMerge(input: Record<string, unknown>, signal?: AbortSignal, authorization?: InvocationAuthorization): Promise<Result<unknown>> {
     const workspaceId = readString(input.workspaceId);
     const primary = readString(input.file_path ?? input.primary);

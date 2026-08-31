@@ -782,6 +782,52 @@ describe('ScheduledContinuationService', () => {
     }
   });
 
+  it('requires host reconciliation instead of deleting an overdue native task whose run state is unknown', async () => {
+    const { database, goals, scheduled, clock } = await fixture();
+    try {
+      const started = await startGoal(goals);
+      const prepared = await scheduled.prepareScheduledContinuation(actor, validPrepare(started, { successorDelayMinutes: 2 }));
+      expect(prepared.ok).toBe(true);
+      if (!prepared.ok) throw new Error('prepare failed');
+      const created = await scheduled.recordScheduledContinuationReceipt(actor, {
+        continuationId: prepared.value.continuation.continuationId,
+        expectedVersion: prepared.value.continuation.version,
+        outcome: 'created',
+        nativeTaskId: 'native-overdue-host-unknown',
+        dueAt: prepared.value.continuation.dueAt,
+        runsOn: 'cloud',
+      });
+      expect(created.ok).toBe(true);
+      if (!created.ok) throw new Error('create receipt failed');
+
+      clock.set('2026-08-27T10:03:00.000Z');
+      const resumed = await startGoal(goals);
+      const finished = await goals.finishGoal(actor, {
+        goalId: resumed.goalId,
+        leaseToken: resumed.leaseToken!,
+        expectedRevision: resumed.revision,
+        status: 'completed',
+        summary: 'Finished after the scheduled due time without native host run evidence.',
+        evidence: [],
+      });
+      expect(finished).toMatchObject({
+        ok: true,
+        value: {
+          status: 'completed',
+          scheduledTaskCancellation: {
+            action: 'none',
+            nativeTaskId: 'native-overdue-host-unknown',
+            reason: 'native_task_unverified',
+          },
+        },
+      });
+      await expect(scheduled.getScheduledContinuation(actor, { goalId: started.goalId, latest: true }))
+        .resolves.toMatchObject({ ok: true, value: { status: 'cancel_uncertain', nativeTaskId: 'native-overdue-host-unknown' } });
+    } finally {
+      database.close();
+    }
+  });
+
   it('refuses a bare cancellation claim and preserves the pending native deletion', async () => {
     const { database, goals, scheduled, clock } = await fixture();
     try {

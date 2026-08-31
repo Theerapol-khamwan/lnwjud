@@ -45,7 +45,13 @@ export function createRuntimeSuccessServices(calls: string[]): McpApplicationSer
         const filePath = typeof request.path === 'string' ? request.path : 'README.md';
         const startLine = typeof request.startLine === 'number' ? request.startLine : 1;
         const paged = filePath === 'paged.txt';
-        const content = paged && startLine === 1 ? 'one\ntwo' : paged ? 'two' : 'export const smoke = true;\n';
+        const content = filePath === '.lnwjud/project-profile.json'
+          ? '{"language":"typescript"}\n'
+          : filePath === 'package.json'
+            ? '{"packageManager":"pnpm@10.15.0","scripts":{"benchmark":"vitest bench"}}\n'
+            : filePath.toLowerCase().endsWith('skill.md')
+              ? '---\nname: smoke-skill\ndescription: Smoke skill\n---\n\n# Smoke\n'
+              : paged && startLine === 1 ? 'one\ntwo' : paged ? 'two' : 'export const smoke = true;\n';
         const endLine = paged ? 2 : startLine + Math.max(0, content.split(/\r?\n/).filter(Boolean).length - 1);
         return { path: filePath, content, startLine, endLine, encoding: 'utf8', mimeType: 'text/plain', byteLength: Buffer.byteLength(content) };
       }
