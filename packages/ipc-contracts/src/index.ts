@@ -290,7 +290,8 @@ export interface ActivityTargetReference {
 
 export type ActivityTargetDetail =
   | { readonly kind: 'files'; readonly items: readonly string[] }
-  | { readonly kind: 'tools'; readonly items: readonly string[] };
+  | { readonly kind: 'tools'; readonly items: readonly string[] }
+  | { readonly kind: 'details'; readonly items: readonly string[] };
 
 export interface ResolveActivityTargetDetailRequest {
   readonly detailRef: string;

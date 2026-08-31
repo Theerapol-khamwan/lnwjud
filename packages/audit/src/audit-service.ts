@@ -61,7 +61,7 @@ export class AuditService {
         callId: input.callId,
         phase: input.phase,
         targetDetail: decodeActivityTargetReference(input.targetDetail, input.targetSummary),
-        ...(input.phase !== 'started' || input.activityTargetDetail === undefined
+        ...(input.activityTargetDetail === undefined
           ? {}
           : { activityTargetDetail: redactActivityTargetDetail(input.activityTargetDetail, this.redactor) }),
         ...(input.resultMessage === undefined ? {} : { errorMessage: input.resultMessage }),

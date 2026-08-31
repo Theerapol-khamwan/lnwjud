@@ -60,6 +60,34 @@ describe('complete log detail resolution and export', () => {
     fixture.database.close();
   });
 
+  it('exports completed structured diagnostics with full identifiers and result metadata', async () => {
+    const workspaceId = '372e9384-9628-43be-b766-661cdb591383';
+    const goalId = 'e27da685-745f-484c-86c8-235eb8cb42e5';
+    const fixture = await createAuditFixture('completed-detail-call', ['input.ts'], false);
+    await fixture.audit.recordMcpTool({
+      actorId: 'test', actorName: 'test', workspaceId, sessionId: 'session-complete',
+      toolName: 'run_goal', callId: 'completed-detail-call', phase: 'completed',
+      targetSummary: `goalKey=activity-log-full-detail-no-truncation workspace=${workspaceId}`,
+      targetDetail: { detailRef: 'completed-detail-call:completed', itemCount: 4, preview: [], legacyIncomplete: false },
+      activityTargetDetail: { kind: 'details', items: [`goalId=${goalId}`, `workspaceId=${workspaceId}`, 'status=active', 'revision=12'] },
+      resultCode: 'SUCCESS', durationMs: 9, timestamp: '2026-08-30T00:00:01.000Z',
+    });
+    expect(await fixture.repository.resolveActivityTargetDetail('completed-detail-call:completed')).toEqual({
+      kind: 'details', items: [`goalId=${goalId}`, `workspaceId=${workspaceId}`, 'status=active', 'revision=12'],
+    });
+    const events = await fixture.repository.listActivityScoped({ actionPrefix: 'mcp_tool:' }, 10);
+    const completed = events.find((event) => event.phase === 'completed')!;
+    const resolveRows = (desktopServices as unknown as { resolveWorkLogExportRows?: ResolveWorkLogExportRows }).resolveWorkLogExportRows;
+    const rows = await resolveRows!(fixture.repository, [`audit:${completed.id}`]);
+    expect(rows).toHaveLength(1);
+    for (const expected of [
+      `eventId=${completed.id}`, 'callId=completed-detail-call', `workspaceId=${workspaceId}`, 'sessionId=session-complete',
+      'toolName=run_goal', 'phase=completed', 'resultCode=SUCCESS', 'durationMs=9', `goalId=${goalId}`, 'status=active', 'revision=12',
+    ]) expect(rows[0]).toContain(expected);
+    expect(rows[0]).not.toContain('…');
+    fixture.database.close();
+  });
+
   it('resolves an in-flight identity through its started audit event after completion races export', async () => {
     const items = ['one.ts', 'two.ts', 'three.ts', 'four.ts', 'five.ts', 'six.ts', 'seven.ts', 'eight.ts', 'nine.ts'];
     const fixture = await createAuditFixture('race-call', items, false);

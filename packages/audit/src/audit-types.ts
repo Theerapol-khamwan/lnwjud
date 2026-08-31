@@ -1,6 +1,7 @@
 export type ActivityTargetDetail =
   | { readonly kind: 'files'; readonly items: readonly string[] }
-  | { readonly kind: 'tools'; readonly items: readonly string[] };
+  | { readonly kind: 'tools'; readonly items: readonly string[] }
+  | { readonly kind: 'details'; readonly items: readonly string[] };
 
 export interface ActivityTargetReference {
   /** Immutable started-event/call identifier used for lazy detail resolution. */
@@ -105,7 +106,7 @@ export interface McpToolAuditInput {
   readonly phase: 'started' | 'completed';
   readonly targetSummary?: string;
   readonly targetDetail: ActivityTargetReference;
-  /** Full sanitized detail is accepted only for a started event. */
+  /** Full sanitized detail retained lazily for either input (started) or result (completed) diagnostics. */
   readonly activityTargetDetail?: ActivityTargetDetail;
   readonly resultCode: string;
   readonly resultMessage?: string;

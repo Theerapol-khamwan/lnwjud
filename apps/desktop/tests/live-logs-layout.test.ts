@@ -143,7 +143,7 @@ describe('viewport-sized log and list layout', () => {
       workspaceLabel: 'Workspace', sessionLabel: 'Session', scopeAllLabel: 'All', onClear: noop, onExport: noop, workspaces,
     }));
     expect(markup).not.toContain('Local Disk E:');
-    expect((markup.match(/>lnwjud<\/option>/g) ?? [])).toHaveLength(1);
+    expect((markup.match(/>lnwjud — project-a<\/option>/g) ?? [])).toHaveLength(1);
   });
 
   it('keeps Live Logs inside the window and scrolls only the log table', () => {
@@ -197,6 +197,37 @@ describe('viewport-sized log and list layout', () => {
       kind: 'files', items: ['a.ts', 'b.ts', 'c.ts', 'd.ts', 'e.ts', 'f.ts', 'g.ts', 'h.ts', 'i.ts'],
     });
     for (const item of ['a.ts', 'b.ts', 'c.ts', 'd.ts', 'e.ts', 'f.ts', 'g.ts', 'h.ts', 'i.ts']) expect(copied).toContain(item);
+  });
+
+  it('shows and copies full scoped MCP identifiers and complete diagnostics', () => {
+    const workspaceId = '372e9384-9628-43be-b766-661cdb591383';
+    const sessionId = 'session-1234567890abcdef-fully-visible';
+    const callId = 'call-1234567890abcdef-fully-visible';
+    const line = {
+      id: 403, source: 'mcp' as const, timestamp: '2026-08-30T00:00:00.000Z', level: 'info' as const,
+      text: `[RESULT] run_goal goalKey=activity-log-full-detail-no-truncation workspace=${workspaceId}`,
+      workspaceId, sessionId,
+      correlation: { kind: 'mcp' as const, phase: 'completed' as const, callId, toolName: 'run_goal', resultCode: 'SUCCESS' as const },
+      targetDetail: { detailRef: `${callId}:completed`, itemCount: 3, preview: [], legacyIncomplete: false },
+    };
+    const workspaces = [{ id: workspaceId, displayName: 'lnwjud', rootPath: 'E:\\lnwjud', realRootPath: 'E:\\lnwjud', createdAt: '2026-08-01T00:00:00.000Z' }];
+    const markup = renderToStaticMarkup(createElement(LogStreamPanel, {
+      source: 'mcp', title: 'MCP', lines: [line], tunnelLogPath: null, tunnelLogExists: false,
+      filterPlaceholder: 'filter', pauseLabel: 'pause', followLabel: 'follow', clearLabel: 'clear', clearSessionLabel: 'clear session', clearWorkspaceLabel: 'clear workspace', exportLabel: 'export',
+      onClear: noop, onExport: noop, workspaces,
+    }));
+    expect(markup).toContain(`lnwjud — ${workspaceId}`);
+    expect(markup).toContain(sessionId);
+    expect(markup).not.toContain('372e9384…1383');
+
+    const copied = formatLogCopyText(line, {
+      kind: 'details', items: ['goalId=e27da685-745f-484c-86c8-235eb8cb42e5', `workspaceId=${workspaceId}`, 'status=active'],
+    });
+    for (const expected of [
+      'lineId=403', 'source=mcp', `workspaceId=${workspaceId}`, `sessionId=${sessionId}`, `callId=${callId}`,
+      'toolName=run_goal', 'phase=completed', 'resultCode=SUCCESS', 'goalId=e27da685-745f-484c-86c8-235eb8cb42e5', 'status=active',
+    ]) expect(copied).toContain(expected);
+    expect(copied).not.toContain('…');
   });
 
   it('uses the same fixed-viewport/internal-scroll pattern for project and Git lists', () => {

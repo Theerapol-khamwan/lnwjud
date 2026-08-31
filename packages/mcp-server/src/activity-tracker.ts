@@ -131,11 +131,20 @@ export class ActivityTracker {
     this.activityRevision += 1;
   }
 
-  public async end(callId: string, resultCode: string, durationMs: number, resultMessage?: string): Promise<void> {
+  public async end(
+    callId: string,
+    resultCode: string,
+    durationMs: number,
+    resultMessage?: string,
+    resultDetail?: ActivityTargetDetail,
+  ): Promise<void> {
     const existing = this.inflight.get(callId);
     this.inflight.delete(callId);
     this.activityRevision += 1;
     const timestamp = new Date().toISOString();
+    const targetDetail = resultDetail === undefined
+      ? existing?.targetDetail ?? activityTargetReference(null, undefined, undefined)
+      : activityTargetReference(`${callId}:completed`, resultDetail, existing?.targetSummary);
     await this.safeRecord({
       callId,
       toolName: existing?.toolName ?? 'unknown',
@@ -146,12 +155,12 @@ export class ActivityTracker {
       ...(existing?.workspaceId === undefined ? {} : { workspaceId: existing.workspaceId }),
       ...(existing?.sessionId === undefined ? {} : { sessionId: existing.sessionId }),
       ...(existing?.targetSummary === undefined ? {} : { targetSummary: existing.targetSummary }),
-      targetDetail: existing?.targetDetail ?? activityTargetReference(null, undefined, undefined),
+      targetDetail,
       ...(existing?.traceId === undefined ? {} : { traceId: existing.traceId }),
       ...(existing?.traceParent === undefined ? {} : { traceParent: existing.traceParent }),
       ...(existing?.authorizationMode === undefined ? {} : { authorizationMode: existing.authorizationMode }),
       ...(resultMessage === undefined || resultMessage.length === 0 ? {} : { resultMessage }),
-    });
+    }, resultDetail);
   }
 
   private async safeRecord(event: ActivitySinkEvent, detail?: ActivityTargetDetail): Promise<void> {
@@ -181,15 +190,19 @@ export interface DescribedToolTarget {
 }
 
 export function describeToolTarget(toolName: string, input: unknown): DescribedToolTarget {
-  if (isRecord(input)) {
-    const detail = collectionTargetDetail(input);
-    if (detail !== undefined) {
-      const separator = detail.kind === 'files' ? ', ' : ' + ';
-      return { summary: summarizeForLog(detail.items.slice(0, 3).join(separator)), detail };
-    }
-  }
-  const summary = summarizeToolTargetWithoutDetail(toolName, input);
-  return summary === undefined ? {} : { summary };
+  const collectionDetail = isRecord(input) ? collectionTargetDetail(input) : undefined;
+  const collectionSummary = collectionDetail === undefined
+    ? undefined
+    : summarizeForLog(collectionDetail.items.slice(0, 3).join(collectionDetail.kind === 'files' ? ', ' : ' + '));
+  const summary = collectionSummary ?? summarizeToolTargetWithoutDetail(toolName, input);
+  // File collections already have a lossless dedicated representation. For tool
+  // batches, retain the complete sanitized input shape instead of only child tool
+  // names so expansion/copy/export includes every child query and argument.
+  const detail = collectionDetail?.kind === 'files' ? collectionDetail : diagnosticActivityDetail(input);
+  return {
+    ...(summary === undefined ? {} : { summary }),
+    ...(detail === undefined ? {} : { detail }),
+  };
 }
 
 export function summarizeToolTarget(toolName: string, input: unknown): string | undefined {
@@ -269,6 +282,80 @@ function collectionTargetDetail(input: Readonly<Record<string, unknown>>): Activ
   return items.length === 0 ? undefined : redactActivityTargetDetail({ kind: 'tools', items }, new Redactor());
 }
 
+export function describeStructuredResultDetail(value: unknown): ActivityTargetDetail | undefined {
+  return diagnosticActivityDetail(value);
+}
+
+function diagnosticActivityDetail(value: unknown): ActivityTargetDetail | undefined {
+  if (value === undefined) return undefined;
+  const sanitized = new Redactor().redact(value);
+  const items: string[] = [];
+  appendDiagnosticValue(sanitized, '', items, 0);
+  return items.length === 0
+    ? undefined
+    : redactActivityTargetDetail({ kind: 'details', items }, new Redactor());
+}
+
+function appendDiagnosticValue(value: unknown, path: string, items: string[], depth: number): void {
+  if (items.length >= 2_000) return;
+  if (depth > 16) {
+    items.push(`${path || 'value'}=[maximum diagnostic depth reached]`);
+    return;
+  }
+  if (value === null) {
+    items.push(`${path || 'value'}=null`);
+    return;
+  }
+  if (typeof value === 'string') {
+    items.push(`${path || 'value'}=${value}`);
+    return;
+  }
+  if (typeof value === 'number' || typeof value === 'boolean' || typeof value === 'bigint') {
+    items.push(`${path || 'value'}=${String(value)}`);
+    return;
+  }
+  if (Array.isArray(value)) {
+    if (value.length === 0) {
+      items.push(`${path || 'value'}=[]`);
+      return;
+    }
+    value.forEach((entry, index) => appendDiagnosticValue(entry, `${path}[${index}]`, items, depth + 1));
+    return;
+  }
+  if (!isRecord(value)) {
+    items.push(`${path || 'value'}=${String(value)}`);
+    return;
+  }
+  const entries = Object.entries(value);
+  if (entries.length === 0) {
+    items.push(`${path || 'value'}={}`);
+    return;
+  }
+  for (const [key, entry] of entries) {
+    const childPath = path.length === 0 ? key : `${path}.${key}`;
+    if (isOpaqueDiagnosticPayloadKey(key)) {
+      items.push(`${childPath}=${diagnosticPayloadDescriptor(entry)}`);
+      continue;
+    }
+    appendDiagnosticValue(entry, childPath, items, depth + 1);
+    if (items.length >= 2_000) break;
+  }
+}
+
+function isOpaqueDiagnosticPayloadKey(key: string): boolean {
+  // Binary/base64 payloads are not human-readable diagnostic text. Ordinary text,
+  // request bodies, edit content, values and environment entries are retained after
+  // secret redaction so Copy/Export can reproduce what the tool actually received.
+  return /^(image_base64|audio_base64|file_base64|binary_base64)$/i.test(key);
+}
+
+function diagnosticPayloadDescriptor(value: unknown): string {
+  if (typeof value === 'string') return `[binary payload omitted from activity log; ${value.length} chars]`;
+  if (Array.isArray(value)) return `[binary payload omitted from activity log; ${value.length} items]`;
+  if (isRecord(value)) return `[binary payload omitted from activity log; ${Object.keys(value).length} fields]`;
+  return '[binary payload omitted from activity log]';
+}
+
 export function summarizeStructuredResultTarget(value: unknown): string | undefined {
   if (!isRecord(value)) return undefined;
   const command = commandSummary('result', value);
@@ -330,7 +417,7 @@ function identifierSummary(input: Readonly<Record<string, unknown>>): string | u
     ['markId', 'mark'],
   ] as const) {
     const value = firstString(input, [key]);
-    if (value !== undefined) return `${label}=${shortOpaqueId(value)}`;
+    if (value !== undefined) return `${label}=${value}`;
   }
   return undefined;
 }
@@ -391,18 +478,14 @@ function readStringArray(value: unknown): readonly string[] | undefined {
   return strings.length === 0 ? undefined : strings;
 }
 
-function shortOpaqueId(value: string): string {
-  return value.length <= 14 ? value : `${value.slice(0, 8)}…${value.slice(-4)}`;
-}
-
 function goalActivitySummary(toolName: string, input: Readonly<Record<string, unknown>>): string | undefined {
   if (!['run_goal', 'get_goal', 'checkpoint_goal', 'finish_goal', 'list_goals'].includes(toolName)) return undefined;
   const goalId = firstString(input, ['goalId']);
-  if (goalId !== undefined) return `goal=${shortOpaqueId(goalId)}`;
+  if (goalId !== undefined) return `goal=${goalId}`;
   const goalKey = firstString(input, ['goalKey']);
   const workspaceId = firstString(input, ['workspaceId']);
-  if (goalKey !== undefined && workspaceId !== undefined) return summarizeForLog(`goalKey=${goalKey} workspace=${shortOpaqueId(workspaceId)}`);
-  if (workspaceId !== undefined) return `workspace=${shortOpaqueId(workspaceId)}`;
+  if (goalKey !== undefined && workspaceId !== undefined) return summarizeForLog(`goalKey=${goalKey} workspace=${workspaceId}`);
+  if (workspaceId !== undefined) return `workspace=${workspaceId}`;
   return toolName === 'list_goals' ? 'list durable goals' : humanizeToolName(toolName);
 }
 
@@ -424,10 +507,10 @@ function defaultToolSummary(toolName: string): string | undefined {
   }
 }
 
-const MAX_LOG_TARGET_CHARS = 4_096;
-
 function summarizeForLog(value: string): string {
-  return truncate(redactSensitiveLogText(value), MAX_LOG_TARGET_CHARS);
+  // Activity summaries are diagnostic evidence. Redact secrets, but never shorten
+  // ordinary identifiers/arguments here; the renderer can wrap long values.
+  return redactSensitiveLogText(value);
 }
 
 function redactSensitiveLogText(value: string): string {

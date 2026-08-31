@@ -232,7 +232,9 @@ function collectWorkspaceOptions(lines: readonly LogLine[], workspaces: readonly
   for (const workspace of canonicalWorkspaces) {
     const key = workspace.displayName.trim().toLocaleLowerCase();
     const duplicateName = (nameCounts.get(key) ?? 0) > 1;
-    labels.set(workspace.id, duplicateName ? workspace.displayName + ' — ' + workspace.realRootPath : workspace.displayName);
+    labels.set(workspace.id, duplicateName
+      ? `${workspace.displayName} — ${workspace.id} — ${workspace.realRootPath}`
+      : `${workspace.displayName} — ${workspace.id}`);
   }
   for (const line of lines) {
     if (line.workspaceId === null) continue;
@@ -254,7 +256,8 @@ function collectSessionOptions(lines: readonly LogLine[], workspaceId: string | 
 
 function ScopeBadges(props: { readonly line: LogLine; readonly showWorkspace: boolean; readonly showSession: boolean; readonly workspaces: readonly WorkspaceSummary[] | undefined }): ReactElement | null {
   const canonicalId = props.line.workspaceId === null ? null : canonicalWorkspaceScopeId(props.workspaces ?? [], props.line.workspaceId);
-  const workspaceLabel = canonicalId === null ? null : props.workspaces?.find((workspace) => workspace.id === canonicalId)?.displayName ?? shortScopeId(canonicalId);
+  const workspace = canonicalId === null ? undefined : props.workspaces?.find((candidate) => candidate.id === canonicalId);
+  const workspaceLabel = canonicalId === null ? null : workspace === undefined ? shortScopeId(canonicalId) : `${workspace.displayName} — ${workspace.id}`;
   const sessionLabel = props.line.sessionId === null ? null : shortScopeId(props.line.sessionId);
   if ((!props.showWorkspace || workspaceLabel === null) && (!props.showSession || sessionLabel === null)) return null;
   return <span className="scope-badges">
@@ -264,7 +267,8 @@ function ScopeBadges(props: { readonly line: LogLine; readonly showWorkspace: bo
 }
 
 function shortScopeId(value: string): string {
-  return value.length <= 14 ? value : value.slice(0, 8) + '…' + value.slice(-4);
+  // Scope identifiers are diagnostic evidence; never abbreviate them in logs.
+  return value;
 }
 
 export function logLevelFor(line: LogLine): LogLevel {
@@ -293,8 +297,28 @@ export function logDisplayParts(line: LogLine): { readonly kind: LogEventKind | 
 
 export function formatLogCopyText(line: LogLine, detail: ActivityTargetDetail | null = null): string {
   const base = `${formatLogExportDateTime(line.timestamp)} [${line.level.toUpperCase()}] ${line.text}`;
-  if (detail === null || detail.items.length === 0) return base;
-  return `${base}\r\n${detail.kind === 'files' ? 'Files' : 'Tools'}:\r\n${detail.items.map((item) => `- ${item}`).join('\r\n')}`;
+  const metadata = [
+    `lineId=${line.id}`,
+    `source=${line.source}`,
+    `level=${line.level}`,
+    `workspaceId=${line.workspaceId ?? '<none>'}`,
+    `sessionId=${line.sessionId ?? '<none>'}`,
+    ...(line.correlation?.kind === 'mcp' ? [
+      `callId=${line.correlation.callId}`,
+      `toolName=${line.correlation.toolName}`,
+      `phase=${line.correlation.phase}`,
+      `resultCode=${line.correlation.resultCode ?? '<none>'}`,
+    ] : line.correlation?.kind === 'tunnel' ? [
+      `lifecycle=${line.correlation.lifecycle ?? '<none>'}`,
+      `instanceId=${line.correlation.instanceId ?? '<none>'}`,
+      `requestId=${line.correlation.requestId ?? '<none>'}`,
+      `pid=${line.correlation.pid ?? '<none>'}`,
+    ] : []),
+  ];
+  const fullBase = `${base}\r\n${metadata.join('\r\n')}`;
+  if (detail === null || detail.items.length === 0) return fullBase;
+  const heading = detail.kind === 'files' ? 'Files' : detail.kind === 'tools' ? 'Tools' : 'Details';
+  return `${fullBase}\r\n${heading}:\r\n${detail.items.map((item) => `- ${item}`).join('\r\n')}`;
 }
 
 function liveLineIdentity(line: LogLine): string {

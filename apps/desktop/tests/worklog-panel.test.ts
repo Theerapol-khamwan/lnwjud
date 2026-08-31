@@ -144,8 +144,8 @@ describe('WorkLogPanel', () => {
       clearSessionLabel: 'Clear session', clearWorkspaceLabel: 'Clear workspace', clearAllLabel: 'Clear all',
       filter: 'all', onFilterChange: () => {}, onClear: async () => {}, entries: [], inFlight: [], workspaces,
     }));
-    expect(markup).toContain('lnwjud — E:\\lnwjud');
-    expect(markup).toContain('lnwjud — D:\\projects\\lnwjud');
+    expect(markup).toContain('lnwjud — workspace-a — E:\\lnwjud');
+    expect(markup).toContain('lnwjud — workspace-b — D:\\projects\\lnwjud');
     expect(markup.match(/value="workspace-alias"/g)).toBeNull();
     expect(markup).not.toContain('Local Disk E:');
   });
@@ -186,6 +186,36 @@ describe('WorkLogPanel', () => {
     const expected = `${String(localDate.getDate()).padStart(2, '0')}-${String(localDate.getMonth() + 1).padStart(2, '0')}-${localDate.getFullYear()} ${String(localDate.getHours()).padStart(2, '0')}:${String(localDate.getMinutes()).padStart(2, '0')}:${String(localDate.getSeconds()).padStart(2, '0')}`;
     expect(text.startsWith(expected)).toBe(true);
     expect(text).not.toContain(row.timestamp);
+  });
+
+  it('renders and copies complete workspace/session/call identifiers without ellipsis', () => {
+    const workspaceId = '372e9384-9628-43be-b766-661cdb591383';
+    const sessionId = 'session-1234567890abcdef-fully-visible';
+    const callId = 'call-1234567890abcdef-fully-visible';
+    const entry: WorkLogEntry = {
+      ...mockEntries[0]!, id: 'event-full-identifiers', callId, workspaceId, sessionId,
+      toolName: 'run_goal', targetSummary: `goalKey=activity-log-full-detail-no-truncation workspace=${workspaceId}`,
+      targetDetail: { detailRef: `${callId}:completed`, itemCount: 2, preview: [], legacyIncomplete: false },
+    };
+    const workspaces = [{ id: workspaceId, displayName: 'lnwjud', rootPath: 'E:\\lnwjud', realRootPath: 'E:\\lnwjud', createdAt: '2026-08-01T00:00:00.000Z' }];
+    const markup = renderToStaticMarkup(createElement(WorkLogPanel, {
+      title: 'Work log', emptyLabel: 'Empty', filterAllLabel: 'All', filterErrorLabel: 'Errors',
+      clearSessionLabel: 'Clear session', clearWorkspaceLabel: 'Clear workspace', clearAllLabel: 'Clear all',
+      filter: 'all', onFilterChange: () => {}, onClear: async () => {}, entries: [entry], inFlight: [], workspaces,
+    }));
+    expect(markup).toContain(`lnwjud — ${workspaceId}`);
+    expect(markup).toContain(sessionId);
+    expect(markup).not.toContain('372e9384…1383');
+    expect(markup).not.toContain('session-1…');
+
+    const copied = formatWorkLogCopyText(newestFirstWorkLogRows([entry], [])[0]!, new Map(), {
+      kind: 'details', items: [`goalId=e27da685-745f-484c-86c8-235eb8cb42e5`, `workspaceId=${workspaceId}`, 'status=active'],
+    });
+    for (const expected of [
+      `eventId=${entry.id}`, `callId=${callId}`, `workspaceId=${workspaceId}`, `sessionId=${sessionId}`,
+      'toolName=run_goal', 'resultCode=SUCCESS', 'goalId=e27da685-745f-484c-86c8-235eb8cb42e5', 'status=active',
+    ]) expect(copied).toContain(expected);
+    expect(copied).not.toContain('…');
   });
 
   it('renders export when supplied so the Work Log page can export its visible rows', () => {

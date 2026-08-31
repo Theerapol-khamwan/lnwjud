@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { ActivityTracker, describeToolTarget, summarizeStructuredResultTarget, summarizeToolTarget, type ActivitySinkEvent } from './activity-tracker.js';
+import { ActivityTracker, describeStructuredResultDetail, describeToolTarget, summarizeStructuredResultTarget, summarizeToolTarget, type ActivitySinkEvent } from './activity-tracker.js';
 
 describe('ActivityTracker', () => {
   it('tracks in-flight calls and records started/completed sink events', async () => {
@@ -60,7 +60,7 @@ describe('ActivityTracker', () => {
     expect(summarizeToolTarget('git', { args: ['status', '--short'] })).toBe('git status --short');
     expect(summarizeToolTarget('git_status', { workspaceId: 'workspace-1' })).toBe('git status');
     expect(summarizeToolTarget('workspace_list', {})).toBe('list registered workspaces');
-    expect(summarizeToolTarget('shell', { operation: 'result', task_id: '1234567890abcdef' })).toBe('shell:result task=12345678…cdef');
+    expect(summarizeToolTarget('shell', { operation: 'result', task_id: '1234567890abcdef' })).toBe('shell:result task=1234567890abcdef');
     expect(summarizeToolTarget('process_status', { processId: 'process-1' })).toBe('process=process-1');
     expect(summarizeToolTarget('move_file', { sourcePath: 'src/a.ts', destinationPath: 'src/b.ts' })).toBe('src/a.ts → src/b.ts');
     expect(summarizeToolTarget('web_fetch', { method: 'GET', url: 'https://example.com/api' })).toBe('GET https://example.com/api');
@@ -98,6 +98,46 @@ describe('ActivityTracker', () => {
     expect(summary).not.toContain('super-secret');
   });
 
+  it('keeps full opaque identifiers and complete sanitized structured diagnostics', async () => {
+    const workspaceId = '372e9384-9628-43be-b766-661cdb591383';
+    const goalId = 'e27da685-745f-484c-86c8-235eb8cb42e5';
+    expect(summarizeToolTarget('run_goal', { workspaceId, goalKey: 'activity-log-full-detail-no-truncation' }))
+      .toBe(`goalKey=activity-log-full-detail-no-truncation workspace=${workspaceId}`);
+    expect(summarizeToolTarget('get_goal', { goalId })).toBe(`goal=${goalId}`);
+
+    const inputDetail = describeToolTarget('run_goal', {
+      workspaceId,
+      goalKey: 'activity-log-full-detail-no-truncation',
+      objective: 'retain this complete diagnostic text',
+      content: 'full text payload is retained',
+      password: 'must-never-leak',
+      image_base64: 'AAAA-BINARY-DATA',
+    }).detail;
+    expect(inputDetail?.kind).toBe('details');
+    expect(inputDetail?.items).toContain(`workspaceId=${workspaceId}`);
+    expect(inputDetail?.items).toContain('objective=retain this complete diagnostic text');
+    expect(inputDetail?.items).toContain('content=full text payload is retained');
+    expect(inputDetail?.items).toContain('password=[REDACTED]');
+    expect(inputDetail?.items.some((item) => item.includes('image_base64=[binary payload omitted from activity log;'))).toBe(true);
+    expect(JSON.stringify(inputDetail)).not.toContain('must-never-leak');
+    expect(JSON.stringify(inputDetail)).not.toContain('AAAA-BINARY-DATA');
+
+    const resultDetail = describeStructuredResultDetail({ goalId, status: 'active', leaseToken: 'top-secret', nested: { revision: 12 } });
+    expect(resultDetail).toEqual({
+      kind: 'details',
+      items: [`goalId=${goalId}`, 'status=active', 'leaseToken=[REDACTED]', 'nested.revision=12'],
+    });
+
+    const auditDetails: unknown[] = [];
+    const tracker = new ActivityTracker(undefined, undefined, {
+      async record(_event, detail): Promise<void> { auditDetails.push(detail); },
+    });
+    const callId = await tracker.begin('run_goal', { workspaceId, goalKey: 'activity-log-full-detail-no-truncation' });
+    await tracker.end(callId, 'SUCCESS', 4, undefined, resultDetail);
+    expect(auditDetails[0]).toEqual(expect.objectContaining({ kind: 'details' }));
+    expect(auditDetails[1]).toEqual(resultDetail);
+  });
+
   it('propagates bounded trace context into audit events and in-flight state', async () => {
     const events: ActivitySinkEvent[] = [];
     const tracker = new ActivityTracker({ async record(event): Promise<void> { events.push(event); } });
@@ -122,7 +162,7 @@ describe('ActivityTracker', () => {
     expect(events).toEqual([expect.objectContaining({ phase: 'started', sessionId: 'session-a' }), expect.objectContaining({ phase: 'completed', sessionId: 'session-a' })]);
   });
 
-  it('preserves every sanitized file and batched-tool target in original order while snapshots stay compact', async () => {
+  it('preserves complete sanitized collection arguments while compact snapshots stay small', async () => {
     const fileInputs = [
       'src/alpha.ts',
       'src/alpha.ts',
@@ -133,20 +173,37 @@ describe('ActivityTracker', () => {
       'src/six.ts',
     ];
     const fileTarget = describeToolTarget('read_files', { files: fileInputs.map((path) => ({ path })) });
-    expect(fileTarget).toEqual({
-      summary: 'src/alpha.ts, src/alpha.ts, เอกสาร/ไฟล์.ts',
-      detail: {
-        kind: 'files',
-        items: ['src/alpha.ts', 'src/alpha.ts', 'เอกสาร/ไฟล์.ts', 'src/api_key=[REDACTED]', 'src/four.ts', 'src/five.ts', 'src/six.ts'],
-      },
+    expect(fileTarget.summary).toBe('src/alpha.ts, src/alpha.ts, เอกสาร/ไฟล์.ts');
+    expect(fileTarget.detail).toEqual({
+      kind: 'files',
+      items: ['src/alpha.ts', 'src/alpha.ts', 'เอกสาร/ไฟล์.ts', 'src/api_key=[REDACTED]', 'src/four.ts', 'src/five.ts', 'src/six.ts'],
     });
 
-    const toolInputs = ['read_file', 'read_file', 'search_text', 'tool_api_key=super-secret', 'ทดสอบ', 'git_status', 'shell', 'workspace_info', 'read_file'];
-    const toolTarget = describeToolTarget('batch', { calls: toolInputs.map((tool) => ({ tool })) });
-    expect(toolTarget.detail).toEqual({
-      kind: 'tools',
-      items: ['read_file', 'read_file', 'search_text', 'tool_api_key=[REDACTED]', 'ทดสอบ', 'git_status', 'shell', 'workspace_info', 'read_file'],
+    const toolTarget = describeToolTarget('tool_batch', {
+      parallel: true,
+      calls: [
+        { tool: 'search_text', arguments: { query: 'first query', path: 'src' } },
+        { tool: 'search_text', arguments: { query: 'second query', api_key: 'super-secret' } },
+        { tool: 'search_all', arguments: { query: 'third query', maxResults: 50 } },
+      ],
     });
+    expect(toolTarget.summary).toBe('search_text + search_text + search_all');
+    expect(toolTarget.detail).toEqual({
+      kind: 'details',
+      items: [
+        'parallel=true',
+        'calls[0].tool=search_text',
+        'calls[0].arguments.query=first query',
+        'calls[0].arguments.path=src',
+        'calls[1].tool=search_text',
+        'calls[1].arguments.query=second query',
+        'calls[1].arguments.api_key=[REDACTED]',
+        'calls[2].tool=search_all',
+        'calls[2].arguments.query=third query',
+        'calls[2].arguments.maxResults=50',
+      ],
+    });
+    expect(JSON.stringify(toolTarget.detail)).not.toContain('super-secret');
 
     const events: ActivitySinkEvent[] = [];
     const tracker = new ActivityTracker({ async record(event): Promise<void> { events.push(event); } });

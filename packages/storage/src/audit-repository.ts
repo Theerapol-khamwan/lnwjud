@@ -139,13 +139,16 @@ export class SqliteAuditRepository implements AuditEventRepository {
 
   public async resolveActivityTargetDetail(idOrCallId: string): Promise<ActivityTargetDetail | null> {
     if (idOrCallId.length === 0 || idOrCallId.length > 512) return null;
+    const completedSuffix = ':completed';
+    const phase = idOrCallId.endsWith(completedSuffix) ? 'completed' : 'started';
+    const lookup = phase === 'completed' ? idOrCallId.slice(0, -completedSuffix.length) : idOrCallId;
     const row = this.database.connection.prepare(
       `SELECT metadata_json FROM audit_events
        WHERE (id = ? OR json_extract(metadata_json, '$.callId') = ?)
-         AND json_extract(metadata_json, '$.phase') = 'started'
+         AND json_extract(metadata_json, '$.phase') = ?
          AND json_type(metadata_json, '$.activityTargetDetail') = 'object'
        ORDER BY CASE WHEN id = ? THEN 0 ELSE 1 END, timestamp DESC, id DESC LIMIT 1`,
-    ).get(idOrCallId, idOrCallId, idOrCallId);
+    ).get(lookup, lookup, phase, lookup);
     if (!isMetadataRow(row)) return null;
     try {
       const metadata = JSON.parse(row.metadata_json) as unknown;
@@ -181,15 +184,18 @@ export class SqliteAuditRepository implements AuditEventRepository {
   public async activityTargetDetailMatches(detailRef: string, query: string): Promise<boolean> {
     const needle = query.trim().toLocaleLowerCase();
     if (detailRef.length === 0 || detailRef.length > 512 || needle.length === 0 || needle.length > 512) return false;
+    const completedSuffix = ':completed';
+    const phase = detailRef.endsWith(completedSuffix) ? 'completed' : 'started';
+    const lookup = phase === 'completed' ? detailRef.slice(0, -completedSuffix.length) : detailRef;
     const row = this.database.connection.prepare(
       `SELECT 1 AS matched
        FROM audit_events, json_each(audit_events.metadata_json, '$.activityTargetDetail.items') AS item
        WHERE (audit_events.id = ? OR json_extract(audit_events.metadata_json, '$.callId') = ?)
-         AND json_extract(audit_events.metadata_json, '$.phase') = 'started'
+         AND json_extract(audit_events.metadata_json, '$.phase') = ?
          AND typeof(item.value) = 'text'
          AND instr(lower(item.value), ?) > 0
        LIMIT 1`,
-    ).get(detailRef, detailRef, needle);
+    ).get(lookup, lookup, phase, needle);
     return isRecord(row) && row.matched === 1;
   }
 
@@ -305,7 +311,7 @@ function isMetadataRow(value: unknown): value is { readonly metadata_json: strin
 
 function isActivityTargetDetail(value: unknown): value is ActivityTargetDetail {
   return isRecord(value)
-    && (value.kind === 'files' || value.kind === 'tools')
+    && (value.kind === 'files' || value.kind === 'tools' || value.kind === 'details')
     && Array.isArray(value.items)
     && value.items.every((item) => typeof item === 'string');
 }

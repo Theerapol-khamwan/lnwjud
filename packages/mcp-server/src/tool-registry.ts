@@ -14,7 +14,7 @@ import { sanitizeException, type DiagnosticLogger, type FileActor } from '@lnwju
 import { CAPABILITY_ACTIVE_WORKSPACE_ROOT_METADATA_KEY } from '@lnwjud/capabilities';
 import { DefaultPermissionEngine, permissionProfiles, type PermissionProfile } from '@lnwjud/permissions';
 import { DEFAULT_DESTRUCTIVE_AUTO_APPROVAL_POLICY, prohibitedAgentCommandReason, prohibitedAgentGitInvocationReason, type DestructiveAutoApprovalPolicy } from '@lnwjud/shared';
-import { ActivityTracker, summarizeStructuredResultTarget, summarizeToolTarget, type ActivitySink, type TraceContext } from './activity-tracker.js';
+import { ActivityTracker, describeStructuredResultDetail, summarizeStructuredResultTarget, summarizeToolTarget, type ActivitySink, type TraceContext } from './activity-tracker.js';
 import { ContextEngine } from './context-engine.js';
 import { ContextEconomyRuntime } from './context-economy.js';
 import { hasExplicitUserConfirmation } from './destructive-policy.js';
@@ -418,17 +418,18 @@ export class ToolRegistry {
 
       const resultCode = response.isError === true ? readErrorCode(response) ?? 'ERROR' : 'SUCCESS';
       const resultMessage = readErrorMessage(response);
+      const resultDetail = describeStructuredResultDetail(response.structuredContent ?? response.content);
       if (execution.deferredSettlement !== undefined) {
         const endFence = fencedMutationEnd;
         fencedMutationEnd = undefined;
         void execution.deferredSettlement.then(async () => {
           await endFence?.();
-          await this.activity.end(callId, resultCode, Date.now() - started, resultMessage);
+          await this.activity.end(callId, resultCode, Date.now() - started, resultMessage, resultDetail);
         });
       } else {
         await fencedMutationEnd?.();
         fencedMutationEnd = undefined;
-        await this.activity.end(callId, resultCode, Date.now() - started, resultMessage);
+        await this.activity.end(callId, resultCode, Date.now() - started, resultMessage, resultDetail);
       }
       return response;
     } catch (error: unknown) {

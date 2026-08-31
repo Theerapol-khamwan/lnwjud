@@ -104,4 +104,26 @@ describe('AuditService', () => {
       metadata: { toolName: 'read_file', callId: 'call-1', phase: 'completed', errorMessage: 'File or directory was not found' },
     });
   });
+
+  it('retains sanitized completed-result diagnostics for lazy log expansion', async () => {
+    const repository = new MemoryAuditRepository();
+    const workspaceId = '372e9384-9628-43be-b766-661cdb591383';
+    const goalId = 'e27da685-745f-484c-86c8-235eb8cb42e5';
+    await new AuditService(repository).recordMcpTool({
+      actorId: 'client-1', actorName: 'test', workspaceId, sessionId: 'session-full',
+      toolName: 'run_goal', callId: 'call-full', phase: 'completed',
+      targetSummary: `goalKey=activity-log-full-detail-no-truncation workspace=${workspaceId}`,
+      targetDetail: { detailRef: 'call-full:completed', itemCount: 4, preview: [], legacyIncomplete: false },
+      activityTargetDetail: { kind: 'details', items: [`goalId=${goalId}`, `workspaceId=${workspaceId}`, 'status=active', 'password=must-never-leak'] },
+      resultCode: 'SUCCESS', durationMs: 8,
+    });
+
+    expect(repository.events[0]?.metadata).toMatchObject({
+      toolName: 'run_goal', callId: 'call-full', phase: 'completed',
+      activityTargetDetail: {
+        kind: 'details', items: [`goalId=${goalId}`, `workspaceId=${workspaceId}`, 'status=active', 'password=[REDACTED]'],
+      },
+    });
+    expect(JSON.stringify(repository.events[0])).not.toContain('must-never-leak');
+  });
 });

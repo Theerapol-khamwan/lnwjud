@@ -274,7 +274,9 @@ function collectWorkspaceOptions(entries: readonly WorkLogEntry[], inFlight: rea
   for (const workspace of canonicalWorkspaces) {
     const key = workspace.displayName.trim().toLocaleLowerCase();
     const duplicateName = (nameCounts.get(key) ?? 0) > 1;
-    labels.set(workspace.id, duplicateName ? workspace.displayName + ' — ' + workspace.realRootPath : workspace.displayName);
+    labels.set(workspace.id, duplicateName
+      ? `${workspace.displayName} — ${workspace.id} — ${workspace.realRootPath}`
+      : `${workspace.displayName} — ${workspace.id}`);
   }
   for (const item of [...entries, ...inFlight]) {
     if (item.workspaceId === null) continue;
@@ -310,11 +312,14 @@ function displayWorkspaceLabel(workspaces: readonly WorkspaceSummary[] | undefin
   const workspace = workspaceList.find((candidate) => candidate.id === canonicalId);
   if (workspace === undefined) return shortScopeId(canonicalId);
   const duplicateName = (workspaces ?? []).some((candidate) => candidate.id !== workspace.id && candidate.displayName.trim().toLocaleLowerCase() === workspace.displayName.trim().toLocaleLowerCase());
-  return duplicateName ? workspace.displayName + ' — ' + workspace.realRootPath : workspace.displayName;
+  return duplicateName
+    ? `${workspace.displayName} — ${workspace.id} — ${workspace.realRootPath}`
+    : `${workspace.displayName} — ${workspace.id}`;
 }
 
 function shortScopeId(value: string): string {
-  return value.length <= 14 ? value : value.slice(0, 8) + '…' + value.slice(-4);
+  // Scope identifiers are diagnostic evidence; never abbreviate them in logs.
+  return value;
 }
 
 function renderEntryDetail(entry: WorkLogEntry, resolvedTargets: ReadonlyMap<string, string>): ReactElement | string {
@@ -345,10 +350,40 @@ function entryDetailText(entry: WorkLogEntry, resolvedTargets: ReadonlyMap<strin
 
 export function formatWorkLogCopyText(row: WorkLogRow, resolvedTargets: ReadonlyMap<string, string> = new Map(), detail: ActivityTargetDetail | null = null): string {
   if (row.kind === 'inflight') {
-    return appendCompleteTargetDetail(`${formatLogExportDateTime(row.item.startedAt)} [TASK] ${row.item.toolName}${row.item.targetSummary === null ? '' : ` ${row.item.targetSummary}`}`, detail);
+    const base = `${formatLogExportDateTime(row.item.startedAt)} [TASK] ${row.item.toolName}${row.item.targetSummary === null ? '' : ` ${row.item.targetSummary}`}`;
+    return appendCompleteTargetDetail(`${base}\r\n${workLogMetadataLines(row).join('\r\n')}`, detail);
   }
   const duration = row.item.kind === 'task' ? '' : ` ${row.item.durationMs}ms`;
-  return appendCompleteTargetDetail(`${formatLogExportDateTime(row.item.timestamp)} ${tagFor(row.item.kind)} ${row.item.toolName} ${entryDetailText(row.item, resolvedTargets)}${duration}`.trim(), detail);
+  const base = `${formatLogExportDateTime(row.item.timestamp)} ${tagFor(row.item.kind)} ${row.item.toolName} ${entryDetailText(row.item, resolvedTargets)}${duration}`.trim();
+  return appendCompleteTargetDetail(`${base}\r\n${workLogMetadataLines(row).join('\r\n')}`, detail);
+}
+
+function workLogMetadataLines(row: WorkLogRow): readonly string[] {
+  if (row.kind === 'inflight') {
+    return [
+      `rowId=inflight:${row.item.callId}`,
+      `callId=${row.item.callId}`,
+      `workspaceId=${row.item.workspaceId ?? '<none>'}`,
+      `sessionId=${row.item.sessionId ?? '<none>'}`,
+      `toolName=${row.item.toolName}`,
+      'phase=started',
+      'resultCode=STARTED',
+      ...(row.item.targetSummary === null ? [] : [`targetSummary=${row.item.targetSummary}`]),
+    ];
+  }
+  return [
+    `rowId=audit:${row.item.id}`,
+    `eventId=${row.item.id}`,
+    `callId=${row.item.callId ?? '<none>'}`,
+    `workspaceId=${row.item.workspaceId ?? '<none>'}`,
+    `sessionId=${row.item.sessionId ?? '<none>'}`,
+    `toolName=${row.item.toolName}`,
+    `kind=${row.item.kind}`,
+    `resultCode=${row.item.resultCode}`,
+    `durationMs=${row.item.durationMs}`,
+    ...(row.item.targetSummary === null ? [] : [`targetSummary=${row.item.targetSummary}`]),
+    ...(row.item.errorMessage === null ? [] : [`errorMessage=${row.item.errorMessage}`]),
+  ];
 }
 
 export function workLogRowIdentity(row: WorkLogRow): string {
@@ -357,7 +392,8 @@ export function workLogRowIdentity(row: WorkLogRow): string {
 
 function appendCompleteTargetDetail(base: string, detail: ActivityTargetDetail | null): string {
   if (detail === null || detail.items.length === 0) return base;
-  return `${base}\r\n${detail.kind === 'files' ? 'Files' : 'Tools'}:\r\n${detail.items.map((item) => `- ${item}`).join('\r\n')}`;
+  const heading = detail.kind === 'files' ? 'Files' : detail.kind === 'tools' ? 'Tools' : 'Details';
+  return `${base}\r\n${heading}:\r\n${detail.items.map((item) => `- ${item}`).join('\r\n')}`;
 }
 
 function detailProps(props: WorkLogPanelProps): Omit<ComponentProps<typeof ExpandableTargetDetail>, 'reference' | 'legacySummary' | 'loadDetail'> {

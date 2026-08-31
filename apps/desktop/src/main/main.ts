@@ -764,16 +764,35 @@ async function exportLogsToFile(
         continue;
       }
       const base = `${formatExportLogTimestamp(line.timestamp)} [${line.level.toUpperCase()}] ${line.text}`;
+      const metadata = [
+        `lineId=${line.id}`,
+        `source=${line.source}`,
+        `level=${line.level}`,
+        `workspaceId=${line.workspaceId ?? '<none>'}`,
+        `sessionId=${line.sessionId ?? '<none>'}`,
+        ...(line.correlation?.kind === 'mcp' ? [
+          `callId=${line.correlation.callId}`,
+          `toolName=${line.correlation.toolName}`,
+          `phase=${line.correlation.phase}`,
+          `resultCode=${line.correlation.resultCode ?? '<none>'}`,
+        ] : line.correlation?.kind === 'tunnel' ? [
+          `lifecycle=${line.correlation.lifecycle ?? '<none>'}`,
+          `instanceId=${line.correlation.instanceId ?? '<none>'}`,
+          `requestId=${line.correlation.requestId ?? '<none>'}`,
+          `pid=${line.correlation.pid ?? '<none>'}`,
+        ] : []),
+      ];
+      const baseWithMetadata = `${base}\r\n${metadata.join('\r\n')}`;
       const targetDetail = line.targetDetail;
       if (targetDetail?.legacyIncomplete === true && targetDetail.itemCount > targetDetail.preview.length) {
-        yield formatIncompleteLegacyHistory(base);
+        yield formatIncompleteLegacyHistory(baseWithMetadata);
         continue;
       }
       const authoritativeRef = targetDetail?.detailRef ?? (line.correlation?.kind === 'mcp' ? line.correlation.callId : null);
       const requestedRef = reference.correlationRef === authoritativeRef ? reference.correlationRef : authoritativeRef;
       const detail = requestedRef === null ? null : (await services.resolveActivityTargetDetail(requestedRef)).detail;
       const detailExpected = targetDetail !== undefined && targetDetail.itemCount > targetDetail.preview.length;
-      yield formatCompleteTargetDetail(base, detail, detailExpected);
+      yield formatCompleteTargetDetail(baseWithMetadata, detail, detailExpected);
     }
   }
   await writeSerializedLogRows(result.filePath, serializedRows());

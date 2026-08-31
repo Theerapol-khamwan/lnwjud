@@ -28,8 +28,8 @@ export class Redactor {
   }
 }
 
-export const MAX_ACTIVITY_TARGET_ITEMS = 500;
-export const MAX_ACTIVITY_TARGET_ITEM_CHARS = 4_096;
+export const MAX_ACTIVITY_TARGET_ITEMS = 2_000;
+export const MAX_ACTIVITY_TARGET_ITEM_CHARS = 32_768;
 export const MAX_ACTIVITY_TARGET_PREVIEW_ITEMS = 3;
 export const MAX_ACTIVITY_TARGET_PREVIEW_CHARS = 256;
 
@@ -49,7 +49,12 @@ export function activityTargetReference(
   return {
     detailRef: detail === undefined ? null : detailRef,
     itemCount: items.length,
-    preview: items.slice(0, MAX_ACTIVITY_TARGET_PREVIEW_ITEMS).map((item) => truncate(item, MAX_ACTIVITY_TARGET_PREVIEW_CHARS)),
+    // Generic diagnostic detail should always be explicitly expanded instead of
+    // leaking an arbitrary subset into the compact row. Files/tools keep a small
+    // preview because their list semantics are useful at a glance.
+    preview: detail?.kind === 'details'
+      ? []
+      : items.slice(0, MAX_ACTIVITY_TARGET_PREVIEW_ITEMS).map((item) => truncate(item, MAX_ACTIVITY_TARGET_PREVIEW_CHARS)),
     legacyIncomplete: false,
   };
 }

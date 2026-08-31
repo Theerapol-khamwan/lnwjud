@@ -1591,11 +1591,24 @@ function formatActivityExportRow(event: ActivityAuditEvent, detail: ActivityTarg
   const summary = event.targetSummary === undefined || event.targetSummary.trim().length === 0 ? '' : ` ${event.targetSummary}`;
   const error = event.errorMessage === undefined || event.errorMessage.trim().length === 0 ? '' : ` — ${event.errorMessage}`;
   const base = `${formatActivityExportTimestamp(event.timestamp)} ${tag} ${event.toolName}${summary}${error}${duration}`.trim();
+  const metadata = [
+    `eventId=${event.id}`,
+    `callId=${event.callId ?? '<none>'}`,
+    `workspaceId=${event.workspaceId ?? '<none>'}`,
+    `sessionId=${event.sessionId ?? '<none>'}`,
+    `toolName=${event.toolName}`,
+    `phase=${event.phase}`,
+    `resultCode=${event.resultCode}`,
+    `durationMs=${event.durationMs}`,
+    ...(event.targetSummary === undefined ? [] : [`targetSummary=${event.targetSummary}`]),
+    ...(event.errorMessage === undefined ? [] : [`errorMessage=${event.errorMessage}`]),
+  ];
+  const baseWithMetadata = `${base}\r\n${metadata.join('\r\n')}`;
   if (event.targetDetail.legacyIncomplete && event.targetDetail.itemCount > event.targetDetail.preview.length) {
-    return formatIncompleteLegacyHistory(base);
+    return formatIncompleteLegacyHistory(baseWithMetadata);
   }
   const detailExpected = event.targetDetail.detailRef !== null && event.targetDetail.itemCount > event.targetDetail.preview.length;
-  return formatCompleteTargetDetail(base, detail, detailExpected);
+  return formatCompleteTargetDetail(baseWithMetadata, detail, detailExpected);
 }
 
 export function formatIncompleteLegacyHistory(base: string): string {
@@ -1607,7 +1620,7 @@ export function formatCompleteTargetDetail(base: string, detail: ActivityTargetD
     return detailExpected ? `${base}\r\nComplete target detail unavailable; this row may be incomplete.` : base;
   }
   if (detail.items.length === 0) return base;
-  const heading = detail.kind === 'files' ? 'Files' : 'Tools';
+  const heading = detail.kind === 'files' ? 'Files' : detail.kind === 'tools' ? 'Tools' : 'Details';
   return `${base}\r\n${heading}:\r\n${detail.items.map((item) => `- ${item}`).join('\r\n')}`;
 }
 
