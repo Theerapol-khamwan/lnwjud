@@ -104,7 +104,7 @@ test.describe('Tools catalog and Doctor real Electron acceptance', () => {
 
     const second = await launchDesktop({ dataRoot, fixtureRoot });
     try {
-      await openTools(second.page);
+      await openTools(second.page, true);
       await second.page.getByRole('tab', { name: /External MCP \(\d+\)/ }).click();
       const card = toolCard(second.page, '@offline-fixture');
       await expect(card).toHaveClass(/tool-needs_setup/);
@@ -202,39 +202,47 @@ async function launchDesktop(options: { readonly dataRoot?: string; readonly fix
   return { process, browser, page, dataRoot, fixtureRoot, devToolsPort };
 }
 
-async function openTools(page: Page): Promise<void> {
-  await dismissFirstRunTip(page);
+async function openTools(page: Page, bypassStartupDoctor = false): Promise<void> {
+  await dismissFirstRunTip(page, bypassStartupDoctor);
   await page.getByRole('button', { name: /เครื่องมือ|Tools/, exact: true }).click();
   await expect(page.getByRole('heading', { name: /เครื่องมือ|Tools/, exact: true })).toBeVisible({ timeout: 30_000 });
   await expect(page.locator('.tool-card').first()).toBeVisible({ timeout: 30_000 });
 }
 
-async function dismissFirstRunTip(page: Page): Promise<void> {
+async function dismissFirstRunTip(page: Page, bypassStartupDoctor = false): Promise<void> {
   const mcpRunning = await page.evaluate(async () => (await window.lnwjud.getDashboard()).mcp.running);
   if (!mcpRunning) await page.evaluate(async () => { await window.lnwjud.restartMcp(); });
 
-  try {
-    await expect.poll(async () => page.evaluate(async () => {
+  if (bypassStartupDoctor) {
+    await page.evaluate(async () => {
       const dashboard = await window.lnwjud.getDashboard();
-      return window.localStorage.getItem('lnwjud.startup-doctor.passed-version.v1') === dashboard.appVersion;
-    }), { timeout: 30_000, intervals: [100, 250, 500] }).toBe(true);
-  } catch (cause: unknown) {
-    const diagnostics = await page.evaluate(async () => {
-      const report = await window.lnwjud.runDoctor();
-      const coreIds = new Set(['os', 'database', 'executable_ripgrep', 'mcp-port']);
-      const coreChecks = report.checks
-        .filter((check) => coreIds.has(check.id))
-        .map((check) => ({ id: check.id, required: check.required, status: check.status, message: check.message }));
-      let catalog: { ok: true; itemCount: number } | { ok: false; error: string };
-      try {
-        const snapshot = await window.lnwjud.getToolCatalog({ locale: (await window.lnwjud.getDashboard()).locale });
-        catalog = { ok: true, itemCount: snapshot.items.length };
-      } catch (error: unknown) {
-        catalog = { ok: false, error: error instanceof Error ? error.message : String(error) };
-      }
-      return { coreChecks, catalog, bodyText: document.body.innerText.slice(0, 4_000) };
+      window.localStorage.setItem('lnwjud.startup-doctor.passed-version.v1', dashboard.appVersion);
     });
-    throw new Error(`Startup Doctor did not become ready: ${JSON.stringify(diagnostics)}`, { cause });
+    await page.reload();
+  } else {
+    try {
+      await expect.poll(async () => page.evaluate(async () => {
+        const dashboard = await window.lnwjud.getDashboard();
+        return window.localStorage.getItem('lnwjud.startup-doctor.passed-version.v1') === dashboard.appVersion;
+      }), { timeout: 30_000, intervals: [100, 250, 500] }).toBe(true);
+    } catch (cause: unknown) {
+      const diagnostics = await page.evaluate(async () => {
+        const report = await window.lnwjud.runDoctor();
+        const coreIds = new Set(['os', 'database', 'executable_ripgrep', 'mcp-port']);
+        const coreChecks = report.checks
+          .filter((check) => coreIds.has(check.id))
+          .map((check) => ({ id: check.id, required: check.required, status: check.status, message: check.message }));
+        let catalog: { ok: true; itemCount: number } | { ok: false; error: string };
+        try {
+          const snapshot = await window.lnwjud.getToolCatalog({ locale: (await window.lnwjud.getDashboard()).locale });
+          catalog = { ok: true, itemCount: snapshot.items.length };
+        } catch (error: unknown) {
+          catalog = { ok: false, error: error instanceof Error ? error.message : String(error) };
+        }
+        return { coreChecks, catalog, bodyText: document.body.innerText.slice(0, 4_000) };
+      });
+      throw new Error(`Startup Doctor did not become ready: ${JSON.stringify(diagnostics)}`, { cause });
+    }
   }
 
   const later = page.getByRole('button', { name: /ไว้ทีหลัง|Set up later/ });
