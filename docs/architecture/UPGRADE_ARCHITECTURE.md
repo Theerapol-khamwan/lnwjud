@@ -42,7 +42,7 @@ MCP clients (ChatGPT / Codex / Claude / other agents)
              MCP stdio or loopback Streamable HTTP
                          |
                          v
-                  ToolRegistry (231 total definitions; 195 default; 202 with Codex + Agent Swarm)
+                  ToolRegistry (231 total definitions; 224 default; all 231 with Codex + Agent Swarm)
                          |
        +-----------------+------------------+
        |                 |                  |

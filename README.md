@@ -47,33 +47,23 @@ machine.
 ## Current version: v4.44.0
 
 The v4.44.0 release target and runtime contract contain **231 total MCP tool definitions**,
-with **195 advertised by default** and **202 advertised when the six `codex_*`
-delegation tools plus the bounded read-only `agent_swarm_run` tool are enabled**. Planned and feature-disabled definitions remain in
-the complete inventory without appearing in `tools/list`. The earlier 184-tool snapshot remains
+with **224 advertised by default** and **all 231 advertised when the six `codex_*`
+delegation tools plus the bounded read-only `agent_swarm_run` tool are enabled**. The seven Codex/Agent Swarm definitions are opt-in;
+the default surface still exposes every other current first-party definition. The earlier 184-tool snapshot remains
 only as the compatibility baseline used by the v4 architecture; new v4 gateway
 capabilities are additive.
 
 ### What's new in v4.44.0
 
-- Hardens ChatGPT cloud scheduled continuation timing with canonical UTC host schedules, absolute-time receipt validation, `prepared != confirmed`, bounded early-wake jitter, and same-native-task rescheduling when a one-time wake fires too early.
-- Fixes the async worker-liveness timestamp race that could reject a fresh observation as “from the future”.
+- Hardens ChatGPT cloud scheduled continuation with canonical absolute scheduling, confirmed native-task receipts, bounded early-wake handling, stale/consumed-task reconciliation, and same-native-task +2-minute collision deferral so an active goal cannot mistake an already-fired task for future recovery coverage.
+- Fixes worker-liveness edge cases, including the asynchronous timestamp race that could reject a fresh observation as being “from the future”.
 - Adds opt-in `agent_swarm_run` for 1–4 owner-scoped Codex tasks with bounded concurrency, dependency DAGs, enforced read-only sandboxing, host approval for start/cancel, redacted bounded output, and fail-closed restart recovery.
-- Preserves complete activity/log target details in the structured model and export path while allowing presentation-only row expansion instead of lossy `(+N)` summaries.
-- Verifies the packaged Windows capability bridge against exact staged bytes, SHA-256, byte count, provenance, and packaged-artifact evidence.
-
-- Fixes autonomous scheduled-continuation handoff so a one-time ChatGPT wake that has started firing is treated as a consumed disposable ticket; worker collisions atomically reserve a fresh +2-minute successor instead of falsely re-arming a host task that can auto-disable after the run.
-- Fixes Windows auto-update installation: after the user confirms **Stop Tunnel and Install**, lnwjud stops and verifies Secure Tunnel immediately, prevents reconnect, allows only a short bounded drain for in-flight work, then closes the runtime and launches the installer automatically instead of remaining stuck on “installing”.
-- Adds a canonical bilingual **Tools Catalog** derived from the live `ToolRegistry`, with category, permission, delivery, readiness, requirement, dry-run/cancel support, and searchable schema metadata for every first-party definition.
-- Adds a status-first **Tools** page and issue-first **Doctor** flow that share one cached requirement snapshot, expose affected tools, and support selected rechecks without invoking the underlying tool runtime.
-- Adds typed, allowlisted remediation actions for exact app settings, Windows Optional Features, official URLs, copyable commands, managed-browser startup, the constrained Codex opt-in, and rechecks; renderer/server text still cannot inject arbitrary URLs, commands, or settings targets.
-- Makes Managed Browser remediation actionable from Tools/Doctor: lnwjud can start its managed Chrome runtime directly, then recheck Browser/CDP readiness without asking users to add debugging flags manually.
-- Adds one-click PDF Provider setup for Windows: lnwjud downloads a pinned Poppler package, verifies its SHA-256 before extraction, installs it under the app data directory, and configures `pdftotext.exe` automatically while still allowing a manually installed provider.
-- Separates External MCP tools from first-party tools and keeps unverifiable permission/readiness fields honest instead of fabricating support.
-- Tightens runtime truthfulness across all **231 tool definitions**, removing fake-success paths and keeping planned/disabled capabilities out of normal advertisement until a real implementation exists.
-- Changes durable-goal and scheduled-wake leases to a **600-second maximum**, with sliding renewal only while real fenced work/checkpoints are active and with renewal capped by the scheduled handoff deadline.
-- Makes `run_goal` opt into autonomous cloud continuation by default (`scheduledContinuation: auto`): active goal results return a machine-readable directive to auto-load the bundled `lnwjud-scheduled-continuation` skill, keep one host-owned one-time cloud successor, and never require the user to type “continue/ทำต่อ”; callers can explicitly set `off` when future scheduling is not wanted.
-- Adds goal-relative `trackedTasks` bindings with explicit provider routing, `blocking_job` versus `supporting_service` liveness roles, and `cancelWithGoal` ownership so shared services such as MariaDB are not accidentally treated as workers or stopped on goal cancellation.
-- Synchronizes the v4.44.0 release contract to **231 total definitions / 195 advertised by default / 202 with Codex delegation plus Agent Swarm enabled**, with Setup/Portable parity and Doctor/Tools acceptance coverage.
+- Preserves complete Activity Logs diagnostics end to end: full workspace/session IDs, inputs, results, errors, metadata, copy/export detail, and lazy expandable payloads are retained without lossy `(+N)` summaries; **Show more** appears only when meaningful additional detail exists.
+- Verifies the packaged Windows capability bridge against the exact staged bytes, SHA-256, byte count, provenance, and packaged-artifact evidence used by Setup and Portable builds.
+- Completes the remaining first-party runtime adapters: delegation, telemetry, tool-schema registration, project profiles, benchmark/regression reporting, skill import, workbook/PDF comparison, and debugger-related capabilities now execute through real providers or report a truthful dependency/setup requirement instead of fake readiness.
+- Hardens Tools/Doctor readiness semantics for Browser Debug Context, Live Logs, plugin/task controls, optional External MCP, and control-plane health so stopped runtimes report start-required, optional integrations stay informational when absent, and actionable setup/remediation is shown only when it is genuinely available.
+- Improves verified recovery coverage for long-running goals by keeping successor scheduling fenced to the active goal state and current worker evidence.
+- Synchronizes the v4.44.0 release contract to **231 total definitions / 224 advertised by default / all 231 with Codex delegation plus Agent Swarm enabled**, with Setup/Portable parity and current Doctor/Tools/runtime acceptance coverage.
 
 Current v4 highlights include:
 

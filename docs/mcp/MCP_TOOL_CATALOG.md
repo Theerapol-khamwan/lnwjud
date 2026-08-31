@@ -2,8 +2,8 @@
 
 Target protocol: MCP `2026-07-28` using TypeScript SDK v2.
 
-Current runtime registry: **231 total tool definitions**, with **195 advertised by default**
-and **201 advertised when the six `codex_*` delegation tools are enabled**. Planned and feature-disabled definitions remain in the complete inventory without appearing in normal `tools/list`. The historical 184-tool
+Current runtime registry: **231 total tool definitions**, with **224 advertised by default**
+and **all 231 advertised when the six `codex_*` delegation tools plus `agent_swarm_run` are enabled**. Those seven Codex/Agent Swarm definitions are opt-in; every other current first-party definition is present in normal `tools/list` and reports dependency/setup state truthfully at runtime. The historical 184-tool
 snapshot remains a compatibility baseline; the narrative below is intentionally
 not a complete generated list.
 

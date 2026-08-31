@@ -8,7 +8,7 @@ Zod schemas in `packages/mcp-server/src/tools/` are the implementation source
 of truth. The existing human-oriented catalog remains useful for field details,
 while this document records the primitive/core contract, preserves the earlier
 compatibility baseline, and records policy class, annotations, and schema source.
-The complete v4 inventory contains 231 tool definitions. The default runtime currently advertises 195 through `tools/list`, or 202 when the six `codex_*` delegation tools plus the bounded read-only `agent_swarm_run` tool are enabled; unavailable/planned definitions remain inventory-only rather than returning fake success. The additive v4 entries are defined
+The complete v4 inventory contains 231 tool definitions. The default runtime currently advertises 224 through `tools/list`, and all 231 are advertised when the six `codex_*` delegation tools plus the bounded read-only `agent_swarm_run` tool are enabled. The seven Codex/Agent Swarm definitions are opt-in; every other current first-party definition remains available through the default catalog and reports dependency/setup state truthfully at runtime. The additive v4 entries are defined
 in `packages/mcp-server/src/upgrade-catalog.ts` and the exact runtime order is
 verified by `packages/mcp-server/src/tool-registry.test.ts`.
 
