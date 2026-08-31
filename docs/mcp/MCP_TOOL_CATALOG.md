@@ -539,7 +539,7 @@ The core V1 catalog intentionally has no:
 - `kill_pid`
 - `read_arbitrary_path`
 
-The local capability layer is the separate parity extension documented in
-`docs/superpowers/specs/2026-08-11-lnwjud-local-capabilities-design.md`.
+The local capability layer is the separate parity extension described in the
+[upgrade architecture contract](../architecture/UPGRADE_ARCHITECTURE.md#god-tier-local-first-vertical-slices).
 
 The skills/MCP bridge package is `@lnwjud/extensions`.

@@ -1,6 +1,6 @@
 # lnwjud — สรุปความสามารถทั้งหมด
 
-สถานะเอกสาร: สรุปจาก source และ runtime contract ปัจจุบันของ lnwjud v4.44.0 (มีทั้งหมด 231 definitions; advertise 195 tools โดยปริยาย และ 201 tools เมื่อเปิด Codex delegation)
+สถานะเอกสาร: สรุปจาก source และ runtime contract ปัจจุบันของ lnwjud v4.44.0 (มีทั้งหมด 231 definitions; advertise 224 tools โดยปริยาย และครบ 231 tools เมื่อเปิด Codex delegation กับ Agent Swarm)
 ขอบเขต: ความสามารถของ gateway, MCP tools, การเชื่อมต่อ AI, สิทธิ์, Live Logs และข้อจำกัดในการใช้งาน
 เอกสารนี้ถูกติดตามใน repository และต้องสอดคล้องกับ source, runtime contract และ release ปัจจุบัน
 
@@ -8,7 +8,7 @@
 
 lnwjud ไม่ใช่ AI model และไม่ใช่ provider API aggregator แต่เป็น Windows-first local development gateway ที่เปิดความสามารถของเครื่องและ workspace ให้ AI host ที่พูดภาษา Model Context Protocol (MCP) ได้
 
-ความสามารถหลักใน v4.31.0 คือ:
+ความสามารถหลักใน v4.44.0 คือ:
 
 - เปิด workspace และ machine roots ให้ AI อ่าน ค้นหา วิเคราะห์ และแก้ไขไฟล์ได้
 - ใช้ Context Economy Engine ลด I/O/token จากการค้นหาอัตโนมัติ โดยยังอ่าน .env, .git, dist และ node_modules ได้เมื่อร้องขอแบบ explicit และอยู่ในขอบเขตที่ workspace/path policy อนุญาต
@@ -125,7 +125,7 @@ Bridge นี้ทำให้ lnwjud เป็น MCP gateway ได้ แต
 4. เรียก tool จริง เช่น workspace_list หรือ workspace_info
 5. ตรวจผลใน Live Logs, process logs หรือ tunnel log
 
-สำหรับ runtime contract ปัจจุบัน full registry มี 231 tool definitions; ค่า default โฆษณา 195 tools และ 201 tools เมื่อเปิด `codex_*` 6 tools แบบ opt-in. การเห็น catalog เป็นหลักฐานของ runtime ที่ทดสอบ ไม่ได้ยืนยันว่า tunnel หรือ client ภายนอกกำลังเชื่อมอยู่ในขณะนั้น
+สำหรับ runtime contract ปัจจุบัน full registry มี 231 tool definitions; ค่า default โฆษณา 224 tools และครบ 231 tools เมื่อเปิด `codex_*` กับ `agent_swarm_run` แบบ opt-in. การเห็น catalog เป็นหลักฐานของ runtime ที่ทดสอบ ไม่ได้ยืนยันว่า tunnel หรือ client ภายนอกกำลังเชื่อมอยู่ในขณะนั้น
 
 ถ้า Start Tunnel เชื่อมแล้วหลุดวน:
 
@@ -218,6 +218,8 @@ Process manager สร้าง process handle ที่เป็นเจ้า
 codex_status ตรวจเฉพาะ executable, codex --version และ codex --help ไม่อ่าน credential files, tokens หรือ account state
 
 codex_run สร้าง codexTaskId แล้วให้ client ติดตามด้วย codex_task_status และ codex_task_logs ก่อนตรวจ git_diff และรัน test ของ project งานที่ถูก delegate มี audit metadata และ process ownership
+
+agent_swarm_run เปิดแบบ opt-in เมื่อเปิด Codex delegation และมี Agent Swarm service พร้อมใช้งาน รองรับงาน Codex แบบ read-only 1–4 งานต่อ swarm จำกัด concurrency, ตรวจ dependency และ ownership, เก็บผลลัพธ์แบบ redacted/bounded และรายงานงานที่ยืนยันการหยุดไม่ได้หลัง restart เป็น `termination_unverified`
 
 parallel_delegate และ tool_batch อนุญาต read-only parallelism เป็นค่าเริ่มต้น งาน mutation ต้องระบุ dependency/serialization metadata และจะไม่ถูกทำพร้อมกันโดยอัตโนมัติ เพื่อลด file collision แบบ cascade
 
@@ -325,7 +327,7 @@ skill_match และ skill_load โหลด local skill ตาม intent ผ�
 
 ## รายชื่อ MCP tools ใน runtime snapshot
 
-runtime contract ปัจจุบันมีทั้งหมด 231 tool definitions; ค่า default ส่งกลับ 195 tools และส่งกลับ 201 tools เมื่อเปิด `codex_*` 6 tools. Planned และ feature-disabled definitions ยังคงอยู่ใน complete inventory แต่ไม่ถูก advertise. รายชื่อ full registry ตามลำดับ canonical มีดังนี้:
+runtime contract ปัจจุบันมีทั้งหมด 231 tool definitions; ค่า default ส่งกลับ 224 tools และส่งกลับครบ 231 tools เมื่อเปิด `codex_*` กับ `agent_swarm_run` แบบ opt-in. Planned และ feature-disabled definitions ยังคงอยู่ใน complete inventory แต่ไม่ถูก advertise. รายชื่อ full registry ตามลำดับ canonical มีดังนี้:
 
 ~~~text
 workspace_list
@@ -616,8 +618,8 @@ codex_status -> codex_run -> codex_task_status/codex_task_logs -> git_diff -> te
 - [UPGRADE_ARCHITECTURE.md](architecture/UPGRADE_ARCHITECTURE.md) — runtime topology และ invariants
 - [MCP_TOOL_CATALOG.md](mcp/MCP_TOOL_CATALOG.md) — รายละเอียด narrative ของ core tools
 - [PHASE-05.md](benchmarks/PHASE-05.md) — historical runtime benchmark ของ foundation catalog
-- [CODEX_INTEGRATION.md](development/CODEX_INTEGRATION.md) — Codex discovery/delegation boundary
-- [LOCAL_DESKTOP.md](development/LOCAL_DESKTOP.md) — local HTTP และ desktop workflow
+- [README.md: Connect a local Codex client](../README.md#connect-a-local-codex-client) — Codex discovery/delegation boundary
+- [README.md: Configure the local desktop application](../README.md#configure-the-local-desktop-application) — local HTTP และ desktop workflow
 - [PACKAGING_WINDOWS.md](development/PACKAGING_WINDOWS.md) — installer และ packaged runtime
 - [mcp-stdio.ts](../apps/cli/src/bin/mcp-stdio.ts) — direct stdio entrypoint
 - [http.ts](../packages/mcp-server/src/http.ts) — loopback Streamable HTTP boundary

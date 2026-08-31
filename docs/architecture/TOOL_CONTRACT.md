@@ -1,6 +1,6 @@
-# lnwjud Tool Contract
+# lnwjud tool contract
 
-Status: God-Tier Wave 0–8 additive contract snapshot for `v4.0.0`.
+Status: God-Tier Wave 0–8 additive contract snapshot synchronized for `v4.44.0`.
 
 This is the compatibility contract for the current MCP surface. The runtime
 advertises the JSON Schema for every input through `tools/list`; the TypeScript
@@ -21,7 +21,7 @@ Desktop readiness is a separate presentation contract built from the same live d
 <!-- BEGIN GENERATED TOOL REGISTRY -->
 ## Generated live ToolRegistry index
 
-This complete inventory is generated from `ToolRegistry.listAll()`: **231 total tool definitions**. The runtime advertises **224 tools by default** and **231 tools when Codex delegation is enabled** through `tools/list`.
+This complete inventory is generated from `ToolRegistry.listAll()`: **231 total tool definitions**. The runtime advertises **224 tools by default** and **231 tools when Codex delegation plus Agent Swarm is enabled** through `tools/list`.
 Run `pnpm docs:tools` after intentionally changing the registry; CI runs `pnpm docs:tools:check` and fails on drift.
 
 | # | Tool | Permission | Advertised | Delivery | Runtime evidence | Read-only | Destructive |
