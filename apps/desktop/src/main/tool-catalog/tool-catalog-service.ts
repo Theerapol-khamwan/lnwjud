@@ -67,10 +67,11 @@ export class ToolCatalogService {
         .filter((definition) => definition.requirementIds.includes(id))
         .map((definition) => definition.name)
         .sort();
+      const doctorStatus = id === 'external_mcp_connection' && result.status === 'warn' ? 'pass' : result.status;
       checks.push({
         id,
         required: result.required,
-        status: result.status,
+        status: doctorStatus,
         title: localizedRequirementTitle(locale, id),
         summary: localizedRequirementSummary(locale, result),
         ...(result.detail === undefined ? {} : { detail: redactDetail(result.detail) }),

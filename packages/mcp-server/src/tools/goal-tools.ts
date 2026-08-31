@@ -148,10 +148,10 @@ export function goalTools(context: McpToolContext): McpToolDefinition[] {
                     : successorConfirmed
                       ? 'continue_with_confirmed_cloud_successor'
                       : successor?.status === 'prepared'
-                        ? 'create_native_task_and_record_receipt_before_mutation_or_yield'
+                        ? 'continue_current_run_and_create_native_receipt_before_yield'
                         : successor?.status === 'create_uncertain'
-                          ? 'reconcile_native_task_receipt_before_mutation_or_yield'
-                          : 'prepare_create_and_record_cloud_successor_before_mutation_or_yield',
+                          ? 'continue_current_run_and_reconcile_native_receipt_before_yield'
+                          : 'continue_current_run_and_prepare_cloud_successor_before_yield',
             stopOnlyWhen: 'goal_terminal_or_scheduling_explicitly_disabled',
           },
         });

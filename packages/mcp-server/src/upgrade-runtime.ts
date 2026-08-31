@@ -1,5 +1,6 @@
 import { spawn } from 'node:child_process';
 import { createHash, randomUUID } from 'node:crypto';
+import { open, stat } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import {
@@ -20,6 +21,7 @@ import { DatabaseRuntimeService } from './database-runtime.js';
 import { DocumentRuntimeService } from './document-runtime.js';
 import { LspRuntimeService } from './lsp-runtime.js';
 import { withReplacementRecoveryDetails } from './replacement-recovery.js';
+import { withCapabilityOwnerMetadata } from './request-scope.js';
 import { SandboxRuntimeService } from './sandbox-runtime.js';
 import { truthfulUnavailable } from './tool-delivery-contract.js';
 import { UPGRADE_TOOL_CATALOG, type UpgradeToolCatalogEntry } from './upgrade-catalog.js';
@@ -223,11 +225,17 @@ export class UpgradeRuntimeService {
       case 'skill_load':
         return this.skillInsight(name, input);
       case 'plugin_list':
+        await this.refreshSharedState();
+        return ok({
+          tool: 'plugin_list', status: 'ready', available: true, ready: true, executed: true,
+          plugins: [...this.plugins.values()].sort((left, right) => left.name.localeCompare(right.name)),
+          persistence: this.stateStore === undefined ? 'memory_only' : 'shared_locked_state',
+        });
       case 'plugin_install':
       case 'plugin_enable':
       case 'plugin_disable':
       case 'plugin_remove':
-        return ok(truthfulUnavailable(name, 'disabled', ['validated injected plugin registry']));
+        return this.changePlugin(name, readString(input, 'name') ?? readString(input, 'plugin'), input, authorization);
       case 'session_context':
       case 'session_resume':
         return ok({ session: Object.fromEntries(this.session), checkpoints: this.checkpoints });
@@ -246,7 +254,7 @@ export class UpgradeRuntimeService {
       case 'task_cancel':
       case 'task_result':
       case 'task_list':
-        return ok(truthfulUnavailable(name, 'disabled', ['managed task execution adapter']));
+        return this.managedTask(name, input, signal, authorization);
       case 'delegate':
       case 'delegate_status':
       case 'delegate_cancel':
@@ -274,8 +282,9 @@ export class UpgradeRuntimeService {
       case 'workspace_index':
         return ok({});
       case 'live_logs_status':
+        return this.liveLogsStatus();
       case 'live_logs_query':
-        return ok(truthfulUnavailable(name, 'needs_setup', ['structured live-log provider']));
+        return this.liveLogsQuery(input);
       case 'telemetry_dashboard':
         return ok(truthfulUnavailable(name, 'needs_setup', ['runtime telemetry provider']));
       case 'context_economy_stats':
@@ -460,6 +469,168 @@ export class UpgradeRuntimeService {
     const counts = new Map<string, number>();
     for (const entry of UPGRADE_TOOL_CATALOG) for (const tag of entry.tags) counts.set(tag, (counts.get(tag) ?? 0) + 1);
     return { categories: [...counts.entries()].sort(([left], [right]) => left.localeCompare(right)).map(([category, tools]) => ({ category, tools })) };
+  }
+
+  private async changePlugin(
+    operation: 'plugin_install' | 'plugin_enable' | 'plugin_disable' | 'plugin_remove',
+    rawName: string | undefined,
+    input: Record<string, unknown>,
+    authorization?: InvocationAuthorization,
+  ): Promise<Result<unknown>> {
+    const name = rawName?.trim();
+    if (name === undefined || name.length === 0 || name.length > 128 || !/^[A-Za-z0-9][A-Za-z0-9._@/-]*$/.test(name)) {
+      return err(appError('INVALID_INPUT', 'Plugin name must be 1-128 characters and use only letters, numbers, dot, underscore, @, slash, or hyphen'));
+    }
+    if (operation === 'plugin_remove' && !isApplicationAuthorized(authorization, input.userConfirmed === true)) {
+      return err(appError('PERMISSION_REQUIRED', 'Removing a plugin requires explicit user confirmation'));
+    }
+    if (this.stateStore === undefined) {
+      return ok(truthfulUnavailable(operation, 'needs_setup', ['persistent runtime state path']));
+    }
+    let changed = false;
+    let exists = false;
+    let currentEnabled: boolean | undefined;
+    const persisted = await this.mutateSharedState((plugins) => {
+      const existing = plugins.get(name);
+      exists = existing !== undefined;
+      currentEnabled = existing?.enabled;
+      if (operation === 'plugin_remove') {
+        changed = plugins.delete(name);
+        return;
+      }
+      if (operation === 'plugin_install') {
+        if (!exists) {
+          plugins.set(name, { name, enabled: input.enabled !== false });
+          changed = true;
+        }
+        return;
+      }
+      if (existing !== undefined) {
+        const enabled = operation === 'plugin_enable';
+        if (existing.enabled !== enabled) {
+          plugins.set(name, { name, enabled });
+          changed = true;
+        }
+      }
+    }, true);
+    if (!persisted) return err(appError('INTERNAL_ERROR', 'Plugin registry update could not be persisted safely', true));
+    if (operation === 'plugin_install' && exists) return err(appError('INVALID_INPUT', 'Plugin is already installed; remove it explicitly before installing a replacement'));
+    if (operation !== 'plugin_install' && operation !== 'plugin_remove' && !exists) return err(appError('INVALID_INPUT', 'Plugin must be installed before it can be enabled or disabled'));
+    if (operation === 'plugin_remove') return ok({ tool: operation, status: 'ready', available: true, executed: true, changed, name, removed: changed });
+    const enabled = operation === 'plugin_install' ? input.enabled !== false : operation === 'plugin_enable';
+    return ok({
+      tool: operation, status: 'ready', available: true, executed: true, changed, name, enabled,
+      ...(currentEnabled === undefined ? {} : { previousEnabled: currentEnabled }),
+      persistence: 'shared_locked_state',
+    });
+  }
+
+  private activityLogPath(): string | undefined {
+    const runtimeStatePath = this.services.runtimeStatePath;
+    return runtimeStatePath === undefined ? undefined : path.join(path.dirname(runtimeStatePath), 'mcp-activity.log');
+  }
+
+  private async liveLogsStatus(): Promise<Result<unknown>> {
+    const filePath = this.activityLogPath();
+    if (filePath === undefined) return ok(truthfulUnavailable('live_logs_status', 'needs_setup', ['runtime activity-log path']));
+    try {
+      const info = await stat(filePath);
+      return ok({
+        tool: 'live_logs_status', status: 'ready', available: true, ready: true, executed: true,
+        source: 'mcp-activity.log', sourceState: 'active', bytes: info.size, updatedAt: info.mtime.toISOString(),
+        boundedReadBytes: 4 * 1024 * 1024,
+      });
+    } catch (error: unknown) {
+      if (nodeErrorCode(error) === 'ENOENT') {
+        return ok({
+          tool: 'live_logs_status', status: 'ready', available: true, ready: true, executed: true,
+          source: 'mcp-activity.log', sourceState: 'idle', bytes: 0, updatedAt: null, boundedReadBytes: 4 * 1024 * 1024,
+        });
+      }
+      return err(appError('INTERNAL_ERROR', 'Live Logs status could not read the activity log', true));
+    }
+  }
+
+  private async liveLogsQuery(input: Record<string, unknown>): Promise<Result<unknown>> {
+    const filePath = this.activityLogPath();
+    if (filePath === undefined) return ok(truthfulUnavailable('live_logs_query', 'needs_setup', ['runtime activity-log path']));
+    const limit = boundedInteger(input.limit, 100, 1, 500);
+    const toolName = readString(input, 'toolName') ?? readString(input, 'tool');
+    const correlationId = readString(input, 'correlationId') ?? readString(input, 'callId') ?? readString(input, 'traceId');
+    const phase = readString(input, 'phase');
+    const resultCode = readString(input, 'resultCode');
+    const workspaceId = readString(input, 'workspaceId');
+    let lines: readonly string[];
+    try {
+      lines = await readJsonlTail(filePath, 4 * 1024 * 1024);
+    } catch (error: unknown) {
+      if (nodeErrorCode(error) === 'ENOENT') {
+        return ok({ tool: 'live_logs_query', status: 'ready', available: true, ready: true, executed: true, events: [], returned: 0, truncatedByTailWindow: false });
+      }
+      return err(appError('INTERNAL_ERROR', 'Live Logs query could not read the activity log', true));
+    }
+    const parsed = lines.flatMap((line): Record<string, unknown>[] => {
+      try {
+        const value: unknown = JSON.parse(line);
+        return typeof value === 'object' && value !== null && !Array.isArray(value) ? [value as Record<string, unknown>] : [];
+      } catch {
+        return [];
+      }
+    });
+    const events = parsed.filter((event) => {
+      if (toolName !== undefined && event.toolName !== toolName) return false;
+      if (phase !== undefined && event.phase !== phase) return false;
+      if (resultCode !== undefined && event.resultCode !== resultCode) return false;
+      if (workspaceId !== undefined && event.workspaceId !== workspaceId) return false;
+      if (correlationId !== undefined && event.callId !== correlationId && event.traceId !== correlationId && event.traceParent !== correlationId) return false;
+      return true;
+    }).slice(-limit);
+    return ok({
+      tool: 'live_logs_query', status: 'ready', available: true, ready: true, executed: true,
+      events, returned: events.length, limit, boundedReadBytes: 4 * 1024 * 1024,
+      filters: { toolName: toolName ?? null, correlationId: correlationId ?? null, phase: phase ?? null, resultCode: resultCode ?? null, workspaceId: workspaceId ?? null },
+    });
+  }
+
+  private async managedTask(
+    name: 'task_create' | 'task_status' | 'task_cancel' | 'task_result' | 'task_list',
+    input: Record<string, unknown>,
+    signal?: AbortSignal,
+    authorization?: InvocationAuthorization,
+  ): Promise<Result<unknown>> {
+    const capabilities = this.services.capabilities;
+    if (capabilities === undefined) return ok(truthfulUnavailable(name, 'needs_setup', ['local shell task runtime']));
+    const workspaceId = readString(input, 'workspaceId');
+    if (name === 'task_create') {
+      const executable = readString(input, 'executable') ?? readString(input, 'command');
+      if (executable === undefined) {
+        return err(appError('INVALID_INPUT', 'task_create requires executable (or command); pass arguments, cwd, timeout_seconds, and workspaceId as needed'));
+      }
+      return capabilities.execute('shell', withCapabilityOwnerMetadata({
+        ...input,
+        operation: 'run',
+        executable,
+        execution: 'background',
+        ...(workspaceId === undefined ? {} : { workspaceId }),
+      }, this.actor), signal, authorization);
+    }
+    if (name === 'task_list') {
+      return capabilities.execute('shell', withCapabilityOwnerMetadata({
+        operation: 'list',
+        ...(workspaceId === undefined ? {} : { workspaceId }),
+      }, this.actor), signal, authorization);
+    }
+    const taskId = readString(input, 'taskId') ?? readString(input, 'task_id');
+    if (taskId === undefined) return err(appError('INVALID_INPUT', `${name} requires taskId`));
+    const operation = name === 'task_status' ? 'status' : name === 'task_result' ? 'result' : 'cancel';
+    return capabilities.execute('shell', withCapabilityOwnerMetadata({
+      operation,
+      task_id: taskId,
+      include_stdout: true,
+      include_stderr: true,
+      ...(workspaceId === undefined ? {} : { workspaceId }),
+      ...(name === 'task_cancel' ? { userConfirmed: input.userConfirmed === true } : {}),
+    }, this.actor), signal, authorization);
   }
 
   private async createTask(kind: RuntimeTask['kind'], input: Record<string, unknown>): Promise<RuntimeTask> {
@@ -1356,6 +1527,28 @@ function tokenize(value: string): string[] {
     .toLowerCase()
     .split(/[^a-z0-9ก-๙]+/u)
     .filter((token) => token.length > 0);
+}
+
+async function readJsonlTail(filePath: string, maxBytes: number): Promise<readonly string[]> {
+  const info = await stat(filePath);
+  if (info.size === 0) return [];
+  const bytesToRead = Math.min(info.size, maxBytes);
+  const position = Math.max(0, info.size - bytesToRead);
+  const handle = await open(filePath, 'r');
+  try {
+    const buffer = Buffer.alloc(bytesToRead);
+    const { bytesRead } = await handle.read(buffer, 0, bytesToRead, position);
+    const lines = buffer.subarray(0, bytesRead).toString('utf8').split(/\r?\n/);
+    if (position > 0) lines.shift();
+    return lines.filter((line) => line.trim().length > 0);
+  } finally {
+    await handle.close();
+  }
+}
+
+function nodeErrorCode(error: unknown): string | undefined {
+  if (typeof error !== 'object' || error === null || !('code' in error)) return undefined;
+  return typeof (error as { code?: unknown }).code === 'string' ? (error as { code: string }).code : undefined;
 }
 
 function boundedInteger(value: unknown, fallback: number, minimum: number, maximum: number): number {

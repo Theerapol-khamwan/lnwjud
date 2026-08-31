@@ -98,7 +98,7 @@ function requirementsFor(name: string, category: ToolCategory): readonly string[
   if (/^(search_files|search_text|search_all)$/.test(name)) ids.add('executable_ripgrep');
   if (/^codex_/.test(name) || name === 'agent_swarm_run') ids.add('codex_runtime');
   if (/^wsl_/.test(name)) ids.add('wsl_runtime');
-  if (/^(mcp_|mcp_hub$)/.test(name)) ids.add('external_mcp_connection');
+  if (/^(mcp_describe|mcp_call|mcp_resources)$/.test(name)) ids.add('external_mcp_connection');
   if (/^(dom_cdp$|inspect_web_app$|debug_ui$|capture_ui_state$|form_context$|network_context$|console_context$|browser_debug_context$|capture_screenshot$|dom_snapshot$|layout_metadata$|visual_context$)/.test(name)) ids.add('browser_cdp');
   if (name === 'accessibility') { ids.add('platform_windows'); ids.add('windows_ui_automation'); }
   if (name === 'computer_use') {

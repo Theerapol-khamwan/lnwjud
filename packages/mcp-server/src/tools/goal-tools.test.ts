@@ -142,7 +142,7 @@ describe('durable goal MCP tools', () => {
         continuationDirective: {
           successorHostState: 'prepared_unconfirmed',
           successorHandoffReady: false,
-          nextRequiredAction: 'create_native_task_and_record_receipt_before_mutation_or_yield',
+          nextRequiredAction: 'continue_current_run_and_create_native_receipt_before_yield',
         },
       },
     });

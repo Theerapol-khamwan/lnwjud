@@ -25,6 +25,8 @@ describe('scheduled continuation skill contract', () => {
     expect(skill).toContain('runsOn: cloud');
     expect(skill).toContain('`prepared` means **reservation only**');
     expect(skill).toContain('never a confirmed successor');
+    expect(skill).toContain('may keep doing useful fenced work while native-task creation is retried');
+    expect(skill).toContain('explicit IANA `TZID`');
     expect(skill).toContain('`status: scheduled`, a non-empty `nativeTaskId`, and `confirmedRunsOn: cloud`');
     expect(skill).toContain('`handoffReady: false` / `currentWakeMayReturn: false`');
     expect(skill).toContain('never silently return with a merely `prepared` successor');

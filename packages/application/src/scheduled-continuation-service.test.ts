@@ -57,6 +57,7 @@ async function fixture(
   });
   const scheduled = new ScheduledContinuationService(repository, {
     now: clock.now,
+    hostTimeZone: 'Asia/Bangkok',
     ...(workerLiveness === undefined ? {} : { workerLiveness }),
   });
   return { database, repository, goals, scheduled, clock };
@@ -103,10 +104,10 @@ describe('ScheduledContinuationService', () => {
         ok: true,
         value: {
           outcome: 'prepared',
-          currentRunMayContinue: false,
+          currentRunMayContinue: true,
           handoffReady: false,
           nativeTaskConfirmationRequired: true,
-          nextRequiredAction: 'create_native_task_and_record_receipt_before_mutation_or_yield',
+          nextRequiredAction: 'create_native_task_and_record_receipt_before_yield',
           handoffDeadlineAt: '2026-08-27T10:02:00.000Z',
           scheduleRequest: { dueAt: '2026-08-27T10:02:00.000Z' },
           goal: { revision: 1, leaseExpiresAt: '2026-08-27T10:02:00.000Z' },
@@ -117,7 +118,7 @@ describe('ScheduledContinuationService', () => {
     }
   });
 
-  it('emits a canonical UTC host schedule and validates an equivalent local-offset create receipt by absolute instant', async () => {
+  it('emits an explicit host-timezone VEVENT while keeping dueAt as the canonical absolute instant', async () => {
     const { database, goals, scheduled } = await fixture('2026-08-27T10:00:00.750Z');
     try {
       const started = await startGoal(goals);
@@ -126,8 +127,8 @@ describe('ScheduledContinuationService', () => {
       if (!prepared.ok) throw new Error('prepare failed');
       expect(prepared.value.scheduleRequest).toMatchObject({
         dueAt: '2026-08-27T10:25:00.750Z',
-        scheduleTimeZone: 'UTC',
-        schedule: 'BEGIN:VEVENT\nDTSTART:20260827T102500Z\nEND:VEVENT',
+        scheduleTimeZone: 'Asia/Bangkok',
+        schedule: 'BEGIN:VEVENT\nDTSTART;TZID=Asia/Bangkok:20260827T172500\nEND:VEVENT',
       });
 
       await expect(scheduled.recordScheduledContinuationReceipt(actor, {
@@ -164,10 +165,10 @@ describe('ScheduledContinuationService', () => {
         ok: true,
         value: {
           outcome: 'prepared',
-          currentRunMayContinue: false,
+          currentRunMayContinue: true,
           handoffReady: false,
           nativeTaskConfirmationRequired: true,
-          nextRequiredAction: 'create_native_task_and_record_receipt_before_mutation_or_yield',
+          nextRequiredAction: 'create_native_task_and_record_receipt_before_yield',
           handoffDeadlineAt: '2026-08-27T10:25:00.000Z',
           scheduleRequest: {
             provider: 'chatgpt_scheduled_task',
@@ -418,8 +419,8 @@ describe('ScheduledContinuationService', () => {
           taskUpdateRequest: {
             nativeTaskId: 'native-task-too-early',
             dueAt: prepared.value.continuation.dueAt,
-            scheduleTimeZone: 'UTC',
-            schedule: 'BEGIN:VEVENT\nDTSTART:20260827T102500Z\nEND:VEVENT',
+            scheduleTimeZone: 'Asia/Bangkok',
+            schedule: 'BEGIN:VEVENT\nDTSTART;TZID=Asia/Bangkok:20260827T172500\nEND:VEVENT',
           },
           handoffReady: false,
           currentWakeMayReturn: false,
@@ -497,7 +498,7 @@ describe('ScheduledContinuationService', () => {
           taskUpdateRequest: {
             nativeTaskId: 'native-task-too-early-boundary',
             dueAt: prepared.value.continuation.dueAt,
-            scheduleTimeZone: 'UTC',
+            scheduleTimeZone: 'Asia/Bangkok',
           },
           handoffReady: false,
           currentWakeMayReturn: false,

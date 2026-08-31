@@ -59,9 +59,9 @@ export interface ScheduledContinuationRequest {
   readonly occurrence: 'once';
   /** Canonical absolute instant retained for durable comparison and receipts. */
   readonly dueAt: string;
-  /** Host-ready UTC VEVENT. Pass this schedule verbatim instead of reinterpreting dueAt in local time. */
+  /** Host-ready VEVENT with an explicit IANA TZID. Pass this schedule verbatim; dueAt remains the canonical absolute instant. */
   readonly schedule: string;
-  readonly scheduleTimeZone: 'UTC';
+  readonly scheduleTimeZone: string;
   readonly destination: 'current_chat';
   readonly executionPreference: ScheduledContinuationExecutionPreference;
   readonly continuationId: string;
@@ -75,7 +75,7 @@ export interface ScheduledContinuationTaskUpdateRequest {
   readonly occurrence: 'once';
   readonly dueAt: string;
   readonly schedule: string;
-  readonly scheduleTimeZone: 'UTC';
+  readonly scheduleTimeZone: string;
   readonly destination: 'current_chat';
   readonly executionPreference: 'cloud';
   readonly continuationId: string;
@@ -91,10 +91,10 @@ export interface PrepareScheduledContinuationResult {
   readonly continuation: ScheduledContinuationSnapshot;
   readonly scheduleRequest: ScheduledContinuationRequest;
   /** A reservation is not recovery coverage until the host task create receipt is recorded. */
-  readonly currentRunMayContinue: false;
+  readonly currentRunMayContinue: true;
   readonly handoffReady: false;
   readonly nativeTaskConfirmationRequired: true;
-  readonly nextRequiredAction: 'create_native_task_and_record_receipt_before_mutation_or_yield';
+  readonly nextRequiredAction: 'create_native_task_and_record_receipt_before_yield';
   readonly handoffDeadlineAt: string;
 }
 
@@ -200,11 +200,14 @@ export type ExpediteScheduledContinuationResult =
 export interface ScheduledContinuationServiceOptions {
   readonly now?: () => Date;
   readonly workerLiveness?: ScheduledContinuationWorkerLivenessPort;
+  /** IANA zone used in native ChatGPT VEVENT schedules. Defaults to the machine's resolved zone. */
+  readonly hostTimeZone?: string;
 }
 
 export class ScheduledContinuationService {
   private readonly now: () => Date;
   private readonly workerLiveness: ScheduledContinuationWorkerLivenessPort;
+  private readonly hostTimeZone: string;
 
   public constructor(
     private readonly goals: ScheduledContinuationRepository & {
@@ -213,6 +216,7 @@ export class ScheduledContinuationService {
     options: ScheduledContinuationServiceOptions = {},
   ) {
     this.now = options.now ?? ((): Date => new Date());
+    this.hostTimeZone = normalizeHostTimeZone(options.hostTimeZone ?? Intl.DateTimeFormat().resolvedOptions().timeZone);
     this.workerLiveness = options.workerLiveness ?? {
       observe: async (goalId, trackedTasks): ReturnType<ScheduledContinuationWorkerLivenessPort['observe']> => {
         const goal = await this.goals.getById(goalId);
@@ -292,16 +296,16 @@ export class ScheduledContinuationService {
         now: nowIso,
       });
       const continuation = toPublicContinuation(prepared.continuation);
-      const scheduleRequest = buildScheduleRequest(continuation, prepared.goal.workspaceId);
+      const scheduleRequest = buildScheduleRequest(continuation, prepared.goal.workspaceId, this.hostTimeZone);
       return ok({
         outcome: prepared.alreadyPrepared ? 'already_prepared' : 'prepared',
         goal: toGoalSnapshot(prepared.goal),
         continuation,
         scheduleRequest,
-        currentRunMayContinue: false,
+        currentRunMayContinue: true,
         handoffReady: false,
         nativeTaskConfirmationRequired: true,
-        nextRequiredAction: 'create_native_task_and_record_receipt_before_mutation_or_yield',
+        nextRequiredAction: 'create_native_task_and_record_receipt_before_yield',
         handoffDeadlineAt: continuation.dueAt,
       });
     } catch (error: unknown) {
@@ -454,7 +458,7 @@ export class ScheduledContinuationService {
           successor,
           goal,
           retryAfterSeconds: 120,
-          scheduleRequest: buildScheduleRequest(successor, claimed.goal.workspaceId),
+          scheduleRequest: buildScheduleRequest(successor, claimed.goal.workspaceId, this.hostTimeZone),
           handoffReady: false,
           currentWakeMayReturn: false,
           nextRequiredAction: 'create_native_task_and_record_receipt_before_current_wake_returns',
@@ -480,7 +484,7 @@ export class ScheduledContinuationService {
         continuation,
         goal,
         retryAfterSeconds: claimed.retryAfterSeconds,
-        taskUpdateRequest: buildTaskUpdateRequest(continuation, claimed.goal.workspaceId, continuation.pendingDueAt ?? continuation.dueAt),
+        taskUpdateRequest: buildTaskUpdateRequest(continuation, claimed.goal.workspaceId, this.hostTimeZone, continuation.pendingDueAt ?? continuation.dueAt),
         handoffReady: false,
         currentWakeMayReturn: false,
         nextRequiredAction: 'reschedule_same_native_task_to_safe_due_time',
@@ -530,7 +534,7 @@ export class ScheduledContinuationService {
         outcome: 'update_required',
         continuation,
         handoffDeadlineAt: continuation.pendingDueAt ?? continuation.dueAt,
-        taskUpdateRequest: buildTaskUpdateRequest(continuation, expedited.goal.workspaceId),
+        taskUpdateRequest: buildTaskUpdateRequest(continuation, expedited.goal.workspaceId, this.hostTimeZone),
       });
     } catch (error: unknown) {
       return mapError(error);
@@ -601,14 +605,18 @@ export class ScheduledContinuationService {
   }
 }
 
-function buildScheduleRequest(continuation: ScheduledContinuationSnapshot, workspaceId: string): ScheduledContinuationRequest {
-  const prompt = `Call claim_scheduled_continuation first for continuation ${continuation.continuationId}, goal ${continuation.goalId}, workspace ${workspaceId}; create/update the native task using scheduleRequest.schedule verbatim (canonical UTC) and record the host-reported dueAt in the receipt. Native wake jitter up to 120 seconds early is accepted. A one-time task that is firing now is a consumed wake ticket and must never be reused as a future successor. If claim returns successor_required, create the fresh one-time cloud task exactly from the returned scheduleRequest, record created for the returned successor immediately, then let this current wake return naturally; do not update or re-arm the firing native task. If exact host metadata later proves a native task ran without claim completing, reconcile it as consumed with the exact host run receipt; consumed never means the goal work completed, and an active goal must reserve a fresh successor. If acquired, immediately arm exactly one cloud successor using an adaptive delay between 2 and 25 minutes and record its receipt before continuing the durable goal. Omitted delay fails safe to +2 minutes; use 5/10/25 minutes only as an explicit watchdog while this run will genuinely keep executing. If an acquired worker will end while unfinished or no worker will remain after the response, leave its still-pending successor at +2 or move that still-pending future task to now+2 through expedite_scheduled_continuation. Keep working or waiting on active task IDs until their terminal results are inspected. Never send a completion response while get_goal still reports active. When acceptance evidence is complete, call finish_goal even if the user disabled further scheduling, then require get_goal to be terminal. Delete the exact distinct pending successor through the native ChatGPT Scheduled Task host only when scheduledTaskCancellation requests it, record cancelled only with the native host deletion receipt, then read the continuation back and require status cancelled. If claim returns terminal_noop, do not delete, disable, pause, or reschedule the current host task; return naturally so the host can mark the one-time run completed. Never use pause/disable as deletion or completion proof. Never report cancellation as successful while deletion is failed, uncertain, or unverified. If the goal is terminal, stop and do not schedule again. Never use Windows Task Scheduler.`;
+function buildScheduleRequest(
+  continuation: ScheduledContinuationSnapshot,
+  workspaceId: string,
+  hostTimeZone: string,
+): ScheduledContinuationRequest {
+  const prompt = `Call claim_scheduled_continuation first for continuation ${continuation.continuationId}, goal ${continuation.goalId}, workspace ${workspaceId}; create/update the native task using scheduleRequest.schedule verbatim (explicit IANA TZID; dueAt remains the canonical absolute instant) and record the host-reported dueAt in the receipt. Native wake jitter up to 120 seconds early is accepted. A one-time task that is firing now is a consumed wake ticket and must never be reused as a future successor. If claim returns successor_required, create the fresh one-time cloud task exactly from the returned scheduleRequest, record created for the returned successor immediately, then let this current wake return naturally; do not update or re-arm the firing native task. If exact host metadata later proves a native task ran without claim completing, reconcile it as consumed with the exact host run receipt; consumed never means the goal work completed, and an active goal must reserve a fresh successor. If acquired, immediately reserve exactly one cloud successor using an adaptive delay between 2 and 25 minutes and attempt to create/record its native receipt. A prepared reservation is not handoff-ready, but native-task creation failure must not stop an otherwise valid live worker: record the failure truthfully and keep doing useful fenced work under the current lease while retrying recovery coverage. Before the worker returns or yields with the goal still active, require one confirmed cloud successor or a terminal goal. Omitted delay fails safe to +2 minutes; use 5/10/25 minutes only as an explicit watchdog while this run will genuinely keep executing. If an acquired worker will end while unfinished or no worker will remain after the response, leave its still-pending successor at +2 or move that still-pending future task to now+2 through expedite_scheduled_continuation. Keep working or waiting on active task IDs until their terminal results are inspected. Never send a completion response while get_goal still reports active. When acceptance evidence is complete, call finish_goal even if the user disabled further scheduling, then require get_goal to be terminal. Delete the exact distinct pending successor through the native ChatGPT Scheduled Task host only when scheduledTaskCancellation requests it, record cancelled only with the native host deletion receipt, then read the continuation back and require status cancelled. If claim returns terminal_noop, do not delete, disable, pause, or reschedule the current host task; return naturally so the host can mark the one-time run completed. Never use pause/disable as deletion or completion proof. Never report cancellation as successful while deletion is failed, uncertain, or unverified. If the goal is terminal, stop and do not schedule again. Never use Windows Task Scheduler.`;
   return {
     provider: 'chatgpt_scheduled_task',
     occurrence: 'once',
     dueAt: continuation.dueAt,
-    schedule: buildUtcHostSchedule(continuation.dueAt),
-    scheduleTimeZone: 'UTC',
+    schedule: buildHostSchedule(continuation.dueAt, hostTimeZone),
+    scheduleTimeZone: hostTimeZone,
     destination: 'current_chat',
     executionPreference: continuation.executionPreference,
     continuationId: continuation.continuationId,
@@ -620,6 +628,7 @@ function buildScheduleRequest(continuation: ScheduledContinuationSnapshot, works
 function buildTaskUpdateRequest(
   continuation: ScheduledContinuationSnapshot,
   workspaceId: string,
+  hostTimeZone: string,
   targetDueAt = continuation.pendingDueAt,
 ): ScheduledContinuationTaskUpdateRequest {
   if (continuation.nativeTaskId === undefined || targetDueAt === undefined || continuation.confirmedRunsOn !== 'cloud') {
@@ -630,8 +639,8 @@ function buildTaskUpdateRequest(
     operation: 'update',
     occurrence: 'once',
     dueAt: targetDueAt,
-    schedule: buildUtcHostSchedule(targetDueAt),
-    scheduleTimeZone: 'UTC',
+    schedule: buildHostSchedule(targetDueAt, hostTimeZone),
+    scheduleTimeZone: hostTimeZone,
     destination: 'current_chat',
     executionPreference: 'cloud',
     continuationId: continuation.continuationId,
@@ -642,10 +651,35 @@ function buildTaskUpdateRequest(
   };
 }
 
-function buildUtcHostSchedule(dueAt: string): string {
+function buildHostSchedule(dueAt: string, hostTimeZone: string): string {
   const parsed = new Date(requiredIso(dueAt, 'scheduled dueAt'));
-  const compactUtc = parsed.toISOString().replace(/[-:]/g, '').replace(/\.\d{3}Z$/, 'Z');
-  return `BEGIN:VEVENT\nDTSTART:${compactUtc}\nEND:VEVENT`;
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone: hostTimeZone,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hourCycle: 'h23',
+  }).formatToParts(parsed);
+  const value = (type: Intl.DateTimeFormatPartTypes): string => {
+    const part = parts.find((candidate) => candidate.type === type)?.value;
+    if (part === undefined) throw new GoalStateError('corrupt', `Scheduled host time is missing ${type}`);
+    return part;
+  };
+  const compactLocal = `${value('year')}${value('month')}${value('day')}T${value('hour')}${value('minute')}${value('second')}`;
+  return `BEGIN:VEVENT\nDTSTART;TZID=${hostTimeZone}:${compactLocal}\nEND:VEVENT`;
+}
+
+function normalizeHostTimeZone(value: string): string {
+  const trimmed = value.trim();
+  if (trimmed.length === 0 || trimmed.length > 128) throw new Error('hostTimeZone is invalid');
+  try {
+    return new Intl.DateTimeFormat('en-US', { timeZone: trimmed }).resolvedOptions().timeZone;
+  } catch {
+    throw new Error('hostTimeZone must be a valid IANA time zone');
+  }
 }
 
 function scheduledTaskCancellationInstruction(record: ScheduledContinuationSnapshot): ScheduledTaskCancellationInstruction {

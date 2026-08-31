@@ -566,7 +566,9 @@ export function createDesktopRuntime(dataPath: string, options: DesktopRuntimeOp
     if (ready) return { status: 'pass', detail: reason ?? `${name} is ready` };
     return {
       status: available ? 'fail' : 'unknown',
-      detail: reason ?? (available ? `${name} needs setup` : `${name} is unavailable`),
+      detail: reason ?? (name === 'dom_cdp' && available
+        ? 'Managed Browser is installed but stopped; start Managed Browser to use browser debugging tools'
+        : available ? `${name} needs setup` : `${name} is unavailable`),
     };
   };
   const resolveConfiguredExecutable = async (raw: string): Promise<boolean> => {
@@ -1641,7 +1643,19 @@ export function buildPersistentTunnelDoctorChecks(input: {
     check('runtime_process_running', runtimeRunning ? 'pass' : required ? 'fail' : 'warn', runtimeRunning ? 'Tunnel runtime is running' : 'TUNNEL_RUNTIME_DOWN: tunnel runtime is not running'),
     check('tunnel_health', health === true ? 'pass' : health === false ? 'fail' : 'warn', health === true ? 'Tunnel health is OK' : health === false ? 'TUNNEL_RUNTIME_DOWN: tunnel health probe failed' : 'Tunnel health is not currently observable'),
     check('tunnel_ready', ready === true ? 'pass' : ready === false ? 'fail' : 'warn', ready === true ? 'Tunnel readiness is OK' : ready === false ? 'TUNNEL_RUNTIME_DOWN: tunnel is not ready' : 'Tunnel readiness is not currently observable'),
-    check('control_plane_poll_health', controlPlaneHealthy === true ? 'pass' : controlPlaneHealthy === false ? 'fail' : 'warn', controlPlaneHealthy === true ? 'Control-plane poll is healthy' : controlPlaneHealthy === false ? 'CONTROL_PLANE_OFFLINE: control-plane polling is unhealthy' : 'Control-plane poll health is not currently observable'),
+    check(
+      'control_plane_poll_health',
+      controlPlaneHealthy === true || (controlPlaneHealthy == null && runtimeRunning && health === true) || !required ? 'pass' : controlPlaneHealthy === false ? 'fail' : 'warn',
+      controlPlaneHealthy === true
+        ? 'Control-plane poll is healthy'
+        : controlPlaneHealthy === false
+          ? 'CONTROL_PLANE_OFFLINE: control-plane polling is unhealthy'
+          : runtimeRunning && health === true
+            ? 'Control-plane poll is not reported separately; live tunnel health confirms the runtime is reachable'
+            : !required
+              ? 'Persistent tunnel polling is optional and currently disabled'
+              : 'Control-plane poll health is not currently observable',
+    ),
     check('local_mcp_binding', localBindingMatches ? 'pass' : required ? 'fail' : 'warn', localBindingMatches ? 'Tunnel is bound to the current Desktop MCP endpoint' : 'LOCAL_BINDING_STALE: tunnel local MCP binding does not match the active Desktop MCP endpoint'),
     check('local_mcp_reachable', input.mcp.running && input.mcp.url !== null ? 'pass' : required ? 'fail' : 'warn', input.mcp.running && input.mcp.url !== null ? 'Desktop MCP listener is reachable locally' : 'LOCAL_MCP_DOWN: Desktop MCP listener is not running'),
     check('tunnel_id_matches_saved_identity', mismatch ? 'fail' : identityPresent ? 'pass' : 'warn', mismatch ? 'TUNNEL_ID_MISMATCH: runtime alias reports a different tunnel identity' : identityPresent ? 'Runtime has not reported a tunnel identity mismatch' : 'Saved tunnel identity is unavailable'),

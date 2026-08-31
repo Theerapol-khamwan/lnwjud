@@ -723,14 +723,62 @@ describe('scheduled continuation repository state machine', () => {
         leaseSeconds: 600,
         now: '2026-08-27T00:22:00.000Z',
       });
-      expect(loser.outcome).toBe('already_claimed');
+      expect(loser).toMatchObject({
+        outcome: 'successor_required',
+        continuation: { continuationId: 'continuation-claim', status: 'claimed' },
+        successor: { status: 'prepared', dueAt: '2026-08-27T00:24:00.000Z' },
+      });
       expect(loser.goal.leaseTokenHash).toBe('lease-hash-b');
+      if (loser.outcome !== 'successor_required') throw new Error('claimed recovery successor missing');
+      const failedCreate = await repository.recordScheduledContinuationReceipt({
+        continuationId: loser.successor.continuationId,
+        ownerClientId: 'chatgpt-web-client',
+        expectedVersion: loser.successor.version,
+        outcome: 'create_failed',
+        now: '2026-08-27T00:22:01.000Z',
+      });
+      expect(failedCreate.status).toBe('create_failed');
+      const retryAfterCreateFailure = await repository.claimScheduledContinuation({
+        continuationId: 'continuation-claim',
+        recoveryContinuationId: 'continuation-claim-recovery-retry',
+        ownerClientId: 'chatgpt-web-client',
+        ownerSessionId: 'session-c',
+        leaseTokenHash: 'lease-hash-c',
+        leaseSeconds: 600,
+        now: '2026-08-27T00:22:02.000Z',
+      });
+      expect(retryAfterCreateFailure).toMatchObject({
+        outcome: 'successor_required',
+        successor: { continuationId: loser.successor.continuationId, status: 'create_failed' },
+      });
+      if (retryAfterCreateFailure.outcome !== 'successor_required') throw new Error('failed-create recovery successor missing');
+      await repository.recordScheduledContinuationReceipt({
+        continuationId: retryAfterCreateFailure.successor.continuationId,
+        ownerClientId: 'chatgpt-web-client',
+        expectedVersion: retryAfterCreateFailure.successor.version,
+        outcome: 'created',
+        nativeTaskId: 'native-task-claim-recovery',
+        dueAt: retryAfterCreateFailure.successor.dueAt,
+        runsOn: 'cloud',
+        now: '2026-08-27T00:22:03.000Z',
+      });
+      const repeated = await repository.claimScheduledContinuation({
+        continuationId: 'continuation-claim',
+        recoveryContinuationId: 'continuation-claim-recovery-third',
+        ownerClientId: 'chatgpt-web-client',
+        ownerSessionId: 'session-d',
+        leaseTokenHash: 'lease-hash-d',
+        leaseSeconds: 600,
+        now: '2026-08-27T00:22:04.000Z',
+      });
+      expect(repeated.outcome).toBe('already_claimed');
+      expect(repeated.goal.leaseTokenHash).toBe('lease-hash-b');
     } finally {
       database.close();
     }
   });
 
-  it('rejects workspace mutation while a successor is only prepared and admits it only after a confirmed cloud receipt', async () => {
+  it('keeps a valid live worker moving while a successor is only prepared and still caps it at the handoff deadline', async () => {
     const database = await openDatabase();
     const repository = new SqliteGoalRepository(database);
     try {
@@ -752,7 +800,18 @@ describe('scheduled continuation repository state machine', () => {
         leaseGeneration: prepared.goal.leaseGeneration,
         startedAt: '2026-08-27T00:20:01.000Z',
         expiresAt: '2026-08-27T00:20:31.000Z',
-      })).rejects.toMatchObject({ reason: 'conflict' });
+      })).resolves.toMatchObject({
+        goalId: 'goal-1',
+        leaseGeneration: prepared.goal.leaseGeneration,
+      });
+      await expect(repository.heartbeatGoalFencedMutation(
+        'prepared-only-call',
+        prepared.goal.leaseGeneration,
+        '2026-08-27T00:20:05.000Z',
+        '2026-08-27T00:20:35.000Z',
+      )).resolves.toBeUndefined();
+      await repository.endGoalFencedMutation('prepared-only-call', '2026-08-27T00:20:06.000Z');
+      await expect(repository.getById('goal-1')).resolves.toMatchObject({ leaseExpiresAt: '2026-08-27T00:22:00.000Z' });
 
       const scheduled = await repository.recordScheduledContinuationReceipt({
         continuationId: prepared.continuation.continuationId,
