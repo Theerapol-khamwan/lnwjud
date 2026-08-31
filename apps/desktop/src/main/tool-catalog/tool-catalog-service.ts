@@ -67,19 +67,20 @@ export class ToolCatalogService {
         .filter((definition) => definition.requirementIds.includes(id))
         .map((definition) => definition.name)
         .sort();
-      const doctorStatus = id === 'external_mcp_connection' && result.status === 'warn' ? 'pass' : result.status;
+      const optionalExternalMcpAbsent = id === 'external_mcp_connection' && result.status === 'warn';
+      const doctorResult = optionalExternalMcpAbsent ? { ...result, status: 'pass' as const } : result;
       checks.push({
         id,
-        required: result.required,
-        status: doctorStatus,
+        required: doctorResult.required,
+        status: doctorResult.status,
         title: localizedRequirementTitle(locale, id),
-        summary: localizedRequirementSummary(locale, result),
-        ...(result.detail === undefined ? {} : { detail: redactDetail(result.detail) }),
+        summary: localizedRequirementSummary(locale, doctorResult),
+        ...(doctorResult.detail === undefined ? {} : { detail: redactDetail(doctorResult.detail) }),
         affectedToolNames,
-        ...(result.remediationId === undefined ? {} : { remediationId: result.remediationId }),
-        checkedAt: result.checkedAt,
-        durationMs: result.durationMs,
-        message: localizedRequirementSummary(locale, result),
+        ...(optionalExternalMcpAbsent || doctorResult.remediationId === undefined ? {} : { remediationId: doctorResult.remediationId }),
+        checkedAt: doctorResult.checkedAt,
+        durationMs: doctorResult.durationMs,
+        message: localizedRequirementSummary(locale, doctorResult),
       });
     }
     return { checks, exitCode: checks.some((check) => check.required && (check.status === 'fail' || check.status === 'unknown')) ? 1 : 0 };

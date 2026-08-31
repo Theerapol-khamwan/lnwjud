@@ -21,7 +21,7 @@ Desktop readiness is a separate presentation contract built from the same live d
 <!-- BEGIN GENERATED TOOL REGISTRY -->
 ## Generated live ToolRegistry index
 
-This complete inventory is generated from `ToolRegistry.listAll()`: **231 total tool definitions**. The runtime advertises **195 tools by default** and **202 tools when Codex delegation is enabled** through `tools/list`.
+This complete inventory is generated from `ToolRegistry.listAll()`: **231 total tool definitions**. The runtime advertises **207 tools by default** and **214 tools when Codex delegation is enabled** through `tools/list`.
 Run `pnpm docs:tools` after intentionally changing the registry; CI runs `pnpm docs:tools:check` and fails on drift.
 
 | # | Tool | Permission | Advertised | Delivery | Runtime evidence | Read-only | Destructive |
@@ -162,11 +162,11 @@ Run `pnpm docs:tools` after intentionally changing the registry; CI runs `pnpm d
 | 134 | `hook_remove` | WRITE | default | operational | deterministic_operation | no | no |
 | 135 | `skill_match` | READ | default | operational | service_dispatch | yes | no |
 | 136 | `skill_load` | READ | default | operational | service_dispatch | yes | no |
-| 137 | `plugin_install` | WRITE | no | feature_disabled | truthful_unavailable | no | no |
-| 138 | `plugin_list` | READ | no | feature_disabled | truthful_unavailable | yes | no |
-| 139 | `plugin_enable` | WRITE | no | feature_disabled | truthful_unavailable | no | no |
-| 140 | `plugin_disable` | WRITE | no | feature_disabled | truthful_unavailable | no | no |
-| 141 | `plugin_remove` | DANGEROUS | no | feature_disabled | truthful_unavailable | no | yes |
+| 137 | `plugin_install` | WRITE | default | operational | truthful_unavailable | no | no |
+| 138 | `plugin_list` | READ | default | operational | deterministic_operation | yes | no |
+| 139 | `plugin_enable` | WRITE | default | operational | truthful_unavailable | no | no |
+| 140 | `plugin_disable` | WRITE | default | operational | truthful_unavailable | no | no |
+| 141 | `plugin_remove` | DANGEROUS | default | operational | truthful_unavailable | no | yes |
 | 142 | `session_context` | READ | default | operational | deterministic_operation | yes | no |
 | 143 | `session_checkpoint` | WRITE | default | operational | deterministic_operation | no | no |
 | 144 | `session_resume` | READ | default | operational | deterministic_operation | yes | no |
@@ -191,11 +191,11 @@ Run `pnpm docs:tools` after intentionally changing the registry; CI runs `pnpm d
 | 163 | `mcp_discover` | READ | default | operational | service_dispatch | yes | no |
 | 164 | `mcp_health` | READ | default | operational | service_dispatch | yes | no |
 | 165 | `mcp_resources` | READ | default | dependency_gated | service_dispatch | yes | no |
-| 166 | `task_create` | EXECUTE | no | feature_disabled | truthful_unavailable | no | no |
-| 167 | `task_status` | READ | no | feature_disabled | truthful_unavailable | yes | no |
-| 168 | `task_cancel` | EXECUTE | no | feature_disabled | truthful_unavailable | no | no |
-| 169 | `task_result` | READ | no | feature_disabled | truthful_unavailable | yes | no |
-| 170 | `task_list` | READ | no | feature_disabled | truthful_unavailable | yes | no |
+| 166 | `task_create` | EXECUTE | default | operational | service_dispatch | no | no |
+| 167 | `task_status` | READ | default | operational | service_dispatch | yes | no |
+| 168 | `task_cancel` | EXECUTE | default | operational | service_dispatch | no | no |
+| 169 | `task_result` | READ | default | operational | service_dispatch | yes | no |
+| 170 | `task_list` | READ | default | operational | service_dispatch | yes | no |
 | 171 | `delegate` | EXECUTE | no | feature_disabled | truthful_unavailable | no | no |
 | 172 | `delegate_status` | READ | no | feature_disabled | truthful_unavailable | yes | no |
 | 173 | `delegate_cancel` | EXECUTE | no | feature_disabled | truthful_unavailable | no | no |
@@ -203,8 +203,8 @@ Run `pnpm docs:tools` after intentionally changing the registry; CI runs `pnpm d
 | 175 | `parallel_delegate` | EXECUTE | no | feature_disabled | truthful_unavailable | no | no |
 | 176 | `permission_check` | READ | default | operational | deterministic_operation | yes | no |
 | 177 | `permission_profile` | READ | default | operational | deterministic_operation | yes | no |
-| 178 | `live_logs_query` | READ | no | feature_disabled | truthful_unavailable | yes | no |
-| 179 | `live_logs_status` | READ | no | feature_disabled | truthful_unavailable | yes | no |
+| 178 | `live_logs_query` | READ | default | operational | truthful_unavailable | yes | no |
+| 179 | `live_logs_status` | READ | default | operational | truthful_unavailable | yes | no |
 | 180 | `telemetry_dashboard` | READ | no | feature_disabled | truthful_unavailable | yes | no |
 | 181 | `context_economy_stats` | READ | default | operational | deterministic_operation | yes | no |
 | 182 | `execution_plan` | READ | default | operational | deterministic_operation | yes | no |

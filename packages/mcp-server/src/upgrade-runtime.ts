@@ -1148,6 +1148,19 @@ export class UpgradeRuntimeService {
     const invoke = (action: string, parameters: Record<string, unknown> = {}): Promise<Result<unknown>> => capabilities.execute('dom_cdp', { action, parameters, tab_id: tabId }, signal, authorization);
     const status = await invoke('status');
     if (!status.ok) return status;
+    if (browserRuntimeNeedsStart(status.value)) {
+      return ok({
+        tool: name,
+        status: 'needs_setup',
+        readinessReason: 'runtime_not_ready',
+        deliveryState: 'operational',
+        available: true,
+        ready: false,
+        executed: false,
+        requirements: ['Start the lnwjud managed browser before using browser context tools.'],
+        runtimeStatus: status.value,
+      });
+    }
 
     if (name === 'form_context') {
       const selector = readString(input, 'selector') ?? 'form, input, select, textarea, button';
@@ -1427,6 +1440,12 @@ function requireBrowserTabId(toolName: string, input: Record<string, unknown>): 
     return err(appError('INVALID_INPUT', `${toolName} requires tab_id; call dom_cdp list_tabs or new_tab first`));
   }
   return ok(tabId.trim());
+}
+
+function browserRuntimeNeedsStart(value: unknown): boolean {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return false;
+  const status = value as Readonly<Record<string, unknown>>;
+  return status.ready === false || status.browserRunning === false;
 }
 
 function digest(input: unknown): string {

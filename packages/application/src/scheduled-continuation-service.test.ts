@@ -273,10 +273,10 @@ describe('ScheduledContinuationService', () => {
       for (const marker of Object.values(markers)) expect(serialized).not.toContain(marker);
       expect(serialized).not.toContain(started.leaseToken!);
       expect(result.value.scheduleRequest.prompt).toContain('claim_scheduled_continuation');
-      expect(result.value.scheduleRequest.prompt).toContain('successor_required');
-      expect(result.value.scheduleRequest.prompt).toContain('consumed wake ticket');
-      expect(result.value.scheduleRequest.prompt).toContain('must never be reused as a future successor');
-      expect(result.value.scheduleRequest.prompt).toContain('do not update or re-arm the firing native task');
+      expect(result.value.scheduleRequest.prompt).toContain('reschedule_required');
+      expect(result.value.scheduleRequest.prompt).toContain('same nativeTaskId');
+      expect(result.value.scheduleRequest.prompt).toContain('keep it enabled');
+      expect(result.value.scheduleRequest.prompt).toContain('without a retry limit');
       expect(result.value.scheduleRequest.prompt).toContain('adaptive delay between 2 and 25 minutes');
       expect(result.value.scheduleRequest.prompt).toContain('Omitted delay fails safe to +2 minutes');
       expect(result.value.scheduleRequest.prompt).toContain('5/10/25 minutes only as an explicit watchdog');
@@ -296,7 +296,7 @@ describe('ScheduledContinuationService', () => {
     }
   });
 
-  it('consumes a firing one-time wake and returns a fresh +2 successor when a live worker owns the lease', async () => {
+  it('defers the same native one-time task by +2 minutes when a live worker owns the lease', async () => {
     const { database, goals, scheduled, clock } = await fixture();
     const successorActor: FileActor = { ...actor, sessionId: 'scheduled-continuation-successor' };
     try {
@@ -323,51 +323,70 @@ describe('ScheduledContinuationService', () => {
       expect(collision).toMatchObject({
         ok: true,
         value: {
-          outcome: 'successor_required',
+          outcome: 'reschedule_required',
           retryAfterSeconds: 120,
           continuation: {
             continuationId: prepared.value.continuation.continuationId,
             nativeTaskId: 'native-task-b',
-            status: 'superseded',
+            status: 'reschedule_required',
+            pendingDueAt: '2026-08-27T10:27:00.000Z',
           },
-          successor: {
-            generation: prepared.value.continuation.generation + 1,
-            status: 'prepared',
+          taskUpdateRequest: {
+            operation: 'update',
+            nativeTaskId: 'native-task-b',
             dueAt: '2026-08-27T10:27:00.000Z',
-          },
-          scheduleRequest: {
             occurrence: 'once',
-            dueAt: '2026-08-27T10:27:00.000Z',
             destination: 'current_chat',
             executionPreference: 'cloud',
           },
           handoffReady: false,
           currentWakeMayReturn: false,
-          nextRequiredAction: 'create_native_task_and_record_receipt_before_current_wake_returns',
+          nextRequiredAction: 'update_same_native_task_and_record_receipt_before_current_wake_returns',
         },
       });
-      if (!collision.ok || collision.value.outcome !== 'successor_required') throw new Error('fresh collision successor missing');
-      expect(collision.value.successor.nativeTaskId).toBeUndefined();
-      expect(collision.value.scheduleRequest.continuationId).toBe(collision.value.successor.continuationId);
-      expect(collision.value.scheduleRequest.prompt).toContain('consumed wake ticket');
-      expect(collision.value.scheduleRequest.prompt).toContain('successor_required');
-      expect(collision.value.scheduleRequest.prompt).toContain('do not update or re-arm the firing native task');
-      expect(JSON.stringify(collision.value.scheduleRequest)).not.toContain('native-task-b');
+      if (!collision.ok || collision.value.outcome !== 'reschedule_required') throw new Error('same-task collision reschedule missing');
+      expect(collision.value.taskUpdateRequest.continuationId).toBe(prepared.value.continuation.continuationId);
+      expect(collision.value.taskUpdateRequest.prompt).toContain('reschedule_required');
+      expect(collision.value.taskUpdateRequest.prompt).toContain('keep it enabled');
+      expect(collision.value.taskUpdateRequest.prompt).toContain('without a retry limit');
 
-      const created = await scheduled.recordScheduledContinuationReceipt(successorActor, {
-        continuationId: collision.value.successor.continuationId,
-        expectedVersion: collision.value.successor.version,
-        outcome: 'created',
-        nativeTaskId: 'native-task-c',
-        dueAt: collision.value.successor.dueAt,
+      const rescheduled = await scheduled.recordScheduledContinuationReceipt(successorActor, {
+        continuationId: prepared.value.continuation.continuationId,
+        expectedVersion: collision.value.continuation.version,
+        outcome: 'rescheduled',
+        nativeTaskId: 'native-task-b',
+        dueAt: collision.value.taskUpdateRequest.dueAt,
         runsOn: 'cloud',
       });
-      expect(created).toMatchObject({ ok: true, value: { status: 'scheduled', nativeTaskId: 'native-task-c' } });
+      expect(rescheduled).toMatchObject({
+        ok: true,
+        value: {
+          status: 'scheduled',
+          nativeTaskId: 'native-task-b',
+          dueAt: '2026-08-27T10:27:00.000Z',
+        },
+      });
 
-      const repeated = await scheduled.claimScheduledContinuation(successorActor, {
+      clock.set('2026-08-27T10:26:00.000Z');
+      const repeatedCollision = await scheduled.claimScheduledContinuation(successorActor, {
         continuationId: prepared.value.continuation.continuationId,
       });
-      expect(repeated).toMatchObject({ ok: true, value: { outcome: 'already_claimed' } });
+      expect(repeatedCollision).toMatchObject({
+        ok: true,
+        value: {
+          outcome: 'reschedule_required',
+          continuation: {
+            continuationId: prepared.value.continuation.continuationId,
+            nativeTaskId: 'native-task-b',
+            status: 'reschedule_required',
+            pendingDueAt: '2026-08-27T10:28:00.000Z',
+          },
+          taskUpdateRequest: {
+            nativeTaskId: 'native-task-b',
+            dueAt: '2026-08-27T10:28:00.000Z',
+          },
+        },
+      });
     } finally {
       database.close();
     }

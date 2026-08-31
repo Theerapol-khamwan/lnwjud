@@ -19,9 +19,10 @@ describe('scheduled continuation skill contract', () => {
     expect(skill).toContain('finish_goal');
     expect(skill).toContain('same native task');
     expect(skill).toContain('+2 minutes');
-    expect(skill).toContain('successor_required');
-    expect(skill).toContain('fresh disposable +2-minute successor ticket');
-    expect(skill).toContain('must not be reused');
+    expect(skill).toContain('reschedule_required');
+    expect(skill).toContain('exact same confirmed one-time cloud task');
+    expect(skill).toContain('Repeat collisions without a retry limit');
+    expect(skill).toContain('keep the native task enabled');
     expect(skill).toContain('runsOn: cloud');
     expect(skill).toContain('`prepared` means **reservation only**');
     expect(skill).toContain('never a confirmed successor');

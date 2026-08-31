@@ -162,6 +162,18 @@ describe('tool catalog readiness aggregation', () => {
     expect(result.catalog.locale).toBe('th');
   });
 
+  it('treats an absent optional external MCP connection as informational Doctor health', async () => {
+    const absent = service({ external_mcp_connection: 'warn' });
+    const check = (await absent.catalog.runDoctor(undefined, 'en')).checks.find((item) => item.id === 'external_mcp_connection');
+    expect(check).toMatchObject({
+      required: false,
+      status: 'pass',
+      summary: 'PASS: requirement.external_mcp_connection',
+      message: 'PASS: requirement.external_mcp_connection',
+    });
+    expect(check?.remediationId).toBeUndefined();
+  });
+
   it('required unknown makes Doctor exit 1 while optional warning does not', async () => {
     const requiredUnknown = service({ executable_git: 'unknown' });
     expect((await requiredUnknown.catalog.runDoctor(undefined, 'en')).exitCode).toBe(1);
