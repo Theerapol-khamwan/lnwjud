@@ -79,6 +79,10 @@ jobs:
           }
           Write-Host "Using verified CI artifact from run $($run.databaseId) for commit $sha"
 
+      - name: Prepare capability bridge integrity evidence
+        shell: pwsh
+        run: node apps/desktop/scripts/write-capability-integrity.mjs
+
       - name: Verify source provenance and SHA-256 evidence
         shell: pwsh
         env:

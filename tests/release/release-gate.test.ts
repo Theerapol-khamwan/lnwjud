@@ -140,6 +140,10 @@ describe('MVP release verification gate', () => {
     expect(release).toContain('windows-release-$sha');
     expect(release).toContain('successful CI run for exact commit');
     expect(release).toContain('lnwjud-Portable-$($package.version).exe');
+    expect(release).toContain('Prepare capability bridge integrity evidence');
+    expect(release).toContain('node apps/desktop/scripts/write-capability-integrity.mjs');
+    expect(release.indexOf('Download verified CI artifact')).toBeLessThan(release.indexOf('Prepare capability bridge integrity evidence'));
+    expect(release.indexOf('Prepare capability bridge integrity evidence')).toBeLessThan(release.indexOf('Verify source provenance and SHA-256 evidence'));
     expect(release).not.toContain('verify-release.ps1');
     expect(release).toContain('apps/desktop/dist/installers/latest.yml');
     expect(release).toContain('apps/desktop/dist/installers/portable.yml');
