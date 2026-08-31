@@ -37,6 +37,8 @@ describe('Windows release trust evidence', () => {
     expect(evidenceWriter).toContain('workingTreeDirtyAtEvidence');
     expect(evidenceWriter).toContain("git(['rev-parse', 'HEAD'])");
     expect(evidenceWriter).toContain('capabilityBridge');
+    expect(evidenceVerifier).toContain('LNWJUD_RELEASE_ARTIFACT_ONLY');
+    expect(evidenceVerifier).toContain('compiledBundlePath');
     expect(evidenceVerifier).toContain('verifyCapabilityBridgeArtifacts');
     expect(bridgeVerifier).toContain('packaged bridge bytes differ from staged package bytes');
     for (const name of ['lnwjud-mcp-stdio.cjs', 'lnwjud-node.exe', 'windows-capability-bridge.ps1', 'windows-capability-bridge.sha256', 'windows-capability-bridge.integrity.json', 'rg.exe', 'tunnel-client.exe']) {

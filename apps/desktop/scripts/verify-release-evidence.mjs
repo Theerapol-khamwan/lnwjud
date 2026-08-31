@@ -25,9 +25,15 @@ if (process.env.LNWJUD_REQUIRE_CLEAN_PROVENANCE === '1' && provenance.source.dir
   throw new Error('Public release provenance must be built from a clean tracked source tree');
 }
 
+// The main CI package gate verifies the compiled bundle before uploading the
+// release artifact. The release job intentionally downloads only public
+// installers/evidence, so its artifact-only mode must not require build output.
+const compiledBundlePath = process.env.LNWJUD_RELEASE_ARTIFACT_ONLY === '1'
+  ? undefined
+  : path.join(desktopRoot, 'dist', 'main', 'main.js');
 const verifiedCapabilityBridge = await verifyCapabilityBridgeArtifacts({
   packagedBridgePath: path.join(installerDirectory, 'win-unpacked', 'resources', 'windows-capability-bridge.ps1'),
-  compiledBundlePath: path.join(desktopRoot, 'dist', 'main', 'main.js'),
+  compiledBundlePath,
 });
 if (!isCapabilityBridgeIdentity(provenance.capabilityBridge)
   || provenance.capabilityBridge.sha256 !== verifiedCapabilityBridge.sha256
