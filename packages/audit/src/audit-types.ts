@@ -8,6 +8,8 @@ export interface ActivityTargetReference {
   readonly detailRef: string | null;
   readonly itemCount: number;
   readonly preview: readonly string[];
+  /** True when the retained detail adds useful information beyond the compact row summary. */
+  readonly hasAdditionalDetail?: boolean;
   /** True when an older record contains only a summary and cannot be losslessly expanded. */
   readonly legacyIncomplete: boolean;
 }

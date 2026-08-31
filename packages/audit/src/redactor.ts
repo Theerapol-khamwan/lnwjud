@@ -46,17 +46,30 @@ export function activityTargetReference(
   summary: string | undefined,
 ): ActivityTargetReference {
   const items = detail?.items ?? (summary === undefined || summary.length === 0 ? [] : [summary]);
+  const preview = detail?.kind === 'details'
+    ? []
+    : items.slice(0, MAX_ACTIVITY_TARGET_PREVIEW_ITEMS).map((item) => truncate(item, MAX_ACTIVITY_TARGET_PREVIEW_CHARS));
+  const hasAdditionalDetail = detail === undefined
+    ? false
+    : detail.kind === 'details'
+      ? detail.items.some((item) => diagnosticItemAddsInformation(item, summary))
+      : detail.items.length > preview.length;
   return {
     detailRef: detail === undefined ? null : detailRef,
     itemCount: items.length,
-    // Generic diagnostic detail should always be explicitly expanded instead of
-    // leaking an arbitrary subset into the compact row. Files/tools keep a small
-    // preview because their list semantics are useful at a glance.
-    preview: detail?.kind === 'details'
-      ? []
-      : items.slice(0, MAX_ACTIVITY_TARGET_PREVIEW_ITEMS).map((item) => truncate(item, MAX_ACTIVITY_TARGET_PREVIEW_CHARS)),
+    preview,
+    hasAdditionalDetail,
     legacyIncomplete: false,
   };
+}
+
+function diagnosticItemAddsInformation(item: string, summary: string | undefined): boolean {
+  const separator = item.indexOf('=');
+  const key = separator < 0 ? item : item.slice(0, separator);
+  const value = separator < 0 ? '' : item.slice(separator + 1);
+  if (/^(?:workspaceId|userConfirmed|goalLease(?:\.|$))/.test(key)) return false;
+  if (summary !== undefined && value.length > 0 && summary.includes(value)) return false;
+  return true;
 }
 
 export function decodeActivityTargetReference(value: unknown, legacySummary?: string): ActivityTargetReference {
@@ -68,7 +81,13 @@ export function decodeActivityTargetReference(value: unknown, legacySummary?: st
     const preview = Array.isArray(value.preview)
       ? value.preview.filter((item): item is string => typeof item === 'string').slice(0, MAX_ACTIVITY_TARGET_PREVIEW_ITEMS).map((item) => truncate(redactString(item), MAX_ACTIVITY_TARGET_PREVIEW_CHARS))
       : [];
-    return { detailRef, itemCount, preview, legacyIncomplete: value.legacyIncomplete === true };
+    return {
+      detailRef,
+      itemCount,
+      preview,
+      ...(typeof value.hasAdditionalDetail === 'boolean' ? { hasAdditionalDetail: value.hasAdditionalDetail } : {}),
+      legacyIncomplete: value.legacyIncomplete === true,
+    };
   }
   const legacy = legacySummaryItems(legacySummary);
   return { detailRef: null, itemCount: legacy.itemCount, preview: legacy.items, legacyIncomplete: true };

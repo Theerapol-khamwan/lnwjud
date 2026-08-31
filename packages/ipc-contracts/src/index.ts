@@ -285,6 +285,7 @@ export interface ActivityTargetReference {
   readonly detailRef: string | null;
   readonly itemCount: number;
   readonly preview: readonly string[];
+  readonly hasAdditionalDetail?: boolean;
   readonly legacyIncomplete: boolean;
 }
 

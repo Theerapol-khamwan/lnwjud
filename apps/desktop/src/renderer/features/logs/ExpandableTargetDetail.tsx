@@ -24,9 +24,12 @@ export function ExpandableTargetDetail(props: ExpandableTargetDetailProps): Reac
   const panelId = `log-detail-${reactId.replace(/[^a-zA-Z0-9_-]/g, '')}`;
   const [expanded, setExpanded] = useState(false);
   const [detailState, setDetailState] = useState<DetailState>({ status: 'idle' });
+  const legacyExpandableFallback = props.reference.preview.length > 0
+    ? props.reference.itemCount > props.reference.preview.length
+    : props.reference.itemCount > 3;
   const expandable = !props.reference.legacyIncomplete
     && props.reference.detailRef !== null
-    && props.reference.itemCount > props.reference.preview.length;
+    && (props.reference.hasAdditionalDetail ?? legacyExpandableFallback);
 
   if (props.reference.legacyIncomplete && legacySummaryIsTruncated(props.legacySummary)) {
     return <p className="log-detail-legacy-warning" role="note">{props.legacyIncompleteLabel}</p>;

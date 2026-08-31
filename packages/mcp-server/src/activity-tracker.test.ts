@@ -138,6 +138,27 @@ describe('ActivityTracker', () => {
     expect(auditDetails[1]).toEqual(resultDetail);
   });
 
+  it('marks only meaningful generic diagnostics as expandable', async () => {
+    const workspaceId = '372e9384-9628-43be-b766-661cdb591383';
+    const events: ActivitySinkEvent[] = [];
+    const tracker = new ActivityTracker({ async record(event): Promise<void> { events.push(event); } });
+
+    const simpleCall = await tracker.begin('list_goals', { workspaceId, userConfirmed: true });
+    expect(tracker.listInFlight().find((entry) => entry.callId === simpleCall)?.targetDetail).toMatchObject({
+      itemCount: 2,
+      preview: [],
+      hasAdditionalDetail: false,
+    });
+    await tracker.end(simpleCall, 'SUCCESS', 1, undefined, describeStructuredResultDetail({ goals: [] }));
+    expect(events.at(-1)?.targetDetail).toMatchObject({ hasAdditionalDetail: true });
+
+    const filteredCall = await tracker.begin('list_goals', { workspaceId, status: 'active', userConfirmed: true });
+    expect(tracker.listInFlight().find((entry) => entry.callId === filteredCall)?.targetDetail).toMatchObject({
+      preview: [],
+      hasAdditionalDetail: true,
+    });
+  });
+
   it('propagates bounded trace context into audit events and in-flight state', async () => {
     const events: ActivitySinkEvent[] = [];
     const tracker = new ActivityTracker({ async record(event): Promise<void> { events.push(event); } });
@@ -213,6 +234,7 @@ describe('ActivityTracker', () => {
       detailRef: callId,
       itemCount: 7,
       preview: ['src/alpha.ts', 'src/alpha.ts', 'เอกสาร/ไฟล์.ts'],
+      hasAdditionalDetail: true,
       legacyIncomplete: false,
     });
     expect(inFlight).not.toHaveProperty('detail');

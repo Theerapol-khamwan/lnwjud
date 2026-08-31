@@ -538,6 +538,7 @@ function activityTargetReference(value: unknown, legacySummary: string | null): 
       detailRef,
       itemCount: typeof value.itemCount === 'number' && Number.isInteger(value.itemCount) && value.itemCount >= 0 ? Math.min(value.itemCount, 500) : 0,
       preview: Array.isArray(value.preview) ? value.preview.filter((item): item is string => typeof item === 'string').slice(0, 3).map((item) => item.slice(0, 256)) : [],
+      ...(typeof value.hasAdditionalDetail === 'boolean' ? { hasAdditionalDetail: value.hasAdditionalDetail } : {}),
       legacyIncomplete: value.legacyIncomplete === true,
     };
   }
@@ -1022,7 +1023,7 @@ function searchActivityTargetDetails(request: SearchActivityTargetDetailsRequest
 }
 
 function activityTargetDetail(value: unknown): ActivityTargetDetail {
-  if (!isRecord(value) || (value.kind !== 'files' && value.kind !== 'tools')) throw new Error('Invalid IPC response');
+  if (!isRecord(value) || (value.kind !== 'files' && value.kind !== 'tools' && value.kind !== 'details')) throw new Error('Invalid IPC response');
   return { kind: value.kind, items: stringList(value.items) };
 }
 

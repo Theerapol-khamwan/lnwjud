@@ -42,6 +42,14 @@ describe('preload Tool Catalog validation', () => {
     });
   });
 
+  it('accepts generic diagnostic detail returned by the activity-detail IPC', async () => {
+    electron.invoke.mockResolvedValueOnce({ status: 'complete', detail: { kind: 'details', items: ['status=active', 'nested.revision=12'] } });
+    await expect(electron.exposed!.resolveActivityTargetDetail({ detailRef: 'call-1:completed' })).resolves.toEqual({
+      status: 'complete',
+      detail: { kind: 'details', items: ['status=active', 'nested.revision=12'] },
+    });
+  });
+
   it.each([
     ['readinessReason', 'invented_reason'],
     ['deliveryState', 'invented_delivery'],

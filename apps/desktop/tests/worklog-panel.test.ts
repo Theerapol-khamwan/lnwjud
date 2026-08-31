@@ -256,6 +256,52 @@ describe('WorkLogPanel', () => {
     expect(markup).not.toContain('<li>d.ts</li>');
   });
 
+  it('shows detail controls only when the row actually has additional detail', () => {
+    const simple: WorkLogEntry = {
+      ...mockEntries[0]!,
+      id: 'simple-event',
+      callId: 'simple-call',
+      toolName: 'list_goals',
+      targetSummary: 'workspace=372e9384-9628-43be-b766-661cdb591383',
+      targetDetail: { detailRef: 'simple-call', itemCount: 2, preview: [], hasAdditionalDetail: false, legacyIncomplete: false },
+    };
+    const detailed: WorkLogEntry = {
+      ...simple,
+      id: 'detailed-event',
+      callId: 'detailed-call',
+      targetDetail: { detailRef: 'detailed-call', itemCount: 3, preview: [], hasAdditionalDetail: true, legacyIncomplete: false },
+    };
+    const markup = renderToStaticMarkup(createElement(WorkLogPanel, {
+      title: 'Work log', emptyLabel: 'Empty', filterAllLabel: 'All', filterErrorLabel: 'Errors',
+      clearSessionLabel: 'Clear session', clearWorkspaceLabel: 'Clear workspace', clearAllLabel: 'Clear all',
+      filter: 'all', onFilterChange: () => {}, onClear: async () => {}, entries: [simple, detailed], inFlight: [],
+      showMoreLabel: 'ดูเพิ่ม', showLessLabel: 'แสดงน้อยลง', detailHeadingLabel: 'รายละเอียดทั้งหมด',
+    }));
+
+    expect(markup.match(/>ดูเพิ่ม</g)).toHaveLength(1);
+    expect(markup.match(/aria-expanded="false"/g)).toHaveLength(1);
+  });
+
+  it('keeps old generic rows without an eligibility flag quiet unless they are clearly large', () => {
+    const rows: WorkLogEntry[] = [
+      {
+        ...mockEntries[0]!, id: 'old-small', callId: 'old-small-call',
+        targetDetail: { detailRef: 'old-small-call', itemCount: 2, preview: [], legacyIncomplete: false },
+      },
+      {
+        ...mockEntries[0]!, id: 'old-large', callId: 'old-large-call',
+        targetDetail: { detailRef: 'old-large-call', itemCount: 5, preview: [], legacyIncomplete: false },
+      },
+    ];
+    const markup = renderToStaticMarkup(createElement(WorkLogPanel, {
+      title: 'Work log', emptyLabel: 'Empty', filterAllLabel: 'All', filterErrorLabel: 'Errors',
+      clearSessionLabel: 'Clear session', clearWorkspaceLabel: 'Clear workspace', clearAllLabel: 'Clear all',
+      filter: 'all', onFilterChange: () => {}, onClear: async () => {}, entries: rows, inFlight: [], showMoreLabel: 'ดูเพิ่ม',
+    }));
+
+    expect(markup.match(/>ดูเพิ่ม</g)).toHaveLength(1);
+  });
+
   it('warns truthfully when a legacy (+N) row cannot be expanded losslessly', () => {
     const legacy: WorkLogEntry = {
       ...mockEntries[0]!,
