@@ -52,7 +52,8 @@ describe('scheduled continuation MCP tools', () => {
 
     expect(byName.get('record_scheduled_continuation_receipt')?.parse({ continuationId: 'c-1', expectedVersion: 0, outcome: 'created' })).toMatchObject({ ok: false });
     expect(byName.get('record_scheduled_continuation_receipt')?.parse({ continuationId: 'c-1', expectedVersion: 0, outcome: 'created', nativeTaskId: 'native-1' })).toMatchObject({ ok: false });
-    expect(byName.get('record_scheduled_continuation_receipt')?.parse({ continuationId: 'c-1', expectedVersion: 0, outcome: 'created', nativeTaskId: 'native-1', runsOn: 'cloud' })).toMatchObject({ ok: true });
+    expect(byName.get('record_scheduled_continuation_receipt')?.parse({ continuationId: 'c-1', expectedVersion: 0, outcome: 'created', nativeTaskId: 'native-1', runsOn: 'cloud' })).toMatchObject({ ok: false });
+    expect(byName.get('record_scheduled_continuation_receipt')?.parse({ continuationId: 'c-1', expectedVersion: 0, outcome: 'created', nativeTaskId: 'native-1', dueAt: '2026-08-27T17:25:00+07:00', runsOn: 'cloud' })).toMatchObject({ ok: true });
     expect(byName.get('record_scheduled_continuation_receipt')?.parse({ continuationId: 'c-1', expectedVersion: 1, outcome: 'rescheduled', nativeTaskId: 'native-1', dueAt: '2026-08-27T10:27:00.000Z' })).toMatchObject({ ok: true });
     expect(byName.get('record_scheduled_continuation_receipt')?.parse({ continuationId: 'c-1', expectedVersion: 2, outcome: 'consumed' })).toMatchObject({ ok: false });
     expect(byName.get('record_scheduled_continuation_receipt')?.parse({
@@ -93,7 +94,13 @@ describe('scheduled continuation MCP tools', () => {
     expect(byName.get('cancel_scheduled_continuation')?.parse({ continuationId: 'c-1', goalId: 'g-1', latest: true, expectedVersion: 2 })).toMatchObject({ ok: false });
     expect(byName.get('prepare_scheduled_continuation')?.description).toContain('adaptive');
     expect(byName.get('prepare_scheduled_continuation')?.description).toContain('2 and 25 minutes');
+    expect(byName.get('prepare_scheduled_continuation')?.description).toContain('prepared reservation is NOT a confirmed successor');
+    expect(byName.get('prepare_scheduled_continuation')?.description).toContain('live worker with a valid goal lease may keep doing fenced work');
+    expect(byName.get('prepare_scheduled_continuation')?.description).toContain('before turn yield or handoff');
     expect(byName.get('claim_scheduled_continuation')?.description).toContain('120 seconds early');
+    expect(byName.get('claim_scheduled_continuation')?.description).toContain('handoffReady=false');
+    expect(byName.get('claim_scheduled_continuation')?.description).toContain('currentWakeMayReturn=false');
+    expect(byName.get('claim_scheduled_continuation')?.description).toContain('never count prepared as confirmed');
     expect(byName.get('claim_scheduled_continuation')?.description).toContain('terminal_noop');
     expect(byName.get('claim_scheduled_continuation')?.description).toContain('do not delete, disable, pause, or reschedule');
     expect(byName.get('cancel_scheduled_continuation')?.description).toContain('still-pending scheduled successor');
@@ -107,7 +114,8 @@ describe('scheduled continuation MCP tools', () => {
         async prepareScheduledContinuation() {
           calls.scheduled += 1;
           return ok({
-            outcome: 'prepared', currentRunMayContinue: true, handoffDeadlineAt: '2026-08-27T10:02:00.000Z',
+            outcome: 'prepared', currentRunMayContinue: true, handoffReady: false, nativeTaskConfirmationRequired: true,
+            nextRequiredAction: 'create_native_task_and_record_receipt_before_yield', handoffDeadlineAt: '2026-08-27T10:02:00.000Z',
             goal: { goalId: 'g-1' }, continuation: { continuationId: 'c-1' },
             scheduleRequest: { provider: 'chatgpt_scheduled_task', occurrence: 'once', destination: 'current_chat' },
           });

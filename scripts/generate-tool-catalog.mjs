@@ -19,7 +19,10 @@ const { ToolRegistry } = await import(pathToFileURL(registryModulePath).href);
 const { upgradeCatalogEntry } = await import(pathToFileURL(upgradeCatalogModulePath).href);
 const { TOOL_RUNTIME_FIXTURES } = await import(pathToFileURL(runtimeFixturesModulePath).href);
 const actor = { clientId: 'catalog-generator', clientName: 'catalog-generator' };
-const codexEnabledRegistry = new ToolRegistry({}, actor, { codexToolsEnabled: true });
+// The real desktop/CLI runtimes wire AgentSwarmService whenever Codex delegation is
+// enabled. Supply a non-invoked placeholder here so generated advertised counts model
+// the production service surface instead of accidentally hiding agent_swarm_run.
+const codexEnabledRegistry = new ToolRegistry({ agentSwarm: {} }, actor, { codexToolsEnabled: true });
 const tools = codexEnabledRegistry.listAll();
 const defaultAdvertisedTools = new ToolRegistry({}, actor).list();
 const codexAdvertisedTools = codexEnabledRegistry.list();
@@ -43,7 +46,7 @@ const block = [
   contractStartMarker,
   '## Generated live ToolRegistry index',
   '',
-  `This complete inventory is generated from \`ToolRegistry.listAll()\`: **${tools.length} total tool definitions**. The runtime advertises **${defaultAdvertisedCount} tools by default** and **${codexEnabledAdvertisedCount} tools when Codex delegation is enabled** through \`tools/list\`.`,
+  `This complete inventory is generated from \`ToolRegistry.listAll()\`: **${tools.length} total tool definitions**. The runtime advertises **${defaultAdvertisedCount} tools by default** and **${codexEnabledAdvertisedCount} tools when Codex delegation plus Agent Swarm is enabled** through \`tools/list\`.`,
   'Run `pnpm docs:tools` after intentionally changing the registry; CI runs `pnpm docs:tools:check` and fails on drift.',
   '',
   '| # | Tool | Permission | Advertised | Delivery | Runtime evidence | Read-only | Destructive |',
@@ -68,9 +71,9 @@ const readmeRows = tools.map((tool, index) => {
 });
 const readmeBlock = [
   readmeStartMarker,
-  `## Complete MCP tool catalog (${tools.length} total definitions; ${defaultAdvertisedCount} advertised by default; ${codexEnabledAdvertisedCount} with Codex enabled)`,
+  `## Complete MCP tool catalog (${tools.length} total definitions; ${defaultAdvertisedCount} advertised by default; ${codexEnabledAdvertisedCount} with Codex delegation plus Agent Swarm enabled)`,
   '',
-  'This complete index is generated from `ToolRegistry.listAll()`, not copied from an older release document. The default `tools/list` surface advertises only operational or dependency-gated definitions; planned and feature-disabled definitions remain visible here without being advertised. Enabling Codex delegation adds its six operational definitions to the advertised surface.',
+  'This complete index is generated from `ToolRegistry.listAll()`, not copied from an older release document. The default `tools/list` surface advertises only operational or dependency-gated definitions; planned and feature-disabled definitions remain visible here without being advertised. Enabling Codex delegation plus Agent Swarm adds seven opt-in definitions to the advertised surface.',
   '',
   '| # | Tool | Permission | Advertised | Delivery | Runtime evidence | Runtime description |',
   '| ---: | --- | --- | --- | --- | --- | --- |',
@@ -89,8 +92,8 @@ if (readmeStart >= 0 && readmeEnd >= readmeStart) {
   expectedReadme = currentReadme.slice(0, catalogStart) + readmeBlock + readmeNewline + readmeNewline + currentReadme.slice(catalogEnd);
 }
 
-const quickStartCountPattern = /5\. Confirm that the default runtime exposes \*\*\d+ tools\*\* \(or \*\*\d+\*\* when Codex delegation is explicitly enabled\) and run a read-only\s+smoke test before trying writes\./;
-const quickStartCountText = `5. Confirm that the default runtime exposes **${defaultAdvertisedCount} tools** (or **${codexEnabledAdvertisedCount}** when Codex delegation is explicitly enabled) and run a read-only${readmeNewline}   smoke test before trying writes.`;
+const quickStartCountPattern = /5\. Confirm that the default runtime exposes \*\*\d+ tools\*\* \(or \*\*\d+\*\* when Codex delegation plus Agent Swarm is explicitly enabled\) and run a read-only\s+smoke test before trying writes\./;
+const quickStartCountText = `5. Confirm that the default runtime exposes **${defaultAdvertisedCount} tools** (or **${codexEnabledAdvertisedCount}** when Codex delegation plus Agent Swarm is explicitly enabled) and run a read-only${readmeNewline}   smoke test before trying writes.`;
 if (!quickStartCountPattern.test(expectedReadme)) throw new Error('README quick-start advertised-tool count sentence was not found');
 expectedReadme = expectedReadme.replace(quickStartCountPattern, quickStartCountText);
 

@@ -29,6 +29,10 @@ export function createRuntimeSuccessServices(calls: string[]): McpApplicationSer
   const png = { format: 'png', mime_type: 'image/png', data_base64: 'cG5n', width: 640, height: 480, origin_x: 0, origin_y: 0 };
 
   return {
+    sandboxRuntimeOptions: {
+      platform: process.platform,
+      sandboxExecutable: '__lnwjud_runtime_contract_missing_windows_sandbox__.exe',
+    },
     workspaceInfo: serviceProxy('workspaceInfo', calls, (method) => method === 'list'
       ? [{ id: 'workspace-1', path: process.cwd(), realRootPath: process.cwd() }]
       : { id: 'workspace-1', path: process.cwd(), realRootPath: process.cwd() }),
@@ -41,7 +45,13 @@ export function createRuntimeSuccessServices(calls: string[]): McpApplicationSer
         const filePath = typeof request.path === 'string' ? request.path : 'README.md';
         const startLine = typeof request.startLine === 'number' ? request.startLine : 1;
         const paged = filePath === 'paged.txt';
-        const content = paged && startLine === 1 ? 'one\ntwo' : paged ? 'two' : 'export const smoke = true;\n';
+        const content = filePath === '.lnwjud/project-profile.json'
+          ? '{"language":"typescript"}\n'
+          : filePath === 'package.json'
+            ? '{"packageManager":"pnpm@10.15.0","scripts":{"benchmark":"vitest bench"}}\n'
+            : filePath.toLowerCase().endsWith('skill.md')
+              ? '---\nname: smoke-skill\ndescription: Smoke skill\n---\n\n# Smoke\n'
+              : paged && startLine === 1 ? 'one\ntwo' : paged ? 'two' : 'export const smoke = true;\n';
         const endLine = paged ? 2 : startLine + Math.max(0, content.split(/\r?\n/).filter(Boolean).length - 1);
         return { path: filePath, content, startLine, endLine, encoding: 'utf8', mimeType: 'text/plain', byteLength: Buffer.byteLength(content) };
       }
@@ -77,6 +87,11 @@ export function createRuntimeSuccessServices(calls: string[]): McpApplicationSer
       return processSnapshot;
     }),
     codex: serviceProxy('codex', calls, (method) => method === 'list' ? [] : { ...processSnapshot, codexTaskId: 'codex-1' }),
+    agentSwarm: serviceProxy('agentSwarm', calls, (method) => {
+      if (method === 'list') return { items: [] };
+      if (method === 'result') return { swarmId: '00000000-0000-4000-8000-000000000001', taskId: 'inspect', state: 'completed', text: '', eof: true, outputTruncated: false };
+      return { swarmId: '00000000-0000-4000-8000-000000000001', state: method === 'cancel' ? 'cancelled' : 'running', tasks: [] };
+    }),
     goals: serviceProxy('goals', calls, (method) => method === 'listGoals' ? [] : { goalId: 'goal-1', status: 'active', acquired: true, leaseToken: 'lease-token' }),
     scheduledContinuations: serviceProxy('scheduledContinuations', calls, (method) => method === 'authorizeWorkspaceMutation'
       ? { allowed: true }

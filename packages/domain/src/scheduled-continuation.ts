@@ -210,10 +210,6 @@ export interface ClaimScheduledContinuationRecordRequest {
   readonly leaseSeconds: number;
   readonly earlyToleranceSeconds?: number;
   readonly liveness: ScheduledContinuationWorkerLiveness;
-  /** Deterministic identity used to atomically reserve a fresh one-time ticket when this wake fires into a live worker. */
-  readonly collisionSuccessorId?: string;
-  readonly collisionSuccessorDueAt?: string;
-  readonly collisionSuccessorRequestFingerprint?: string;
   readonly now: string;
 }
 
@@ -227,12 +223,10 @@ export type ClaimScheduledContinuationRecordResult =
       readonly continuation: ScheduledContinuationRecord;
     }
   | {
-      readonly outcome: 'successor_required';
+      readonly outcome: 'reschedule_required';
       readonly goal: GoalRecord;
-      /** The one-time native task that is firing now and must be allowed to complete naturally. */
+      /** The same confirmed native one-time task must be moved to now+2 minutes before this wake returns. */
       readonly continuation: ScheduledContinuationRecord;
-      /** Fresh future ticket reserved atomically after consuming the current wake. */
-      readonly successor: ScheduledContinuationRecord;
       readonly retryAfterSeconds: 120;
     }
   | {

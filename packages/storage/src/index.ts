@@ -11,3 +11,5 @@ export * from './settings-repository.js';
 export * from './workspace-repository.js';
 export * from './checkpoint-cipher.js';
 export * from './backup-service.js';
+export * from './agent-swarm-repository.js';
+export * from './migrations/agent-swarm-migration.js';

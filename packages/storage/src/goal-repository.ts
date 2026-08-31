@@ -1,4 +1,3 @@
-import { createHash } from 'node:crypto';
 import type { DatabaseSync } from 'node:sqlite';
 import {
   GoalStateError,
@@ -42,6 +41,7 @@ import {
 import type { SqliteDatabase } from './database.js';
 
 const MAX_TRACKED_TASKS = 50;
+const SCHEDULE_RECEIPT_TIME_TOLERANCE_MS = 1_000;
 
 interface GoalRow {
   readonly id: string;
@@ -558,6 +558,9 @@ export class SqliteGoalRepository implements GoalRepository, ScheduledContinuati
         if (request.nativeTaskId === undefined || request.nativeTaskId.length === 0 || request.runsOn !== 'cloud') {
           throw new GoalStateError('conflict', 'Created receipt requires a native task ID and confirmed cloud execution');
         }
+        if (request.dueAt === undefined || !sameScheduledInstant(request.dueAt, currentRow.due_at)) {
+          throw new GoalStateError('conflict', 'Created receipt scheduled time does not match the reserved continuation due time');
+        }
         if (currentRow.native_task_id !== null && currentRow.native_task_id !== request.nativeTaskId) {
           throw new GoalStateError('conflict', 'Created receipt cannot replace the stored native task ID');
         }
@@ -569,19 +572,23 @@ export class SqliteGoalRepository implements GoalRepository, ScheduledContinuati
         }
         nativeTaskId = request.nativeTaskId;
       } else if (request.outcome === 'rescheduled') {
+        const expectedDueAt = currentRow.pending_due_at ?? currentRow.due_at;
         if (
           currentRow.native_task_id === null
           || request.nativeTaskId !== currentRow.native_task_id
-          || currentRow.pending_due_at === null
-          || request.dueAt !== currentRow.pending_due_at
+          || request.dueAt === undefined
+          || !sameScheduledInstant(request.dueAt, expectedDueAt)
         ) {
-          throw new GoalStateError('conflict', 'Rescheduled receipt must match the stored native task ID and pending due time');
+          throw new GoalStateError('conflict', 'Rescheduled receipt must match the stored native task ID and absolute due time');
         }
-        if (!['reschedule_required', 'reschedule_failed', 'reschedule_uncertain'].includes(currentRow.status)) {
-          throw new GoalStateError('conflict', 'Continuation has no pending reschedule to confirm');
+        const confirmsPendingUpdate = currentRow.pending_due_at !== null
+          && ['reschedule_required', 'reschedule_failed', 'reschedule_uncertain'].includes(currentRow.status);
+        const confirmsEarlyFireCorrection = currentRow.pending_due_at === null && currentRow.status === 'scheduled';
+        if (!confirmsPendingUpdate && !confirmsEarlyFireCorrection) {
+          throw new GoalStateError('conflict', 'Continuation has no same-task reschedule to confirm');
         }
         nextStatus = 'scheduled';
-        dueAt = currentRow.pending_due_at;
+        dueAt = expectedDueAt;
         pendingDueAt = null;
         rescheduleReason = null;
         rescheduleCount += 1;
@@ -764,22 +771,7 @@ export class SqliteGoalRepository implements GoalRepository, ScheduledContinuati
       const goal = this.requireById(row.goal_id);
       this.assertOwner(goal, request.ownerClientId);
 
-      if (continuation.status === 'claimed') return { outcome: 'already_claimed', continuation, goal };
-      if (continuation.status === 'superseded') {
-        const expectedCollisionFingerprint = request.collisionSuccessorRequestFingerprint ?? createHash('sha256')
-          .update(`collision-successor-v1\0${continuation.continuationId}`)
-          .digest('hex');
-        const liveSuccessor = this.selectLiveScheduledContinuation(goal.id);
-        if (
-          liveSuccessor !== undefined
-          && liveSuccessor.generation === continuation.generation + 1
-          && liveSuccessor.request_fingerprint === expectedCollisionFingerprint
-        ) {
-          const successor = this.toScheduledContinuationRecord(liveSuccessor);
-          if (successor.status === 'prepared' || successor.status === 'create_failed' || successor.status === 'create_uncertain') {
-            return { outcome: 'successor_required', continuation, successor, goal, retryAfterSeconds: COLLISION_RESCHEDULE_SECONDS };
-          }
-        }
+      if (continuation.status === 'claimed' || continuation.status === 'superseded') {
         return { outcome: 'already_claimed', continuation, goal };
       }
       if (continuation.status === 'terminal_noop') return { outcome: 'terminal_noop', continuation, goal };
@@ -797,27 +789,36 @@ export class SqliteGoalRepository implements GoalRepository, ScheduledContinuati
         };
       }
 
-      if (![
-        'prepared', 'scheduled', 'create_uncertain',
-        'reschedule_required', 'reschedule_failed', 'reschedule_uncertain',
-      ].includes(continuation.status)) {
-        throw new GoalStateError('conflict', `Scheduled continuation cannot be claimed from status ${continuation.status}`);
-      }
       if (
-        (continuation.status === 'reschedule_required'
-          || continuation.status === 'reschedule_failed'
-          || continuation.status === 'reschedule_uncertain')
-        && (continuation.pendingDueAt === undefined || continuation.nativeTaskId === undefined)
+        continuation.status === 'reschedule_required'
+        || continuation.status === 'reschedule_failed'
+        || continuation.status === 'reschedule_uncertain'
       ) {
-        throw corrupt('Pending same-task reschedule is missing its native task or due time');
+        if (continuation.pendingDueAt === undefined || continuation.nativeTaskId === undefined) {
+          throw corrupt('Pending same-task reschedule is missing its native task or due time');
+        }
+        return { outcome: 'reschedule_required', continuation, goal, retryAfterSeconds: COLLISION_RESCHEDULE_SECONDS };
+      }
+      if (!['prepared', 'scheduled', 'create_uncertain'].includes(continuation.status)) {
+        throw new GoalStateError('conflict', `Scheduled continuation cannot be claimed from status ${continuation.status}`);
       }
 
       const nowMs = parseIso(request.now, 'request time');
-      const effectiveDueAt = continuation.pendingDueAt ?? continuation.dueAt;
+      const effectiveDueAt = continuation.dueAt;
       const dueMs = parseIso(effectiveDueAt, 'scheduled continuation due_at');
       const earlyToleranceSeconds = request.earlyToleranceSeconds ?? 0;
       if (!Number.isInteger(earlyToleranceSeconds) || earlyToleranceSeconds < 0 || earlyToleranceSeconds > 300) {
         throw new GoalStateError('corrupt', 'Scheduled continuation early tolerance is invalid');
+      }
+      // prepared is reservation-only regardless of timing. Do not let an early wake hide a
+      // missing native host receipt behind not_due.
+      if (continuation.nativeTaskId === undefined || continuation.confirmedRunsOn !== 'cloud') {
+        return {
+          outcome: 'receipt_required',
+          reason: 'native_task_unconfirmed',
+          continuation,
+          goal,
+        };
       }
       if (nowMs + earlyToleranceSeconds * 1000 < dueMs) {
         return {
@@ -825,14 +826,6 @@ export class SqliteGoalRepository implements GoalRepository, ScheduledContinuati
           continuation,
           goal,
           retryAfterSeconds: Math.max(1, Math.ceil((dueMs - nowMs) / 1000)),
-        };
-      }
-      if (continuation.nativeTaskId === undefined || continuation.confirmedRunsOn !== 'cloud') {
-        return {
-          outcome: 'receipt_required',
-          reason: 'native_task_unconfirmed',
-          continuation,
-          goal,
         };
       }
 
@@ -869,7 +862,7 @@ export class SqliteGoalRepository implements GoalRepository, ScheduledContinuati
 
       const leaseExpiresMs = goal.leaseExpiresAt === undefined ? undefined : parseIso(goal.leaseExpiresAt, 'lease expiry');
       if (leaseExpiresMs === undefined || leaseExpiresMs <= nowMs) {
-        if (!confirmedInactive) return this.prepareFreshCollisionSuccessor(request, continuation, goal, undefined);
+        if (!confirmedInactive) return this.prepareSameTaskCollision(request, continuation, goal, undefined);
         return this.claimContinuationLease(
           request,
           continuation,
@@ -892,7 +885,7 @@ export class SqliteGoalRepository implements GoalRepository, ScheduledContinuati
       const probeStartedAt = confirmedInactive
         ? (matchingProbe ? continuation.orphanProbeStartedAt! : request.now)
         : undefined;
-      return this.prepareFreshCollisionSuccessor(request, continuation, goal, probeStartedAt);
+      return this.prepareSameTaskCollision(request, continuation, goal, probeStartedAt);
     });
   }
 
@@ -953,82 +946,40 @@ export class SqliteGoalRepository implements GoalRepository, ScheduledContinuati
     };
   }
 
-  private prepareFreshCollisionSuccessor(
+  private prepareSameTaskCollision(
     request: ClaimScheduledContinuationRecordRequest,
     continuation: ScheduledContinuationRecord,
     goal: GoalRecord,
     probeStartedAt: string | undefined,
   ): ClaimScheduledContinuationRecordResult {
     if (continuation.nativeTaskId === undefined || continuation.confirmedRunsOn !== 'cloud') {
-      throw new GoalStateError('conflict', 'Collision successor requires a confirmed cloud native task ID');
+      throw new GoalStateError('conflict', 'Collision reschedule requires a confirmed cloud native task ID');
     }
-    const collisionIdentity = createHash('sha256')
-      .update(`collision-successor-v1\0${continuation.continuationId}`)
-      .digest('hex');
-    const successorId = request.collisionSuccessorId ?? `wake-${collisionIdentity.slice(0, 48)}`;
-    const successorDueAt = request.collisionSuccessorDueAt ?? addSeconds(request.now, COLLISION_RESCHEDULE_SECONDS);
-    const successorRequestFingerprint = request.collisionSuccessorRequestFingerprint ?? collisionIdentity;
-    if (parseIso(successorDueAt, 'collision successor due_at') <= parseIso(request.now, 'request time')) {
-      throw new GoalStateError('conflict', 'Collision successor due time must be in the future');
-    }
-
+    const pendingDueAt = addSeconds(request.now, COLLISION_RESCHEDULE_SECONDS);
     const changed = this.database.connection.prepare(`
       UPDATE goal_scheduled_continuations
-      SET status = 'superseded', pending_due_at = NULL, reschedule_reason = NULL,
-          last_collision_at = ?, version = version + 1, updated_at = ?, terminal_at = ?,
-          last_detail = 'One-time wake fired into an active worker; a fresh successor ticket was reserved'
-      WHERE id = ? AND version = ? AND status IN (
-        'prepared','scheduled','create_uncertain',
-        'reschedule_required','reschedule_failed','reschedule_uncertain'
-      )
+      SET status = 'reschedule_required', pending_due_at = ?, reschedule_reason = 'collision',
+          last_collision_at = ?, orphan_probe_started_at = ?, orphan_probe_lease_generation = ?, orphan_probe_activity_seq = ?,
+          version = version + 1, updated_at = ?, terminal_at = NULL,
+          last_detail = 'Wake collided with an active or uncertain worker; defer the same native task by two minutes'
+      WHERE id = ? AND version = ? AND status IN ('prepared','scheduled','create_uncertain')
     `).run(
+      pendingDueAt,
       request.now,
-      request.now,
+      probeStartedAt ?? null,
+      probeStartedAt === undefined ? null : goal.leaseGeneration,
+      probeStartedAt === undefined ? null : goal.leaseActivitySeq,
       request.now,
       continuation.continuationId,
       continuation.version,
     );
     if (Number(changed.changes) !== 1) {
-      throw new GoalStateError('conflict', 'Collision wake consumption lost the continuation CAS race');
+      throw new GoalStateError('conflict', 'Same-task collision reschedule lost the continuation CAS race');
     }
-
-    const generation = this.nextScheduledContinuationGeneration(goal.id);
-    this.database.connection.prepare(`
-      INSERT INTO goal_scheduled_continuations (
-        id, goal_id, source_session_id, generation, source_goal_revision, status, occurrence, destination,
-        execution_preference, confirmed_runs_on, due_at, pending_due_at, native_task_id, request_fingerprint,
-        version, reschedule_reason, reschedule_count, last_collision_at, last_rescheduled_at,
-        orphan_probe_started_at, orphan_probe_lease_generation, orphan_probe_activity_seq, orphan_recovery_count,
-        last_detail, created_at, updated_at, claimed_at, terminal_at
-      ) VALUES (
-        ?, ?, ?, ?, ?, 'prepared', 'once', 'current_chat',
-        'cloud', NULL, ?, NULL, NULL, ?,
-        0, NULL, 0, ?, NULL,
-        ?, ?, ?, ?,
-        'Fresh disposable successor reserved after the previous one-time wake fired', ?, ?, NULL, NULL
-      )
-    `).run(
-      successorId,
-      goal.id,
-      request.ownerSessionId,
-      generation,
-      goal.revision,
-      successorDueAt,
-      successorRequestFingerprint,
-      request.now,
-      probeStartedAt ?? null,
-      probeStartedAt === undefined ? null : goal.leaseGeneration,
-      probeStartedAt === undefined ? null : goal.leaseActivitySeq,
-      continuation.orphanRecoveryCount,
-      request.now,
-      request.now,
-    );
-
     return {
-      outcome: 'successor_required',
+      outcome: 'reschedule_required',
       goal: this.requireById(goal.id),
       continuation: this.requireScheduledContinuationById(continuation.continuationId),
-      successor: this.requireScheduledContinuationById(successorId),
       retryAfterSeconds: COLLISION_RESCHEDULE_SECONDS,
     };
   }
@@ -1282,7 +1233,12 @@ export class SqliteGoalRepository implements GoalRepository, ScheduledContinuati
       if (
         row.native_task_id !== null
         && ['scheduled', 'create_uncertain', 'reschedule_required', 'reschedule_failed', 'reschedule_uncertain'].includes(row.status)
-      ) nextStatus = 'cancel_required';
+      ) {
+        const effectiveDueAt = row.pending_due_at ?? row.due_at;
+        nextStatus = new Date(effectiveDueAt).getTime() <= new Date(now).getTime()
+          ? 'cancel_uncertain'
+          : 'cancel_required';
+      }
       else if (row.status === 'cancel_required' || row.status === 'cancel_failed' || row.status === 'cancel_uncertain') {
         return { continuation: this.toScheduledContinuationRecord(row) };
       } else if (row.native_task_id === null && row.status === 'prepared') nextStatus = 'superseded';
@@ -1822,6 +1778,10 @@ function addSeconds(now: string, seconds: number): string {
 
 function minIso(left: string, right: string): string {
   return parseIso(left, 'left time') <= parseIso(right, 'right time') ? left : right;
+}
+
+function sameScheduledInstant(left: string, right: string): boolean {
+  return Math.abs(parseIso(left, 'host scheduled time') - parseIso(right, 'reserved scheduled time')) <= SCHEDULE_RECEIPT_TIME_TOLERANCE_MS;
 }
 
 function validateIso(value: string, label: string): void { parseIso(value, label); }

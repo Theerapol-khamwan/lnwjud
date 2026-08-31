@@ -33,7 +33,7 @@ describe('upgrade runtime multi-session persistence', () => {
     expect(isolated).toMatchObject({ ok: true, value: { session: {}, checkpoints: [] } });
   });
 
-  it('does not synthesize global plugin mutations from independent sessions', async () => {
+  it('merges global plugin mutations from independent sessions through locked shared state', async () => {
     const directory = await mkdtemp(path.join(os.tmpdir(), 'lnwjud-runtime-concurrency-'));
     const runtimeStatePath = path.join(directory, 'upgrade-runtime.json');
     const first = new UpgradeRuntimeService({ runtimeStatePath }, actorA);
@@ -44,11 +44,15 @@ describe('upgrade runtime multi-session persistence', () => {
       second.execute('plugin_install', { name: 'plugin-b' }),
     ]);
     expect(results).toEqual([
-      expect.objectContaining({ ok: true, value: expect.objectContaining({ status: 'disabled', executed: false }) }),
-      expect.objectContaining({ ok: true, value: expect.objectContaining({ status: 'disabled', executed: false }) }),
+      expect.objectContaining({ ok: true, value: expect.objectContaining({ status: 'ready', executed: true, persistence: 'shared_locked_state', name: 'plugin-a' }) }),
+      expect.objectContaining({ ok: true, value: expect.objectContaining({ status: 'ready', executed: true, persistence: 'shared_locked_state', name: 'plugin-b' }) }),
     ]);
     const shared = await new UpgradeRuntimeStateStore(runtimeStatePath, 'audit').readShared();
-    expect(shared.plugins).toEqual([]);
+    expect(shared.plugins).toHaveLength(2);
+    expect(shared.plugins).toEqual(expect.arrayContaining([
+      { name: 'plugin-a', enabled: true },
+      { name: 'plugin-b', enabled: true },
+    ]));
   });
 
   it('keeps shared worktree ledger entries session-owned', async () => {

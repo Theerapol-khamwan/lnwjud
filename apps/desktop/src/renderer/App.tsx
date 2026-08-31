@@ -7,6 +7,7 @@ import type {
   ToolCatalogSnapshot,
   ResolvedRemediation,
   LogLine,
+  LiveLogExportReference,
   LogSource,
   PermissionProfileName,
   PdfProviderInstallResult,
@@ -143,7 +144,7 @@ export function App(): ReactElement {
     }
   }
 
-  async function exportLogSource(source: LogSource, scope: LogScopeSelection, query: string, lineIds: readonly number[], rows: readonly string[]): Promise<void> {
+  async function exportLogSource(source: LogSource, scope: LogScopeSelection, query: string, lines: readonly LiveLogExportReference[]): Promise<void> {
     try {
       await window.lnwjud.exportLogs({
         source,
@@ -151,8 +152,7 @@ export function App(): ReactElement {
         ...(scope.workspaceId === null ? {} : { workspaceId: scope.workspaceId }),
         ...(scope.sessionId === null ? {} : { sessionId: scope.sessionId }),
         ...(query.trim().length === 0 ? {} : { query: query.trim() }),
-        lineIds,
-        rows,
+        lines,
       });
     } catch (cause: unknown) {
       setError(errorMessage(cause, t('error.logExport')));
@@ -450,9 +450,9 @@ export function App(): ReactElement {
     }
   }
 
-  async function exportWorkLog(rows: readonly string[]): Promise<void> {
+  async function exportWorkLog(rowIds: readonly string[]): Promise<void> {
     try {
-      await window.lnwjud.exportWorkLog({ rows });
+      await window.lnwjud.exportWorkLog({ rowIds });
     } catch (cause: unknown) {
       setError(errorMessage(cause, t('error.logExport')));
     }

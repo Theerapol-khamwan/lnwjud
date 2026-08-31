@@ -112,6 +112,22 @@ export function goalTools(context: McpToolContext): McpToolDefinition[] {
         const active = result.value.status === 'active';
         const scheduledContinuation = input.scheduledContinuation ?? 'auto';
         const auto = scheduledContinuation === 'auto';
+        const latestContinuation = active && auto && context.services.scheduledContinuations !== undefined
+          ? await context.services.scheduledContinuations.getScheduledContinuation(context.actor, { goalId: result.value.goalId, latest: true })
+          : undefined;
+        const successor = latestContinuation?.ok ? latestContinuation.value : undefined;
+        const successorConfirmed = successor?.status === 'scheduled'
+          && successor.nativeTaskId !== undefined
+          && successor.confirmedRunsOn === 'cloud';
+        const successorHostState = successorConfirmed
+          ? 'confirmed_cloud'
+          : successor?.status === 'prepared'
+            ? 'prepared_unconfirmed'
+            : successor?.status === 'create_uncertain'
+              ? 'confirmation_uncertain'
+              : successor === undefined
+                ? 'none'
+                : 'not_confirmed';
         return ok({
           ...result.value,
           continuationDirective: {
@@ -119,13 +135,23 @@ export function goalTools(context: McpToolContext): McpToolDefinition[] {
             skillId: 'workspace-agents-skills/lnwjud-scheduled-continuation',
             nativeTaskHostRequired: true,
             userMustPromptAgain: false,
+            successorHostState,
+            successorHandoffReady: successorConfirmed,
             nextRequiredAction: !active
               ? 'terminal_noop'
               : !auto
                 ? 'continue_current_run_without_successor'
-                : result.value.acquired
-                  ? (result.value.lastCheckpoint === null ? 'checkpoint_then_ensure_one_cloud_successor' : 'ensure_one_cloud_successor_then_continue')
-                  : 'do_not_mutate_retry_or_use_existing_successor',
+                : !result.value.acquired
+                  ? 'do_not_mutate_retry_or_use_existing_successor'
+                  : result.value.lastCheckpoint === null
+                    ? 'checkpoint_then_ensure_one_cloud_successor'
+                    : successorConfirmed
+                      ? 'continue_with_confirmed_cloud_successor'
+                      : successor?.status === 'prepared'
+                        ? 'continue_current_run_and_create_native_receipt_before_yield'
+                        : successor?.status === 'create_uncertain'
+                          ? 'continue_current_run_and_reconcile_native_receipt_before_yield'
+                          : 'continue_current_run_and_prepare_cloud_successor_before_yield',
             stopOnlyWhen: 'goal_terminal_or_scheduling_explicitly_disabled',
           },
         });

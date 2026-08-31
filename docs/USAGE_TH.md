@@ -1,8 +1,8 @@
-# คู่มือใช้งาน lnwjud v4.31.0 (ภาษาไทย)
+# คู่มือใช้งาน lnwjud v4.44.0 (ภาษาไทย)
 
 lnwjud คือ Windows-first local AI-agent runtime / MCP gateway สำหรับให้ ChatGPT, Codex และ MCP client อื่นทำงานกับเครื่อง Windows ของคุณ เช่น อ่าน/ค้น/แก้ไฟล์, Git, รันโปรเซส, Windows UI automation, WSL, Office และเครื่องมือพัฒนาอื่น ๆ โดยงานจริงยังทำบนเครื่องของคุณ
 
-> สำหรับผู้ใช้ Windows x64 ที่ใช้ `lnwjud-Setup-4.31.0.exe` หรือ `lnwjud-Portable-4.31.0.exe` **ไม่ต้องติดตั้ง Node.js และไม่ต้องดาวน์โหลด `tunnel-client.exe` เอง** ตัว release รวม private Node.js runtime และ official OpenAI `tunnel-client v0.0.12` มาให้แล้ว
+> สำหรับผู้ใช้ Windows x64 ที่ใช้ `lnwjud-Setup-4.44.0.exe` หรือ `lnwjud-Portable-4.44.0.exe` **ไม่ต้องติดตั้ง Node.js และไม่ต้องดาวน์โหลด `tunnel-client.exe` เอง** ตัว release รวม private Node.js runtime และ official OpenAI `tunnel-client v0.0.12` มาให้แล้ว
 
 ---
 
@@ -15,7 +15,7 @@ lnwjud คือ Windows-first local AI-agent runtime / MCP gateway สำหร
 สำหรับ v4.11.0 ตัวโปรแกรมแยก compatibility profile ตามระบบ: Windows 10 x64 ใช้ software rendering เป็นค่าเริ่มต้นเพื่อลดปัญหาหน้าจอ Electron/Chromium ค้าง, วาดไม่ครบ หรือบาง control กดไม่ได้บน GPU/driver รุ่นเก่า ส่วน Windows 11 x64 ยังใช้ hardware acceleration ตามปกติ
 
 งานภายในโปรแกรมที่ต้องเรียก PowerShell ใช้ `powershell.exe` ที่มากับ Windows ไม่บังคับให้ติดตั้ง PowerShell 7 และ child process ภายในถูกเปิดแบบซ่อนหน้าต่าง console. ระบบยังจำกัด durable background task พร้อมกันไว้ 16 งาน และ managed process พร้อมกันไว้ 24 งาน เพื่อกันกรณีหลายแชทสั่งงานพร้อมกันจนเกิด `conhost.exe` จำนวนมาก/CPU เต็ม
-- `lnwjud-Setup-4.31.0.exe` หรือ `lnwjud-Portable-4.31.0.exe`
+- `lnwjud-Setup-4.44.0.exe` หรือ `lnwjud-Portable-4.44.0.exe`
 - OpenAI Platform tunnel ที่ผูกกับ ChatGPT workspace ที่จะใช้
 - Runtime API key ที่มีสิทธิ์ **Tunnels Read + Use**
 - อินเทอร์เน็ตขาออก HTTPS สำหรับ Secure MCP Tunnel
@@ -35,7 +35,7 @@ Node.js, pnpm และ Git จำเป็นเฉพาะกรณีพั�
 
 ### แบบแนะนำ: Installer
 
-1. ดาวน์โหลด `lnwjud-Setup-4.31.0.exe` จาก GitHub Releases
+1. ดาวน์โหลด `lnwjud-Setup-4.44.0.exe` จาก GitHub Releases
 2. ติดตั้งตามปกติ
 3. เปิด **lnwjud Agent Control Center**
 4. เพิ่ม Project/Workspace ที่ต้องการใช้งาน
@@ -43,7 +43,7 @@ Node.js, pnpm และ Git จำเป็นเฉพาะกรณีพั�
 
 ### แบบไม่ต้องติดตั้ง: Portable EXE
 
-1. ดาวน์โหลด `lnwjud-Portable-4.31.0.exe`
+1. ดาวน์โหลด `lnwjud-Portable-4.44.0.exe`
 2. วางไว้ในโฟลเดอร์ที่ต้องการแล้วเปิดไฟล์ได้ทันที ไม่ต้องรัน installer
 3. เพิ่ม Project/Workspace และตั้ง Tunnel เหมือนเวอร์ชันติดตั้ง
 
@@ -163,7 +163,7 @@ v4.11.0 เพิ่มเครื่องมือ `run_goal`, `get_goal`, `c
 
 ### ทำ successor แบบ one-time โดยไม่ให้งานชนกัน
 
-ถ้างานยาวและผู้ใช้เปิดใช้ rolling Scheduled Continuation, `prepare_scheduled_continuation` จะ checkpoint และคืนคำขอสำหรับ native ChatGPT Scheduled Task แบบ **one-time/cloud โดยเลือกเวลาแบบ adaptive 2–25 นาที**. ถ้าไม่ระบุ delay ระบบจะใช้ **+2 นาที** แบบ fail-safe; 5/10/25 นาทีต้องเลือกโดยเจตนาเฉพาะตอนที่ worker ปัจจุบันจะทำงานต่อจริงเท่านั้น โดย 25 นาทีเป็นเพียงเพดาน watchdog สำหรับงานที่ยังเปิดกว้าง. ถ้า host turn กำลังจะคืน control หรือหลัง response นี้จะไม่มี worker ทำงานต่อ ต้องเตรียม successor ที่ +2 โดยตรง หรือเลื่อน **task เดิมที่ยืนยันแล้ว** เป็น `now+2` ก่อนคืน. Scheduled Task มีไว้กู้ chain หาก turn หาย ไม่ใช่เหตุให้ worker ปัจจุบันหยุดทำงานก่อนเวลา. หลังสร้างต้อง record native task ID พร้อม `runsOn: cloud` ทันที และห้ามคืน control ขณะ durable continuation ยังมีแค่สถานะ `prepared`.
+ถ้างานยาวและผู้ใช้เปิดใช้ rolling Scheduled Continuation, `prepare_scheduled_continuation` จะ checkpoint และคืนคำขอสำหรับ native ChatGPT Scheduled Task แบบ **one-time/cloud โดยเลือกเวลาแบบ adaptive 2–25 นาที**. ถ้าไม่ระบุ delay ระบบจะใช้ **+2 นาที** แบบ fail-safe; 5/10/25 นาทีต้องเลือกโดยเจตนาเฉพาะตอนที่ worker ปัจจุบันจะทำงานต่อจริงเท่านั้น โดย 25 นาทีเป็นเพียงเพดาน watchdog สำหรับงานที่ยังเปิดกว้าง. ถ้า host turn กำลังจะคืน control หรือหลัง response นี้จะไม่มี worker ทำงานต่อ ต้องเตรียม successor ที่ +2 โดยตรง หรือเลื่อน **task เดิมที่ยืนยันแล้ว** เป็น `now+2` ก่อนคืน. Scheduled Task มีไว้กู้ chain หาก turn หาย ไม่ใช่เหตุให้ worker ปัจจุบันหยุดทำงานก่อนเวลา. หลัง `prepare` worker ที่ยังถือ lease ถูกต้องสามารถทำ fenced work ต่อได้แม้ native create ยังล้มเหลว/ไม่แน่นอน โดยต้อง record ความล้มเหลวตามจริงและ lease ยังถูก cap ด้วย handoff deadline; สิ่งที่ห้ามคือคืน control/handoff ขณะ durable continuation ยังไม่มี confirmed cloud successor. Native VEVENT ใช้ explicit IANA `TZID` ขณะที่ `dueAt` เป็น canonical absolute instant เพื่อไม่ให้ host ตีความ UTC `Z` เป็น local wall-clock ผิดเวลา. หลังสร้างต้อง record native task ID พร้อม `runsOn: cloud` ทันที.
 
 เมื่อ Scheduled turn ใหม่ตื่นขึ้น ต้อง `claim_scheduled_continuation` ก่อน mutation; ระบบยอมรับ native wake jitter ที่มาก่อน due ไม่เกิน 120 วินาทีเพื่อไม่ให้ one-time wake สูญหาย. ถ้า metadata จาก ChatGPT host ยืนยันภายหลังว่า native one-time task ตัวเดิมรัน/ถูก consume ไปแล้ว แต่ durable continuation ยังเป็น pending/live เพราะ claim ไม่จบ ให้บันทึก `consumed` พร้อม exact native host run receipt; สถานะนี้แปลเพียงว่า task ไม่ได้รออยู่แล้ว ไม่ได้แปลว่า goal complete และถ้า goal ยัง active ให้สร้าง successor ใหม่หลัง reconcile. ทุก rolling-mode mutation ควรแนบ `goalLease` token/generation ของ run ปัจจุบัน; เมื่อ Full Bypass ปิด token รุ่นเก่าหรือ proof ที่หายจะถูกปฏิเสธแม้ ChatGPT reuse MCP session เดิม. Full Bypass เปิดอยู่จะข้ามการบังคับ `goalLease` ที่ registry แต่ไม่ได้โอน ownership ของ scheduled goal ดังนั้น workflow แบบ scheduled ยังต้อง claim/แนบ proof เพื่อกันงานชนกัน. ถ้าชน worker จริง, lease หมดอายุแต่มี `blocking_job` running หรือหลักฐาน liveness ยังไม่แน่นอน ให้ consume wake แล้วจอง **successor ใหม่** ที่ `now+2 นาที`; ห้าม re-arm task ที่กำลัง firing. ถ้า lease ค้างแต่ไม่มี worker จริง จะ takeover ได้หลัง trustworthy no-worker probe สองรอบห่างอย่างน้อย 120 วินาทีและ CAS evidence ไม่เปลี่ยน; unknown evidence ห้าม force-unlock.
 
@@ -292,8 +292,8 @@ corepack pnpm@10.15.0 package:windows
 ไฟล์ที่ได้จะอยู่ที่:
 
 ```text
-apps/desktop/dist/installers/lnwjud-Setup-4.31.0.exe
-apps/desktop/dist/installers/lnwjud-Portable-4.31.0.exe
+apps/desktop/dist/installers/lnwjud-Setup-4.44.0.exe
+apps/desktop/dist/installers/lnwjud-Portable-4.44.0.exe
 apps/desktop/dist/installers/latest.yml
 apps/desktop/dist/installers/portable.yml
 ```

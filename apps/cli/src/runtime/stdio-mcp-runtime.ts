@@ -2,6 +2,7 @@ import { existsSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
+  AgentSwarmService,
   CheckpointService,
   CodexService,
   FileService,
@@ -21,7 +22,7 @@ import {
   WorkspaceQueryService,
   type FileActor,
 } from '@lnwjud/application';
-import { AuditService } from '@lnwjud/audit';
+import { AuditService, decodeActivityTargetReference } from '@lnwjud/audit';
 import {
   BrowserCdpBackend,
   HealthCapabilityBackend,
@@ -37,6 +38,7 @@ import {
   WindowsOcrProcessBridge,
   createOcrPackageIdentityProbe,
   WINDOWS_CAPABILITY_BRIDGE_SHA256,
+  WINDOWS_CAPABILITY_BRIDGE_SIZE_BYTES,
   WslCapabilityBackend,
   WslFilesystemCapabilityBackend,
 } from '@lnwjud/capabilities';
@@ -51,6 +53,7 @@ import { ActivityTracker, RuntimeGoalManagedTaskStateReader, SharedActivitySnaps
 import { permissionProfiles, type PermissionProfile, type PermissionProfileName } from '@lnwjud/permissions';
 import {
   AesGcmCheckpointCipher,
+  SqliteAgentSwarmRepository,
   SqliteAuditRepository,
   SqliteCheckpointRepository,
   SqliteDatabase,
@@ -147,6 +150,7 @@ export function createStdioMcpRuntime(
     auditService,
     profileProvider,
   });
+  const agentSwarmService = new AgentSwarmService(new SqliteAgentSwarmRepository(database), codexService);
   const capabilityRuntime = createStdioCapabilityService(dataPath, workspace.realRootPath, async () => {
     const listed = await workspaceRepository.list();
     const roots = listed
@@ -183,30 +187,7 @@ export function createStdioMcpRuntime(
       await (await sharedActivityLease)?.record(event);
     },
   };
-  const durableActivitySink = composeActivitySinks([
-    createFileActivitySink(mcpActivityLogPath(dataPath)),
-    {
-      async record(event: ActivitySinkEvent): Promise<void> {
-        await auditService.recordMcpTool({
-          actorId: actor.clientId,
-          actorName: actor.clientName,
-          ...(event.workspaceId === undefined ? {} : { workspaceId: event.workspaceId }),
-          ...(event.sessionId === undefined ? {} : { sessionId: event.sessionId }),
-          toolName: event.toolName,
-          callId: event.callId,
-          phase: event.phase,
-          ...(event.targetSummary === undefined ? {} : { targetSummary: event.targetSummary }),
-          resultCode: event.resultCode,
-          ...(event.resultMessage === undefined ? {} : { resultMessage: event.resultMessage }),
-          ...(event.traceId === undefined ? {} : { traceId: event.traceId }),
-          ...(event.traceParent === undefined ? {} : { traceParent: event.traceParent }),
-          ...(event.authorizationMode === undefined ? {} : { authorizationMode: event.authorizationMode }),
-          durationMs: event.durationMs,
-          timestamp: event.timestamp,
-        });
-      },
-    },
-  ]);
+  const durableActivitySink = createFileActivitySink(mcpActivityLogPath(dataPath));
   const activityTracker = new ActivityTracker({
     async record(event: ActivitySinkEvent): Promise<void> {
       // Publish starts before slower durable evidence so updater quiet-time
@@ -214,6 +195,28 @@ export function createStdioMcpRuntime(
       await composeActivitySinks(event.phase === 'started'
         ? [sharedActivitySink, durableActivitySink]
         : [durableActivitySink, sharedActivitySink]).record(event);
+    },
+  }, undefined, {
+    async record(event: ActivitySinkEvent, detail): Promise<void> {
+      await auditService.recordMcpTool({
+        actorId: actor.clientId,
+        actorName: actor.clientName,
+        ...(event.workspaceId === undefined ? {} : { workspaceId: event.workspaceId }),
+        ...(event.sessionId === undefined ? {} : { sessionId: event.sessionId }),
+        toolName: event.toolName,
+        callId: event.callId,
+        phase: event.phase,
+        ...(event.targetSummary === undefined ? {} : { targetSummary: event.targetSummary }),
+        targetDetail: event.targetDetail ?? decodeActivityTargetReference(undefined, event.targetSummary),
+        ...(detail === undefined ? {} : { activityTargetDetail: detail }),
+        resultCode: event.resultCode,
+        ...(event.resultMessage === undefined ? {} : { resultMessage: event.resultMessage }),
+        ...(event.traceId === undefined ? {} : { traceId: event.traceId }),
+        ...(event.traceParent === undefined ? {} : { traceParent: event.traceParent }),
+        ...(event.authorizationMode === undefined ? {} : { authorizationMode: event.authorizationMode }),
+        durationMs: event.durationMs,
+        timestamp: event.timestamp,
+      });
     },
   });
   const services: McpApplicationServices = {
@@ -247,6 +250,7 @@ export function createStdioMcpRuntime(
     git: gitService,
     process: processService,
     codex: codexService,
+    agentSwarm: agentSwarmService,
   };
 
   return {
@@ -319,7 +323,12 @@ function createStdioCapabilityService(
   });
   const windowsBridgeScript = capabilityBridgeScriptPath();
   const expectedScriptSha256 = capabilityBridgeExpectedSha256();
-  const windowsBridge = new PowerShellWindowsCapabilityBridge({ scriptPath: windowsBridgeScript, expectedScriptSha256 });
+  const expectedScriptSizeBytes = capabilityBridgeExpectedSizeBytes();
+  const windowsBridge = new PowerShellWindowsCapabilityBridge({
+    scriptPath: windowsBridgeScript,
+    expectedScriptSha256,
+    ...(expectedScriptSizeBytes === undefined ? {} : { expectedScriptSizeBytes }),
+  });
   const nativeOptions = { allowedRootsProvider: capabilityRootsProvider, unrestricted };
   const accessibilityBackend = new WindowsNativeCapabilityBackend('accessibility', windowsBridge);
   const nativeVisionBackend = new WindowsNativeCapabilityBackend('vision', windowsBridge);
@@ -427,6 +436,13 @@ function capabilityBridgeExpectedSha256(): string {
   if (configuredScript === undefined || configuredScript.trim().length === 0) return WINDOWS_CAPABILITY_BRIDGE_SHA256;
   const configuredHash = process.env.LNWJUD_CAPABILITY_BRIDGE_SHA256?.trim().toLowerCase();
   return configuredHash !== undefined && /^[0-9a-f]{64}$/.test(configuredHash) ? configuredHash : 'missing';
+}
+
+function capabilityBridgeExpectedSizeBytes(): number | undefined {
+  const configuredScript = process.env.LNWJUD_CAPABILITY_BRIDGE_SCRIPT;
+  if (configuredScript === undefined || configuredScript.trim().length === 0) return WINDOWS_CAPABILITY_BRIDGE_SIZE_BYTES;
+  const configuredSize = Number.parseInt(process.env.LNWJUD_CAPABILITY_BRIDGE_SIZE_BYTES ?? '', 10);
+  return Number.isSafeInteger(configuredSize) && configuredSize > 0 ? configuredSize : undefined;
 }
 
 function windowsOcrHelperPath(): string | undefined {

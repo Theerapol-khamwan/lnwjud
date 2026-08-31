@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, type ReactElement } from 'react';
 import { createPortal } from 'react-dom';
 import type { ResolvedRemediation, ToolCatalogItem, UiLocale } from '@lnwjud/ipc-contracts';
 import { formatDateTime } from '../../date-time.js';
+import { toolReadinessLabel } from './tool-readiness-copy.js';
 
 interface ToolDetailModalProps {
   readonly locale: UiLocale;
@@ -60,7 +61,7 @@ export function ToolDetailModal({ locale, item, remediations, onClose, onRemedia
             <p className="eyebrow">{item.origin === 'external_mcp' ? `MCP · ${item.serverName ?? ''}` : 'lnwjud'}</p>
             <div className="tool-modal-title-line">
               <h2 ref={titleRef} tabIndex={-1} id="tool-detail-title">{item.title}</h2>
-              <span className={`tool-readiness-badge tool-readiness-${item.readiness}`}>{readinessLabel(locale, item.readiness)}</span>
+              <span className={`tool-readiness-badge tool-readiness-${item.readiness}`}>{toolReadinessLabel(locale, item)}</span>
             </div>
             <code>{item.name}</code>
           </div>
@@ -69,7 +70,9 @@ export function ToolDetailModal({ locale, item, remediations, onClose, onRemedia
         <div className="tool-modal-scroll">
           <p className="tool-modal-description">{item.longDescription}</p>
           <dl className="tool-facts">
-            <div><dt>{locale === 'th' ? 'สถานะ' : 'Status'}</dt><dd><span className={`tool-readiness-badge tool-readiness-${item.readiness}`}>{readinessLabel(locale, item.readiness)}</span></dd></div>
+            <div><dt>{locale === 'th' ? 'สถานะ' : 'Status'}</dt><dd><span className={`tool-readiness-badge tool-readiness-${item.readiness}`}>{toolReadinessLabel(locale, item)}</span></dd></div>
+            {item.deliveryState === undefined ? null : <div><dt>{locale === 'th' ? 'สถานะการส่งมอบ' : 'Delivery state'}</dt><dd>{item.deliveryState}</dd></div>}
+            {item.available === undefined ? null : <div><dt>{locale === 'th' ? 'มี runtime แล้ว' : 'Runtime available'}</dt><dd>{booleanLabel(locale, item.available)}</dd></div>}
             <div><dt>{locale === 'th' ? 'สิทธิ์ที่ประกาศ' : 'Declared permission'}</dt><dd>{item.declaredPermission}</dd></div>
             <div><dt>{locale === 'th' ? 'ผลจากโปรไฟล์' : 'Profile decision'}</dt><dd>{item.profileDecision}</dd></div>
             <div><dt>{locale === 'th' ? 'ความเสี่ยง' : 'Risk mode'}</dt><dd>{item.riskMode}</dd></div>
@@ -90,18 +93,6 @@ export function ToolDetailModal({ locale, item, remediations, onClose, onRemedia
     </div>
   );
   return typeof document === 'undefined' ? modal : createPortal(modal, document.body);
-}
-
-function readinessLabel(locale: UiLocale, readiness: ToolCatalogItem['readiness']): string {
-  const labels: Record<ToolCatalogItem['readiness'], readonly [string, string]> = {
-    ready: ['พร้อม', 'Ready'],
-    needs_setup: ['ต้องตั้งค่า', 'Needs setup'],
-    blocked: ['ถูกบล็อก', 'Blocked'],
-    disabled: ['ปิดใช้งาน', 'Disabled'],
-    unsupported: ['ไม่รองรับ', 'Unsupported'],
-    unknown: ['ไม่ทราบ', 'Unknown'],
-  };
-  return labels[readiness][locale === 'th' ? 0 : 1];
 }
 
 function booleanLabel(locale: UiLocale, value: boolean): string {

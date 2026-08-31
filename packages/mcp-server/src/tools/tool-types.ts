@@ -2,6 +2,7 @@ import { err, ok, type InvocationAuthorization, type Result } from '@lnwjud/doma
 import type { CapabilityService } from '@lnwjud/capabilities';
 import type { ExtensionsService } from '@lnwjud/extensions';
 import type {
+  AgentSwarmService,
   ApplyPatchRequest,
   CheckpointService,
   CodexService,
@@ -48,6 +49,8 @@ export interface McpRuntimeTiming {
 export interface McpApplicationServices {
   readonly runtimeStatePath?: string;
   readonly runtimeTiming?: () => McpRuntimeTiming;
+  /** Test-only deterministic override for Windows Sandbox discovery; production runtimes leave this undefined. */
+  readonly sandboxRuntimeOptions?: { readonly platform?: NodeJS.Platform; readonly sandboxExecutable?: string };
   readonly localProviders?: () => { readonly pdfProvider?: string; readonly lspCommands?: Readonly<Record<string, string>> };
   readonly capabilities?: CapabilityService;
   readonly extensions?: ExtensionsService;
@@ -67,6 +70,7 @@ export interface McpApplicationServices {
   readonly git?: Pick<GitService, 'status' | 'diff' | 'log' | 'run'>;
   readonly process?: Pick<ProcessService, 'start' | 'list' | 'status' | 'logs' | 'stop' | 'previewProjectCommand' | 'startProjectCommand'>;
   readonly codex?: Pick<CodexService, 'status' | 'run' | 'list' | 'taskStatus' | 'taskLogs' | 'stop'>;
+  readonly agentSwarm?: Pick<AgentSwarmService, 'start' | 'status' | 'result' | 'cancel' | 'list'>;
 }
 
 export interface McpToolAnnotations {

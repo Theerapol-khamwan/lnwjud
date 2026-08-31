@@ -1,8 +1,10 @@
-import { useEffect, useMemo, useRef, useState, type ReactElement } from 'react';
-import { canonicalWorkspaceScopeId, workspaceScopeMatches, type LogLevel, type LogLine, type LogSource, type WorkspaceSummary } from '@lnwjud/ipc-contracts';
+import { useEffect, useMemo, useReducer, useRef, useState, type ReactElement } from 'react';
+import { canonicalWorkspaceScopeId, workspaceScopeMatches, type ActivityTargetDetail, type LiveLogExportReference, type LogLevel, type LogLine, type LogSource, type WorkspaceSummary } from '@lnwjud/ipc-contracts';
 import { copyTextToClipboard } from '../../clipboard.js';
 import type { MessageKey } from '../../i18n/messages.js';
 import { formatLogExportDateTime, formatLogUiTime } from '../../log-timestamp.js';
+import { ExpandableTargetDetail } from '../logs/ExpandableTargetDetail.js';
+import { activeDetailMatchIds, createDetailSearchState, normalizeDetailSearchQuery, reduceDetailSearchState } from '../logs/detail-search-state.js';
 
 export type LogTab = LogSource;
 export type LogEventKind = 'task' | 'result' | 'error';
@@ -29,11 +31,20 @@ interface LogStreamPanelProps {
   readonly copyLabel?: string;
   readonly copiedLabel?: string;
   readonly onClear: (scope: LogScopeSelection) => Promise<void>;
-  readonly onExport: (scope: LogScopeSelection, query: string, lineIds: readonly number[], rows: readonly string[]) => Promise<void>;
+  readonly onExport: (scope: LogScopeSelection, query: string, lines: readonly LiveLogExportReference[]) => Promise<void>;
+  readonly onResolveTargetDetail?: (detailRef: string) => Promise<ActivityTargetDetail | null>;
+  readonly onSearchTargetDetails?: (query: string, candidates: readonly { readonly id: string; readonly detailRef: string | null }[]) => Promise<readonly string[]>;
   readonly workspaces?: readonly WorkspaceSummary[];
   readonly workspaceLabel?: string;
   readonly sessionLabel?: string;
   readonly scopeAllLabel?: string;
+  readonly showMoreLabel?: string;
+  readonly showLessLabel?: string;
+  readonly detailHeadingLabel?: string;
+  readonly detailLoadingLabel?: string;
+  readonly detailErrorLabel?: string;
+  readonly detailEmptyLabel?: string;
+  readonly legacyIncompleteLabel?: string;
 }
 
 
@@ -43,8 +54,11 @@ export function LogStreamPanel(props: LogStreamPanelProps): ReactElement {
   const [paused, setPaused] = useState(false);
   const [filter, setFilter] = useState('');
   const [copiedId, setCopiedId] = useState<number | null>(null);
+  const [copyErrorId, setCopyErrorId] = useState<number | null>(null);
   const [workspaceId, setWorkspaceId] = useState<string | null>(null);
   const [sessionId, setSessionId] = useState<string | null>(null);
+  const [detailSearchState, dispatchDetailSearch] = useReducer(reduceDetailSearchState, undefined, createDetailSearchState);
+  const detailSearchGeneration = useRef(0);
   const streamRef = useRef<HTMLDivElement | null>(null);
   const workspaceOptions = useMemo(() => collectWorkspaceOptions(props.lines, props.workspaces), [props.lines, props.workspaces]);
   const sessionOptions = useMemo(() => collectSessionOptions(props.lines, workspaceId, props.workspaces), [props.lines, workspaceId, props.workspaces]);
@@ -52,7 +66,27 @@ export function LogStreamPanel(props: LogStreamPanelProps): ReactElement {
     if (sessionId !== null && !sessionOptions.includes(sessionId)) setSessionId(null);
   }, [sessionId, sessionOptions]);
   const scope = useMemo<LogScopeSelection>(() => ({ workspaceId, sessionId }), [workspaceId, sessionId]);
-  const visible = useMemo(() => visibleLogLines(props.lines, scope, filter, props.workspaces), [props.lines, scope, filter, props.workspaces]);
+  const searchCandidates = useMemo(() => filterLogLinesByScope(props.lines, scope, '', props.workspaces), [props.lines, scope, props.workspaces]);
+  useEffect(() => {
+    const query = normalizeDetailSearchQuery(filter);
+    const generation = ++detailSearchGeneration.current;
+    if (query.length === 0 || props.onSearchTargetDetails === undefined) {
+      dispatchDetailSearch({ type: 'reset', generation });
+      return;
+    }
+    dispatchDetailSearch({ type: 'start', generation, query });
+    const timeout = window.setTimeout(() => {
+      const candidates = searchCandidates.map((line) => ({ id: liveLineIdentity(line), detailRef: detailRefForLine(line) }));
+      void props.onSearchTargetDetails?.(query, candidates).then((ids) => {
+        dispatchDetailSearch({ type: 'success', generation, query, matchingIds: ids });
+      }).catch(() => {
+        dispatchDetailSearch({ type: 'failure', generation, query });
+      });
+    }, 180);
+    return (): void => window.clearTimeout(timeout);
+  }, [filter, props.onSearchTargetDetails, searchCandidates]);
+  const hiddenMatches = activeDetailMatchIds(detailSearchState, filter);
+  const visible = useMemo(() => visibleLogLines(props.lines, scope, filter, props.workspaces, hiddenMatches), [props.lines, scope, filter, props.workspaces, hiddenMatches]);
 
   useEffect(() => {
     if (paused) return;
@@ -62,7 +96,15 @@ export function LogStreamPanel(props: LogStreamPanelProps): ReactElement {
   }, [visible.length, paused]);
 
   async function copyLine(line: LogLine): Promise<void> {
-    if (!(await copyTextToClipboard(formatLogCopyText(line)))) return;
+    const detailRef = detailRefForLine(line);
+    const detail = detailRef === null || props.onResolveTargetDetail === undefined ? null : await props.onResolveTargetDetail(detailRef).catch(() => null);
+    const needsFullDetail = line.targetDetail !== undefined && line.targetDetail.itemCount > line.targetDetail.preview.length;
+    if (needsFullDetail && detail === null) {
+      setCopyErrorId(line.id);
+      return;
+    }
+    setCopyErrorId(null);
+    if (!(await copyTextToClipboard(formatLogCopyText(line, detail)))) return;
     setCopiedId(line.id);
     window.setTimeout(() => setCopiedId((current) => current === line.id ? null : current), 1_200);
   }
@@ -78,7 +120,7 @@ export function LogStreamPanel(props: LogStreamPanelProps): ReactElement {
           <button type="button" disabled={sessionId === null} onClick={() => { if (sessionId !== null) void props.onClear({ workspaceId: null, sessionId }); }}>{props.clearSessionLabel}</button>
           <button type="button" disabled={workspaceId === null} onClick={() => { if (workspaceId !== null) void props.onClear({ workspaceId, sessionId: null }); }}>{props.clearWorkspaceLabel}</button>
           <button type="button" onClick={() => { void props.onClear({ workspaceId: null, sessionId: null }); }}>{props.clearLabel}</button>
-          <button type="button" onClick={() => { void props.onExport(scope, filter, visible.map((line) => line.id), visible.map(formatLogCopyText)); }}>{props.exportLabel}</button>
+          <button type="button" onClick={() => { void props.onExport(scope, filter, visible.map((line) => ({ lineId: line.id, correlationRef: detailRefForLine(line) }))); }}>{props.exportLabel}</button>
         </div>
       </div>
       <div className="scope-filter-bar">
@@ -105,6 +147,8 @@ export function LogStreamPanel(props: LogStreamPanelProps): ReactElement {
         onChange={(event) => setFilter(event.target.value)}
         aria-label={props.filterPlaceholder}
       />
+      {detailSearchState.status === 'loading' ? <p className="log-detail-search-status" role="status">{props.detailLoadingLabel ?? 'Searching complete details…'}</p> : null}
+      {detailSearchState.status === 'error' ? <p className="log-detail-search-status log-detail-error" role="alert">{props.detailErrorLabel ?? 'Complete details could not be searched.'}</p> : null}
       {props.source === 'tunnel' && !props.tunnelLogExists ? (
         <p className="hint">
           {props.waitingLabel}
@@ -132,6 +176,21 @@ export function LogStreamPanel(props: LogStreamPanelProps): ReactElement {
               >
                 {copiedId === line.id ? '✓' : '⧉'}
               </button>
+              {copyErrorId === line.id ? <p className="log-detail-error row-copy-error" role="alert">{props.detailErrorLabel ?? 'Complete details are unavailable; nothing was copied.'}</p> : null}
+              {line.targetDetail === undefined ? null : (
+                <ExpandableTargetDetail
+                  reference={line.targetDetail}
+                  legacySummary={line.text}
+                  showMoreLabel={props.showMoreLabel ?? 'Show more'}
+                  showLessLabel={props.showLessLabel ?? 'Show less'}
+                  detailHeadingLabel={props.detailHeadingLabel ?? 'Target items'}
+                  loadingLabel={props.detailLoadingLabel ?? 'Loading complete details…'}
+                  errorLabel={props.detailErrorLabel ?? 'Complete details are unavailable.'}
+                  emptyLabel={props.detailEmptyLabel ?? 'No target items.'}
+                  legacyIncompleteLabel={props.legacyIncompleteLabel ?? 'Older log: the omitted items were not retained.'}
+                  {...(props.onResolveTargetDetail === undefined ? {} : { loadDetail: props.onResolveTargetDetail })}
+                />
+              )}
             </div>
           );
         })}
@@ -144,17 +203,17 @@ export function filterLines(lines: readonly LogLine[], source: LogSource): reado
   return lines.filter((line) => line.source === source);
 }
 
-export function filterLogLinesByScope(lines: readonly LogLine[], scope: LogScopeSelection, search = '', workspaces: readonly WorkspaceSummary[] = []): readonly LogLine[] {
+export function filterLogLinesByScope(lines: readonly LogLine[], scope: LogScopeSelection, search = '', workspaces: readonly WorkspaceSummary[] = [], hiddenMatches: ReadonlySet<string> = new Set()): readonly LogLine[] {
   const needle = search.trim().toLowerCase();
   return lines.filter((line) => {
     if (scope.workspaceId !== null && !workspaceScopeMatches(workspaces, line.workspaceId, scope.workspaceId)) return false;
     if (scope.sessionId !== null && line.sessionId !== scope.sessionId) return false;
-    return needle.length === 0 || line.text.toLowerCase().includes(needle);
+    return needle.length === 0 || line.text.toLowerCase().includes(needle) || hiddenMatches.has(liveLineIdentity(line));
   });
 }
 
-export function visibleLogLines(lines: readonly LogLine[], scope: LogScopeSelection, search = '', workspaces: readonly WorkspaceSummary[] = []): readonly LogLine[] {
-  return [...filterLogLinesByScope(lines, scope, search, workspaces)].sort(compareLogLinesNewestFirst).slice(0, MAX_VISIBLE_LINES);
+export function visibleLogLines(lines: readonly LogLine[], scope: LogScopeSelection, search = '', workspaces: readonly WorkspaceSummary[] = [], hiddenMatches: ReadonlySet<string> = new Set()): readonly LogLine[] {
+  return [...filterLogLinesByScope(lines, scope, search, workspaces, hiddenMatches)].sort(compareLogLinesNewestFirst).slice(0, MAX_VISIBLE_LINES);
 }
 
 function collectWorkspaceOptions(lines: readonly LogLine[], workspaces: readonly WorkspaceSummary[] | undefined): readonly { readonly id: string; readonly label: string }[] {
@@ -173,7 +232,9 @@ function collectWorkspaceOptions(lines: readonly LogLine[], workspaces: readonly
   for (const workspace of canonicalWorkspaces) {
     const key = workspace.displayName.trim().toLocaleLowerCase();
     const duplicateName = (nameCounts.get(key) ?? 0) > 1;
-    labels.set(workspace.id, duplicateName ? workspace.displayName + ' — ' + workspace.realRootPath : workspace.displayName);
+    labels.set(workspace.id, duplicateName
+      ? `${workspace.displayName} — ${workspace.id} — ${workspace.realRootPath}`
+      : `${workspace.displayName} — ${workspace.id}`);
   }
   for (const line of lines) {
     if (line.workspaceId === null) continue;
@@ -195,7 +256,8 @@ function collectSessionOptions(lines: readonly LogLine[], workspaceId: string | 
 
 function ScopeBadges(props: { readonly line: LogLine; readonly showWorkspace: boolean; readonly showSession: boolean; readonly workspaces: readonly WorkspaceSummary[] | undefined }): ReactElement | null {
   const canonicalId = props.line.workspaceId === null ? null : canonicalWorkspaceScopeId(props.workspaces ?? [], props.line.workspaceId);
-  const workspaceLabel = canonicalId === null ? null : props.workspaces?.find((workspace) => workspace.id === canonicalId)?.displayName ?? shortScopeId(canonicalId);
+  const workspace = canonicalId === null ? undefined : props.workspaces?.find((candidate) => candidate.id === canonicalId);
+  const workspaceLabel = canonicalId === null ? null : workspace === undefined ? shortScopeId(canonicalId) : `${workspace.displayName} — ${workspace.id}`;
   const sessionLabel = props.line.sessionId === null ? null : shortScopeId(props.line.sessionId);
   if ((!props.showWorkspace || workspaceLabel === null) && (!props.showSession || sessionLabel === null)) return null;
   return <span className="scope-badges">
@@ -205,7 +267,8 @@ function ScopeBadges(props: { readonly line: LogLine; readonly showWorkspace: bo
 }
 
 function shortScopeId(value: string): string {
-  return value.length <= 14 ? value : value.slice(0, 8) + '…' + value.slice(-4);
+  // Scope identifiers are diagnostic evidence; never abbreviate them in logs.
+  return value;
 }
 
 export function logLevelFor(line: LogLine): LogLevel {
@@ -232,8 +295,39 @@ export function logDisplayParts(line: LogLine): { readonly kind: LogEventKind | 
   return { kind: null, detail: line.text };
 }
 
-export function formatLogCopyText(line: LogLine): string {
-  return `${formatLogExportDateTime(line.timestamp)} [${line.level.toUpperCase()}] ${line.text}`;
+export function formatLogCopyText(line: LogLine, detail: ActivityTargetDetail | null = null): string {
+  const base = `${formatLogExportDateTime(line.timestamp)} [${line.level.toUpperCase()}] ${line.text}`;
+  const metadata = [
+    `lineId=${line.id}`,
+    `source=${line.source}`,
+    `level=${line.level}`,
+    `workspaceId=${line.workspaceId ?? '<none>'}`,
+    `sessionId=${line.sessionId ?? '<none>'}`,
+    ...(line.correlation?.kind === 'mcp' ? [
+      `callId=${line.correlation.callId}`,
+      `toolName=${line.correlation.toolName}`,
+      `phase=${line.correlation.phase}`,
+      `resultCode=${line.correlation.resultCode ?? '<none>'}`,
+    ] : line.correlation?.kind === 'tunnel' ? [
+      `lifecycle=${line.correlation.lifecycle ?? '<none>'}`,
+      `instanceId=${line.correlation.instanceId ?? '<none>'}`,
+      `requestId=${line.correlation.requestId ?? '<none>'}`,
+      `pid=${line.correlation.pid ?? '<none>'}`,
+    ] : []),
+  ];
+  const fullBase = `${base}\r\n${metadata.join('\r\n')}`;
+  if (detail === null || detail.items.length === 0) return fullBase;
+  const heading = detail.kind === 'files' ? 'Files' : detail.kind === 'tools' ? 'Tools' : 'Details';
+  return `${fullBase}\r\n${heading}:\r\n${detail.items.map((item) => `- ${item}`).join('\r\n')}`;
+}
+
+function liveLineIdentity(line: LogLine): string {
+  return `line:${line.id}`;
+}
+
+function detailRefForLine(line: LogLine): string | null {
+  return line.targetDetail?.detailRef ?? (line.correlation?.kind === 'mcp' ? line.correlation.callId : null);
 }
 
 export type { MessageKey };
+export { activeDetailMatchIds, createDetailSearchState, reduceDetailSearchState };

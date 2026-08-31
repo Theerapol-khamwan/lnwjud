@@ -1,4 +1,5 @@
 import type { RemediationAction, ResolvedRemediation, UiLocale } from '@lnwjud/ipc-contracts';
+import { KNOWN_TOOL_REQUIREMENT_IDS } from './catalog-definitions.js';
 
 interface RemediationDefinition {
   readonly id: string;
@@ -126,6 +127,38 @@ const DEFINITIONS: readonly RemediationDefinition[] = [
     ['เปิด Managed Browser', 'ใช้ dom_cdp list_tabs/new_tab แล้วเก็บ tab_id ที่คืนมา', 'เรียกเครื่องมือ Console/Network กับ tab นั้น รายการนี้เป็น runtime input ไม่ใช่สวิตช์ถาวรใน Settings'],
   ),
   remediation(
+    'repair_windows_ui_automation', 'Repair Windows UI Automation bridge', 'แก้ไข Windows UI Automation bridge',
+    'Native desktop automation needs the packaged Windows UI Automation bridge. It does not depend on Chrome.',
+    'ระบบควบคุมแอป Windows ต้องใช้ Windows UI Automation bridge ที่มากับ lnwjud และไม่เกี่ยวกับ Chrome',
+    [{ kind: 'recheck', requirementIds: ['windows_ui_automation'] }],
+    ['Read the failed windows_ui_automation detail above.', 'Restart lnwjud once.', 'If the packaged bridge is missing or failed integrity verification, repair or reinstall the current official lnwjud build, then recheck.'],
+    ['อ่านรายละเอียด windows_ui_automation ที่ล้มเหลวด้านบน', 'Restart lnwjud หนึ่งครั้ง', 'หาก bridge ที่มากับโปรแกรมหายหรือตรวจ integrity ไม่ผ่าน ให้ซ่อมหรือติดตั้ง lnwjud รุ่นทางการปัจจุบันใหม่ แล้วตรวจอีกครั้ง'],
+  ),
+  remediation(
+    'repair_windows_input', 'Restore native input access', 'แก้ไขการเข้าถึงเมาส์และคีย์บอร์ดของ Windows',
+    'Pointer and keyboard actions need the packaged native input bridge and the permission reported by windows_input.',
+    'คำสั่งเมาส์และคีย์บอร์ดต้องใช้ native input bridge ที่มากับโปรแกรมและสิทธิ์ตามผลตรวจ windows_input',
+    [{ kind: 'recheck', requirementIds: ['windows_input'] }],
+    ['Read the failed windows_input detail above.', 'Close any Windows security prompt that is still awaiting a decision, then restart lnwjud.', 'If the packaged bridge is missing or blocked, repair the official lnwjud installation and recheck.'],
+    ['อ่านรายละเอียด windows_input ที่ล้มเหลวด้านบน', 'จัดการ Windows security prompt ที่ยังรอคำตอบ แล้ว Restart lnwjud', 'หาก bridge ที่มากับโปรแกรมหายหรือถูกบล็อก ให้ซ่อมการติดตั้ง lnwjud รุ่นทางการแล้วตรวจอีกครั้ง'],
+  ),
+  remediation(
+    'repair_windows_window', 'Restore native window access', 'แก้ไขการเข้าถึงหน้าต่าง Windows',
+    'Window discovery and activation need the packaged native window bridge reported by windows_window.',
+    'การค้นหาและเปิดใช้งานหน้าต่างต้องใช้ native window bridge ที่มากับโปรแกรมตามผลตรวจ windows_window',
+    [{ kind: 'recheck', requirementIds: ['windows_window'] }],
+    ['Read the failed windows_window detail above.', 'Restart lnwjud and recheck.', 'If the packaged bridge is missing or failed integrity verification, repair or reinstall the current official build.'],
+    ['อ่านรายละเอียด windows_window ที่ล้มเหลวด้านบน', 'Restart lnwjud แล้วตรวจอีกครั้ง', 'หาก bridge ที่มากับโปรแกรมหายหรือตรวจ integrity ไม่ผ่าน ให้ซ่อมหรือติดตั้งรุ่นทางการปัจจุบันใหม่'],
+  ),
+  remediation(
+    'repair_windows_ocr', 'Restore Windows vision/OCR', 'แก้ไขระบบ Vision/OCR ของ Windows',
+    'Visual targeting needs the packaged vision helper and a usable Windows package identity reported by windows_ocr.',
+    'การเลือกเป้าหมายจากภาพต้องใช้ vision helper ที่มากับโปรแกรมและ Windows package identity ที่พร้อม ตามผลตรวจ windows_ocr',
+    [{ kind: 'recheck', requirementIds: ['windows_ocr'] }],
+    ['Read the failed windows_ocr detail above.', 'Restart lnwjud and recheck.', 'If package identity or the packaged helper is unavailable, repair or reinstall the current official lnwjud build that supplies them.'],
+    ['อ่านรายละเอียด windows_ocr ที่ล้มเหลวด้านบน', 'Restart lnwjud แล้วตรวจอีกครั้ง', 'หาก package identity หรือ helper ที่มากับโปรแกรมไม่พร้อม ให้ซ่อมหรือติดตั้ง lnwjud รุ่นทางการปัจจุบันที่มีส่วนประกอบดังกล่าวใหม่'],
+  ),
+  remediation(
     'configure_permissions', 'Allow the tool in Security settings', 'อนุญาตเครื่องมือใน Security',
     'The active permission profile currently denies this tool class.',
     'Permission Profile ปัจจุบันปฏิเสธสิทธิ์ของเครื่องมือนี้',
@@ -153,7 +186,7 @@ const DEFINITIONS: readonly RemediationDefinition[] = [
     'recheck_runtime', 'Recheck runtime', 'ตรวจ runtime ใหม่',
     'Run the safe readiness probe again after changing the related dependency or setting.',
     'รัน readiness probe แบบ read-only ใหม่หลังแก้ dependency หรือ setting ที่เกี่ยวข้อง',
-    [{ kind: 'recheck', requirementIds: [] }],
+    [{ kind: 'recheck', requirementIds: KNOWN_TOOL_REQUIREMENT_IDS }],
     ['Apply the related setup change first.', 'Then recheck the runtime.'],
     ['แก้การตั้งค่าหรือ dependency ที่เกี่ยวข้องก่อน', 'จากนั้นตรวจ runtime ใหม่'],
   ),

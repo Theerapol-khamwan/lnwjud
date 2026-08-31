@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { appError, err, isApplicationAuthorized, ok, type GoalTaskCancellationObservation, type InvocationAuthorization, type Result } from '@lnwjud/domain';
-import { CodexAdapter, type CodexStatus } from '@lnwjud/codex';
+import { CodexAdapter, type CodexSandboxMode, type CodexStatus } from '@lnwjud/codex';
 import type { CodexRunAuditInput } from '@lnwjud/audit';
 import { DefaultPermissionEngine, permissionProfiles, type PermissionEngine, type PermissionProfile } from '@lnwjud/permissions';
 import type { LogQuery, ManagedProcess, ProcessLogResult } from '@lnwjud/process';
@@ -11,7 +11,7 @@ export const MAX_CODEX_INSTRUCTION_BYTES = 256 * 1024;
 
 export interface CodexAdapterPort {
   status(): Promise<Result<CodexStatus>>;
-  start(cwd: string, instruction: string, signal?: AbortSignal, onCreated?: (process: ManagedProcess) => void): Promise<Result<ManagedProcess>>;
+  start(cwd: string, instruction: string, signal?: AbortSignal, onCreated?: (process: ManagedProcess) => void, sandboxMode?: CodexSandboxMode): Promise<Result<ManagedProcess>>;
   statusProcess(processId: string): Result<ManagedProcess>;
   logs(processId: string, query: LogQuery): Result<ProcessLogResult>;
   stop(processId: string, autoRetry?: boolean): Promise<Result<void>>;
@@ -87,6 +87,7 @@ export class CodexService {
     signal?: AbortSignal,
     userConfirmed = false,
     authorization?: InvocationAuthorization,
+    sandboxMode: CodexSandboxMode = 'workspace-write',
   ): Promise<Result<CodexRunResult>> {
     if (typeof instruction !== 'string' || instruction.trim().length === 0) return err(appError('INVALID_INPUT', 'Codex instruction is required'));
     if (Buffer.byteLength(instruction, 'utf8') > MAX_CODEX_INSTRUCTION_BYTES) return err(appError('FILE_TOO_LARGE', 'Codex instruction is too large'));
@@ -108,7 +109,7 @@ export class CodexService {
     const registerOwner = (process: ManagedProcess): void => {
       this.owners.set(codexTaskId, { actorId: actor.clientId, sessionId: actorSessionId(actor), workspaceId, processId: process.processId });
     };
-    const started = await this.adapter.start(root.value.realPath ?? root.value.absolutePath, instruction, signal, registerOwner);
+    const started = await this.adapter.start(root.value.realPath ?? root.value.absolutePath, instruction, signal, registerOwner, sandboxMode);
     if (!started.ok) return started;
     if (isAborted(signal)) {
       await this.adapter.stop(started.value.processId, true);

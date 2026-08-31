@@ -44,6 +44,9 @@ describe('external Tool Catalog projection', () => {
         origin: 'external_mcp',
         declaredPermission: 'UNKNOWN',
         readiness: 'needs_setup',
+        readinessReason: 'external_unknown',
+        deliveryState: 'external_unknown',
+        available: false,
         remediationIds: ['connect_external_mcp'],
       }),
     ]);
@@ -82,6 +85,9 @@ describe('external Tool Catalog projection', () => {
         name: 'remote_read',
         serverName: 'connected-fixture',
         readiness: 'unknown',
+        readinessReason: 'external_unknown',
+        deliveryState: 'external_unknown',
+        available: true,
         declaredPermission: 'UNKNOWN',
       }),
     ]);
@@ -116,7 +122,9 @@ describe('external Tool Catalog projection', () => {
 
     expect(Date.now() - started).toBeLessThan(500);
     expect(items).toEqual([
-      expect.objectContaining({ name: '@slow-fixture', readiness: 'unknown' }),
+      expect.objectContaining({
+        name: '@slow-fixture', readiness: 'unknown', readinessReason: 'external_unknown', deliveryState: 'external_unknown', available: true,
+      }),
     ]);
     expect(describeMcpServer).toHaveBeenCalledTimes(1);
   });

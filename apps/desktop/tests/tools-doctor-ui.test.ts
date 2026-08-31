@@ -6,6 +6,7 @@ import type { DoctorReport, ResolvedRemediation, ToolCatalogItem } from '@lnwjud
 import { formatDateTime } from '../src/renderer/date-time.js';
 import { DoctorPanel } from '../src/renderer/features/doctor/DoctorPanel.js';
 import { ToolDetailModal } from '../src/renderer/features/tools/ToolDetailModal.js';
+import { ToolsPage } from '../src/renderer/features/tools/ToolsPage.js';
 
 const checkedAt = new Date(2026, 7, 29, 18, 35, 13).toISOString();
 
@@ -87,11 +88,27 @@ describe('Tools and Doctor UX', () => {
       steps: ['กดเปิด Managed Browser'],
       actions: [{ kind: 'launch_managed_browser' }],
     };
-    const browserTool: ToolCatalogItem = { ...tool, name: 'browser_debug_context', remediationIds: ['configure_browser_cdp'] };
+    const browserTool: ToolCatalogItem = {
+      ...tool,
+      name: 'browser_debug_context',
+      readinessReason: 'runtime_not_ready',
+      deliveryState: 'operational',
+      available: true,
+      remediationIds: ['configure_browser_cdp'],
+    };
     const toolMarkup = renderToStaticMarkup(createElement(ToolDetailModal, {
       locale: 'th', item: browserTool, remediations: [browserRemediation], onClose: () => undefined, onRemediation: () => undefined,
     }));
+    expect(toolMarkup).toContain('ต้องเปิดใช้งาน');
+    expect(toolMarkup).not.toContain('ต้องตั้งค่า');
     expect(toolMarkup).toContain('เปิด Managed Browser');
+
+    const englishMarkup = renderToStaticMarkup(createElement(ToolDetailModal, {
+      locale: 'en', item: browserTool, remediations: [{ ...browserRemediation, title: 'Start the lnwjud managed browser' }], onClose: () => undefined, onRemediation: () => undefined,
+    }));
+    expect(englishMarkup).toContain('Start required');
+    expect(englishMarkup).not.toContain('Needs setup');
+    expect(englishMarkup).toContain('Start managed browser');
 
     const sandboxRemediation: ResolvedRemediation = {
       id: 'configure_windows_sandbox',
@@ -108,6 +125,45 @@ describe('Tools and Doctor UX', () => {
     expect(doctorMarkup).not.toContain('>เปิดการตั้งค่า<');
   });
 
+  it('labels the coarse needs-setup filter as Action required while reserving setup copy for setup_required', () => {
+    const setupTool: ToolCatalogItem = { ...tool, readinessReason: 'setup_required', deliveryState: 'dependency_gated', available: false };
+    const snapshot = { generatedAt: checkedAt, locale: 'en' as const, items: [setupTool], remediations: [] };
+    const english = renderToStaticMarkup(createElement(ToolsPage, {
+      locale: 'en', snapshot, loading: false, onRefresh: async () => undefined, onRemediation: async () => undefined,
+    }));
+    expect(english).toContain('Action required');
+    expect(english).toContain('Needs setup');
+
+    const thai = renderToStaticMarkup(createElement(ToolsPage, {
+      locale: 'th', snapshot: { ...snapshot, locale: 'th' }, loading: false, onRefresh: async () => undefined, onRemediation: async () => undefined,
+    }));
+    expect(thai).toContain('ต้องดำเนินการ');
+    expect(thai).toContain('ต้องตั้งค่า');
+  });
+
+  it('shows the failed composite subrequirement details without claiming Chrome is required', () => {
+    const composite: ToolCatalogItem = {
+      ...tool,
+      name: 'computer_use',
+      title: 'Computer Use',
+      readinessReason: 'setup_required',
+      deliveryState: 'dependency_gated',
+      available: false,
+      requirements: [
+        { id: 'windows_ui_automation', status: 'fail', required: false, checkedAt, summaryKey: 'requirement.windows_ui_automation', detail: 'Windows UI Automation bridge is unavailable.' },
+        { id: 'windows_input', status: 'fail', required: false, checkedAt, summaryKey: 'requirement.windows_input', detail: 'Native input permission is unavailable.' },
+        { id: 'windows_ocr', status: 'fail', required: false, checkedAt, summaryKey: 'requirement.windows_ocr', detail: 'WinRT OCR package identity is unavailable.' },
+      ],
+    };
+    const markup = renderToStaticMarkup(createElement(ToolDetailModal, {
+      locale: 'en', item: composite, remediations: [], onClose: () => undefined, onRemediation: () => undefined,
+    }));
+    expect(markup).toContain('windows_ui_automation');
+    expect(markup).toContain('windows_input');
+    expect(markup).toContain('windows_ocr');
+    expect(markup).not.toContain('Chrome');
+  });
+
   it('shows an honest fallback when Doctor has an issue with no safe automatic remediation', () => {
     const report: DoctorReport = { exitCode: 0, checks: [{ ...doctor.checks[0]!, remediationId: undefined }] };
     const markup = renderToStaticMarkup(createElement(DoctorPanel, {
@@ -115,6 +171,18 @@ describe('Tools and Doctor UX', () => {
     }));
     expect(markup).toContain('ไม่มีการตั้งค่าอัตโนมัติที่ปลอดภัย');
     expect(markup).toContain('จะไม่พาไปหน้า Settings ที่ไม่เกี่ยวข้อง');
+  });
+
+  it('exposes status filters as pressed-state toggles and keeps selected labels/focus legible', () => {
+    const snapshot = { generatedAt: checkedAt, locale: 'en' as const, items: [tool], remediations: [] };
+    const markup = renderToStaticMarkup(createElement(ToolsPage, {
+      locale: 'en', snapshot, loading: false, onRefresh: async () => undefined, onRemediation: async () => undefined,
+    }));
+    const styles = readFileSync(new URL('../src/renderer/styles.css', import.meta.url), 'utf8');
+    expect(markup).toContain('aria-pressed="false"');
+    expect(styles).toContain('.tool-status-strip button.active span { color: currentColor; }');
+    expect(styles).toContain('.tool-status-strip button.active strong { color: currentColor; }');
+    expect(styles).toContain('.tool-status-strip button:focus-visible');
   });
 
   it('keeps Managed Browser remediation responsive and refreshes the selected tool from the latest catalog', () => {

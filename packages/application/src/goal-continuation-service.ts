@@ -459,7 +459,7 @@ function cancellationInstruction(continuation: ScheduledContinuationRecord | nul
     return { action: 'none', reason: 'no_live_task' };
   }
   if (
-    (continuation.status === 'cancel_required' || continuation.status === 'cancel_failed' || continuation.status === 'cancel_uncertain')
+    (continuation.status === 'cancel_required' || continuation.status === 'cancel_failed')
     && continuation.nativeTaskId !== undefined
   ) {
     return {

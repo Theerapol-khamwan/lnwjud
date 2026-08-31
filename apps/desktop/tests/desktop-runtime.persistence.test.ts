@@ -23,6 +23,32 @@ afterEach(async () => {
 });
 
 describe('DesktopRuntime persistence', () => {
+  it('builds the production dashboard audit summary without parsing large started metadata', async () => {
+    const rawDataRoot = await mkdtemp(path.join(os.tmpdir(), 'lnwjud-runtime-audit-summary-'));
+    temporaryRoots.push(rawDataRoot);
+    const runtime = createDesktopRuntime(await realpath(rawDataRoot));
+    const maximumLengthPath = `E:\\${'x'.repeat(4_093)}`;
+    const callId = await runtime.activityTracker.begin('read_files', {
+      files: Array.from({ length: 500 }, () => ({ path: maximumLengthPath })),
+    });
+    const originalParse = JSON.parse.bind(JSON);
+    const parseSpy = vi.spyOn(JSON, 'parse').mockImplementation((text, reviver) => {
+      if (text.includes('"activityTargetDetail"')) throw new Error('dashboard parsed full audit metadata');
+      return originalParse(text, reviver);
+    });
+    try {
+      const dashboard = await runtime.services.getDashboard();
+      expect(dashboard.recentAuditEvents).toEqual(expect.arrayContaining([
+        expect.objectContaining({ action: 'mcp_tool:read_files', resultCode: 'STARTED' }),
+      ]));
+      expect(JSON.stringify(dashboard.recentAuditEvents)).not.toContain('activityTargetDetail');
+    } finally {
+      parseSpy.mockRestore();
+      await runtime.activityTracker.end(callId, 'SUCCESS', 1);
+      await runtime.close();
+    }
+  });
+
   it('starts with no automatically registered drive roots even when unrestricted mode is enabled', async () => {
     const rawDataRoot = await mkdtemp(path.join(os.tmpdir(), 'lnwjud-runtime-no-auto-drives-'));
     temporaryRoots.push(rawDataRoot);

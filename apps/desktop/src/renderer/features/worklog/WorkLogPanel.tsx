@@ -1,8 +1,10 @@
-import { useEffect, useMemo, useState, type ReactElement } from 'react';
-import { canonicalWorkspaceScopeId, workspaceScopeMatches, type InFlightWorkItem, type WorkLogEntry, type WorkspaceSummary } from '@lnwjud/ipc-contracts';
+import { useEffect, useMemo, useReducer, useRef, useState, type ComponentProps, type ReactElement } from 'react';
+import { canonicalWorkspaceScopeId, workspaceScopeMatches, type ActivityTargetDetail, type InFlightWorkItem, type WorkLogEntry, type WorkspaceSummary } from '@lnwjud/ipc-contracts';
 import { copyTextToClipboard } from '../../clipboard.js';
 import type { MessageKey } from '../../i18n/messages.js';
 import { formatLogExportDateTime, formatLogUiTime } from '../../log-timestamp.js';
+import { ExpandableTargetDetail } from '../logs/ExpandableTargetDetail.js';
+import { activeDetailMatchIds, createDetailSearchState, normalizeDetailSearchQuery, reduceDetailSearchState } from '../logs/detail-search-state.js';
 
 export type WorkLogFilter = 'all' | 'error';
 
@@ -27,7 +29,9 @@ interface WorkLogPanelProps {
   readonly onFilterChange: (filter: WorkLogFilter) => void;
   readonly onClear: (scope: LogScopeSelection) => Promise<void>;
   readonly exportLabel?: string;
-  readonly onExport?: (rows: readonly string[]) => Promise<void>;
+  readonly onExport?: (rowIds: readonly string[]) => Promise<void>;
+  readonly onResolveTargetDetail?: (detailRef: string) => Promise<ActivityTargetDetail | null>;
+  readonly onSearchTargetDetails?: (query: string, candidates: readonly { readonly id: string; readonly detailRef: string | null }[]) => Promise<readonly string[]>;
   readonly entries: readonly WorkLogEntry[];
   readonly inFlight: readonly InFlightWorkItem[];
   readonly searchPlaceholder?: string;
@@ -39,14 +43,24 @@ interface WorkLogPanelProps {
   readonly workspaceLabel?: string;
   readonly sessionLabel?: string;
   readonly scopeAllLabel?: string;
+  readonly showMoreLabel?: string;
+  readonly showLessLabel?: string;
+  readonly detailHeadingLabel?: string;
+  readonly detailLoadingLabel?: string;
+  readonly detailErrorLabel?: string;
+  readonly detailEmptyLabel?: string;
+  readonly legacyIncompleteLabel?: string;
 }
 
 
 export function WorkLogPanel(props: WorkLogPanelProps): ReactElement {
   const [search, setSearch] = useState('');
   const [copiedId, setCopiedId] = useState<string | null>(null);
+  const [copyErrorId, setCopyErrorId] = useState<string | null>(null);
   const [workspaceId, setWorkspaceId] = useState<string | null>(props.defaultWorkspaceId ?? null);
   const [sessionId, setSessionId] = useState<string | null>(null);
+  const [detailSearchState, dispatchDetailSearch] = useReducer(reduceDetailSearchState, undefined, createDetailSearchState);
+  const detailSearchGeneration = useRef(0);
   const workspaceOptions = useMemo(() => collectWorkspaceOptions(props.entries, props.inFlight, props.workspaces), [props.entries, props.inFlight, props.workspaces]);
   const sessionOptions = useMemo(() => collectSessionOptions(props.entries, props.inFlight, workspaceId, props.workspaces), [props.entries, props.inFlight, workspaceId, props.workspaces]);
   useEffect(() => {
@@ -56,15 +70,46 @@ export function WorkLogPanel(props: WorkLogPanelProps): ReactElement {
     if (sessionId !== null && !sessionOptions.includes(sessionId)) setSessionId(null);
   }, [sessionId, sessionOptions]);
   const scope = useMemo<LogScopeSelection>(() => ({ workspaceId, sessionId }), [workspaceId, sessionId]);
+  const candidates = useMemo(
+    () => newestFirstWorkLogRows(props.entries, props.inFlight, props.filter, '', scope, props.workspaces),
+    [props.entries, props.inFlight, props.filter, scope, props.workspaces],
+  );
+  useEffect(() => {
+    const query = normalizeDetailSearchQuery(search);
+    const generation = ++detailSearchGeneration.current;
+    if (query.length === 0 || props.onSearchTargetDetails === undefined) {
+      dispatchDetailSearch({ type: 'reset', generation });
+      return;
+    }
+    dispatchDetailSearch({ type: 'start', generation, query });
+    const timeout = window.setTimeout(() => {
+      const searchCandidates = candidates.map((row) => ({ id: workLogRowIdentity(row), detailRef: row.item.targetDetail.detailRef }));
+      void props.onSearchTargetDetails?.(query, searchCandidates).then((ids) => {
+        dispatchDetailSearch({ type: 'success', generation, query, matchingIds: ids });
+      }).catch(() => {
+        dispatchDetailSearch({ type: 'failure', generation, query });
+      });
+    }, 180);
+    return (): void => window.clearTimeout(timeout);
+  }, [candidates, props.onSearchTargetDetails, search]);
+  const hiddenMatches = activeDetailMatchIds(detailSearchState, search);
   const rows = useMemo(
-    () => newestFirstWorkLogRows(props.entries, props.inFlight, props.filter, search, scope, props.workspaces),
-    [props.entries, props.inFlight, props.filter, search, scope, props.workspaces],
+    () => newestFirstWorkLogRows(props.entries, props.inFlight, props.filter, search, scope, props.workspaces, hiddenMatches),
+    [props.entries, props.inFlight, props.filter, search, scope, props.workspaces, hiddenMatches],
   );
   const visible = props.compact ? rows.slice(0, 40) : rows;
   const resolvedTargets = useMemo(() => completedTargetByCallId(props.entries), [props.entries]);
 
   async function copyRow(row: WorkLogRow): Promise<void> {
-    if (!(await copyTextToClipboard(formatWorkLogCopyText(row, resolvedTargets)))) return;
+    const detailRef = row.item.targetDetail.detailRef;
+    const needsFullDetail = row.item.targetDetail.itemCount > row.item.targetDetail.preview.length;
+    const detail = detailRef === null || props.onResolveTargetDetail === undefined ? null : await props.onResolveTargetDetail(detailRef).catch(() => null);
+    if (needsFullDetail && detail === null) {
+      setCopyErrorId(row.id);
+      return;
+    }
+    setCopyErrorId(null);
+    if (!(await copyTextToClipboard(formatWorkLogCopyText(row, resolvedTargets, detail)))) return;
     setCopiedId(row.id);
     window.setTimeout(() => setCopiedId((current) => current === row.id ? null : current), 1_200);
   }
@@ -88,7 +133,7 @@ export function WorkLogPanel(props: WorkLogPanelProps): ReactElement {
           >
             {props.filterErrorLabel}
           </button>
-          {props.onExport === undefined ? null : <button type="button" onClick={() => { void props.onExport?.(visible.map((row) => formatWorkLogCopyText(row, resolvedTargets))); }}>{props.exportLabel ?? 'Export'}</button>}
+          {props.onExport === undefined ? null : <button type="button" onClick={() => { void props.onExport?.(visible.map(workLogRowIdentity)); }}>{props.exportLabel ?? 'Export'}</button>}
           <button type="button" disabled={sessionId === null} onClick={() => { if (sessionId !== null) void props.onClear({ workspaceId: null, sessionId }); }}>{props.clearSessionLabel}</button>
           <button type="button" disabled={workspaceId === null} onClick={() => { if (workspaceId !== null) void props.onClear({ workspaceId, sessionId: null }); }}>{props.clearWorkspaceLabel}</button>
           <button type="button" onClick={() => { void props.onClear({ workspaceId: null, sessionId: null }); }}>{props.clearAllLabel}</button>
@@ -118,6 +163,8 @@ export function WorkLogPanel(props: WorkLogPanelProps): ReactElement {
         value={search}
         onChange={(event) => setSearch(event.target.value)}
       />
+      {detailSearchState.status === 'loading' ? <p className="log-detail-search-status" role="status">{props.detailLoadingLabel ?? 'Searching complete details…'}</p> : null}
+      {detailSearchState.status === 'error' ? <p className="log-detail-search-status log-detail-error" role="alert">{props.detailErrorLabel ?? 'Complete details could not be searched.'}</p> : null}
       <div className="worklog-stream" data-testid="work-log">
         {visible.length === 0 ? <p>{props.emptyLabel}</p> : null}
         {visible.map((row) => row.kind === 'inflight' ? (
@@ -128,6 +175,8 @@ export function WorkLogPanel(props: WorkLogPanelProps): ReactElement {
             <span className="worklog-summary"><ScopeBadges item={row.item} showWorkspace={workspaceId === null} showSession={sessionId === null} workspaces={props.workspaces} />{row.item.targetSummary ?? ''}</span>
             <span className="worklog-duration" />
             <CopyButton row={row} copiedId={copiedId} copyLabel={props.copyLabel} copiedLabel={props.copiedLabel} onCopy={copyRow} />
+            {copyErrorId === row.id ? <p className="log-detail-error row-copy-error" role="alert">{props.detailErrorLabel ?? 'Complete details are unavailable; nothing was copied.'}</p> : null}
+            <ExpandableTargetDetail {...detailProps(props)} reference={row.item.targetDetail} legacySummary={row.item.targetSummary} {...(props.onResolveTargetDetail === undefined ? {} : { loadDetail: props.onResolveTargetDetail })} />
           </div>
         ) : (
           <div key={`entry:${row.item.id}`} className={`worklog-line ${row.item.kind}`}>
@@ -137,6 +186,8 @@ export function WorkLogPanel(props: WorkLogPanelProps): ReactElement {
             <span className="worklog-summary"><ScopeBadges item={row.item} showWorkspace={workspaceId === null} showSession={sessionId === null} workspaces={props.workspaces} />{renderEntryDetail(row.item, resolvedTargets)}</span>
             {row.item.kind !== 'task' ? <em>{row.item.durationMs}ms</em> : <span className="worklog-duration" />}
             <CopyButton row={row} copiedId={copiedId} copyLabel={props.copyLabel} copiedLabel={props.copiedLabel} onCopy={copyRow} />
+            {copyErrorId === row.id ? <p className="log-detail-error row-copy-error" role="alert">{props.detailErrorLabel ?? 'Complete details are unavailable; nothing was copied.'}</p> : null}
+            <ExpandableTargetDetail {...detailProps(props)} reference={row.item.targetDetail} legacySummary={row.item.targetSummary} {...(props.onResolveTargetDetail === undefined ? {} : { loadDetail: props.onResolveTargetDetail })} />
           </div>
         ))}
       </div>
@@ -167,6 +218,7 @@ export function newestFirstWorkLogRows(
   search = '',
   scope: LogScopeSelection = { workspaceId: null, sessionId: null },
   workspaces: readonly WorkspaceSummary[] = [],
+  hiddenMatches: ReadonlySet<string> = new Set(),
 ): readonly WorkLogRow[] {
   const needle = search.trim().toLowerCase();
   const scopedEntries = entries.filter((entry) => matchesScope(entry, scope, workspaces));
@@ -177,7 +229,7 @@ export function newestFirstWorkLogRows(
     ? []
     : scopedInFlight.map((item): WorkLogRow => ({ kind: 'inflight', timestamp: item.startedAt, id: scopedActivityId(item), item }));
   return [...entryRows, ...inFlightRows]
-    .filter((row) => needle.length === 0 || workLogSearchText(row).includes(needle))
+    .filter((row) => needle.length === 0 || workLogSearchText(row).includes(needle) || hiddenMatches.has(workLogRowIdentity(row)))
     .sort((left, right) => {
       const leftTime = Date.parse(left.timestamp);
       const rightTime = Date.parse(right.timestamp);
@@ -222,7 +274,9 @@ function collectWorkspaceOptions(entries: readonly WorkLogEntry[], inFlight: rea
   for (const workspace of canonicalWorkspaces) {
     const key = workspace.displayName.trim().toLocaleLowerCase();
     const duplicateName = (nameCounts.get(key) ?? 0) > 1;
-    labels.set(workspace.id, duplicateName ? workspace.displayName + ' — ' + workspace.realRootPath : workspace.displayName);
+    labels.set(workspace.id, duplicateName
+      ? `${workspace.displayName} — ${workspace.id} — ${workspace.realRootPath}`
+      : `${workspace.displayName} — ${workspace.id}`);
   }
   for (const item of [...entries, ...inFlight]) {
     if (item.workspaceId === null) continue;
@@ -258,11 +312,14 @@ function displayWorkspaceLabel(workspaces: readonly WorkspaceSummary[] | undefin
   const workspace = workspaceList.find((candidate) => candidate.id === canonicalId);
   if (workspace === undefined) return shortScopeId(canonicalId);
   const duplicateName = (workspaces ?? []).some((candidate) => candidate.id !== workspace.id && candidate.displayName.trim().toLocaleLowerCase() === workspace.displayName.trim().toLocaleLowerCase());
-  return duplicateName ? workspace.displayName + ' — ' + workspace.realRootPath : workspace.displayName;
+  return duplicateName
+    ? `${workspace.displayName} — ${workspace.id} — ${workspace.realRootPath}`
+    : `${workspace.displayName} — ${workspace.id}`;
 }
 
 function shortScopeId(value: string): string {
-  return value.length <= 14 ? value : value.slice(0, 8) + '…' + value.slice(-4);
+  // Scope identifiers are diagnostic evidence; never abbreviate them in logs.
+  return value;
 }
 
 function renderEntryDetail(entry: WorkLogEntry, resolvedTargets: ReadonlyMap<string, string>): ReactElement | string {
@@ -291,12 +348,64 @@ function entryDetailText(entry: WorkLogEntry, resolvedTargets: ReadonlyMap<strin
   return targetSummary ?? legacyEntryDetail(entry);
 }
 
-export function formatWorkLogCopyText(row: WorkLogRow, resolvedTargets: ReadonlyMap<string, string> = new Map()): string {
+export function formatWorkLogCopyText(row: WorkLogRow, resolvedTargets: ReadonlyMap<string, string> = new Map(), detail: ActivityTargetDetail | null = null): string {
   if (row.kind === 'inflight') {
-    return `${formatLogExportDateTime(row.item.startedAt)} [TASK] ${row.item.toolName}${row.item.targetSummary === null ? '' : ` ${row.item.targetSummary}`}`;
+    const base = `${formatLogExportDateTime(row.item.startedAt)} [TASK] ${row.item.toolName}${row.item.targetSummary === null ? '' : ` ${row.item.targetSummary}`}`;
+    return appendCompleteTargetDetail(`${base}\r\n${workLogMetadataLines(row).join('\r\n')}`, detail);
   }
   const duration = row.item.kind === 'task' ? '' : ` ${row.item.durationMs}ms`;
-  return `${formatLogExportDateTime(row.item.timestamp)} ${tagFor(row.item.kind)} ${row.item.toolName} ${entryDetailText(row.item, resolvedTargets)}${duration}`.trim();
+  const base = `${formatLogExportDateTime(row.item.timestamp)} ${tagFor(row.item.kind)} ${row.item.toolName} ${entryDetailText(row.item, resolvedTargets)}${duration}`.trim();
+  return appendCompleteTargetDetail(`${base}\r\n${workLogMetadataLines(row).join('\r\n')}`, detail);
+}
+
+function workLogMetadataLines(row: WorkLogRow): readonly string[] {
+  if (row.kind === 'inflight') {
+    return [
+      `rowId=inflight:${row.item.callId}`,
+      `callId=${row.item.callId}`,
+      `workspaceId=${row.item.workspaceId ?? '<none>'}`,
+      `sessionId=${row.item.sessionId ?? '<none>'}`,
+      `toolName=${row.item.toolName}`,
+      'phase=started',
+      'resultCode=STARTED',
+      ...(row.item.targetSummary === null ? [] : [`targetSummary=${row.item.targetSummary}`]),
+    ];
+  }
+  return [
+    `rowId=audit:${row.item.id}`,
+    `eventId=${row.item.id}`,
+    `callId=${row.item.callId ?? '<none>'}`,
+    `workspaceId=${row.item.workspaceId ?? '<none>'}`,
+    `sessionId=${row.item.sessionId ?? '<none>'}`,
+    `toolName=${row.item.toolName}`,
+    `kind=${row.item.kind}`,
+    `resultCode=${row.item.resultCode}`,
+    `durationMs=${row.item.durationMs}`,
+    ...(row.item.targetSummary === null ? [] : [`targetSummary=${row.item.targetSummary}`]),
+    ...(row.item.errorMessage === null ? [] : [`errorMessage=${row.item.errorMessage}`]),
+  ];
+}
+
+export function workLogRowIdentity(row: WorkLogRow): string {
+  return row.kind === 'inflight' ? `inflight:${row.item.callId}` : `audit:${row.item.id}`;
+}
+
+function appendCompleteTargetDetail(base: string, detail: ActivityTargetDetail | null): string {
+  if (detail === null || detail.items.length === 0) return base;
+  const heading = detail.kind === 'files' ? 'Files' : detail.kind === 'tools' ? 'Tools' : 'Details';
+  return `${base}\r\n${heading}:\r\n${detail.items.map((item) => `- ${item}`).join('\r\n')}`;
+}
+
+function detailProps(props: WorkLogPanelProps): Omit<ComponentProps<typeof ExpandableTargetDetail>, 'reference' | 'legacySummary' | 'loadDetail'> {
+  return {
+    showMoreLabel: props.showMoreLabel ?? 'Show more',
+    showLessLabel: props.showLessLabel ?? 'Show less',
+    detailHeadingLabel: props.detailHeadingLabel ?? 'Target items',
+    loadingLabel: props.detailLoadingLabel ?? 'Loading complete details…',
+    errorLabel: props.detailErrorLabel ?? 'Complete details are unavailable.',
+    emptyLabel: props.detailEmptyLabel ?? 'No target items.',
+    legacyIncompleteLabel: props.legacyIncompleteLabel ?? 'Older log: the omitted items were not retained.',
+  };
 }
 
 function completedTargetByCallId(entries: readonly WorkLogEntry[]): ReadonlyMap<string, string> {
@@ -329,3 +438,4 @@ function tagFor(kind: WorkLogEntry['kind']): string {
 }
 
 export type { MessageKey };
+export { activeDetailMatchIds, createDetailSearchState, reduceDetailSearchState };

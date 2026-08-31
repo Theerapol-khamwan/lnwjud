@@ -21,6 +21,8 @@ describe('Windows release trust evidence', () => {
     const desktopPackage = JSON.parse(await readFile(path.join(desktopRoot, 'package.json'), 'utf8')) as { scripts?: Record<string, string> };
     const packageScript = desktopPackage.scripts?.['package:windows'] ?? '';
     const evidenceWriter = await readFile(path.join(desktopRoot, 'scripts', 'write-release-evidence.mjs'), 'utf8');
+    const evidenceVerifier = await readFile(path.join(desktopRoot, 'scripts', 'verify-release-evidence.mjs'), 'utf8');
+    const bridgeVerifier = await readFile(path.join(desktopRoot, 'scripts', 'verify-capability-bridge-artifacts.mjs'), 'utf8');
     const captureHook = await readFile(path.join(desktopRoot, 'scripts', 'capture-packaged-runtime-evidence.mjs'), 'utf8');
     const builderConfig = await readFile(path.join(desktopRoot, 'electron-builder.yml'), 'utf8');
 
@@ -34,7 +36,10 @@ describe('Windows release trust evidence', () => {
     expect(evidenceWriter).toContain('LNWJUD_SOURCE_DIRTY_AT_START');
     expect(evidenceWriter).toContain('workingTreeDirtyAtEvidence');
     expect(evidenceWriter).toContain("git(['rev-parse', 'HEAD'])");
-    for (const name of ['lnwjud-mcp-stdio.cjs', 'lnwjud-node.exe', 'rg.exe', 'tunnel-client.exe']) {
+    expect(evidenceWriter).toContain('capabilityBridge');
+    expect(evidenceVerifier).toContain('verifyCapabilityBridgeArtifacts');
+    expect(bridgeVerifier).toContain('packaged bridge bytes differ from staged package bytes');
+    for (const name of ['lnwjud-mcp-stdio.cjs', 'lnwjud-node.exe', 'windows-capability-bridge.ps1', 'windows-capability-bridge.sha256', 'windows-capability-bridge.integrity.json', 'rg.exe', 'tunnel-client.exe']) {
       expect(captureHook).toContain(name);
     }
   });

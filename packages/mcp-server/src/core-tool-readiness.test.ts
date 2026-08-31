@@ -15,7 +15,7 @@ const STATEFUL_CORE_SUCCESS_TOOLS = new Set([
 ]);
 
 function coreRegistry(): ToolRegistry {
-  return new ToolRegistry({}, actor, { codexToolsEnabled: true });
+  return new ToolRegistry({ agentSwarm: successServices([]).agentSwarm }, actor, { codexToolsEnabled: true });
 }
 
 function successRegistry(calls: string[]): ToolRegistry {

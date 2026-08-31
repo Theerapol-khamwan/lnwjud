@@ -13,7 +13,7 @@ const upgradeInputSchema = z.object({}).passthrough();
  */
 export function upgradeTools(context: McpToolContext): McpToolDefinition[] {
   const runtime = new UpgradeRuntimeService(context.services, context.actor, context.contextEconomy);
-  return UPGRADE_TOOL_CATALOG.map((entry) => defineTool({
+  return UPGRADE_TOOL_CATALOG.filter((entry) => entry.name !== 'agent_swarm_run').map((entry) => defineTool({
     name: entry.name,
     description: entry.description,
     permission: entry.permission,

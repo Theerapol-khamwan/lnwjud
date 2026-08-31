@@ -1,7 +1,9 @@
 import { createServer } from 'node:net';
 import { existsSync } from 'node:fs';
+import { open, rename, rm } from 'node:fs/promises';
 import path from 'node:path';
 import {
+  AgentSwarmService,
   CheckpointService,
   CodexService,
   FileService,
@@ -22,7 +24,7 @@ import {
   type FileActor,
   type DoctorProbeResult,
 } from '@lnwjud/application';
-import { AuditService, type AuditEvent, type AuditEventRepository } from '@lnwjud/audit';
+import { AuditService, decodeActivityTargetReference, type ActivityAuditEvent, type ActivityTargetDetail, type AuditEventRepository, type AuditEventSummaryProjection } from '@lnwjud/audit';
 import { CodexDiscovery, formatCodexDiscoveryError } from '@lnwjud/codex';
 import type { Result } from '@lnwjud/domain';
 import {
@@ -36,7 +38,6 @@ import {
   ActivityTracker,
   LNWJUD_MCP_IDENTITY_PATH,
   RuntimeGoalManagedTaskStateReader,
-  composeActivitySinks,
   createFileActivitySink,
   mcpActivityLogPath,
   type ActivitySinkEvent,
@@ -87,7 +88,7 @@ import {
   loadCheckpointEncryptionKey,
   type DestructiveAutoApprovalPolicy,
 } from '@lnwjud/shared';
-import { AesGcmCheckpointCipher, SqliteAuditRepository, SqliteBackupService, SqliteCheckpointRepository, SqliteDatabase, SqliteSettingsRepository, SqliteWorkspaceRepository, type BackupReason, type BackupSummary } from '@lnwjud/storage';
+import { AesGcmCheckpointCipher, SqliteAgentSwarmRepository, SqliteAuditRepository, SqliteBackupService, SqliteCheckpointRepository, SqliteDatabase, SqliteSettingsRepository, SqliteWorkspaceRepository, type BackupReason, type BackupSummary } from '@lnwjud/storage';
 import { SqliteGoalRepository } from '@lnwjud/storage';
 import type { Workspace } from '@lnwjud/workspace';
 import { isDriveRoot, SecretPolicy, WorkspacePathGuard, WorkspaceService } from '@lnwjud/workspace';
@@ -98,6 +99,7 @@ import {
   type AuditEventSummary,
   type ClearLogBufferRequest,
   type ClearWorkLogRequest,
+  type ActivityTargetSearchCandidate,
   type ConfigureTunnelProfileRequest,
   type DeleteWorkspaceRequest,
   type ConnectionModes,
@@ -212,7 +214,7 @@ export function createDesktopRuntime(dataPath: string, options: DesktopRuntimeOp
   const workspaceIndex = new WorkspaceIndexService(workspaceRepository, new JsonWorkspaceIndexStore(path.join(dataPath, 'workspace-index')));
   const settingsRepository = new SqliteSettingsRepository(database);
   const workLogViewState = new WorkLogViewState(settingsRepository);
-  const auditRepository: AuditEventRepository = new SqliteAuditRepository(database);
+  const auditRepository = new SqliteAuditRepository(database);
   const auditService = new AuditService(auditRepository);
   const checkpointCipher = new AesGcmCheckpointCipher(loadCheckpointEncryptionKey(dataPath));
   const checkpointRepository = new SqliteCheckpointRepository(database, checkpointCipher);
@@ -274,6 +276,7 @@ export function createDesktopRuntime(dataPath: string, options: DesktopRuntimeOp
     auditService,
     profileProvider: activePermissionProfile,
   });
+  const agentSwarmService = new AgentSwarmService(new SqliteAgentSwarmRepository(database), codexService);
   const capabilityRuntime = createLocalCapabilityRuntime(dataPath, async (): Promise<readonly string[]> => (
     (await workspaceRepository.list())
       .filter((workspace) => !isDriveRoot(workspace.realRootPath) && !isDriveRoot(workspace.rootPath))
@@ -334,13 +337,21 @@ export function createDesktopRuntime(dataPath: string, options: DesktopRuntimeOp
     git: gitService,
     process: processService,
     codex: codexService,
+    agentSwarm: agentSwarmService,
   };
   const activityLogPath = mcpActivityLogPath(dataPath);
   let activityLogDiagnostic: ((key: string, message: string) => void) | null = null;
-  const activityTracker = new ActivityTracker(composeActivitySinks([
+  const activityTracker = new ActivityTracker(
     createFileActivitySink(activityLogPath),
+    (error, event) => {
+      const message = error instanceof Error ? error.message : String(error);
+      activityLogDiagnostic?.(
+        'activity-sink:' + event.callId + ':' + event.phase + ':' + message,
+        '[ERROR] MCP activity logging failed — ' + message,
+      );
+    },
     {
-      async record(event: ActivitySinkEvent): Promise<void> {
+      async record(event: ActivitySinkEvent, detail): Promise<void> {
         await auditService.recordMcpTool({
           actorId: mcpActor.clientId,
           actorName: mcpActor.clientName,
@@ -350,6 +361,8 @@ export function createDesktopRuntime(dataPath: string, options: DesktopRuntimeOp
           callId: event.callId,
           phase: event.phase,
           ...(event.targetSummary === undefined ? {} : { targetSummary: event.targetSummary }),
+          targetDetail: event.targetDetail ?? decodeActivityTargetReference(undefined, event.targetSummary),
+          ...(detail === undefined ? {} : { activityTargetDetail: detail }),
           resultCode: event.resultCode,
           ...(event.resultMessage === undefined ? {} : { resultMessage: event.resultMessage }),
           ...(event.traceId === undefined ? {} : { traceId: event.traceId }),
@@ -360,13 +373,7 @@ export function createDesktopRuntime(dataPath: string, options: DesktopRuntimeOp
         });
       },
     },
-  ]), (error, event) => {
-    const message = error instanceof Error ? error.message : String(error);
-    activityLogDiagnostic?.(
-      'activity-sink:' + event.callId + ':' + event.phase + ':' + message,
-      '[ERROR] MCP activity logging failed — ' + message,
-    );
-  });
+  );
   const mcpPort = readMcpPort(process.env.LNWJUD_MCP_PORT ?? settingsRepository.get(USER_SETTING_KEYS.mcpHttpPort) ?? undefined);
   const mcpLifecycle = new DesktopMcpLifecycle({
     createServerOptions: (): McpHttpServerOptions => ({
@@ -559,7 +566,9 @@ export function createDesktopRuntime(dataPath: string, options: DesktopRuntimeOp
     if (ready) return { status: 'pass', detail: reason ?? `${name} is ready` };
     return {
       status: available ? 'fail' : 'unknown',
-      detail: reason ?? (available ? `${name} needs setup` : `${name} is unavailable`),
+      detail: reason ?? (name === 'dom_cdp' && available
+        ? 'Managed Browser is installed but stopped; start Managed Browser to use browser debugging tools'
+        : available ? `${name} needs setup` : `${name} is unavailable`),
     };
   };
   const resolveConfiguredExecutable = async (raw: string): Promise<boolean> => {
@@ -776,7 +785,7 @@ export function createDesktopRuntime(dataPath: string, options: DesktopRuntimeOp
           checkpoints: unwrap(await checkpointService.list(selectedWorkspace.id), 'Checkpoints could not be listed'),
         };
       }
-      logHub.syncWorkLog(workLog, inFlight.map((item) => ({ callId: item.callId, toolName: item.toolName, targetSummary: item.targetSummary, startedAt: item.startedAt, workspaceId: item.workspaceId, sessionId: item.sessionId })));
+      logHub.syncWorkLog(workLog, inFlight.map((item) => ({ callId: item.callId, toolName: item.toolName, targetSummary: item.targetSummary, targetDetail: item.targetDetail, startedAt: item.startedAt, workspaceId: item.workspaceId, sessionId: item.sessionId })));
       logHub.syncProcesses(processSummaries.map((summary) => ({
         id: summary.id,
         workspaceId: summary.workspaceId,
@@ -980,7 +989,7 @@ export function createDesktopRuntime(dataPath: string, options: DesktopRuntimeOp
       const workLog = await buildWorkLog(auditRepository, workLogViewState);
       const inFlight = activityTracker.listInFlight().map(toInFlightItem);
       const processSummaries = await listTrackedProcesses(processService, trackedProcesses);
-      logHub.syncWorkLog(workLog, inFlight.map((item) => ({ callId: item.callId, toolName: item.toolName, targetSummary: item.targetSummary, startedAt: item.startedAt, workspaceId: item.workspaceId, sessionId: item.sessionId })));
+      logHub.syncWorkLog(workLog, inFlight.map((item) => ({ callId: item.callId, toolName: item.toolName, targetSummary: item.targetSummary, targetDetail: item.targetDetail, startedAt: item.startedAt, workspaceId: item.workspaceId, sessionId: item.sessionId })));
       logHub.syncProcesses(processSummaries.map((summary) => ({
         id: summary.id,
         workspaceId: summary.workspaceId,
@@ -997,6 +1006,14 @@ export function createDesktopRuntime(dataPath: string, options: DesktopRuntimeOp
       logHub.clear(request.source, request, workspaceSummaries);
       return { cleared: true };
     },
+    resolveActivityTargetDetail: async (detailRef): Promise<{ readonly status: 'complete' | 'unavailable'; readonly detail: ActivityTargetDetail | null }> => {
+      const detail = await auditRepository.resolveActivityTargetDetail(detailRef);
+      return detail === null ? { status: 'unavailable', detail: null } : { status: 'complete', detail };
+    },
+    searchActivityTargetDetails: async (candidates, query): Promise<readonly string[]> => (
+      searchActivityTargetDetails(auditRepository, candidates, query)
+    ),
+    streamWorkLogExportRows: (rowIds): AsyncIterable<string> => streamWorkLogExportRows(auditRepository, rowIds),
     captureIncident: async (updaterEvents: readonly string[] = []): Promise<IncidentReport> => {
       const tunnel = await observedTunnelStatus();
       const tunnelClientVersion = await tunnelController.clientVersion();
@@ -1244,22 +1261,20 @@ async function buildWorkLog(
 ): Promise<readonly WorkLogEntry[]> {
   const events = await listVisibleMcpEvents(repository, viewState, 500);
   return events.map((event) => {
-    const toolName = typeof event.metadata.toolName === 'string' ? event.metadata.toolName : event.action.replace(/^mcp_tool:/, '');
-    const phase = event.metadata.phase === 'started' ? 'started' : 'completed';
-    const kind = classifyMcpWorkLogKind(toolName, phase, event.resultCode);
-    const callId = typeof event.metadata.callId === 'string' ? event.metadata.callId : undefined;
+    const kind = classifyMcpWorkLogKind(event.toolName, event.phase, event.resultCode);
     return {
       id: event.id,
       timestamp: event.timestamp,
       kind,
-      toolName,
+      toolName: event.toolName,
       resultCode: event.resultCode,
-      errorMessage: typeof event.metadata.errorMessage === 'string' ? event.metadata.errorMessage : null,
+      errorMessage: event.errorMessage ?? null,
       targetSummary: event.targetSummary ?? null,
+      targetDetail: event.targetDetail,
       durationMs: event.durationMs,
       workspaceId: event.workspaceId ?? null,
       sessionId: event.sessionId ?? null,
-      ...(callId === undefined ? {} : { callId }),
+      ...(event.callId === undefined ? {} : { callId: event.callId }),
     } satisfies WorkLogEntry;
   });
 }
@@ -1268,8 +1283,8 @@ async function listVisibleMcpEvents(
   repository: AuditEventRepository,
   viewState: WorkLogViewState,
   limit: number,
-): Promise<readonly AuditEvent[]> {
-  const events = await repository.listScoped({ actionPrefix: 'mcp_tool:' }, 500);
+): Promise<readonly ActivityAuditEvent[]> {
+  const events = await repository.listActivityScoped({ actionPrefix: 'mcp_tool:' }, 500);
   return events.filter((event) => viewState.isVisible(event)).slice(0, limit);
 }
 
@@ -1277,19 +1292,20 @@ async function listVisibleAuditEvents(
   repository: AuditEventRepository,
   settingsRepository: SqliteSettingsRepository,
   limit: number,
-): Promise<readonly AuditEvent[]> {
+): Promise<readonly AuditEventSummaryProjection[]> {
   const clearedAt = settingsRepository.get(workLogClearedSettingKey);
-  const events = await repository.list(limit);
+  const events = await repository.listSummaries(limit);
   if (clearedAt === null) return events;
   return events.filter((event) => event.timestamp > clearedAt);
 }
 
-function toInFlightItem(entry: { callId: string; toolName: string; startedAt: string; targetSummary?: string; workspaceId?: string; sessionId?: string }): InFlightWorkItem {
+function toInFlightItem(entry: { callId: string; toolName: string; startedAt: string; targetSummary?: string; targetDetail: InFlightWorkItem['targetDetail']; workspaceId?: string; sessionId?: string }): InFlightWorkItem {
   return {
     callId: entry.callId,
     toolName: entry.toolName,
     startedAt: entry.startedAt,
     targetSummary: entry.targetSummary ?? null,
+    targetDetail: entry.targetDetail,
     workspaceId: entry.workspaceId ?? null,
     sessionId: entry.sessionId ?? null,
   };
@@ -1491,6 +1507,130 @@ function toStructuredDoctorCheck(id: string, required: boolean, status: DoctorCh
   };
 }
 
+export async function searchActivityTargetDetails(
+  repository: SqliteAuditRepository,
+  candidates: readonly ActivityTargetSearchCandidate[],
+  query: string,
+): Promise<readonly string[]> {
+  const needle = query.trim();
+  if (needle.length === 0) return [];
+  const matchesByReference = new Map<string, boolean>();
+  const matchingIds: string[] = [];
+  for (const candidate of candidates) {
+    if (candidate.detailRef === null) continue;
+    let matches = matchesByReference.get(candidate.detailRef);
+    if (matches === undefined) {
+      matches = await repository.activityTargetDetailMatches(candidate.detailRef, needle);
+      matchesByReference.set(candidate.detailRef, matches);
+    }
+    if (matches) matchingIds.push(candidate.id);
+  }
+  return matchingIds;
+}
+
+export async function resolveWorkLogExportRows(
+  repository: SqliteAuditRepository,
+  identities: readonly string[],
+): Promise<readonly string[]> {
+  const rows: string[] = [];
+  for await (const row of streamWorkLogExportRows(repository, identities)) rows.push(row);
+  return rows;
+}
+
+export async function* streamWorkLogExportRows(
+  repository: Pick<SqliteAuditRepository, 'resolveActivityEvent' | 'resolveActivityTargetDetail'>,
+  identities: readonly string[],
+): AsyncIterable<string> {
+  for (const identity of identities) {
+    const parsed = parseWorkLogIdentity(identity);
+    if (parsed === null) continue;
+    const event = await repository.resolveActivityEvent(parsed.value, parsed.kind === 'audit' ? 'event' : 'started-call');
+    if (event === null) {
+      yield 'Detail unavailable: the retained audit event no longer exists.';
+      continue;
+    }
+    if (event.targetDetail.legacyIncomplete && event.targetDetail.itemCount > event.targetDetail.preview.length) {
+      yield formatActivityExportRow(event, null);
+      continue;
+    }
+    const detailRef = event.targetDetail.detailRef ?? event.callId ?? (parsed.kind === 'audit' ? event.id : parsed.value);
+    const detail = await repository.resolveActivityTargetDetail(detailRef);
+    yield formatActivityExportRow(event, detail);
+  }
+}
+
+export async function writeSerializedLogRows(filePath: string, rows: Iterable<string> | AsyncIterable<string>): Promise<void> {
+  const temporaryPath = `${filePath}.tmp-${process.pid}-${Date.now()}`;
+  try {
+    const handle = await open(temporaryPath, 'wx');
+    try {
+      for await (const row of rows) await handle.write(`${row}\r\n`, undefined, 'utf8');
+      await handle.sync();
+    } finally {
+      await handle.close();
+    }
+    await rename(temporaryPath, filePath);
+  } catch (error: unknown) {
+    await rm(temporaryPath, { force: true }).catch(() => undefined);
+    throw error;
+  }
+}
+
+function parseWorkLogIdentity(value: string): { readonly kind: 'audit' | 'inflight'; readonly value: string } | null {
+  const separator = value.indexOf(':');
+  if (separator <= 0 || separator === value.length - 1) return null;
+  const kind = value.slice(0, separator);
+  if (kind !== 'audit' && kind !== 'inflight') return null;
+  return { kind, value: value.slice(separator + 1) };
+}
+
+function formatActivityExportRow(event: ActivityAuditEvent, detail: ActivityTargetDetail | null): string {
+  const kind = classifyMcpWorkLogKind(event.toolName, event.phase, event.resultCode);
+  const tag = kind === 'task' ? '[TASK]' : kind === 'error' ? '[ERROR]' : '[RESULT]';
+  const duration = kind === 'task' ? '' : ` ${event.durationMs}ms`;
+  const summary = event.targetSummary === undefined || event.targetSummary.trim().length === 0 ? '' : ` ${event.targetSummary}`;
+  const error = event.errorMessage === undefined || event.errorMessage.trim().length === 0 ? '' : ` — ${event.errorMessage}`;
+  const base = `${formatActivityExportTimestamp(event.timestamp)} ${tag} ${event.toolName}${summary}${error}${duration}`.trim();
+  const metadata = [
+    `eventId=${event.id}`,
+    `callId=${event.callId ?? '<none>'}`,
+    `workspaceId=${event.workspaceId ?? '<none>'}`,
+    `sessionId=${event.sessionId ?? '<none>'}`,
+    `toolName=${event.toolName}`,
+    `phase=${event.phase}`,
+    `resultCode=${event.resultCode}`,
+    `durationMs=${event.durationMs}`,
+    ...(event.targetSummary === undefined ? [] : [`targetSummary=${event.targetSummary}`]),
+    ...(event.errorMessage === undefined ? [] : [`errorMessage=${event.errorMessage}`]),
+  ];
+  const baseWithMetadata = `${base}\r\n${metadata.join('\r\n')}`;
+  if (event.targetDetail.legacyIncomplete && event.targetDetail.itemCount > event.targetDetail.preview.length) {
+    return formatIncompleteLegacyHistory(baseWithMetadata);
+  }
+  const detailExpected = event.targetDetail.detailRef !== null && event.targetDetail.itemCount > event.targetDetail.preview.length;
+  return formatCompleteTargetDetail(baseWithMetadata, detail, detailExpected);
+}
+
+export function formatIncompleteLegacyHistory(base: string): string {
+  return `${base}\r\nIncomplete legacy history: omitted target items were not retained.`;
+}
+
+export function formatCompleteTargetDetail(base: string, detail: ActivityTargetDetail | null, detailExpected = false): string {
+  if (detail === null) {
+    return detailExpected ? `${base}\r\nComplete target detail unavailable; this row may be incomplete.` : base;
+  }
+  if (detail.items.length === 0) return base;
+  const heading = detail.kind === 'files' ? 'Files' : detail.kind === 'tools' ? 'Tools' : 'Details';
+  return `${base}\r\n${heading}:\r\n${detail.items.map((item) => `- ${item}`).join('\r\n')}`;
+}
+
+function formatActivityExportTimestamp(value: string): string {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  const pad = (part: number): string => String(part).padStart(2, '0');
+  return `${pad(date.getDate())}-${pad(date.getMonth() + 1)}-${date.getFullYear()} ${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}`;
+}
+
 export function buildPersistentTunnelDoctorChecks(input: {
   readonly tunnel: TunnelStatus;
   readonly mcp: McpConnectionStatus;
@@ -1516,7 +1656,19 @@ export function buildPersistentTunnelDoctorChecks(input: {
     check('runtime_process_running', runtimeRunning ? 'pass' : required ? 'fail' : 'warn', runtimeRunning ? 'Tunnel runtime is running' : 'TUNNEL_RUNTIME_DOWN: tunnel runtime is not running'),
     check('tunnel_health', health === true ? 'pass' : health === false ? 'fail' : 'warn', health === true ? 'Tunnel health is OK' : health === false ? 'TUNNEL_RUNTIME_DOWN: tunnel health probe failed' : 'Tunnel health is not currently observable'),
     check('tunnel_ready', ready === true ? 'pass' : ready === false ? 'fail' : 'warn', ready === true ? 'Tunnel readiness is OK' : ready === false ? 'TUNNEL_RUNTIME_DOWN: tunnel is not ready' : 'Tunnel readiness is not currently observable'),
-    check('control_plane_poll_health', controlPlaneHealthy === true ? 'pass' : controlPlaneHealthy === false ? 'fail' : 'warn', controlPlaneHealthy === true ? 'Control-plane poll is healthy' : controlPlaneHealthy === false ? 'CONTROL_PLANE_OFFLINE: control-plane polling is unhealthy' : 'Control-plane poll health is not currently observable'),
+    check(
+      'control_plane_poll_health',
+      controlPlaneHealthy === true || (controlPlaneHealthy == null && runtimeRunning && health === true) || !required ? 'pass' : controlPlaneHealthy === false ? 'fail' : 'warn',
+      controlPlaneHealthy === true
+        ? 'Control-plane poll is healthy'
+        : controlPlaneHealthy === false
+          ? 'CONTROL_PLANE_OFFLINE: control-plane polling is unhealthy'
+          : runtimeRunning && health === true
+            ? 'Control-plane poll is not reported separately; live tunnel health confirms the runtime is reachable'
+            : !required
+              ? 'Persistent tunnel polling is optional and currently disabled'
+              : 'Control-plane poll health is not currently observable',
+    ),
     check('local_mcp_binding', localBindingMatches ? 'pass' : required ? 'fail' : 'warn', localBindingMatches ? 'Tunnel is bound to the current Desktop MCP endpoint' : 'LOCAL_BINDING_STALE: tunnel local MCP binding does not match the active Desktop MCP endpoint'),
     check('local_mcp_reachable', input.mcp.running && input.mcp.url !== null ? 'pass' : required ? 'fail' : 'warn', input.mcp.running && input.mcp.url !== null ? 'Desktop MCP listener is reachable locally' : 'LOCAL_MCP_DOWN: Desktop MCP listener is not running'),
     check('tunnel_id_matches_saved_identity', mismatch ? 'fail' : identityPresent ? 'pass' : 'warn', mismatch ? 'TUNNEL_ID_MISMATCH: runtime alias reports a different tunnel identity' : identityPresent ? 'Runtime has not reported a tunnel identity mismatch' : 'Saved tunnel identity is unavailable'),

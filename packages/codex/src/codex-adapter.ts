@@ -1,7 +1,7 @@
 import { err, ok, type Result } from '@lnwjud/domain';
 import { ProcessManager, type LogQuery, type ManagedProcess, type ManagedProcessStart, type ProcessLogResult } from '@lnwjud/process';
 import { CodexDiscovery } from './codex-discovery.js';
-import { CodexInvocationBuilder, type CodexDiscoveryResult, type CodexInvocation, type CodexStatus } from './codex-capabilities.js';
+import { CodexInvocationBuilder, type CodexDiscoveryResult, type CodexInvocation, type CodexSandboxMode, type CodexStatus } from './codex-capabilities.js';
 
 export interface CodexDiscoveryPort {
   discover(): Promise<Result<CodexDiscoveryResult>>;
@@ -15,7 +15,7 @@ export interface CodexProcessManagerPort {
 }
 
 export interface CodexInvocationBuilderPort {
-  build(executable: string, capabilities: CodexDiscoveryResult['capabilities'], instruction: string): Result<CodexInvocation>;
+  build(executable: string, capabilities: CodexDiscoveryResult['capabilities'], instruction: string, sandboxMode?: CodexSandboxMode): Result<CodexInvocation>;
 }
 
 export class CodexAdapter {
@@ -39,6 +39,7 @@ export class CodexAdapter {
     instruction: string,
     signal?: AbortSignal,
     onCreated?: (process: ManagedProcess) => void,
+    sandboxMode: CodexSandboxMode = 'workspace-write',
   ): Promise<Result<ManagedProcess>> {
     if (isAborted(signal)) return cancelledCodexStart();
     const discovered = await this.discovery.discover();
@@ -47,7 +48,7 @@ export class CodexAdapter {
     if (!discovered.value.status.installed || discovered.value.status.executablePath === undefined) {
       return err({ code: 'CODEX_NOT_AVAILABLE', message: 'Codex is not installed', recoverable: true });
     }
-    const invocation = this.builder.build(discovered.value.status.executablePath, discovered.value.capabilities, instruction);
+    const invocation = this.builder.build(discovered.value.status.executablePath, discovered.value.capabilities, instruction, sandboxMode);
     if (!invocation.ok) return invocation;
     if (isAborted(signal)) return cancelledCodexStart();
     return this.processManager.start({ executable: invocation.value.executable, args: invocation.value.args, cwd }, signal, onCreated);

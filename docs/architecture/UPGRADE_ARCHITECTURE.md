@@ -1,6 +1,6 @@
-# lnwjud Upgrade Architecture Contract
+# lnwjud upgrade architecture contract
 
-Status: God-Tier local-first implementation checkpoint for `v4.0.0`.
+Status: God-Tier local-first implementation checkpoint synchronized for `v4.44.0`.
 
 This document is the architectural boundary for the upgrade roadmap. It describes
 the existing runtime before Phase 01 and the invariants every later phase must
@@ -42,7 +42,7 @@ MCP clients (ChatGPT / Codex / Claude / other agents)
              MCP stdio or loopback Streamable HTTP
                          |
                          v
-                  ToolRegistry (231 total definitions; 195 default; 201 with Codex)
+                  ToolRegistry (231 total definitions; 224 default; all 231 with Codex + Agent Swarm)
                          |
        +-----------------+------------------+
        |                 |                  |
@@ -112,8 +112,8 @@ Long-running operations use the existing task handles where a concrete backend
 exists. Activity events now carry bounded `traceId`/`traceParent` values into
 NDJSON and SQLite audit metadata. The 184-tool snapshot remains a historical
 compatibility baseline. The complete inventory contains 231 tool definitions.
-Current transports advertise 195 by default or 201 when the six Codex delegation
-tools are enabled; planned and feature-disabled definitions remain inventory-only,
+Current transports advertise 224 by default or all 231 when the six Codex delegation tools plus Agent Swarm
+are enabled; planned and feature-disabled definitions remain inventory-only,
 and registry additions remain append-only.
 
 Tool readiness is deliberately not an execution probe. Main process checks only owned/read-only dependency and status surfaces with bounded timeouts, caches the result, and projects one snapshot into both the Tools page and Doctor. A selected recheck refreshes the affected requirement and recomputes both surfaces atomically. Required Doctor `fail`/`unknown` blocks the startup gate; optional failures do not. Setup and Portable consume the same compiled main/preload/renderer catalog and Doctor code paths.

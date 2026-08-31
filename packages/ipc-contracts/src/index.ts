@@ -1,5 +1,5 @@
 export const APP_NAME = 'lnwjud';
-export const APP_VERSION = '4.31.0';
+export const APP_VERSION = '4.44.0';
 
 export const ipcChannels = {
   listWorkspaces: 'lnwjud:list-workspaces',
@@ -43,8 +43,9 @@ export const ipcChannels = {
   copyToolCommand: 'lnwjud:copy-tool-command',
   getLogSnapshot: 'lnwjud:get-log-snapshot',
   clearLogBuffer: 'lnwjud:clear-log-buffer',
+  resolveActivityTargetDetail: 'lnwjud:resolve-activity-target-detail',
+  searchActivityTargetDetails: 'lnwjud:search-activity-target-details',
   exportLogs: 'lnwjud:export-logs',
-
   exportWorkLog: 'lnwjud:export-work-log',
   captureIncident: 'lnwjud:capture-incident',
   openLogViewer: 'lnwjud:open-log-viewer',
@@ -92,6 +93,23 @@ export type ToolCategory =
   | 'extensions';
 export type ToolRiskMode = 'fixed' | 'input_dependent';
 export type ToolReadinessStatus = 'ready' | 'needs_setup' | 'blocked' | 'disabled' | 'unsupported' | 'unknown';
+export type ToolReadinessReason =
+  | 'setup_required'
+  | 'runtime_not_ready'
+  | 'probe_failed'
+  | 'permission_denied'
+  | 'unsupported_platform'
+  | 'feature_disabled'
+  | 'planned'
+  | 'external_unknown';
+export type ToolDeliveryState =
+  | 'operational'
+  | 'dependency_gated'
+  | 'feature_disabled'
+  | 'blocked_by_safety_policy'
+  | 'planned'
+  | 'unsupported'
+  | 'external_unknown';
 export type ToolDeclaredPermission = 'READ' | 'WRITE' | 'EXECUTE' | 'DANGEROUS' | 'UNKNOWN';
 export type ToolProfileDecision = 'ALLOW' | 'ASK' | 'DENY' | 'UNKNOWN';
 
@@ -140,6 +158,12 @@ export interface ToolCatalogItem {
   readonly profileDecision: ToolProfileDecision;
   readonly riskMode: ToolRiskMode | 'external_unknown';
   readonly readiness: ToolReadinessStatus;
+  /** More precise cause for non-ready states. Older senders may omit it. */
+  readonly readinessReason?: ToolReadinessReason;
+  /** Whether the runtime is shipped, gated, unavailable, or externally unverifiable. */
+  readonly deliveryState?: ToolDeliveryState;
+  /** Runtime presence, separate from readiness. Omitted when a probe cannot establish presence. */
+  readonly available?: boolean;
   readonly stale: boolean;
   readonly checkedAt: string | null;
   readonly supportsCancel: boolean | null;
@@ -257,6 +281,43 @@ export interface CapabilitySummary {
   readonly ready: boolean;
 }
 
+export interface ActivityTargetReference {
+  readonly detailRef: string | null;
+  readonly itemCount: number;
+  readonly preview: readonly string[];
+  readonly hasAdditionalDetail?: boolean;
+  readonly legacyIncomplete: boolean;
+}
+
+export type ActivityTargetDetail =
+  | { readonly kind: 'files'; readonly items: readonly string[] }
+  | { readonly kind: 'tools'; readonly items: readonly string[] }
+  | { readonly kind: 'details'; readonly items: readonly string[] };
+
+export interface ResolveActivityTargetDetailRequest {
+  readonly detailRef: string;
+}
+
+export interface ResolveActivityTargetDetailResult {
+  readonly status: 'complete' | 'unavailable';
+  readonly detail: ActivityTargetDetail | null;
+}
+
+export interface ActivityTargetSearchCandidate {
+  /** Renderer-owned stable row/line identity; returned verbatim on a match. */
+  readonly id: string;
+  readonly detailRef: string | null;
+}
+
+export interface SearchActivityTargetDetailsRequest {
+  readonly query: string;
+  readonly candidates: readonly ActivityTargetSearchCandidate[];
+}
+
+export interface SearchActivityTargetDetailsResult {
+  readonly matchingIds: readonly string[];
+}
+
 export interface WorkLogEntry {
   readonly id: string;
   readonly timestamp: string;
@@ -265,6 +326,7 @@ export interface WorkLogEntry {
   readonly resultCode: string;
   readonly errorMessage: string | null;
   readonly targetSummary: string | null;
+  readonly targetDetail: ActivityTargetReference;
   readonly durationMs: number;
   readonly workspaceId: string | null;
   readonly sessionId: string | null;
@@ -276,6 +338,7 @@ export interface InFlightWorkItem {
   readonly toolName: string;
   readonly startedAt: string;
   readonly targetSummary: string | null;
+  readonly targetDetail: ActivityTargetReference;
   readonly workspaceId: string | null;
   readonly sessionId: string | null;
 }
@@ -333,6 +396,7 @@ export interface LogLine {
   readonly timestamp: string;
   readonly level: LogLevel;
   readonly text: string;
+  readonly targetDetail?: ActivityTargetReference;
   readonly workspaceId: string | null;
   readonly sessionId: string | null;
   readonly correlation?: LogCorrelation;
@@ -365,15 +429,18 @@ export interface ExportLogsRequest extends LogScopeRequest {
   readonly source: LogSource;
   readonly filePath: string;
   readonly query?: string;
-  /** Exact line identities visible in the renderer when Export was clicked. */
-  readonly lineIds?: readonly number[];
-  /** Exact locally formatted rows visible/copyable in the renderer when Export was clicked. */
-  readonly rows?: readonly string[];
+  /** Exact visible order plus correlation references captured when Export was clicked. */
+  readonly lines: readonly LiveLogExportReference[];
+}
+
+export interface LiveLogExportReference {
+  readonly lineId: number;
+  readonly correlationRef: string | null;
 }
 
 export interface ExportWorkLogRequest {
-  /** Exact formatted rows visible in Work Log when Export was clicked. */
-  readonly rows: readonly string[];
+  /** Ordered stable `audit:<eventId>` / `inflight:<callId>` identities captured at click. */
+  readonly rowIds: readonly string[];
 }
 
 /** Normalize legacy path-shaped workspace IDs emitted by older builds. */
@@ -731,6 +798,8 @@ export interface IpcRequestMap {
   readonly [ipcChannels.runDoctor]: undefined;
   readonly [ipcChannels.getLogSnapshot]: undefined;
   readonly [ipcChannels.clearLogBuffer]: ClearLogBufferRequest;
+  readonly [ipcChannels.resolveActivityTargetDetail]: ResolveActivityTargetDetailRequest;
+  readonly [ipcChannels.searchActivityTargetDetails]: SearchActivityTargetDetailsRequest;
   readonly [ipcChannels.exportLogs]: ExportLogsRequest;
   readonly [ipcChannels.exportWorkLog]: ExportWorkLogRequest;
   readonly [ipcChannels.captureIncident]: undefined;
@@ -782,6 +851,8 @@ export interface IpcResponseMap {
   readonly [ipcChannels.copyToolCommand]: { readonly copied: true };
   readonly [ipcChannels.getLogSnapshot]: LogSnapshot;
   readonly [ipcChannels.clearLogBuffer]: { readonly cleared: boolean };
+  readonly [ipcChannels.resolveActivityTargetDetail]: ResolveActivityTargetDetailResult;
+  readonly [ipcChannels.searchActivityTargetDetails]: SearchActivityTargetDetailsResult;
   readonly [ipcChannels.exportLogs]: { readonly exported: boolean };
   readonly [ipcChannels.exportWorkLog]: { readonly exported: boolean };
   readonly [ipcChannels.captureIncident]: IncidentExportResult;
@@ -833,6 +904,8 @@ export interface LnwjudApi {
   copyToolCommand(request: CopyToolCommandRequest): Promise<IpcResponseMap[typeof ipcChannels.copyToolCommand]>;
   getLogSnapshot(): Promise<IpcResponseMap[typeof ipcChannels.getLogSnapshot]>;
   clearLogBuffer(request: ClearLogBufferRequest): Promise<IpcResponseMap[typeof ipcChannels.clearLogBuffer]>;
+  resolveActivityTargetDetail(request: ResolveActivityTargetDetailRequest): Promise<IpcResponseMap[typeof ipcChannels.resolveActivityTargetDetail]>;
+  searchActivityTargetDetails(request: SearchActivityTargetDetailsRequest): Promise<IpcResponseMap[typeof ipcChannels.searchActivityTargetDetails]>;
   exportLogs(request: ExportLogsRequest): Promise<IpcResponseMap[typeof ipcChannels.exportLogs]>;
   exportWorkLog(request: ExportWorkLogRequest): Promise<IpcResponseMap[typeof ipcChannels.exportWorkLog]>;
   captureIncident(): Promise<IpcResponseMap[typeof ipcChannels.captureIncident]>;

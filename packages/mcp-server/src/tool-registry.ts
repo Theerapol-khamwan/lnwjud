@@ -14,7 +14,7 @@ import { sanitizeException, type DiagnosticLogger, type FileActor } from '@lnwju
 import { CAPABILITY_ACTIVE_WORKSPACE_ROOT_METADATA_KEY } from '@lnwjud/capabilities';
 import { DefaultPermissionEngine, permissionProfiles, type PermissionProfile } from '@lnwjud/permissions';
 import { DEFAULT_DESTRUCTIVE_AUTO_APPROVAL_POLICY, prohibitedAgentCommandReason, prohibitedAgentGitInvocationReason, type DestructiveAutoApprovalPolicy } from '@lnwjud/shared';
-import { ActivityTracker, summarizeStructuredResultTarget, summarizeToolTarget, type ActivitySink, type TraceContext } from './activity-tracker.js';
+import { ActivityTracker, describeStructuredResultDetail, summarizeStructuredResultTarget, summarizeToolTarget, type ActivitySink, type TraceContext } from './activity-tracker.js';
 import { ContextEngine } from './context-engine.js';
 import { ContextEconomyRuntime } from './context-economy.js';
 import { hasExplicitUserConfirmation } from './destructive-policy.js';
@@ -23,6 +23,7 @@ import { FilePageEngine } from './file-page-engine.js';
 import { IncrementalVerifier } from './incremental-verifier.js';
 import { inspectMutationOperation, permissionLevelForMutationDecision, requiresMutationConfirmation, type MutationPolicyDecision } from './mutation-policy.js';
 import { mapError, mapResult, type McpToolResponse } from './result-mapper.js';
+import { agentSwarmTools } from './tools/agent-swarm-tools.js';
 import { batchTools } from './tools/batch-tools.js';
 import { contextTools } from './tools/context-tools.js';
 import { filePageTools } from './tools/file-page-tools.js';
@@ -158,6 +159,7 @@ export class ToolRegistry {
       ...files.slice(2),
       ...processTools(context),
       ...codexTools(context),
+      ...agentSwarmTools(context),
       ...capabilityTools(context, options.setOfMarksStore),
       ...skillTools(context),
       ...mcpBridgeTools(context),
@@ -172,6 +174,7 @@ export class ToolRegistry {
     const exposedAllBaseTools = allBaseTools.map((tool) => withToolEnvelopes(tool));
     const exposedBaseTools = exposedAllBaseTools.filter((tool) => {
       if (tool.name.startsWith('codex_') && options.codexToolsEnabled !== true) return false;
+      if (tool.name === 'agent_swarm_run') return options.codexToolsEnabled === true && services.agentSwarm !== undefined;
       const catalogEntry = upgradeCatalogEntry(tool.name);
       return catalogEntry === undefined || isAdvertisedDeliveryState(catalogEntry.deliveryState);
     });
@@ -415,17 +418,18 @@ export class ToolRegistry {
 
       const resultCode = response.isError === true ? readErrorCode(response) ?? 'ERROR' : 'SUCCESS';
       const resultMessage = readErrorMessage(response);
+      const resultDetail = describeStructuredResultDetail(response.structuredContent ?? response.content);
       if (execution.deferredSettlement !== undefined) {
         const endFence = fencedMutationEnd;
         fencedMutationEnd = undefined;
         void execution.deferredSettlement.then(async () => {
           await endFence?.();
-          await this.activity.end(callId, resultCode, Date.now() - started, resultMessage);
+          await this.activity.end(callId, resultCode, Date.now() - started, resultMessage, resultDetail);
         });
       } else {
         await fencedMutationEnd?.();
         fencedMutationEnd = undefined;
-        await this.activity.end(callId, resultCode, Date.now() - started, resultMessage);
+        await this.activity.end(callId, resultCode, Date.now() - started, resultMessage, resultDetail);
       }
       return response;
     } catch (error: unknown) {
@@ -754,7 +758,7 @@ export const SCHEDULED_CONTINUATION_FENCED_TOOLS = new Set([
   'write_file', 'apply_patch', 'edit_file', 'move_file', 'copy_file', 'delete_file',
   'restore_deleted_file', 'restore_checkpoint', 'git', 'shell', 'wsl_exec',
   'process_start', 'process_stop', 'project_dev', 'project_test', 'project_lint', 'project_typecheck', 'project_build',
-  'verify_incremental', 'codex_run', 'codex_stop', 'git_worktree_spawn', 'git_worktree_remove', 'self_heal_apply',
+  'verify_incremental', 'codex_run', 'codex_stop', 'agent_swarm_run', 'git_worktree_spawn', 'git_worktree_remove', 'self_heal_apply',
   'computer_use', 'dom_cdp', 'accessibility', 'input_event', 'ui_target_action', 'window',
   'clipboard', 'file_dialog', 'notification', 'web_fetch', 'scheduler',
   'office', 'audio', 'screen_record', 'docx_merge', 'office_ppt',
@@ -804,12 +808,22 @@ function withApprovalEnvelope(tool: McpToolDefinition): McpToolDefinition {
 
 function withGoalLeaseEnvelope(tool: McpToolDefinition): McpToolDefinition {
   if (!SCHEDULED_CONTINUATION_FENCED_TOOLS.has(tool.name)) return tool;
-  if (!(tool.inputSchema instanceof z.ZodObject)) {
-    throw new Error(`Fenced tool ${tool.name} must use an object input schema`);
-  }
+  const extendObjectSchema = (schema: z.ZodObject): z.ZodObject =>
+    schema.safeExtend({ goalLease: goalLeaseProofSchema.optional() });
+  const inputSchema = tool.inputSchema instanceof z.ZodObject
+    ? extendObjectSchema(tool.inputSchema)
+    : tool.inputSchema instanceof z.ZodUnion
+      ? z.union(tool.inputSchema.options.map((option) => {
+        if (!(option instanceof z.ZodObject)) {
+          throw new Error(`Fenced tool ${tool.name} union input branches must use object schemas`);
+        }
+        return extendObjectSchema(option);
+      }) as [z.ZodObject, z.ZodObject, ...z.ZodObject[]])
+      : undefined;
+  if (inputSchema === undefined) throw new Error(`Fenced tool ${tool.name} must use an object or object-union input schema`);
   return {
     ...tool,
-    inputSchema: tool.inputSchema.safeExtend({ goalLease: goalLeaseProofSchema.optional() }),
+    inputSchema,
     parse(input: unknown): ReturnType<McpToolDefinition['parse']> {
       const rawGoalLease = isRecord(input) ? input.goalLease : undefined;
       const parsedGoalLease = rawGoalLease === undefined ? undefined : goalLeaseProofSchema.safeParse(rawGoalLease);
@@ -925,6 +939,17 @@ function summarizeMutationForApproval(toolName: string, input: unknown, activeWo
     lines.push('WARNING: workspace-write child agent execution is opaque and is not covered by Recovery Trash.');
     return boundedApprovalSummary(lines);
   }
+  if (toolName === 'agent_swarm_run') {
+    appendApprovalValue(lines, 'operation', readTrimmedString(input.operation));
+    appendApprovalValue(lines, 'workspaceRoot', activeWorkspaceScope?.rootPath);
+    if (Array.isArray(input.tasks)) {
+      const taskIds = input.tasks.flatMap((entry) => isRecord(entry) && readTrimmedString(entry.id) !== undefined ? [readTrimmedString(entry.id)!] : []);
+      lines.push(`launchCount = ${taskIds.length}`);
+      if (taskIds.length > 0) lines.push(`taskIds = ${JSON.stringify(taskIds)}`);
+    }
+    lines.push('WARNING: this consumes explicitly enabled Codex quota; v4.44.0 enforces read-only child sandboxes.');
+    return boundedApprovalSummary(lines);
+  }
   const projectKind = projectCommandKind(toolName);
   if (projectKind !== undefined) {
     lines.push(`projectCommand = ${projectKind}`);
@@ -1020,7 +1045,7 @@ function prohibitedInvocationReason(toolName: string, input: unknown): string | 
   return undefined;
 }
 
-const LOCAL_MUTATION_TOOLS = new Set(['write_file', 'apply_patch', 'edit_file', 'move_file', 'copy_file', 'delete_file', 'restore_deleted_file', 'restore_recovery_item', 'restore_checkpoint', 'git', 'shell', 'wsl_exec', 'process_start', 'process_stop', 'codex_run', 'codex_stop', 'office', 'office_ppt', 'docx_merge', 'git_worktree_spawn', 'git_worktree_remove', 'self_heal_apply']);
+const LOCAL_MUTATION_TOOLS = new Set(['write_file', 'apply_patch', 'edit_file', 'move_file', 'copy_file', 'delete_file', 'restore_deleted_file', 'restore_recovery_item', 'restore_checkpoint', 'git', 'shell', 'wsl_exec', 'process_start', 'process_stop', 'codex_run', 'codex_stop', 'agent_swarm_run', 'office', 'office_ppt', 'docx_merge', 'git_worktree_spawn', 'git_worktree_remove', 'self_heal_apply']);
 const LOCAL_OUTPUT_REPLACEMENT_TOOLS = new Set(['audio', 'screen_record']);
 function requiresActiveWorkspaceScope(toolName: string, decision: MutationPolicyDecision): boolean {
   return decision.kind !== 'read' && (LOCAL_MUTATION_TOOLS.has(toolName) || (decision.kind === 'replace' && LOCAL_OUTPUT_REPLACEMENT_TOOLS.has(toolName)));
@@ -1044,7 +1069,7 @@ function commandExecutionLeavesActiveWorkspace(toolName: string, input: unknown,
 }
 function isDestructiveMutation(decision: MutationPolicyDecision): boolean { return decision.kind === 'replace' || decision.kind === 'delete' || decision.kind === 'opaque_mutation'; }
 const ALWAYS_CONFIRM_MUTATION_TOOLS = new Set([
-  'codex_run', 'codex_stop', 'cancel_goal', 'cancel_scheduled_continuation', 'mcp_call', 'web_fetch', 'scheduler',
+  'codex_run', 'codex_stop', 'agent_swarm_run', 'cancel_goal', 'cancel_scheduled_continuation', 'mcp_call', 'web_fetch', 'scheduler',
   'office', 'office_ppt', 'docx_merge', 'dom_cdp', 'computer_use',
   'accessibility', 'input_event', 'ui_target_action', 'window', 'clipboard',
   'audio', 'screen_record',

@@ -1,5 +1,6 @@
 import { spawn } from 'node:child_process';
 import { createHash, randomUUID } from 'node:crypto';
+import { open, stat } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import {
@@ -20,6 +21,7 @@ import { DatabaseRuntimeService } from './database-runtime.js';
 import { DocumentRuntimeService } from './document-runtime.js';
 import { LspRuntimeService } from './lsp-runtime.js';
 import { withReplacementRecoveryDetails } from './replacement-recovery.js';
+import { withCapabilityOwnerMetadata } from './request-scope.js';
 import { SandboxRuntimeService } from './sandbox-runtime.js';
 import { truthfulUnavailable } from './tool-delivery-contract.js';
 import { UPGRADE_TOOL_CATALOG, type UpgradeToolCatalogEntry } from './upgrade-catalog.js';
@@ -144,7 +146,7 @@ export class UpgradeRuntimeService {
     this.contextEconomy = contextEconomy;
     this.contextEngine = new ContextEngine(services, actor, contextEconomy);
     this.eventLog = new EventLogCapabilityBackend();
-    this.sandbox = new SandboxRuntimeService(services, actor);
+    this.sandbox = new SandboxRuntimeService(services, actor, services.sandboxRuntimeOptions);
     this.database = new DatabaseRuntimeService(services, actor);
     this.lsp = new LspRuntimeService(services, actor);
     this.documents = new DocumentRuntimeService(services, actor);
@@ -223,11 +225,17 @@ export class UpgradeRuntimeService {
       case 'skill_load':
         return this.skillInsight(name, input);
       case 'plugin_list':
+        await this.refreshSharedState();
+        return ok({
+          tool: 'plugin_list', status: 'ready', available: true, ready: true, executed: true,
+          plugins: [...this.plugins.values()].sort((left, right) => left.name.localeCompare(right.name)),
+          persistence: this.stateStore === undefined ? 'memory_only' : 'shared_locked_state',
+        });
       case 'plugin_install':
       case 'plugin_enable':
       case 'plugin_disable':
       case 'plugin_remove':
-        return ok(truthfulUnavailable(name, 'disabled', ['validated injected plugin registry']));
+        return this.changePlugin(name, readString(input, 'name') ?? readString(input, 'plugin'), input, authorization);
       case 'session_context':
       case 'session_resume':
         return ok({ session: Object.fromEntries(this.session), checkpoints: this.checkpoints });
@@ -246,14 +254,13 @@ export class UpgradeRuntimeService {
       case 'task_cancel':
       case 'task_result':
       case 'task_list':
-        return ok(truthfulUnavailable(name, 'disabled', ['managed task execution adapter']));
+        return this.managedTask(name, input, signal, authorization);
       case 'delegate':
       case 'delegate_status':
       case 'delegate_cancel':
       case 'delegate_result':
-        return ok(truthfulUnavailable(name, 'disabled', ['subagent provider']));
       case 'parallel_delegate':
-        return ok(truthfulUnavailable(name, 'disabled', ['subagent provider', 'ownership/collision adapter']));
+        return this.agentDelegation(name, input, signal, authorization);
       case 'repo_map':
         return this.repositoryMap(readString(input, 'workspaceId'));
       case 'context_expand':
@@ -274,10 +281,11 @@ export class UpgradeRuntimeService {
       case 'workspace_index':
         return ok({});
       case 'live_logs_status':
+        return this.liveLogsStatus();
       case 'live_logs_query':
-        return ok(truthfulUnavailable(name, 'needs_setup', ['structured live-log provider']));
+        return this.liveLogsQuery(input);
       case 'telemetry_dashboard':
-        return ok(truthfulUnavailable(name, 'needs_setup', ['runtime telemetry provider']));
+        return this.telemetryDashboard();
       case 'context_economy_stats':
         return ok({ ...this.contextEconomy.snapshot(), policy: { automaticDiscovery: 'filtered-and-progressive', explicitAccess: 'full-and-unrestricted-by-economy', ledger: 'bounded-in-memory' } });
       case 'execution_plan':
@@ -285,9 +293,9 @@ export class UpgradeRuntimeService {
       case 'recovery_status':
         return ok({ reconnect: 'enabled-at-transport-boundary', safeReadRetry: true, destructiveRetry: false, staleContinuation: 'detected', indexRecovery: 'rebuildable', workerIsolation: true });
       case 'tool_schema_list':
-        return ok({ schemas: UPGRADE_TOOL_CATALOG.map((entry) => ({ id: entry.name, version: '1.0.0', permissions: [entry.permission], streamable: entry.streamable === true, parallelSafe: entry.parallelSafe === true })) });
+        return ok({ schemas: this.listToolSchemas(), persistence: this.stateStore === undefined ? 'memory_only' : 'session_locked_state' });
       case 'tool_schema_register':
-        return ok(truthfulUnavailable(name, 'disabled', ['versioned schema registry']));
+        return this.registerToolSchema(input);
       case 'mcp_discover':
       case 'mcp_health':
         return this.externalMcpInsight(name);
@@ -337,24 +345,24 @@ export class UpgradeRuntimeService {
       case 'handoff_context':
         return this.compoundContext(name, input);
       case 'benchmark_run':
-        return ok(truthfulUnavailable(name, 'disabled', ['managed benchmark execution adapter']));
+        return this.benchmarkRun(input, signal, authorization);
       case 'regression_report':
-        return ok(truthfulUnavailable(name, 'disabled', ['persisted benchmark result store']));
+        return this.regressionReport(input);
       case 'project_profile_get':
       case 'project_profile_set':
-        return ok(truthfulUnavailable(name, 'disabled', ['validated project-profile persistence adapter']));
+        return this.projectProfile(name, input, signal, authorization);
       case 'compare_workbook_layout':
-        return ok(truthfulUnavailable(name, 'disabled', ['spreadsheet layout plugin adapter']));
+        return this.documents.compareWorkbookLayout(input, authorization);
       case 'render_excel_preview':
-        return ok(truthfulUnavailable(name, 'disabled', ['Excel preview renderer adapter']));
+        return this.documents.renderWorkbookPreview(input, authorization);
       case 'compare_pdf_pages':
-        return ok(truthfulUnavailable(name, 'disabled', ['PDF page renderer adapter']));
+        return this.documents.comparePdfPages(input, signal, authorization);
       case 'debug_attach':
-        return ok(truthfulUnavailable(name, 'disabled', ['owned DAP execution adapter', 'registered workspace']));
+        return ok(truthfulUnavailable(name, 'needs_setup', ['running loopback DAP adapter', 'registered workspace']));
       case 'debug_step':
-        return ok(truthfulUnavailable(name, 'disabled', ['owned DAP execution adapter', 'owned debug session']));
+        return ok(truthfulUnavailable(name, 'needs_setup', ['owned debug session created by a configured DAP adapter']));
       case 'skills_import':
-        return ok(truthfulUnavailable(name, 'disabled', ['validated skill import adapter', 'validated local skill source']));
+        return this.importSkill(input, signal, authorization);
       case 'agent_swarm_run':
         return ok(truthfulUnavailable(name, 'disabled', ['subagent provider', 'ownership ledger', 'mutation policy']));
       case 'debug_context':
@@ -462,6 +470,269 @@ export class UpgradeRuntimeService {
     return { categories: [...counts.entries()].sort(([left], [right]) => left.localeCompare(right)).map(([category, tools]) => ({ category, tools })) };
   }
 
+  private async changePlugin(
+    operation: 'plugin_install' | 'plugin_enable' | 'plugin_disable' | 'plugin_remove',
+    rawName: string | undefined,
+    input: Record<string, unknown>,
+    authorization?: InvocationAuthorization,
+  ): Promise<Result<unknown>> {
+    const name = rawName?.trim();
+    if (name === undefined || name.length === 0 || name.length > 128 || !/^[A-Za-z0-9][A-Za-z0-9._@/-]*$/.test(name)) {
+      return err(appError('INVALID_INPUT', 'Plugin name must be 1-128 characters and use only letters, numbers, dot, underscore, @, slash, or hyphen'));
+    }
+    if (operation === 'plugin_remove' && !isApplicationAuthorized(authorization, input.userConfirmed === true)) {
+      return err(appError('PERMISSION_REQUIRED', 'Removing a plugin requires explicit user confirmation'));
+    }
+    if (this.stateStore === undefined) {
+      return ok(truthfulUnavailable(operation, 'needs_setup', ['persistent runtime state path']));
+    }
+    let changed = false;
+    let exists = false;
+    let currentEnabled: boolean | undefined;
+    const persisted = await this.mutateSharedState((plugins) => {
+      const existing = plugins.get(name);
+      exists = existing !== undefined;
+      currentEnabled = existing?.enabled;
+      if (operation === 'plugin_remove') {
+        changed = plugins.delete(name);
+        return;
+      }
+      if (operation === 'plugin_install') {
+        if (!exists) {
+          plugins.set(name, { name, enabled: input.enabled !== false });
+          changed = true;
+        }
+        return;
+      }
+      if (existing !== undefined) {
+        const enabled = operation === 'plugin_enable';
+        if (existing.enabled !== enabled) {
+          plugins.set(name, { name, enabled });
+          changed = true;
+        }
+      }
+    }, true);
+    if (!persisted) return err(appError('INTERNAL_ERROR', 'Plugin registry update could not be persisted safely', true));
+    if (operation === 'plugin_install' && exists) return err(appError('INVALID_INPUT', 'Plugin is already installed; remove it explicitly before installing a replacement'));
+    if (operation !== 'plugin_install' && operation !== 'plugin_remove' && !exists) return err(appError('INVALID_INPUT', 'Plugin must be installed before it can be enabled or disabled'));
+    if (operation === 'plugin_remove') return ok({ tool: operation, status: 'ready', available: true, executed: true, changed, name, removed: changed });
+    const enabled = operation === 'plugin_install' ? input.enabled !== false : operation === 'plugin_enable';
+    return ok({
+      tool: operation, status: 'ready', available: true, executed: true, changed, name, enabled,
+      ...(currentEnabled === undefined ? {} : { previousEnabled: currentEnabled }),
+      persistence: 'shared_locked_state',
+    });
+  }
+
+  private activityLogPath(): string | undefined {
+    const runtimeStatePath = this.services.runtimeStatePath;
+    return runtimeStatePath === undefined ? undefined : path.join(path.dirname(runtimeStatePath), 'mcp-activity.log');
+  }
+
+  private async liveLogsStatus(): Promise<Result<unknown>> {
+    const filePath = this.activityLogPath();
+    if (filePath === undefined) return ok(truthfulUnavailable('live_logs_status', 'needs_setup', ['runtime activity-log path']));
+    try {
+      const info = await stat(filePath);
+      return ok({
+        tool: 'live_logs_status', status: 'ready', available: true, ready: true, executed: true,
+        source: 'mcp-activity.log', sourceState: 'active', bytes: info.size, updatedAt: info.mtime.toISOString(),
+        boundedReadBytes: 4 * 1024 * 1024,
+      });
+    } catch (error: unknown) {
+      if (nodeErrorCode(error) === 'ENOENT') {
+        return ok({
+          tool: 'live_logs_status', status: 'ready', available: true, ready: true, executed: true,
+          source: 'mcp-activity.log', sourceState: 'idle', bytes: 0, updatedAt: null, boundedReadBytes: 4 * 1024 * 1024,
+        });
+      }
+      return err(appError('INTERNAL_ERROR', 'Live Logs status could not read the activity log', true));
+    }
+  }
+
+  private async liveLogsQuery(input: Record<string, unknown>): Promise<Result<unknown>> {
+    const filePath = this.activityLogPath();
+    if (filePath === undefined) return ok(truthfulUnavailable('live_logs_query', 'needs_setup', ['runtime activity-log path']));
+    const limit = boundedInteger(input.limit, 100, 1, 500);
+    const toolName = readString(input, 'toolName') ?? readString(input, 'tool');
+    const correlationId = readString(input, 'correlationId') ?? readString(input, 'callId') ?? readString(input, 'traceId');
+    const phase = readString(input, 'phase');
+    const resultCode = readString(input, 'resultCode');
+    const workspaceId = readString(input, 'workspaceId');
+    let lines: readonly string[];
+    try {
+      lines = await readJsonlTail(filePath, 4 * 1024 * 1024);
+    } catch (error: unknown) {
+      if (nodeErrorCode(error) === 'ENOENT') {
+        return ok({ tool: 'live_logs_query', status: 'ready', available: true, ready: true, executed: true, events: [], returned: 0, truncatedByTailWindow: false });
+      }
+      return err(appError('INTERNAL_ERROR', 'Live Logs query could not read the activity log', true));
+    }
+    const parsed = lines.flatMap((line): Record<string, unknown>[] => {
+      try {
+        const value: unknown = JSON.parse(line);
+        return typeof value === 'object' && value !== null && !Array.isArray(value) ? [value as Record<string, unknown>] : [];
+      } catch {
+        return [];
+      }
+    });
+    const events = parsed.filter((event) => {
+      if (toolName !== undefined && event.toolName !== toolName) return false;
+      if (phase !== undefined && event.phase !== phase) return false;
+      if (resultCode !== undefined && event.resultCode !== resultCode) return false;
+      if (workspaceId !== undefined && event.workspaceId !== workspaceId) return false;
+      if (correlationId !== undefined && event.callId !== correlationId && event.traceId !== correlationId && event.traceParent !== correlationId) return false;
+      return true;
+    }).slice(-limit);
+    return ok({
+      tool: 'live_logs_query', status: 'ready', available: true, ready: true, executed: true,
+      events, returned: events.length, limit, boundedReadBytes: 4 * 1024 * 1024,
+      filters: { toolName: toolName ?? null, correlationId: correlationId ?? null, phase: phase ?? null, resultCode: resultCode ?? null, workspaceId: workspaceId ?? null },
+    });
+  }
+
+  private async telemetryDashboard(): Promise<Result<unknown>> {
+    const contextEconomy = this.contextEconomy.snapshot();
+    const filePath = this.activityLogPath();
+    if (filePath === undefined) {
+      return ok({
+        tool: 'telemetry_dashboard', status: 'ready', available: true, ready: true, executed: true,
+        source: 'runtime-counters', mcpCalls: 0, completedCalls: 0, errors: 0, averageLatencyMs: 0, p95LatencyMs: 0,
+        cacheHitRate: hitRate(this.cache), contextBytes: contextEconomy.contextSentBytes,
+        filesScanned: contextEconomy.filesDiscovered, filesDelivered: contextEconomy.filesDelivered,
+        contextEconomy,
+      });
+    }
+    let lines: readonly string[] = [];
+    try { lines = await readJsonlTail(filePath, 4 * 1024 * 1024); } catch (error: unknown) {
+      if (nodeErrorCode(error) !== 'ENOENT') return err(appError('INTERNAL_ERROR', 'Telemetry could not read the local activity log', true));
+    }
+    const completed: { readonly durationMs: number; readonly resultCode: string }[] = [];
+    let started = 0;
+    for (const line of lines) {
+      try {
+        const value: unknown = JSON.parse(line);
+        if (!isRecord(value)) continue;
+        if (value.phase === 'started') started += 1;
+        if (value.phase !== 'completed') continue;
+        const durationMs = typeof value.durationMs === 'number' && Number.isFinite(value.durationMs) ? Math.max(0, value.durationMs) : 0;
+        completed.push({ durationMs, resultCode: typeof value.resultCode === 'string' ? value.resultCode : 'UNKNOWN' });
+      } catch { /* ignore malformed historical lines */ }
+    }
+    const durations = completed.map((entry) => entry.durationMs).sort((left, right) => left - right);
+    const totalDuration = durations.reduce((sum, value) => sum + value, 0);
+    const p95Index = durations.length === 0 ? -1 : Math.min(durations.length - 1, Math.max(0, Math.ceil(durations.length * 0.95) - 1));
+    const errors = completed.filter((entry) => entry.resultCode !== 'SUCCESS' && entry.resultCode !== 'OK' && entry.resultCode !== 'STARTED').length;
+    return ok({
+      tool: 'telemetry_dashboard', status: 'ready', available: true, ready: true, executed: true,
+      source: 'mcp-activity.log', boundedReadBytes: 4 * 1024 * 1024,
+      mcpCalls: Math.max(started, completed.length), completedCalls: completed.length, errors,
+      averageLatencyMs: completed.length === 0 ? 0 : Number((totalDuration / completed.length).toFixed(2)),
+      p95LatencyMs: p95Index < 0 ? 0 : durations[p95Index],
+      cacheHitRate: hitRate(this.cache), contextBytes: contextEconomy.contextSentBytes,
+      filesScanned: contextEconomy.filesDiscovered, filesDelivered: contextEconomy.filesDelivered,
+      contextEconomy,
+    });
+  }
+
+  private async managedTask(
+    name: 'task_create' | 'task_status' | 'task_cancel' | 'task_result' | 'task_list',
+    input: Record<string, unknown>,
+    signal?: AbortSignal,
+    authorization?: InvocationAuthorization,
+  ): Promise<Result<unknown>> {
+    const capabilities = this.services.capabilities;
+    if (capabilities === undefined) return ok(truthfulUnavailable(name, 'needs_setup', ['local shell task runtime']));
+    const workspaceId = readString(input, 'workspaceId');
+    if (name === 'task_create') {
+      const executable = readString(input, 'executable') ?? readString(input, 'command');
+      if (executable === undefined) {
+        return err(appError('INVALID_INPUT', 'task_create requires executable (or command); pass arguments, cwd, timeout_seconds, and workspaceId as needed'));
+      }
+      return capabilities.execute('shell', withCapabilityOwnerMetadata({
+        ...input,
+        operation: 'run',
+        executable,
+        execution: 'background',
+        ...(workspaceId === undefined ? {} : { workspaceId }),
+      }, this.actor), signal, authorization);
+    }
+    if (name === 'task_list') {
+      return capabilities.execute('shell', withCapabilityOwnerMetadata({
+        operation: 'list',
+        ...(workspaceId === undefined ? {} : { workspaceId }),
+      }, this.actor), signal, authorization);
+    }
+    const taskId = readString(input, 'taskId') ?? readString(input, 'task_id');
+    if (taskId === undefined) return err(appError('INVALID_INPUT', `${name} requires taskId`));
+    const operation = name === 'task_status' ? 'status' : name === 'task_result' ? 'result' : 'cancel';
+    return capabilities.execute('shell', withCapabilityOwnerMetadata({
+      operation,
+      task_id: taskId,
+      include_stdout: true,
+      include_stderr: true,
+      ...(workspaceId === undefined ? {} : { workspaceId }),
+      ...(name === 'task_cancel' ? { userConfirmed: input.userConfirmed === true } : {}),
+    }, this.actor), signal, authorization);
+  }
+
+  private async agentDelegation(
+    name: 'delegate' | 'delegate_status' | 'delegate_cancel' | 'delegate_result' | 'parallel_delegate',
+    input: Record<string, unknown>,
+    signal?: AbortSignal,
+    authorization?: InvocationAuthorization,
+  ): Promise<Result<unknown>> {
+    const provider = this.services.agentSwarm;
+    if (provider === undefined) return ok(truthfulUnavailable(name, 'needs_setup', ['configured owned agent-swarm provider']));
+    const workspaceId = readString(input, 'workspaceId');
+    if (workspaceId === undefined) return err(appError('INVALID_INPUT', `${name} requires workspaceId`));
+
+    if (name === 'delegate' || name === 'parallel_delegate') {
+      const rawTasks = name === 'delegate'
+        ? [{ id: readString(input, 'taskId') ?? 'delegate-1', prompt: readString(input, 'instruction') ?? readString(input, 'prompt') ?? readString(input, 'task') ?? '' }]
+        : (Array.isArray(input.tasks) ? input.tasks : []).map((entry, index) => {
+          const record = isRecord(entry) ? entry : { prompt: String(entry) };
+          return {
+            id: readString(record, 'id') ?? `delegate-${index + 1}`,
+            prompt: readString(record, 'prompt') ?? readString(record, 'instruction') ?? readString(record, 'task') ?? '',
+            ...(Array.isArray(record.dependsOn) ? { dependsOn: record.dependsOn.map(String) } : {}),
+          };
+        });
+      if (rawTasks.length === 0 || rawTasks.some((task) => task.prompt.trim().length === 0)) {
+        return err(appError('INVALID_INPUT', `${name} requires ${name === 'delegate' ? 'instruction/prompt' : 'one or more tasks with prompt/instruction'}`));
+      }
+      if (rawTasks.length > 4) return err(appError('INVALID_INPUT', 'parallel_delegate supports at most four tasks'));
+      const ids = new Set(rawTasks.map((task) => task.id));
+      if (ids.size !== rawTasks.length) return err(appError('INVALID_INPUT', 'Delegated task IDs must be unique'));
+      for (const task of rawTasks) {
+        if (task.dependsOn?.some((dependency) => !ids.has(dependency) || dependency === task.id)) return err(appError('INVALID_INPUT', 'Delegated task dependencies must reference another task in the same request'));
+      }
+      const idempotencyKey = readString(input, 'idempotencyKey') ?? digest({ workspaceId, tasks: rawTasks });
+      const started = await provider.start(this.actor, {
+        workspaceId,
+        idempotencyKey,
+        accessMode: 'read_only',
+        tasks: rawTasks,
+        maxConcurrency: name === 'delegate' ? 1 : boundedInteger(input.maxConcurrency, Math.min(2, rawTasks.length), 1, 4),
+      }, signal, authorization);
+      return started.ok ? ok({ tool: name, status: 'ready', available: true, ready: true, executed: true, delegateId: started.value.swarmId, swarm: started.value }) : started;
+    }
+
+    const delegateId = readString(input, 'delegateId') ?? readString(input, 'swarmId');
+    if (delegateId === undefined) return err(appError('INVALID_INPUT', `${name} requires delegateId`));
+    if (name === 'delegate_status') {
+      const status = await provider.status(this.actor, workspaceId, delegateId);
+      return status.ok ? ok({ tool: name, status: 'ready', available: true, ready: true, executed: true, delegateId, swarm: status.value }) : status;
+    }
+    if (name === 'delegate_cancel') {
+      const cancelled = await provider.cancel(this.actor, workspaceId, delegateId, authorization);
+      return cancelled.ok ? ok({ tool: name, status: 'ready', available: true, ready: true, executed: true, delegateId, swarm: cancelled.value }) : cancelled;
+    }
+    const taskId = readString(input, 'taskId') ?? 'delegate-1';
+    const result = await provider.result(this.actor, workspaceId, delegateId, taskId, readString(input, 'cursor') ?? '0', boundedInteger(input.maxBytes, 8_192, 1, 16_384));
+    return result.ok ? ok({ tool: name, status: 'ready', available: true, ready: true, executed: true, delegateId, result: result.value }) : result;
+  }
+
   private async createTask(kind: RuntimeTask['kind'], input: Record<string, unknown>): Promise<RuntimeTask> {
     const task: RuntimeTask = { id: randomUUID(), kind, createdAt: new Date().toISOString(), inputDigest: digest(input), state: 'queued' };
     this.tasks.set(task.id, task);
@@ -480,6 +751,52 @@ export class UpgradeRuntimeService {
     task.state = 'cancelled';
     await this.persistState();
     return { cancelled: true, id };
+  }
+
+  private listToolSchemas(): readonly Record<string, unknown>[] {
+    const baseline = UPGRADE_TOOL_CATALOG.map((entry) => ({
+      id: entry.name, version: '1.0.0', permissions: [entry.permission], streamable: entry.streamable === true,
+      parallelSafe: entry.parallelSafe === true, source: 'built_in', schema: { type: 'object', additionalProperties: true },
+    }));
+    const stored = this.session.get('toolSchemas');
+    const custom = Array.isArray(stored) ? stored.filter(isRegisteredToolSchema) : [];
+    return [...baseline, ...custom].sort((left, right) => String(left.id).localeCompare(String(right.id)) || String(left.version).localeCompare(String(right.version)));
+  }
+
+  private async registerToolSchema(input: Record<string, unknown>): Promise<Result<unknown>> {
+    const id = readString(input, 'id') ?? readString(input, 'name');
+    const version = readString(input, 'version');
+    const schema = isRecord(input.schema) ? input.schema : undefined;
+    if (id === undefined || !/^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/.test(id)) return err(appError('INVALID_INPUT', 'tool_schema_register requires a valid id/name'));
+    if (version === undefined || !/^\d+\.\d+\.\d+$/.test(version)) return err(appError('INVALID_INPUT', 'tool_schema_register requires a semantic version such as 1.1.0'));
+    if (schema === undefined || schema.type !== 'object') return err(appError('INVALID_INPUT', 'tool_schema_register requires an object JSON schema descriptor'));
+    const builtIn = UPGRADE_TOOL_CATALOG.find((entry) => entry.name === id);
+    const requestedPermission = readString(input, 'permission');
+    if (builtIn !== undefined && requestedPermission !== undefined && requestedPermission !== builtIn.permission) {
+      return err(appError('PERMISSION_DENIED', 'A registered schema cannot change a built-in tool permission'));
+    }
+    const current = this.listToolSchemas().filter((entry) => entry.id === id);
+    if (current.some((entry) => entry.version === version)) return err(appError('CONFLICT', 'That tool schema version is already registered'));
+    const latest = current.at(-1);
+    if (latest !== undefined && semanticMajor(String(latest.version)) !== semanticMajor(version)) {
+      return err(appError('INVALID_INPUT', 'Schema registration must remain within the current major version'));
+    }
+    const previousRequired = latest !== undefined && isRecord(latest.schema) && Array.isArray(latest.schema.required) ? latest.schema.required.map(String) : [];
+    const nextRequired = Array.isArray(schema.required) ? schema.required.map(String) : [];
+    const newlyRequired = nextRequired.filter((key) => !previousRequired.includes(key));
+    if (latest !== undefined && newlyRequired.length > 0) return err(appError('INVALID_INPUT', `Backward-compatible schemas cannot add required properties: ${newlyRequired.join(', ')}`));
+    const record = {
+      id, version, permissions: [builtIn?.permission ?? normalizePermission(requestedPermission)],
+      streamable: input.streamable === true, parallelSafe: input.parallelSafe === true,
+      source: 'registered', schema,
+    };
+    const stored = this.session.get('toolSchemas');
+    const custom = Array.isArray(stored) ? stored.filter(isRegisteredToolSchema) : [];
+    custom.push(record);
+    this.session.set('toolSchemas', custom);
+    const persisted = await this.persistState();
+    if (!persisted) return err(appError('INTERNAL_ERROR', 'Tool schema registry could not be persisted', true));
+    return ok({ tool: 'tool_schema_register', status: 'ready', available: true, ready: true, executed: true, registered: true, backwardCompatible: true, schema: record, persistence: this.stateStore === undefined ? 'memory_only' : 'session_locked_state' });
   }
 
   private async externalMcpInsight(name: 'mcp_discover' | 'mcp_health'): Promise<Result<unknown>> {
@@ -827,6 +1144,146 @@ export class UpgradeRuntimeService {
     return ok({ tool: name, query, indexed: status.value.indexed, matches, lowerRankedResultsRemainAvailable: true });
   }
 
+  private async benchmarkRun(input: Record<string, unknown>, signal?: AbortSignal, authorization?: InvocationAuthorization): Promise<Result<unknown>> {
+    const workspaceId = readString(input, 'workspaceId');
+    if (workspaceId === undefined) return err(appError('INVALID_INPUT', 'benchmark_run requires workspaceId'));
+    const processService = this.services.process;
+    const fileService = this.services.file;
+    if (processService === undefined || fileService === undefined) {
+      return ok(truthfulUnavailable('benchmark_run', 'needs_setup', [
+        ...(processService === undefined ? ['managed process service'] : []),
+        ...(fileService === undefined ? ['workspace file service'] : []),
+      ]));
+    }
+    const detected = await this.detectBenchmarkCommand(workspaceId, authorization);
+    if (!detected.ok) return detected;
+    const plan = {
+      tool: 'benchmark_run', status: 'ready', available: true, ready: true,
+      workspaceId, scenario: readString(input, 'scenario') ?? detected.value.script,
+      command: detected.value, mutationPolicy: 'managed-process-policy',
+    };
+    if (input.dryRun !== false && input.dry_run !== false) return ok({ ...plan, dryRun: true, executed: false, started: false });
+    const started = await processService.start(this.actor, workspaceId, {
+      executable: detected.value.executable,
+      args: detected.value.args,
+      timeoutMs: boundedInteger(input.timeoutMs ?? input.timeout_ms, 15 * 60_000, 1_000, 4 * 60 * 60_000),
+      ...(input.userConfirmed === true ? { userConfirmed: true } : {}),
+    }, signal, authorization);
+    if (!started.ok) return started;
+    const run = {
+      id: randomUUID(), workspaceId, processId: started.value.processId,
+      scenario: readString(input, 'scenario') ?? detected.value.script,
+      command: detected.value,
+      startedAt: new Date().toISOString(),
+    };
+    const existing = this.session.get('benchmarkRuns');
+    const runs = Array.isArray(existing) ? existing.filter(isBenchmarkRunRecord) : [];
+    runs.push(run);
+    this.session.set('benchmarkRuns', runs.slice(-50));
+    await this.persistState();
+    return ok({ ...plan, dryRun: false, executed: true, started: true, benchmarkRunId: run.id, process: started.value });
+  }
+
+  private async detectBenchmarkCommand(workspaceId: string, authorization?: InvocationAuthorization): Promise<Result<{ readonly executable: string; readonly args: readonly string[]; readonly script: string }>> {
+    const file = this.services.file;
+    if (file === undefined) return ok(truthfulUnavailable('benchmark_run', 'needs_setup', ['workspace file service'])) as Result<{ readonly executable: string; readonly args: readonly string[]; readonly script: string }>;
+    const packageJson = await file.readFile(this.actor, workspaceId, { path: 'package.json' }, authorization);
+    if (!packageJson.ok) {
+      if (packageJson.error.code === 'FILE_NOT_FOUND') return err(appError('INVALID_INPUT', 'No package.json benchmark script was detected in this workspace'));
+      return packageJson as Result<{ readonly executable: string; readonly args: readonly string[]; readonly script: string }>;
+    }
+    const content = (packageJson.value as { content?: unknown }).content;
+    if (typeof content !== 'string') return err(appError('INVALID_INPUT', 'package.json is not a readable text file'));
+    let parsed: unknown;
+    try { parsed = JSON.parse(content); } catch { return err(appError('INVALID_INPUT', 'package.json contains invalid JSON')); }
+    if (!isRecord(parsed) || !isRecord(parsed.scripts)) return err(appError('INVALID_INPUT', 'No package.json scripts were found for benchmark detection'));
+    const scripts = parsed.scripts;
+    const script = ['benchmark:baseline', 'benchmark', 'bench'].find((candidate) => typeof scripts[candidate] === 'string' && String(scripts[candidate]).trim().length > 0);
+    if (script === undefined) return err(appError('INVALID_INPUT', 'No benchmark:baseline, benchmark, or bench package script was detected'));
+    const packageManager = typeof parsed.packageManager === 'string' ? parsed.packageManager.trim() : '';
+    if (packageManager.startsWith('pnpm@')) return ok({ executable: 'corepack', args: [packageManager, 'run', script], script });
+    if (packageManager.startsWith('yarn@')) return ok({ executable: 'corepack', args: [packageManager, 'run', script], script });
+    if (packageManager.startsWith('npm@')) return ok({ executable: 'npm.cmd', args: ['run', script], script });
+    return ok({ executable: 'npm.cmd', args: ['run', script], script });
+  }
+
+  private async regressionReport(input: Record<string, unknown>): Promise<Result<unknown>> {
+    const workspaceId = readString(input, 'workspaceId');
+    const stored = this.session.get('benchmarkRuns');
+    const runs = (Array.isArray(stored) ? stored.filter(isBenchmarkRunRecord) : [])
+      .filter((run) => workspaceId === undefined || run.workspaceId === workspaceId);
+    const processService = this.services.process;
+    const reports: Record<string, unknown>[] = [];
+    for (const run of runs.slice(-20)) {
+      if (processService === undefined) {
+        reports.push({ ...run, state: 'unavailable', reason: 'managed process service is not configured' });
+        continue;
+      }
+      const status = await processService.status(this.actor, run.workspaceId, run.processId);
+      if (!status.ok) {
+        reports.push({ ...run, state: 'unavailable', reason: status.error.message });
+        continue;
+      }
+      let output: unknown = null;
+      if (['exited', 'failed', 'stopped', 'timed_out'].includes(status.value.state)) {
+        const logs = await processService.logs(this.actor, run.workspaceId, run.processId, { tailLines: 200 });
+        output = logs.ok ? logs.value : { error: logs.error.message };
+      }
+      const durationMs = status.value.finishedAt === undefined
+        ? null
+        : Math.max(0, new Date(status.value.finishedAt).getTime() - new Date(status.value.startedAt).getTime());
+      reports.push({ ...run, state: status.value.state, exitCode: status.value.exitCode ?? null, durationMs, output });
+    }
+    const terminal = reports.filter((entry) => ['exited', 'failed', 'stopped', 'timed_out'].includes(String(entry.state)));
+    const failed = terminal.filter((entry) => entry.state !== 'exited' || (typeof entry.exitCode === 'number' && entry.exitCode !== 0));
+    return ok({
+      tool: 'regression_report', status: 'ready', available: true, ready: true, executed: true,
+      workspaceId: workspaceId ?? null, runs: reports, retainedRuns: runs.length,
+      terminalRuns: terminal.length, regressions: failed.map((entry) => ({ benchmarkRunId: entry.id, scenario: entry.scenario, state: entry.state, exitCode: entry.exitCode })),
+      persistence: this.stateStore === undefined ? 'memory_only' : 'session_locked_state',
+    });
+  }
+
+  private async projectProfile(
+    name: 'project_profile_get' | 'project_profile_set',
+    input: Record<string, unknown>,
+    signal?: AbortSignal,
+    authorization?: InvocationAuthorization,
+  ): Promise<Result<unknown>> {
+    const workspaceId = readString(input, 'workspaceId');
+    if (workspaceId === undefined) return err(appError('INVALID_INPUT', `${name} requires workspaceId`));
+    const file = this.services.file;
+    if (file === undefined) return ok(truthfulUnavailable(name, 'needs_setup', ['workspace file service']));
+    const profilePath = '.lnwjud/project-profile.json';
+    if (name === 'project_profile_get') {
+      const loaded = await file.readFile(this.actor, workspaceId, { path: profilePath }, authorization);
+      if (!loaded.ok) {
+        if (loaded.error.code === 'FILE_NOT_FOUND') return ok({ tool: name, status: 'ready', available: true, ready: true, executed: true, workspaceId, source: profilePath, profile: null });
+        return loaded;
+      }
+      const content = (loaded.value as { content?: unknown }).content;
+      if (typeof content !== 'string') return err(appError('INTERNAL_ERROR', 'Project profile file returned a non-text payload', true));
+      try {
+        const profile: unknown = JSON.parse(content);
+        if (!isRecord(profile)) return err(appError('INVALID_INPUT', 'Project profile must contain a JSON object'));
+        return ok({ tool: name, status: 'ready', available: true, ready: true, executed: true, workspaceId, source: profilePath, profile });
+      } catch {
+        return err(appError('INVALID_INPUT', 'Project profile contains invalid JSON'));
+      }
+    }
+    const profile = isRecord(input.profile) ? input.profile : isRecord(input.conventions) ? input.conventions : undefined;
+    if (profile === undefined) return err(appError('INVALID_INPUT', 'project_profile_set requires profile (a JSON object)'));
+    const normalized = validateProjectProfile(profile);
+    if (!normalized.ok) return normalized;
+    const content = `${JSON.stringify(normalized.value, null, 2)}\n`;
+    if (Buffer.byteLength(content, 'utf8') > 128 * 1024) return err(appError('FILE_TOO_LARGE', 'Project profile exceeds 128 KiB'));
+    if (input.dryRun !== false && input.dry_run !== false) return ok({ tool: name, status: 'ready', available: true, ready: true, executed: false, dryRun: true, workspaceId, source: profilePath, profile: normalized.value });
+    const saved = await file.writeFile(this.actor, workspaceId, { path: profilePath, content, overwriteExisting: true, ...(input.userConfirmed === true ? { userConfirmed: true } : {}) }, signal, authorization);
+    return saved.ok
+      ? ok({ tool: name, status: 'ready', available: true, ready: true, executed: true, dryRun: false, workspaceId, source: profilePath, profile: normalized.value, write: saved.value })
+      : saved;
+  }
+
   private async compoundContext(name: string, input: Record<string, unknown>): Promise<Result<unknown>> {
     const workspaceId = readString(input, 'workspaceId');
     const requirements = [
@@ -884,6 +1341,36 @@ export class UpgradeRuntimeService {
     return loaded.ok
       ? ok({ tool: name, status: 'ready', available: true, ready: true, executed: true, skill: loaded.value })
       : loaded;
+  }
+
+  private async importSkill(input: Record<string, unknown>, signal?: AbortSignal, authorization?: InvocationAuthorization): Promise<Result<unknown>> {
+    const workspaceId = readString(input, 'workspaceId');
+    const sourcePath = readString(input, 'source_path') ?? readString(input, 'sourcePath') ?? readString(input, 'path');
+    const requestedName = readString(input, 'name');
+    if (workspaceId === undefined || sourcePath === undefined) return err(appError('INVALID_INPUT', 'skills_import requires workspaceId and source_path'));
+    const file = this.services.file;
+    if (file === undefined) return ok(truthfulUnavailable('skills_import', 'needs_setup', ['workspace file service']));
+    const loaded = await file.readFile(this.actor, workspaceId, { path: sourcePath }, authorization);
+    if (!loaded.ok) return loaded;
+    const content = (loaded.value as { content?: unknown }).content;
+    if (typeof content !== 'string') return err(appError('INVALID_INPUT', 'Skill source must be a UTF-8 text SKILL.md file'));
+    if (Buffer.byteLength(content, 'utf8') > 256 * 1024) return err(appError('FILE_TOO_LARGE', 'Skill source exceeds 256 KiB'));
+    const parsed = parseSkillDescriptor(content);
+    if (!parsed.ok) return parsed;
+    const name = requestedName ?? parsed.value.name;
+    if (!/^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/.test(name)) return err(appError('INVALID_INPUT', 'Skill name must be 1-128 safe filename characters'));
+    const targetPath = `.agents/skills/${name}/SKILL.md`;
+    const plan = { tool: 'skills_import', status: 'ready', available: true, ready: true, workspaceId, sourcePath, targetPath, skill: parsed.value };
+    if (input.dryRun !== false && input.dry_run !== false) return ok({ ...plan, dryRun: true, executed: false, imported: false });
+    const saved = await file.writeFile(this.actor, workspaceId, {
+      path: targetPath,
+      content,
+      overwriteExisting: input.overwriteExisting === true || input.overwrite_existing === true,
+      ...(input.userConfirmed === true ? { userConfirmed: true } : {}),
+    }, signal, authorization);
+    return saved.ok
+      ? ok({ ...plan, dryRun: false, executed: true, imported: true, write: saved.value })
+      : saved;
   }
 
   private async gitInsight(name: string, input: Record<string, unknown>, signal?: AbortSignal): Promise<Result<unknown>> {
@@ -977,6 +1464,19 @@ export class UpgradeRuntimeService {
     const invoke = (action: string, parameters: Record<string, unknown> = {}): Promise<Result<unknown>> => capabilities.execute('dom_cdp', { action, parameters, tab_id: tabId }, signal, authorization);
     const status = await invoke('status');
     if (!status.ok) return status;
+    if (browserRuntimeNeedsStart(status.value)) {
+      return ok({
+        tool: name,
+        status: 'needs_setup',
+        readinessReason: 'runtime_not_ready',
+        deliveryState: 'operational',
+        available: true,
+        ready: false,
+        executed: false,
+        requirements: ['Start the lnwjud managed browser before using browser context tools.'],
+        runtimeStatus: status.value,
+      });
+    }
 
     if (name === 'form_context') {
       const selector = readString(input, 'selector') ?? 'form, input, select, textarea, button';
@@ -1250,12 +1750,118 @@ function readString(input: Record<string, unknown>, key: string): string | undef
   return typeof value === 'string' ? value : undefined;
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function isRegisteredToolSchema(value: unknown): value is Record<string, unknown> {
+  return isRecord(value)
+    && typeof value.id === 'string'
+    && typeof value.version === 'string'
+    && Array.isArray(value.permissions)
+    && isRecord(value.schema);
+}
+
+function isBenchmarkRunRecord(value: unknown): value is {
+  readonly id: string;
+  readonly workspaceId: string;
+  readonly processId: string;
+  readonly scenario: string;
+  readonly command: Record<string, unknown>;
+  readonly startedAt: string;
+} {
+  return isRecord(value)
+    && typeof value.id === 'string'
+    && typeof value.workspaceId === 'string'
+    && typeof value.processId === 'string'
+    && typeof value.scenario === 'string'
+    && isRecord(value.command)
+    && typeof value.startedAt === 'string';
+}
+
+function parseSkillDescriptor(content: string): Result<{ readonly name: string; readonly description: string }> {
+  const normalized = content.replaceAll('\r\n', '\n');
+  if (!normalized.startsWith('---\n')) return err(appError('INVALID_INPUT', 'SKILL.md must begin with YAML frontmatter'));
+  const end = normalized.indexOf('\n---\n', 4);
+  if (end < 0) return err(appError('INVALID_INPUT', 'SKILL.md frontmatter is not terminated'));
+  const frontmatter = normalized.slice(4, end);
+  let name: string | undefined;
+  let description: string | undefined;
+  for (const rawLine of frontmatter.split('\n')) {
+    const line = rawLine.trim();
+    if (line.length === 0 || line.startsWith('#')) continue;
+    const separator = line.indexOf(':');
+    if (separator <= 0) continue;
+    const key = line.slice(0, separator).trim();
+    const value = line.slice(separator + 1).trim().replace(/^['"]|['"]$/g, '');
+    if (key === 'name') name = value;
+    if (key === 'description') description = value;
+  }
+  if (name === undefined || name.length === 0) return err(appError('INVALID_INPUT', 'SKILL.md frontmatter requires name'));
+  if (description === undefined || description.length === 0) return err(appError('INVALID_INPUT', 'SKILL.md frontmatter requires description'));
+  if (!/^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/.test(name)) return err(appError('INVALID_INPUT', 'SKILL.md name is not a safe skill identifier'));
+  if (description.length > 2_048) return err(appError('INVALID_INPUT', 'SKILL.md description exceeds 2048 characters'));
+  return ok({ name, description });
+}
+
+function semanticMajor(version: string): number {
+  const major = Number.parseInt(version.split('.')[0] ?? '', 10);
+  return Number.isFinite(major) ? major : -1;
+}
+
+function normalizePermission(value: string | undefined): UpgradeToolCatalogEntry['permission'] {
+  return value === 'READ' || value === 'WRITE' || value === 'EXECUTE' || value === 'DANGEROUS' ? value : 'READ';
+}
+
+function validateProjectProfile(profile: Record<string, unknown>): Result<Record<string, unknown>> {
+  try {
+    const normalized = normalizeProjectProfileValue(profile, 0) as Record<string, unknown>;
+    return ok(normalized);
+  } catch (error: unknown) {
+    return err(appError('INVALID_INPUT', error instanceof Error ? error.message : 'Project profile is invalid'));
+  }
+}
+
+function normalizeProjectProfileValue(value: unknown, depth: number): unknown {
+  if (depth > 8) throw new Error('Project profile nesting exceeds 8 levels');
+  if (value === null || typeof value === 'boolean' || typeof value === 'string') {
+    if (typeof value === 'string' && value.length > 16_384) throw new Error('Project profile string values are too large');
+    return value;
+  }
+  if (typeof value === 'number') {
+    if (!Number.isFinite(value)) throw new Error('Project profile numbers must be finite');
+    return value;
+  }
+  if (Array.isArray(value)) {
+    if (value.length > 256) throw new Error('Project profile arrays may contain at most 256 items');
+    return value.map((entry) => normalizeProjectProfileValue(entry, depth + 1));
+  }
+  if (!isRecord(value)) throw new Error('Project profile values must be JSON-compatible');
+  const entries = Object.entries(value);
+  if (entries.length > 256) throw new Error('Project profile objects may contain at most 256 keys');
+  const result: Record<string, unknown> = {};
+  for (const [key, entry] of entries) {
+    if (key.length === 0 || key.length > 128) throw new Error('Project profile keys must be 1-128 characters');
+    if (/(token|secret|password|api[_-]?key|private[_-]?key|authorization|credential)/i.test(key)) {
+      throw new Error(`Project profile must not persist secret-bearing field: ${key}`);
+    }
+    result[key] = normalizeProjectProfileValue(entry, depth + 1);
+  }
+  return result;
+}
+
 function requireBrowserTabId(toolName: string, input: Record<string, unknown>): Result<string> {
   const tabId = readString(input, 'tab_id') ?? readString(input, 'tabId');
   if (tabId === undefined || tabId.trim().length === 0) {
     return err(appError('INVALID_INPUT', `${toolName} requires tab_id; call dom_cdp list_tabs or new_tab first`));
   }
   return ok(tabId.trim());
+}
+
+function browserRuntimeNeedsStart(value: unknown): boolean {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return false;
+  const status = value as Readonly<Record<string, unknown>>;
+  return status.ready === false || status.browserRunning === false;
 }
 
 function digest(input: unknown): string {
@@ -1346,7 +1952,10 @@ function scoreToolEntry(entry: SearchCatalogEntry, query: string, route: ReturnT
     score += 0.5;
     reasons.add(`route:${route.route}`);
   }
-  if (entry.primitive === true) reasons.add('primitive-visible');
+  if (entry.primitive === true) {
+    score += 0.25;
+    reasons.add('primitive-visible');
+  }
   return { entry, score, reasonCodes: [...reasons] };
 }
 
@@ -1356,6 +1965,28 @@ function tokenize(value: string): string[] {
     .toLowerCase()
     .split(/[^a-z0-9ก-๙]+/u)
     .filter((token) => token.length > 0);
+}
+
+async function readJsonlTail(filePath: string, maxBytes: number): Promise<readonly string[]> {
+  const info = await stat(filePath);
+  if (info.size === 0) return [];
+  const bytesToRead = Math.min(info.size, maxBytes);
+  const position = Math.max(0, info.size - bytesToRead);
+  const handle = await open(filePath, 'r');
+  try {
+    const buffer = Buffer.alloc(bytesToRead);
+    const { bytesRead } = await handle.read(buffer, 0, bytesToRead, position);
+    const lines = buffer.subarray(0, bytesRead).toString('utf8').split(/\r?\n/);
+    if (position > 0) lines.shift();
+    return lines.filter((line) => line.trim().length > 0);
+  } finally {
+    await handle.close();
+  }
+}
+
+function nodeErrorCode(error: unknown): string | undefined {
+  if (typeof error !== 'object' || error === null || !('code' in error)) return undefined;
+  return typeof (error as { code?: unknown }).code === 'string' ? (error as { code: string }).code : undefined;
 }
 
 function boundedInteger(value: unknown, fallback: number, minimum: number, maximum: number): number {

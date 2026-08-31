@@ -127,7 +127,7 @@ describe('tool runtime delivery contract', () => {
     expect(advertisedNames).not.toContain('codex_status');
     expect(advertisedNames).not.toContain('agent_swarm_run');
     for (const pluginName of ['plugin_install', 'plugin_list', 'plugin_enable', 'plugin_disable', 'plugin_remove']) {
-      expect(advertisedNames).not.toContain(pluginName);
+      expect(advertisedNames).toContain(pluginName);
     }
   });
 
@@ -140,11 +140,11 @@ describe('tool runtime delivery contract', () => {
     ))).toBe(true);
   });
 
-  it('keeps plugin operations disabled until a real validated plugin registry is injected', () => {
+  it('advertises plugin registry operations as operational runtime tools', () => {
     const pluginEntries = UPGRADE_TOOL_CATALOG.filter((entry) => entry.phase === 16);
     expect(pluginEntries).toHaveLength(5);
-    expect(pluginEntries.every((entry) => entry.deliveryState === 'feature_disabled')).toBe(true);
-    expect(pluginEntries.every((entry) => entry.requirements?.includes('validated injected plugin registry') === true)).toBe(true);
+    expect(pluginEntries.every((entry) => entry.deliveryState === 'operational')).toBe(true);
+    expect(pluginEntries.every((entry) => entry.requirements === undefined || entry.requirements.length === 0)).toBe(true);
   });
 
   it.each(COMPOUND_CONTEXT_TOOL_NAMES)('%s reports each missing backing service truthfully', async (name) => {

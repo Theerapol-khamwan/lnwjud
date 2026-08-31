@@ -88,7 +88,7 @@ describe('persistent tunnel doctor diagnostics', () => {
     expect(byId.get('runtime_alias_state')?.status).toBe('pass');
     expect(byId.get('tunnel_ready')?.status).toBe('pass');
     expect(byId.get('local_mcp_binding')?.status).toBe('pass');
-    expect(byId.get('control_plane_poll_health')?.status).toBe('warn');
+    expect(byId.get('control_plane_poll_health')?.status).toBe('pass');
   });
 
   it('distinguishes operator, local, runtime, control-plane, binding, and auth failures', () => {

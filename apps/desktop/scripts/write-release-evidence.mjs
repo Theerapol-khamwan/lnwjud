@@ -28,6 +28,13 @@ const runtimeEvidence = JSON.parse(await readFile(runtimeEvidencePath, 'utf8'));
 if (runtimeEvidence?.schemaVersion !== 1 || !Array.isArray(runtimeEvidence.files)) {
   throw new Error('Packaged runtime evidence is missing or invalid');
 }
+if (!isCapabilityBridgeIdentity(runtimeEvidence.capabilityBridge)) {
+  throw new Error('Packaged capability bridge identity is missing or invalid');
+}
+const capabilityBridgeRuntime = runtimeEvidence.files.find((entry) => entry?.relativePath === 'resources/windows-capability-bridge.ps1');
+if (!capabilityBridgeRuntime || capabilityBridgeRuntime.sha256 !== runtimeEvidence.capabilityBridge.sha256 || capabilityBridgeRuntime.sizeBytes !== runtimeEvidence.capabilityBridge.sizeBytes) {
+  throw new Error('Packaged capability bridge runtime evidence does not match the verified bridge identity');
+}
 
 const artifactNames = [
   `lnwjud-Setup-${version}.exe`,
@@ -62,6 +69,7 @@ const provenance = {
     signingCredentialConfigured: Boolean(process.env.CSC_LINK?.trim() || process.env.WIN_CSC_LINK?.trim()),
     workingTreeDirtyAtEvidence,
   },
+  capabilityBridge: runtimeEvidence.capabilityBridge,
   artifacts,
   runtime: runtimeEvidence.files,
 };
@@ -78,6 +86,16 @@ const sumLines = [
 await writeFile(path.join(installerDirectory, 'SHA256SUMS.txt'), `${sumLines.join('\n')}\n`, 'utf8');
 
 process.stdout.write(`Release evidence written for lnwjud ${version} commit ${commit}${dirty ? ' (dirty)' : ''}\n`);
+
+function isCapabilityBridgeIdentity(value) {
+  return value !== null
+    && typeof value === 'object'
+    && value.fileName === 'windows-capability-bridge.ps1'
+    && Number.isSafeInteger(value.sizeBytes)
+    && value.sizeBytes > 0
+    && typeof value.sha256 === 'string'
+    && /^[0-9a-f]{64}$/.test(value.sha256);
+}
 
 function git(args) {
   return execFileSync('git', args, { cwd: repositoryRoot, encoding: 'utf8', windowsHide: true });

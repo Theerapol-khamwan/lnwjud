@@ -99,12 +99,12 @@ test('desktop serves the real MCP client development workflow', async () => {
     const advertisedTools = tools.tools.map((tool) => tool.name);
     expect(advertisedTools).toEqual([
       ...expectedCoreTools,
-      ...UPGRADE_TOOL_CATALOG.filter((entry) => isAdvertisedDeliveryState(entry.deliveryState)).map((entry) => entry.name),
+      ...UPGRADE_TOOL_CATALOG.filter((entry) => entry.name !== 'agent_swarm_run' && isAdvertisedDeliveryState(entry.deliveryState)).map((entry) => entry.name),
       'tool_batch',
     ]);
     expect(advertisedTools).toHaveLength(
       expectedCoreTools.length
-      + UPGRADE_TOOL_CATALOG.filter((entry) => isAdvertisedDeliveryState(entry.deliveryState)).length
+      + UPGRADE_TOOL_CATALOG.filter((entry) => entry.name !== 'agent_swarm_run' && isAdvertisedDeliveryState(entry.deliveryState)).length
       + 1,
     );
     expect(advertisedTools.some((name) => name.startsWith('codex_'))).toBe(false);

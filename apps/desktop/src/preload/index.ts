@@ -7,6 +7,9 @@ import {
   type BackupSummary,
   type ClearLogBufferRequest,
   type ClearWorkLogRequest,
+  type ActivityTargetDetail,
+  type ResolveActivityTargetDetailRequest,
+  type SearchActivityTargetDetailsRequest,
   type ConfigureTunnelProfileRequest,
   type DeleteWorkspaceRequest,
   type DashboardSnapshot,
@@ -147,9 +150,11 @@ function workLogEntries(value: unknown): readonly WorkLogEntry[] {
       resultCode: stringField(entry, 'resultCode'),
       errorMessage: nullableString(entry.errorMessage),
       targetSummary: nullableString(entry.targetSummary),
+      targetDetail: activityTargetReference(entry.targetDetail, nullableString(entry.targetSummary)),
       durationMs: numberField(entry, 'durationMs'),
       workspaceId: nullableString(entry.workspaceId),
       sessionId: nullableString(entry.sessionId),
+      ...(typeof entry.callId === 'string' ? { callId: entry.callId } : {}),
     };
   });
 }
@@ -163,6 +168,7 @@ function inFlightItems(value: unknown): readonly InFlightWorkItem[] {
       toolName: stringField(entry, 'toolName'),
       startedAt: stringField(entry, 'startedAt'),
       targetSummary: nullableString(entry.targetSummary),
+      targetDetail: activityTargetReference(entry.targetDetail, nullableString(entry.targetSummary)),
       workspaceId: nullableString(entry.workspaceId),
       sessionId: nullableString(entry.sessionId),
     };
@@ -525,6 +531,25 @@ function toolCatalogSnapshot(value: unknown): ToolCatalogSnapshot {
   return { generatedAt: stringField(value, 'generatedAt'), locale, items, remediations };
 }
 
+function activityTargetReference(value: unknown, legacySummary: string | null): WorkLogEntry['targetDetail'] {
+  if (isRecord(value)) {
+    const detailRef = value.detailRef === null ? null : typeof value.detailRef === 'string' ? value.detailRef : null;
+    return {
+      detailRef,
+      itemCount: typeof value.itemCount === 'number' && Number.isInteger(value.itemCount) && value.itemCount >= 0 ? Math.min(value.itemCount, 500) : 0,
+      preview: Array.isArray(value.preview) ? value.preview.filter((item): item is string => typeof item === 'string').slice(0, 3).map((item) => item.slice(0, 256)) : [],
+      ...(typeof value.hasAdditionalDetail === 'boolean' ? { hasAdditionalDetail: value.hasAdditionalDetail } : {}),
+      legacyIncomplete: value.legacyIncomplete === true,
+    };
+  }
+  if (legacySummary === null || legacySummary.length === 0) return { detailRef: null, itemCount: 0, preview: [], legacyIncomplete: true };
+  const marker = /\s*\(\+(\d+)\)\s*$/.exec(legacySummary);
+  const base = marker === null ? legacySummary : legacySummary.slice(0, marker.index);
+  const baseItems = base.split(base.includes(' + ') ? /\s+\+\s+/ : /\s*,\s*/).filter(Boolean);
+  const preview = baseItems.slice(0, 3).map((item) => item.slice(0, 256));
+  return { detailRef: null, itemCount: Math.min(baseItems.length + (marker === null ? 0 : Number.parseInt(marker[1] ?? '0', 10)), 500), preview, legacyIncomplete: true };
+}
+
 function toolCatalogItem(value: unknown): ToolCatalogItem {
   if (!isRecord(value) || !Array.isArray(value.requirements) || !Array.isArray(value.remediationIds) || !Array.isArray(value.searchText)) throw new Error('Invalid IPC response');
   const origin = value.origin;
@@ -533,12 +558,18 @@ function toolCatalogItem(value: unknown): ToolCatalogItem {
   const profileDecision = value.profileDecision;
   const riskMode = value.riskMode;
   const readiness = value.readiness;
+  const readinessReason = value.readinessReason;
+  const deliveryState = value.deliveryState;
+  const available = value.available;
   if (origin !== 'lnwjud' && origin !== 'external_mcp') throw new Error('Invalid IPC response');
   if (!['workspace','files','search_context','git','process','browser_desktop','system','office_media','automation','agent_goals','extensions'].includes(String(category))) throw new Error('Invalid IPC response');
   if (!['READ','WRITE','EXECUTE','DANGEROUS','UNKNOWN'].includes(String(declaredPermission))) throw new Error('Invalid IPC response');
   if (!['ALLOW','ASK','DENY','UNKNOWN'].includes(String(profileDecision))) throw new Error('Invalid IPC response');
   if (!['fixed','input_dependent','external_unknown'].includes(String(riskMode))) throw new Error('Invalid IPC response');
   if (!['ready','needs_setup','blocked','disabled','unsupported','unknown'].includes(String(readiness))) throw new Error('Invalid IPC response');
+  if (readinessReason !== undefined && !['setup_required','runtime_not_ready','probe_failed','permission_denied','unsupported_platform','feature_disabled','planned','external_unknown'].includes(String(readinessReason))) throw new Error('Invalid IPC response');
+  if (deliveryState !== undefined && !['operational','dependency_gated','feature_disabled','blocked_by_safety_policy','planned','unsupported','external_unknown'].includes(String(deliveryState))) throw new Error('Invalid IPC response');
+  if (available !== undefined && typeof available !== 'boolean') throw new Error('Invalid IPC response');
   const supportsCancel = value.supportsCancel;
   const supportsDryRun = value.supportsDryRun;
   if (supportsCancel !== null && typeof supportsCancel !== 'boolean') throw new Error('Invalid IPC response');
@@ -557,6 +588,9 @@ function toolCatalogItem(value: unknown): ToolCatalogItem {
     profileDecision: profileDecision as ToolCatalogItem['profileDecision'],
     riskMode: riskMode as ToolCatalogItem['riskMode'],
     readiness: readiness as ToolCatalogItem['readiness'],
+    ...(readinessReason === undefined ? {} : { readinessReason: readinessReason as NonNullable<ToolCatalogItem['readinessReason']> }),
+    ...(deliveryState === undefined ? {} : { deliveryState: deliveryState as NonNullable<ToolCatalogItem['deliveryState']> }),
+    ...(available === undefined ? {} : { available }),
     stale: booleanField(value, 'stale'),
     checkedAt: nullableString(value.checkedAt),
     supportsCancel,
@@ -895,6 +929,7 @@ function logLine(value: unknown): LogLine {
     timestamp: stringField(value, 'timestamp'),
     level: value.level,
     text: stringField(value, 'text'),
+    ...(value.targetDetail === undefined ? {} : { targetDetail: activityTargetReference(value.targetDetail, stringField(value, 'text')) }),
     workspaceId: nullableString(value.workspaceId),
     sessionId: nullableString(value.sessionId),
     ...(correlation === undefined ? {} : { correlation }),
@@ -936,8 +971,9 @@ function exportLogs(request: ExportLogsRequest): Promise<{ readonly exported: bo
   if (!isRecord(request) || !isLogSource(request.source)) {
     return Promise.reject(new Error('Invalid IPC request'));
   }
-  const lineIds = request.lineIds;
-  if (lineIds !== undefined && (!Array.isArray(lineIds) || lineIds.length > 5_000 || lineIds.some((id) => !Number.isSafeInteger(id) || id <= 0))) {
+  if (!Array.isArray(request.lines) || request.lines.length > 5_000 || request.lines.some((line) => (
+    line === null || typeof line !== 'object' || !Number.isSafeInteger(line.lineId) || line.lineId <= 0 || (line.correlationRef !== null && typeof line.correlationRef !== 'string')
+  ))) {
     return Promise.reject(new Error('Invalid IPC request'));
   }
   return invoke(ipcChannels.exportLogs, {
@@ -945,7 +981,7 @@ function exportLogs(request: ExportLogsRequest): Promise<{ readonly exported: bo
     filePath: request.filePath ?? '',
     ...scopePayload(request),
     ...(typeof request.query === 'string' && request.query.trim().length > 0 ? { query: request.query.trim().slice(0, 512) } : {}),
-    ...(lineIds === undefined ? {} : { lineIds: [...lineIds] }),
+    lines: request.lines.map((line) => ({ lineId: line.lineId, correlationRef: line.correlationRef })),
   }).then((value: unknown) => {
     if (!isRecord(value)) throw new Error('Invalid IPC response');
     return { exported: booleanField(value, 'exported') };
@@ -953,13 +989,42 @@ function exportLogs(request: ExportLogsRequest): Promise<{ readonly exported: bo
 }
 
 function exportWorkLog(request: ExportWorkLogRequest): Promise<{ readonly exported: boolean }> {
-  if (!isRecord(request) || !Array.isArray(request.rows) || request.rows.length > 5_000 || request.rows.some((row) => typeof row !== 'string' || row.length > 16_384)) {
+  if (!isRecord(request) || !Array.isArray(request.rowIds) || request.rowIds.length > 5_000 || request.rowIds.some((rowId) => typeof rowId !== 'string' || rowId.length === 0 || rowId.length > 1_024)) {
     return Promise.reject(new Error('Invalid IPC request'));
   }
-  return invoke(ipcChannels.exportWorkLog, { rows: [...request.rows] }).then((value: unknown) => {
+  return invoke(ipcChannels.exportWorkLog, { rowIds: [...request.rowIds] }).then((value: unknown) => {
     if (!isRecord(value)) throw new Error('Invalid IPC response');
     return { exported: booleanField(value, 'exported') };
   });
+}
+
+function resolveActivityTargetDetail(request: ResolveActivityTargetDetailRequest): Promise<{ readonly status: 'complete' | 'unavailable'; readonly detail: ActivityTargetDetail | null }> {
+  if (!isRecord(request) || typeof request.detailRef !== 'string' || request.detailRef.length === 0 || request.detailRef.length > 512) {
+    return Promise.reject(new Error('Invalid IPC request'));
+  }
+  return invoke(ipcChannels.resolveActivityTargetDetail, { detailRef: request.detailRef }).then((value: unknown) => {
+    if (!isRecord(value) || (value.status !== 'complete' && value.status !== 'unavailable')) throw new Error('Invalid IPC response');
+    return { status: value.status, detail: value.detail === null ? null : activityTargetDetail(value.detail) };
+  });
+}
+
+function searchActivityTargetDetails(request: SearchActivityTargetDetailsRequest): Promise<{ readonly matchingIds: readonly string[] }> {
+  if (!isRecord(request) || typeof request.query !== 'string' || request.query.trim().length === 0 || request.query.length > 512 || !Array.isArray(request.candidates) || request.candidates.length > 5_000) {
+    return Promise.reject(new Error('Invalid IPC request'));
+  }
+  const candidates = request.candidates.map((candidate) => {
+    if (!isRecord(candidate) || typeof candidate.id !== 'string' || candidate.id.length === 0 || candidate.id.length > 1_024 || (candidate.detailRef !== null && typeof candidate.detailRef !== 'string')) throw new Error('Invalid IPC request');
+    return { id: candidate.id, detailRef: candidate.detailRef };
+  });
+  return invoke(ipcChannels.searchActivityTargetDetails, { query: request.query.trim(), candidates }).then((value: unknown) => {
+    if (!isRecord(value)) throw new Error('Invalid IPC response');
+    return { matchingIds: stringList(value.matchingIds) };
+  });
+}
+
+function activityTargetDetail(value: unknown): ActivityTargetDetail {
+  if (!isRecord(value) || (value.kind !== 'files' && value.kind !== 'tools' && value.kind !== 'details')) throw new Error('Invalid IPC response');
+  return { kind: value.kind, items: stringList(value.items) };
 }
 
 function captureIncident(): Promise<IncidentExportResult> {
@@ -1041,6 +1106,8 @@ const api: LnwjudApi = {
   copyToolCommand,
   getLogSnapshot: () => invoke(ipcChannels.getLogSnapshot).then(logSnapshot),
   clearLogBuffer,
+  resolveActivityTargetDetail,
+  searchActivityTargetDetails,
   exportLogs,
   exportWorkLog,
   captureIncident,

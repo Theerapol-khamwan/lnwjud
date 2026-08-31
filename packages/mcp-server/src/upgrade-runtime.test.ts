@@ -109,7 +109,7 @@ describe('upgrade runtime', () => {
     expect(remove).toMatchObject({ ok: true, value: { decision: 'ask', contextAccess: 'unrestricted' } });
   });
 
-  it('keeps hooks create-only and plugin operations disabled without a real injected registry', async () => {
+  it('keeps hooks create-only and makes plugin mutations persistent when runtime state is configured', async () => {
     const runtime = new UpgradeRuntimeService({}, actor);
 
     await expect(runtime.execute('hook_register', { name: 'audit', event: 'beforeTool' }))
@@ -117,30 +117,40 @@ describe('upgrade runtime', () => {
     await expect(runtime.execute('hook_register', { name: 'audit', event: 'afterTool' }))
       .resolves.toMatchObject({ ok: false, error: { code: 'INVALID_INPUT' } });
 
+    await expect(runtime.execute('plugin_list', {})).resolves.toMatchObject({
+      ok: true,
+      value: { tool: 'plugin_list', status: 'ready', available: true, ready: true, executed: true, plugins: [], persistence: 'memory_only' },
+    });
+    for (const [name, input] of [
+      ['plugin_install', { name: 'safe-plugin' }],
+      ['plugin_enable', { name: 'safe-plugin' }],
+      ['plugin_disable', { name: 'safe-plugin' }],
+      ['plugin_remove', { name: 'safe-plugin', userConfirmed: true }],
+    ] as const) {
+      await expect(runtime.execute(name, input)).resolves.toMatchObject({
+        ok: true,
+        value: { tool: name, status: 'needs_setup', available: false, ready: false, executed: false, requirements: ['persistent runtime state path'] },
+      });
+    }
+
     const directory = await mkdtemp(path.join(os.tmpdir(), 'lnwjud-plugin-registry-'));
     try {
-      const runtimeStatePath = path.join(directory, 'runtime.json');
-      for (const candidate of [runtime, new UpgradeRuntimeService({ runtimeStatePath }, actor)]) {
-        for (const [name, input] of [
-          ['plugin_install', { name: 'safe-plugin' }],
-          ['plugin_list', {}],
-          ['plugin_enable', { name: 'safe-plugin' }],
-          ['plugin_disable', { name: 'safe-plugin' }],
-          ['plugin_remove', { name: 'safe-plugin', userConfirmed: true }],
-        ] as const) {
-          await expect(candidate.execute(name, input)).resolves.toMatchObject({
-            ok: true,
-            value: {
-              tool: name,
-              status: 'disabled',
-              available: false,
-              ready: false,
-              executed: false,
-              requirements: ['validated injected plugin registry'],
-            },
-          });
-        }
-      }
+      const persistent = new UpgradeRuntimeService({ runtimeStatePath: path.join(directory, 'runtime.json') }, actor);
+      await expect(persistent.execute('plugin_install', { name: 'safe-plugin' })).resolves.toMatchObject({
+        ok: true, value: { tool: 'plugin_install', status: 'ready', executed: true, name: 'safe-plugin', enabled: true, persistence: 'shared_locked_state' },
+      });
+      await expect(persistent.execute('plugin_list', {})).resolves.toMatchObject({
+        ok: true, value: { status: 'ready', plugins: [{ name: 'safe-plugin', enabled: true }], persistence: 'shared_locked_state' },
+      });
+      await expect(persistent.execute('plugin_disable', { name: 'safe-plugin' })).resolves.toMatchObject({
+        ok: true, value: { status: 'ready', executed: true, enabled: false, previousEnabled: true },
+      });
+      await expect(persistent.execute('plugin_enable', { name: 'safe-plugin' })).resolves.toMatchObject({
+        ok: true, value: { status: 'ready', executed: true, enabled: true, previousEnabled: false },
+      });
+      await expect(persistent.execute('plugin_remove', { name: 'safe-plugin', userConfirmed: true })).resolves.toMatchObject({
+        ok: true, value: { status: 'ready', executed: true, removed: true },
+      });
     } finally {
       await rm(directory, { recursive: true, force: true });
     }
@@ -176,8 +186,8 @@ describe('upgrade runtime', () => {
     expect(task).toMatchObject({
       ok: true,
       value: {
-        tool: 'task_create', status: 'disabled', available: false, ready: false, executed: false,
-        requirements: ['managed task execution adapter'],
+        tool: 'task_create', status: 'needs_setup', available: false, ready: false, executed: false,
+        requirements: ['local shell task runtime'],
       },
     });
   });
