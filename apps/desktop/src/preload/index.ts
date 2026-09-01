@@ -995,6 +995,7 @@ function logSnapshot(value: unknown): LogSnapshot {
     lines: value.lines.map(logLine),
     tunnelLogPath: nullableString(value.tunnelLogPath),
     tunnelLogExists: booleanField(value, 'tunnelLogExists'),
+    ...(value.tunnelAuth === undefined ? {} : { tunnelAuth: tunnelAuthStatus(value.tunnelAuth) }),
   };
 }
 

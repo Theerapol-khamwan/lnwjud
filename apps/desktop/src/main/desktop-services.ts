@@ -515,12 +515,14 @@ export function createDesktopRuntime(dataPath: string, options: DesktopRuntimeOp
   function recordPersistentTunnelStatus(status: TunnelStatus): void {
     const persistent = status.persistent;
     if (persistent === null) return;
-    const stateKey = [persistent.mode, persistent.state, persistent.healthy, persistent.ready, persistent.pollHealthy, persistent.reconnectCount, persistent.lastErrorCode].join(':');
+    const authMode = status.auth?.mode ?? 'legacy_api_key';
+    const stateKey = [authMode, persistent.mode, persistent.state, persistent.healthy, persistent.ready, persistent.pollHealthy, persistent.reconnectCount, persistent.lastErrorCode].join(':');
     const level = persistent.state === 'error' || persistent.state === 'auth-required' ? 'error'
       : persistent.state === 'reconnecting' || persistent.healthy === false || persistent.ready === false || persistent.pollHealthy === false ? 'warn'
         : 'info';
     const detail = [
       '[persistent-runtime]',
+      'auth=' + authMode,
       'alias=' + persistent.runtimeAlias,
       'tunnel=' + (persistent.tunnelIdMasked ?? 'unconfigured'),
       'mode=' + persistent.mode,
@@ -1105,7 +1107,8 @@ export function createDesktopRuntime(dataPath: string, options: DesktopRuntimeOp
         state: summary.state,
         logSummary: summary.logSummary,
       })));
-      return logHub.snapshot();
+      const snapshot = logHub.snapshot();
+      return { ...snapshot, tunnelAuth: await tunnelController.authStatus() };
     },
     clearLogBuffer: async (request: ClearLogBufferRequest): Promise<{ readonly cleared: boolean }> => {
       const workspaceSummaries = (await workspaceRepository.listAll()).map(toWorkspaceSummary);

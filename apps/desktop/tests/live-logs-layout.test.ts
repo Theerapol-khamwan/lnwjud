@@ -39,6 +39,22 @@ describe('viewport-sized log and list layout', () => {
     ], { workspaceId: null, sessionId: null }, 'second', [], currentMatches).map((line) => line.id)).toEqual([2]);
   });
 
+  it('labels tunnel logs as OAuth when OAuth authentication is active', () => {
+    const embedded = renderToStaticMarkup(createElement(LiveLogsPage, {
+      locale: 'en', lines: [], tunnelLogPath: null, tunnelLogExists: false,
+      tunnelAuth: {
+        mode: 'oauth', authReady: true, runtimeCredentialAvailable: true, hasLegacyApiKey: true,
+        accountLabel: 'oauth@example.test', organizationId: null, workspaceId: null, expiresAt: null,
+        requiresUserAction: false, message: null,
+      },
+      onClear: noop, onClearAll: noop, onExport: noop, onPopOut: noop, onCaptureIncident: noop,
+      incidentBusy: false, incidentClassification: null, incidentCapturedAt: null, incidentNotice: null, workspaces: [],
+    }));
+    expect(embedded).toContain('OAuth / Tunnel');
+    expect(embedded).toContain('Real-time OAuth session, Secure Tunnel transport, MCP activity, and process logs');
+    expect(embedded).not.toContain('Real-time tunnel, MCP activity, and process logs');
+  });
+
   it('marks both embedded and pop-out viewers with dedicated fixed viewport containers', () => {
     const embedded = renderToStaticMarkup(createElement(LiveLogsPage, {
       locale: 'en', lines: [], tunnelLogPath: null, tunnelLogExists: false,

@@ -1,5 +1,5 @@
 export const APP_NAME = 'lnwjud';
-export const APP_VERSION = '4.50.0';
+export const APP_VERSION = '4.51.0';
 
 export const ipcChannels = {
   listWorkspaces: 'lnwjud:list-workspaces',
@@ -454,6 +454,7 @@ export interface LogSnapshot {
   readonly lines: readonly LogLine[];
   readonly tunnelLogPath: string | null;
   readonly tunnelLogExists: boolean;
+  readonly tunnelAuth?: TunnelAuthStatus | undefined;
 }
 
 export interface LogScopeRequest {

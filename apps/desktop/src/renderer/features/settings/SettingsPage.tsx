@@ -3,6 +3,7 @@ import type { DashboardSnapshot, DestructiveDeletePolicy, ExternalSetupTarget, P
 import { formatDateTime } from '../../date-time.js';
 import { createTranslator } from '../../i18n/index.js';
 import { tunnelRuntimeCredentialAvailable } from '../../tunnel-auth-readiness.js';
+import { tunnelAuthPresentation } from '../../tunnel-auth-presentation.js';
 import { GuidedTunnelSetup } from '../onboarding/GuidedTunnelSetup.js';
 import { isTunnelRunning } from '../onboarding/guided-tunnel-setup-state.js';
 import { SettingSwitch } from './SettingSwitch.js';
@@ -50,6 +51,7 @@ export function SettingsPage(props: SettingsPageProps): ReactElement {
   const t = createTranslator(props.locale);
   const guidedTunnelRunning = isTunnelRunning(props.dashboard.tunnel);
   const guidedTunnelConfigured = tunnelRuntimeCredentialAvailable(props.dashboard.tunnel) && props.dashboard.tunnel.profileExists;
+  const tunnelPresentation = tunnelAuthPresentation(props.dashboard.tunnel);
   const [activeSection, setActiveSection] = useState<SettingsSection>(props.initialSection ?? 'general');
   const [apiKey, setApiKey] = useState('');
   const [showApiKey, setShowApiKey] = useState(false);
@@ -531,29 +533,44 @@ export function SettingsPage(props: SettingsPageProps): ReactElement {
                 {oauthLogin === null ? null : <p className="hint" role="status">OAuth: {oauthLogin.state}{oauthLogin.message === null ? '' : ` — ${oauthLogin.message}`}</p>}
               </section>
 
-              <section className="panel settings-card settings-card-polished guided-tunnel-launch-card" aria-label={t('guidedTunnel.openGuide')}>
-                <SettingsCardHeading icon="↗" title={t('guidedTunnel.openGuide')} subtitle={t('guidedTunnel.privacy')} badge={guidedTunnelRunning ? 'RUNNING' : guidedTunnelConfigured ? 'READY' : 'SETUP'} />
-                <p className="hint">{guidedTunnelRunning ? t('guidedTunnel.localComplete') : guidedTunnelConfigured ? t('guidedTunnel.configured') : t('guidedTunnel.dismissedHint')}</p>
-                <button type="button" className="btn-save-gold" onClick={() => props.onGuidedTunnelSetupOpenChange(true)}>{t('guidedTunnel.openGuide')}</button>
-              </section>
+              {tunnelPresentation.isOAuth ? (
+                <section className="panel settings-card settings-card-polished guided-tunnel-launch-card" aria-label="OAuth connection status">
+                  <SettingsCardHeading icon="◎" title={props.locale === 'th' ? 'การเชื่อมต่อด้วย OAuth' : 'OAuth connection'} subtitle={props.locale === 'th' ? 'โหมดนี้ใช้ OAuth เป็นวิธียืนยันตัวตน ส่วนการขนส่งยังเป็น Secure MCP Tunnel' : 'OAuth is the active authentication method; transport still uses Secure MCP Tunnel.'} badge={guidedTunnelRunning ? 'RUNNING' : guidedTunnelConfigured ? 'READY' : 'OAUTH'} />
+                  <p className="hint">{props.dashboard.tunnel.auth?.accountLabel ?? (props.dashboard.tunnel.auth?.authReady ? (props.locale === 'th' ? 'OAuth พร้อมใช้งาน' : 'OAuth is ready') : (props.locale === 'th' ? 'OAuth ต้องการให้ผู้ใช้ดำเนินการ' : 'OAuth requires user action'))}</p>
+                  {props.dashboard.tunnel.auth?.message === null || props.dashboard.tunnel.auth?.message === undefined ? null : <p className="hint">{props.dashboard.tunnel.auth.message}</p>}
+                  <div className="inline-actions">
+                    {!props.dashboard.tunnel.auth?.authReady ? <button type="button" className="btn-save-gold" disabled={oauthBusy || props.dashboard.tunnel.oauth?.available !== true} onClick={() => { void beginOAuthLogin(); }}>{props.locale === 'th' ? 'ลงชื่อเข้าใช้ OAuth' : 'Sign in with OAuth'}</button> : null}
+                    <button type="button" disabled={tunnelBusy || !guidedTunnelConfigured || props.dashboard.tunnel.state === 'running'} onClick={() => { void props.onStartTunnel(); }}>{t(tunnelPresentation.startKey)}</button>
+                    <button type="button" disabled={tunnelBusy || props.dashboard.tunnel.state === 'stopped'} onClick={() => { void props.onStopTunnel(); }}>{t(tunnelPresentation.stopKey)}</button>
+                  </div>
+                </section>
+              ) : (
+                <>
+                  <section className="panel settings-card settings-card-polished guided-tunnel-launch-card" aria-label={t('guidedTunnel.openGuide')}>
+                    <SettingsCardHeading icon="↗" title={t('guidedTunnel.openGuide')} subtitle={t('guidedTunnel.privacy')} badge={guidedTunnelRunning ? 'RUNNING' : guidedTunnelConfigured ? 'READY' : 'SETUP'} />
+                    <p className="hint">{guidedTunnelRunning ? t('guidedTunnel.localComplete') : guidedTunnelConfigured ? t('guidedTunnel.configured') : t('guidedTunnel.dismissedHint')}</p>
+                    <button type="button" className="btn-save-gold" onClick={() => props.onGuidedTunnelSetupOpenChange(true)}>{t('guidedTunnel.openGuide')}</button>
+                  </section>
 
-              <GuidedTunnelSetup
-                locale={props.locale}
-                tunnel={props.dashboard.tunnel}
-                open={props.guidedTunnelSetupOpen}
-                onOpenChange={props.onGuidedTunnelSetupOpenChange}
-                onOpenExternal={props.onOpenExternalSetupPage}
-                onSaveApiKey={props.onSaveTunnelApiKey}
-                onConfigureProfile={props.onConfigureTunnelProfile}
-                onStartTunnel={props.onStartTunnel}
-                onRefresh={props.onRefresh}
-                onLocalComplete={props.onGuidedTunnelLocalComplete}
-              />
+                  <GuidedTunnelSetup
+                    locale={props.locale}
+                    tunnel={props.dashboard.tunnel}
+                    open={props.guidedTunnelSetupOpen}
+                    onOpenChange={props.onGuidedTunnelSetupOpenChange}
+                    onOpenExternal={props.onOpenExternalSetupPage}
+                    onSaveApiKey={props.onSaveTunnelApiKey}
+                    onConfigureProfile={props.onConfigureTunnelProfile}
+                    onStartTunnel={props.onStartTunnel}
+                    onRefresh={props.onRefresh}
+                    onLocalComplete={props.onGuidedTunnelLocalComplete}
+                  />
+                </>
+              )}
 
               <details className="guided-tunnel-advanced">
-                <summary>{t('guidedTunnel.advanced')}</summary>
+                <summary>{tunnelPresentation.isOAuth ? (props.locale === 'th' ? 'การตั้งค่าขั้นสูง / Runtime API key สำรอง' : 'Advanced / Runtime API key fallback') : t('guidedTunnel.advanced')}</summary>
                 <section className="panel settings-card settings-card-polished" aria-label={t('settings.tunnelTitle')}>
-              <SettingsCardHeading icon="↗" title={t('settings.tunnelTitle')} subtitle={props.locale === 'th' ? 'Credential, tunnel-client และ Setup Wizard' : 'Credentials, tunnel-client, and setup wizard'} badge={props.dashboard.tunnel.profileExists ? (props.locale === 'th' ? 'พร้อมใช้งาน' : 'READY') : (props.locale === 'th' ? 'ต้องตั้งค่า' : 'SETUP')} />
+              <SettingsCardHeading icon="↗" title={tunnelPresentation.isOAuth ? (props.locale === 'th' ? 'Secure Tunnel — Legacy fallback' : 'Secure Tunnel — Legacy fallback') : t('settings.tunnelTitle')} subtitle={tunnelPresentation.isOAuth ? (props.locale === 'th' ? 'ตัวเลือก Runtime API key สำหรับสลับกลับหรือแก้ปัญหา ไม่ใช่วิธียืนยันตัวตนที่กำลังใช้อยู่' : 'Runtime API key controls are fallback/troubleshooting only and are not the active authentication method.') : (props.locale === 'th' ? 'Credential, tunnel-client และ Setup Wizard' : 'Credentials, tunnel-client, and setup wizard')} badge={tunnelPresentation.isOAuth ? 'LEGACY' : props.dashboard.tunnel.profileExists ? (props.locale === 'th' ? 'พร้อมใช้งาน' : 'READY') : (props.locale === 'th' ? 'ต้องตั้งค่า' : 'SETUP')} />
               <div className="setting-grid two-col">
                 <div className="setting-field">
                   <label className="field-label" htmlFor="tunnel-key">{t('settings.tunnelKey')}</label>

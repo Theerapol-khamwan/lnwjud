@@ -3,6 +3,7 @@ import type { DashboardSnapshot, IncidentClassification, UiLocale, WorkspaceSumm
 import { formatDateTime } from '../../date-time.js';
 import { createTranslator } from '../../i18n/index.js';
 import { tunnelRuntimeCredentialAvailable } from '../../tunnel-auth-readiness.js';
+import { tunnelAuthPresentation } from '../../tunnel-auth-presentation.js';
 import { settleWorkspaceAdd, type AddWorkspaceAction } from '../workspaces/workspace-add.js';
 
 interface ControlCenterPageProps {
@@ -37,6 +38,7 @@ export function ControlCenterPage(props: ControlCenterPageProps): ReactElement {
   const activeWorkspaceIds = new Set(dashboard.activeWorkspaces.map((workspace) => workspace.id));
   const activeProjects = props.workspaces.filter((workspace) => activeWorkspaceIds.has(workspace.id));
   const tunnelCredentialAvailable = tunnelRuntimeCredentialAvailable(dashboard.tunnel);
+  const tunnelPresentation = tunnelAuthPresentation(dashboard.tunnel);
 
   useEffect(() => {
     setSelectedId(dashboard.selectedWorkspace?.id ?? '');
@@ -50,13 +52,13 @@ export function ControlCenterPage(props: ControlCenterPageProps): ReactElement {
 
   const tunnelLabel = dashboard.tunnel.state === 'running'
     ? dashboard.tunnel.source === 'external'
-      ? (!tunnelCredentialAvailable || !dashboard.tunnel.profileExists ? t('tunnel.incompleteExternal') : t('tunnel.runningExternal'))
-      : t('tunnel.running')
+      ? (!tunnelCredentialAvailable || !dashboard.tunnel.profileExists ? t(tunnelPresentation.incompleteExternalKey) : t(tunnelPresentation.runningExternalKey))
+      : t(tunnelPresentation.runningKey)
     : dashboard.tunnel.state === 'starting'
-      ? t('tunnel.starting')
+      ? t(tunnelPresentation.startingKey)
       : dashboard.tunnel.state === 'error'
-        ? t('tunnel.error')
-        : t('tunnel.stopped');
+        ? t(tunnelPresentation.errorKey)
+        : t(tunnelPresentation.stoppedKey);
 
   const desktopBypassOn = dashboard.permissionProfile === 'full' && dashboard.settings?.desktopFullBypassAll === true;
   const stdioBypassOn = dashboard.stdioPermissionProfile === 'full' && dashboard.settings?.stdioFullBypassAll === true;
@@ -165,15 +167,22 @@ export function ControlCenterPage(props: ControlCenterPageProps): ReactElement {
         </section>
 
         <section className="panel">
-          <h2>{t('tunnel.title')}</h2>
+          <div className="section-heading">
+            <div>
+              <h2>{t(tunnelPresentation.titleKey)}</h2>
+              {tunnelPresentation.transportHintKey === null ? null : <p className="hint">{t(tunnelPresentation.transportHintKey)}</p>}
+            </div>
+            <span className="active-project-count">{tunnelPresentation.badge}</span>
+          </div>
           <p data-testid="tunnel-status">{tunnelLabel}</p>
+          {tunnelPresentation.isOAuth && dashboard.tunnel.auth?.accountLabel ? <p className="hint">{props.locale === 'th' ? 'บัญชี OAuth' : 'OAuth account'}: {dashboard.tunnel.auth.accountLabel}</p> : null}
           {dashboard.tunnel.message ? <p className="hint error-text">{dashboard.tunnel.message}</p> : null}
-          {!tunnelCredentialAvailable ? <p className="hint">{t('tunnel.needKey')}</p> : null}
+          {!tunnelCredentialAvailable ? <p className="hint">{t(tunnelPresentation.needCredentialKey)}</p> : null}
           {!dashboard.tunnel.profileExists ? <p className="hint">{t('tunnel.needProfile')}</p> : null}
           {tunnelCredentialAvailable && dashboard.tunnel.profileExists ? null : (
             <div className="guided-tunnel-home-entry">
-              <p className="hint">{t('guidedTunnel.dismissedHint')}</p>
-              <button type="button" className="btn-save-gold" onClick={props.onOpenTunnelSetup}>{t('guidedTunnel.openGuide')}</button>
+              <p className="hint">{tunnelPresentation.isOAuth ? (props.locale === 'th' ? 'ตรวจ OAuth session และการเชื่อมต่อในหน้าตั้งค่า' : 'Review the OAuth session and connection in Settings.') : t('guidedTunnel.dismissedHint')}</p>
+              <button type="button" className="btn-save-gold" onClick={props.onOpenTunnelSetup}>{tunnelPresentation.isOAuth ? (props.locale === 'th' ? 'เปิดการตั้งค่าการเชื่อมต่อ' : 'Open connection settings') : t('guidedTunnel.openGuide')}</button>
             </div>
           )}
           <div className="inline-actions">
@@ -182,14 +191,14 @@ export function ControlCenterPage(props: ControlCenterPageProps): ReactElement {
               disabled={props.tunnelBusy || !tunnelCredentialAvailable || dashboard.tunnel.state === 'running'}
               onClick={() => { void props.onStartTunnel(); }}
             >
-              {t('tunnel.start')}
+              {t(tunnelPresentation.startKey)}
             </button>
             <button
               type="button"
               disabled={props.tunnelBusy || dashboard.tunnel.state === 'stopped'}
               onClick={() => { void props.onStopTunnel(); }}
             >
-              {t('tunnel.stop')}
+              {t(tunnelPresentation.stopKey)}
             </button>
           </div>
         </section>

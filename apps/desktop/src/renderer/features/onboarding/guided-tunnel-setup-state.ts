@@ -40,6 +40,9 @@ export function guidedTunnelLaunchDecision(
   tunnel: TunnelStatus,
   state: GuidedTunnelSetupState,
 ): GuidedTunnelLaunchDecision {
+  // OAuth mode is managed by the authentication card in Settings. Never route an
+  // OAuth user into the legacy Tunnel ID + Runtime API key wizard.
+  if (tunnel.auth?.mode === 'oauth') return 'none';
   // Existing configured users must never be redirected back into onboarding on
   // update/reinstall/restart. The persistent runtime may still be reconciling for
   // a moment, but the saved Tunnel ID/profile + DPAPI key are already sufficient.

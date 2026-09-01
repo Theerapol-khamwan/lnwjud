@@ -1,7 +1,8 @@
 import { useState, type ReactElement } from 'react';
-import type { IncidentClassification, LiveLogExportReference, LogLine, LogSource, UiLocale, WorkspaceSummary } from '@lnwjud/ipc-contracts';
+import type { IncidentClassification, LiveLogExportReference, LogLine, LogSource, TunnelAuthStatus, UiLocale, WorkspaceSummary } from '@lnwjud/ipc-contracts';
 import { formatDateTime } from '../../date-time.js';
 import { createTranslator } from '../../i18n/index.js';
+import { tunnelAuthPresentation } from '../../tunnel-auth-presentation.js';
 import { LogStreamPanel, type LogScopeSelection } from './LogStreamPanel.js';
 
 interface LiveLogsPageProps {
@@ -9,6 +10,7 @@ interface LiveLogsPageProps {
   readonly lines: readonly LogLine[];
   readonly tunnelLogPath: string | null;
   readonly tunnelLogExists: boolean;
+  readonly tunnelAuth?: TunnelAuthStatus | undefined;
   readonly onClear: (source: LogSource, scope: LogScopeSelection) => Promise<void>;
   readonly onClearAll: () => Promise<void>;
   readonly onExport: (source: LogSource, scope: LogScopeSelection, query: string, lines: readonly LiveLogExportReference[]) => Promise<void>;
@@ -25,6 +27,7 @@ type LogTab = LogSource;
 
 export function LiveLogsPage(props: LiveLogsPageProps): ReactElement {
   const t = createTranslator(props.locale);
+  const tunnelPresentation = tunnelAuthPresentation({ auth: props.tunnelAuth });
   const [tab, setTab] = useState<LogTab>('tunnel');
   const sources: readonly LogTab[] = ['tunnel', 'mcp', 'process'];
 
@@ -33,7 +36,7 @@ export function LiveLogsPage(props: LiveLogsPageProps): ReactElement {
       <div className="page-heading">
         <div>
           <h1>{t('live.title')}</h1>
-          <p className="page-subtitle">{t('live.subtitle')}</p>
+          <p className="page-subtitle">{t(tunnelPresentation.logSubtitleKey)}</p>
         </div>
         <div className="heading-actions">
           <button type="button" className="clear-all-logs-button" onClick={() => { void props.onClearAll(); }}>{props.locale === 'th' ? 'ล้าง Log ทั้งหมด' : 'Clear All Logs'}</button>
@@ -52,7 +55,7 @@ export function LiveLogsPage(props: LiveLogsPageProps): ReactElement {
             className={tab === source ? 'log-tab active' : 'log-tab'}
             onClick={() => setTab(source)}
           >
-            {source === 'tunnel' ? t('live.tabTunnel') : source === 'mcp' ? t('live.tabMcp') : t('live.tabProcess')}
+            {source === 'tunnel' ? t(tunnelPresentation.logTabKey) : source === 'mcp' ? t('live.tabMcp') : t('live.tabProcess')}
           </button>
         ))}
       </div>
@@ -60,7 +63,7 @@ export function LiveLogsPage(props: LiveLogsPageProps): ReactElement {
         tab === source ? (
           <LogStreamPanel
             key={source}
-            title={source === 'tunnel' ? t('live.tabTunnel') : source === 'mcp' ? t('live.tabMcp') : t('live.tabProcess')}
+            title={source === 'tunnel' ? t(tunnelPresentation.logTabKey) : source === 'mcp' ? t('live.tabMcp') : t('live.tabProcess')}
             source={source}
             lines={props.lines.filter((line) => line.source === source)}
             tunnelLogPath={props.tunnelLogPath}
@@ -72,7 +75,7 @@ export function LiveLogsPage(props: LiveLogsPageProps): ReactElement {
             clearSessionLabel={t('scope.clearSession')}
             clearWorkspaceLabel={t('scope.clearWorkspace')}
             exportLabel={t('live.export')}
-            waitingLabel={source === 'tunnel' ? t('live.waitingTunnel') : t('live.waiting')}
+            waitingLabel={source === 'tunnel' ? t(tunnelPresentation.logWaitingKey) : t('live.waiting')}
             copyLabel={t('mcp.copy')}
             copiedLabel={t('mcp.copied')}
             onResolveTargetDetail={async (detailRef) => (await window.lnwjud.resolveActivityTargetDetail({ detailRef })).detail}

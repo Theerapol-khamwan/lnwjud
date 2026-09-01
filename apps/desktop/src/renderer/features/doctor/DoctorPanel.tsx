@@ -107,7 +107,7 @@ function actionLabel(locale: UiLocale, action: RemediationAction): string {
       tools_codex: ['ไปที่ Codex Delegation', 'Open Codex Delegation'],
       tools_local_providers: ['ไปที่ Local Providers', 'Open Local Providers'],
       mcp_servers: ['ไปที่ MCP Servers', 'Open MCP Servers'],
-      tunnel: ['ไปที่ Secure Tunnel', 'Open Secure Tunnel'],
+      tunnel: ['ไปที่การเชื่อมต่อ Tunnel / OAuth', 'Open Tunnel / OAuth connection'],
       security_profile: ['ไปที่ Security / Permissions', 'Open Security / Permissions'],
     };
     const label = labels[action.target];

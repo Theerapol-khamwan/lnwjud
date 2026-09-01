@@ -49,6 +49,17 @@ export type MessageKey =
   | 'tunnel.stopped'
   | 'tunnel.starting'
   | 'tunnel.error'
+  | 'tunnel.oauthTitle'
+  | 'tunnel.oauthStart'
+  | 'tunnel.oauthStop'
+  | 'tunnel.oauthNeedLogin'
+  | 'tunnel.oauthRunning'
+  | 'tunnel.oauthRunningExternal'
+  | 'tunnel.oauthIncompleteExternal'
+  | 'tunnel.oauthStopped'
+  | 'tunnel.oauthStarting'
+  | 'tunnel.oauthError'
+  | 'tunnel.oauthTransportHint'
   | 'project.active'
   | 'project.setMain'
   | 'project.add'
@@ -124,6 +135,9 @@ export type MessageKey =
   | 'live.title'
   | 'live.subtitle'
   | 'live.tabTunnel'
+  | 'live.tabOAuth'
+  | 'live.subtitleOAuth'
+  | 'live.waitingOAuth'
   | 'live.tabMcp'
   | 'live.tabProcess'
   | 'live.pause'
@@ -272,6 +286,17 @@ export const th: Messages = {
   'tunnel.stopped': 'Tunnel หยุดอยู่',
   'tunnel.starting': 'กำลังเริ่ม Tunnel',
   'tunnel.error': 'Tunnel มีข้อผิดพลาด',
+  'tunnel.oauthTitle': 'การเชื่อมต่อ ChatGPT — OAuth',
+  'tunnel.oauthStart': 'เริ่มการเชื่อมต่อ OAuth',
+  'tunnel.oauthStop': 'หยุดการเชื่อมต่อ OAuth',
+  'tunnel.oauthNeedLogin': 'ต้องลงชื่อเข้าใช้ OAuth หรือแก้ไข OAuth session ก่อนเริ่มการเชื่อมต่อ',
+  'tunnel.oauthRunning': 'OAuth เชื่อมต่อแล้ว (จากแอพนี้)',
+  'tunnel.oauthRunningExternal': 'OAuth เชื่อมต่อแล้วผ่าน Tunnel runtime ภายนอก — ปุ่ม Start ถูกปิดไว้แล้ว',
+  'tunnel.oauthIncompleteExternal': 'พบ Tunnel runtime ที่ยังทำงานอยู่ แต่ OAuth/lnwjud setup ยังไม่ครบ — หยุดการเชื่อมต่อเดิมก่อนตั้งค่าใหม่',
+  'tunnel.oauthStopped': 'การเชื่อมต่อ OAuth หยุดอยู่',
+  'tunnel.oauthStarting': 'กำลังเริ่มการเชื่อมต่อ OAuth',
+  'tunnel.oauthError': 'การเชื่อมต่อ OAuth มีข้อผิดพลาด',
+  'tunnel.oauthTransportHint': 'ยืนยันตัวตนด้วย OAuth • รับส่งข้อมูลผ่าน Secure MCP Tunnel',
   'guidedTunnel.tipTitle': 'ตั้งค่า ChatGPT ให้ใช้ lnwjud',
   'guidedTunnel.tipBody': 'ทำขั้นตอนนี้เพียงครั้งเดียว lnwjud จะพาไปสร้าง Tunnel ID และ Runtime API key แล้วตั้งค่าให้โดยอัตโนมัติ',
   'guidedTunnel.privacy': 'คีย์จะถูกเข้ารหัสด้วย Windows DPAPI และเก็บในเครื่องนี้เท่านั้น lnwjud ไม่มีเซิร์ฟเวอร์กลางรับคีย์ของคุณ',
@@ -394,6 +419,9 @@ export const th: Messages = {
   'live.title': 'Live Logs',
   'live.subtitle': 'ดู log ของ tunnel, กิจกรรม MCP และ process แบบ realtime',
   'live.tabTunnel': 'Tunnel',
+  'live.tabOAuth': 'OAuth / Tunnel',
+  'live.subtitleOAuth': 'ดูเหตุการณ์ OAuth session, Secure Tunnel transport, กิจกรรม MCP และ process แบบ realtime',
+  'live.waitingOAuth': 'ยังไม่มีเหตุการณ์ OAuth/Tunnel — ลงชื่อเข้าใช้ OAuth และเริ่มการเชื่อมต่อจากหน้าตั้งค่า',
   'live.tabMcp': 'MCP activity',
   'live.tabProcess': 'Processes',
   'live.pause': 'หยุดชั่วคราว',
@@ -494,6 +522,17 @@ export const en: Messages = {
   'tunnel.stopped': 'Tunnel stopped',
   'tunnel.starting': 'Starting tunnel',
   'tunnel.error': 'Tunnel error',
+  'tunnel.oauthTitle': 'ChatGPT Connection — OAuth',
+  'tunnel.oauthStart': 'Start OAuth connection',
+  'tunnel.oauthStop': 'Stop OAuth connection',
+  'tunnel.oauthNeedLogin': 'Sign in with OAuth or repair the OAuth session before starting the connection.',
+  'tunnel.oauthRunning': 'OAuth connection active (from this app)',
+  'tunnel.oauthRunningExternal': 'OAuth connection active through an external Tunnel runtime — Start is disabled',
+  'tunnel.oauthIncompleteExternal': 'A Tunnel runtime is still running, but OAuth/lnwjud setup is incomplete. Stop the existing connection before setting it up again.',
+  'tunnel.oauthStopped': 'OAuth connection stopped',
+  'tunnel.oauthStarting': 'Starting OAuth connection',
+  'tunnel.oauthError': 'OAuth connection error',
+  'tunnel.oauthTransportHint': 'OAuth authentication • Secure MCP Tunnel transport',
   'guidedTunnel.tipTitle': 'Connect ChatGPT to lnwjud',
   'guidedTunnel.tipBody': 'Complete this once. lnwjud will guide you through creating a Tunnel ID and Runtime API key, then configure the connection automatically.',
   'guidedTunnel.privacy': 'Your key is encrypted with Windows DPAPI and stored only on this PC. lnwjud has no central server that receives your key.',
@@ -616,6 +655,9 @@ export const en: Messages = {
   'live.title': 'Live Logs',
   'live.subtitle': 'Real-time tunnel, MCP activity, and process logs',
   'live.tabTunnel': 'Tunnel',
+  'live.tabOAuth': 'OAuth / Tunnel',
+  'live.subtitleOAuth': 'Real-time OAuth session, Secure Tunnel transport, MCP activity, and process logs',
+  'live.waitingOAuth': 'No OAuth/Tunnel events yet — sign in with OAuth and start the connection from Settings.',
   'live.tabMcp': 'MCP activity',
   'live.tabProcess': 'Processes',
   'live.pause': 'Pause',

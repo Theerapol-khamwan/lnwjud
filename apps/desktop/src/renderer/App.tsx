@@ -786,6 +786,7 @@ export function App(): ReactElement {
           lines={logLines}
           tunnelLogPath={tunnelLogPath}
           tunnelLogExists={tunnelLogExists}
+          tunnelAuth={dashboard.tunnel.auth}
           onClear={clearLogSource}
           onClearAll={clearAllLogs}
           onExport={exportLogSource}
