@@ -6,12 +6,12 @@ import path from 'node:path';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { request as httpRequest } from 'node:http';
-import type { TunnelPersistentStatus, TunnelRunState, TunnelStatus } from '@lnwjud/ipc-contracts';
+import type { TunnelAuthStatus, TunnelPersistentStatus, TunnelRunState, TunnelStatus } from '@lnwjud/ipc-contracts';
 import { probeProcessStart, type ProcessProbeResult } from '@lnwjud/mcp-server';
+import { defaultTunnelProfileDirectory, LegacyApiKeyCredentialProvider, type TunnelAuthProvider } from './tunnel-auth.js';
 import { formatTunnelExitMessage, tunnelExitHintFromLog } from './tunnel-exit.js';
 import { acquireTunnelLock, readTunnelLock, type TunnelLockAcquisition, type TunnelLockOwner } from './tunnel-lock.js';
 import { extractTunnelId, extractTunnelMcpServerUrl, normalizeLoopbackMcpUrl, rewriteTunnelYamlMcpServerUrl, rewriteTunnelYamlRuntimeApiKeyRef } from './tunnel-profile.js';
-import { protectTunnelSecret, unprotectTunnelSecret } from './tunnel-secret-dpapi.js';
 import { TunnelRuntimeAdapter, type TunnelRuntimeAdapterOptions } from './tunnel-runtime-adapter.js';
 import { TunnelRuntimeReconciler, type TunnelRuntimeDesiredState, type TunnelRuntimeReconcilerAdapter } from './tunnel-runtime-reconciler.js';
 import { TunnelRuntimeSupervisor } from './tunnel-runtime-supervisor.js';
@@ -58,6 +58,8 @@ export interface TunnelControllerOptions {
   readonly inspectOwnedProcess?: (pid: number) => Promise<ProcessProbeResult>;
   readonly inspectOwnedProcessTree?: (rootPid: number) => Promise<readonly OwnedProcessIdentity[]>;
   readonly decryptSecret?: (encrypted: string) => Promise<string>;
+  /** Optional OAuth-aware/composite provider. Defaults to the legacy DPAPI Runtime API key provider. */
+  readonly authProvider?: TunnelAuthProvider;
   readonly probeHealthEndpoint?: (host: string, port: number) => Promise<boolean>;
   readonly healthProbeTimeoutMs?: number;
   readonly inspectFileVersion?: (filePath: string) => Promise<string | null>;
@@ -96,11 +98,19 @@ export class TunnelController {
   private runtimeMode: 'native-managed' | 'profile-child' | null = null;
   /** Saved credentials/profile/client changed; apply them on the next explicit Start without disrupting edits in progress. */
   private runtimeConfigurationDirty = false;
+  private readonly options: TunnelControllerOptions;
+  private readonly authProvider: TunnelAuthProvider;
 
-  public constructor(private readonly options: TunnelControllerOptions) {}
+  public constructor(options: TunnelControllerOptions) {
+    this.options = options;
+    this.authProvider = options.authProvider ?? new LegacyApiKeyCredentialProvider({
+      secretPath: (): string => this.secretPath(),
+      ...(options.decryptSecret === undefined ? {} : { decryptSecret: options.decryptSecret }),
+    });
+  }
 
   public profileDirectory(): string {
-    return path.join(process.env.APPDATA ?? path.join(os.homedir(), 'AppData', 'Roaming'), 'tunnel-client');
+    return defaultTunnelProfileDirectory();
   }
 
   public secretPath(): string {
@@ -122,22 +132,24 @@ export class TunnelController {
     return bundled;
   }
 
+  public async authStatus(): Promise<TunnelAuthStatus> {
+    return this.authProvider.status();
+  }
+
   public async hasApiKey(): Promise<boolean> {
-    try {
-      const raw = await readFile(this.secretPath(), 'utf8');
-      return raw.trim().length > 0;
-    } catch {
-      return false;
-    }
+    return (await this.authStatus()).hasLegacyApiKey;
   }
 
   public async saveApiKey(apiKey: string): Promise<void> {
     const trimmed = apiKey.trim();
     if (trimmed.length === 0) throw new Error('Runtime API key is required');
-    await mkdir(this.profileDirectory(), { recursive: true });
-    const encrypted = await protectTunnelSecret(trimmed);
-    await writeFile(this.secretPath(), encrypted, 'utf8');
+    await this.authProvider.saveLegacyApiKey(trimmed);
     this.lastApiKey = trimmed;
+    this.markAuthConfigurationChanged();
+  }
+
+  public markAuthConfigurationChanged(): void {
+    this.lastApiKey = null;
     this.runtimeConfigurationDirty = true;
     if (this.runtimeMode === 'native-managed') this.disposeRuntimeSupervisor();
   }
@@ -148,10 +160,11 @@ export class TunnelController {
     const clientPath = this.resolveClientPath();
     if (clientPath === null || !existsSync(clientPath)) throw new Error('tunnel-client.exe was not found');
     const mcpServerUrl = await this.requireMcpServerUrl();
-    if (!(await this.hasApiKey())) throw new Error('Save a Runtime API key first');
-    const encryptedSecret = await readFile(this.secretPath(), 'utf8');
-    const apiKey = (await (this.options.decryptSecret?.(encryptedSecret) ?? unprotectTunnelSecret(encryptedSecret))).trim();
-    if (apiKey.length === 0) throw new Error('Saved Runtime API key is empty; save it again in Settings');
+    const auth = await this.authStatus();
+    if (!auth.runtimeCredentialAvailable) throw new Error(auth.message ?? 'Save a Runtime API key first');
+    const credential = await this.authProvider.getRuntimeCredential();
+    if (credential === null || credential.value.trim().length === 0) throw new Error('Saved Runtime API key is empty; save it again in Settings');
+    const apiKey = credential.value.trim();
     await mkdir(this.profileDirectory(), { recursive: true });
     try {
       await execFileAsync(clientPath, buildTunnelInitArgs(normalizedTunnelId, mcpServerUrl, this.profileDirectory()), {
@@ -270,10 +283,14 @@ export class TunnelController {
         }
       }
     }
+    const auth = await this.authStatus();
     return {
       state: this.state,
       source,
-      hasApiKey: await this.hasApiKey(),
+      hasApiKey: auth.hasLegacyApiKey,
+      authReady: auth.authReady,
+      runtimeCredentialAvailable: auth.runtimeCredentialAvailable,
+      auth,
       clientPath,
       profileExists: existsSync(this.profilePath()),
       message: this.message,
@@ -435,14 +452,14 @@ export class TunnelController {
 
       const clientPath = this.resolveClientPath();
       if (clientPath === null || !existsSync(clientPath)) throw new Error('tunnel-client.exe was not found');
-      const hasApiKey = await this.hasApiKey();
+      const auth = await this.authStatus();
       throwIfStartCancelled(signal);
-      if (!hasApiKey) throw new Error('Save a Runtime API key first');
+      if (!auth.runtimeCredentialAvailable) throw new Error(auth.message ?? 'Save a Runtime API key first');
       if (!existsSync(this.profilePath())) throw new Error('Missing tunnel profile lnwjud.yaml');
 
-      const encryptedSecret = await readFile(this.secretPath(), 'utf8');
+      const credential = await this.authProvider.getRuntimeCredential();
       throwIfStartCancelled(signal);
-      const apiKey = (await (this.options.decryptSecret?.(encryptedSecret) ?? unprotectTunnelSecret(encryptedSecret))).trim();
+      const apiKey = credential?.value.trim() ?? '';
       throwIfStartCancelled(signal);
       if (apiKey.length === 0) throw new Error('Saved Runtime API key is empty; save it again in Settings');
       this.lastApiKey = apiKey;
@@ -933,9 +950,10 @@ export class TunnelController {
     if (clientPath === null || !existsSync(clientPath)) return null;
     if (!existsSync(this.profilePath())) return null;
 
-    const encryptedSecret = await readFile(this.secretPath(), 'utf8').catch(() => null);
-    if (encryptedSecret === null) return null;
-    const apiKey = (await (this.options.decryptSecret?.(encryptedSecret) ?? unprotectTunnelSecret(encryptedSecret))).trim();
+    const auth = await this.authStatus();
+    if (!auth.runtimeCredentialAvailable) return null;
+    const credential = await this.authProvider.getRuntimeCredential();
+    const apiKey = credential?.value.trim() ?? '';
     throwIfStartCancelled(signal);
     if (apiKey.length === 0) return null;
     this.lastApiKey = apiKey;
@@ -1051,10 +1069,14 @@ export class TunnelController {
 
   private async statusFromRuntimeSnapshot(snapshot: TunnelRuntimeSnapshot, clientPath: string | null): Promise<TunnelStatus> {
     this.applyRuntimeSnapshot(snapshot);
+    const auth = await this.authStatus();
     return {
       state: this.state,
       source: 'desktop',
-      hasApiKey: await this.hasApiKey(),
+      hasApiKey: auth.hasLegacyApiKey,
+      authReady: auth.authReady,
+      runtimeCredentialAvailable: auth.runtimeCredentialAvailable,
+      auth,
       clientPath,
       profileExists: existsSync(this.profilePath()),
       message: this.message,

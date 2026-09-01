@@ -7,6 +7,7 @@ import {
 } from '@lnwjud/ipc-contracts';
 import { copyTextToClipboard } from '../../clipboard.js';
 import { createTranslator } from '../../i18n/index.js';
+import { tunnelRuntimeCredentialAvailable } from '../../tunnel-auth-readiness.js';
 import {
   initialGuidedTunnelStep,
   isTunnelRunning,
@@ -68,7 +69,8 @@ export function GuidedTunnelSetup(props: GuidedTunnelSetupProps): ReactElement |
   if (!props.open) return null;
 
   const stepIndex = STEPS.indexOf(step);
-  const canStart = props.tunnel.hasApiKey && props.tunnel.profileExists && busyAction === null;
+  const credentialAvailable = tunnelRuntimeCredentialAvailable(props.tunnel);
+  const canStart = credentialAvailable && props.tunnel.profileExists && busyAction === null;
 
   function close(): void {
     setApiKey('');
@@ -93,7 +95,7 @@ export function GuidedTunnelSetup(props: GuidedTunnelSetupProps): ReactElement |
       return;
     }
     setError(null);
-    setStep(props.tunnel.hasApiKey ? 'configure' : 'save_key');
+    setStep(credentialAvailable ? 'configure' : 'save_key');
   }
 
   async function saveApiKey(): Promise<void> {
@@ -142,7 +144,7 @@ export function GuidedTunnelSetup(props: GuidedTunnelSetupProps): ReactElement |
   }
 
   async function startTunnel(): Promise<void> {
-    if (!props.tunnel.hasApiKey || !props.tunnel.profileExists) return;
+    if (!credentialAvailable || !props.tunnel.profileExists) return;
     setBusyAction('start');
     setError(null);
     setNotice(t('guidedTunnel.starting'));
@@ -170,8 +172,8 @@ export function GuidedTunnelSetup(props: GuidedTunnelSetupProps): ReactElement |
     setError(null);
     setNotice(null);
     if (step === 'save_key') setStep('create_tunnel');
-    else if (step === 'configure') setStep(props.tunnel.hasApiKey ? 'create_tunnel' : 'save_key');
-    else if (step === 'start') setStep(props.tunnel.profileExists ? (props.tunnel.hasApiKey ? 'create_tunnel' : 'save_key') : 'configure');
+    else if (step === 'configure') setStep(credentialAvailable ? 'create_tunnel' : 'save_key');
+    else if (step === 'start') setStep(props.tunnel.profileExists ? (credentialAvailable ? 'create_tunnel' : 'save_key') : 'configure');
     else if (step === 'connect_chatgpt') setStep('start');
   }
 
@@ -257,7 +259,7 @@ export function GuidedTunnelSetup(props: GuidedTunnelSetupProps): ReactElement |
             </div>
             <div className="inline-actions">
               <button type="button" onClick={goBack}>{t('guidedTunnel.back')}</button>
-              <button type="button" className="btn-save-gold" disabled={busyAction !== null || !props.tunnel.hasApiKey} onClick={() => { void configureProfile(); }}>
+              <button type="button" className="btn-save-gold" disabled={busyAction !== null || !credentialAvailable} onClick={() => { void configureProfile(); }}>
                 {busyAction === 'configure' ? t('guidedTunnel.configuring') : t('guidedTunnel.configure')}
               </button>
             </div>

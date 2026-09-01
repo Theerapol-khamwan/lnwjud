@@ -1,7 +1,8 @@
 import { useEffect, useState, type ReactElement } from 'react';
-import type { DashboardSnapshot, DestructiveDeletePolicy, ExternalSetupTarget, PdfProviderInstallResult, PermissionProfileName, TunnelStatus, UiLocale, UserSettings } from '@lnwjud/ipc-contracts';
+import type { DashboardSnapshot, DestructiveDeletePolicy, ExternalSetupTarget, PdfProviderInstallResult, PermissionProfileName, TunnelOAuthLoginStatus, TunnelStatus, UiLocale, UserSettings } from '@lnwjud/ipc-contracts';
 import { formatDateTime } from '../../date-time.js';
 import { createTranslator } from '../../i18n/index.js';
+import { tunnelRuntimeCredentialAvailable } from '../../tunnel-auth-readiness.js';
 import { GuidedTunnelSetup } from '../onboarding/GuidedTunnelSetup.js';
 import { isTunnelRunning } from '../onboarding/guided-tunnel-setup-state.js';
 import { SettingSwitch } from './SettingSwitch.js';
@@ -27,6 +28,11 @@ interface SettingsPageProps {
   readonly onConfigureTunnelProfile: (tunnelId: string) => Promise<string>;
   readonly onStartTunnel: () => Promise<TunnelStatus>;
   readonly onStopTunnel: () => Promise<void>;
+  readonly onBeginTunnelOAuthLogin: () => Promise<TunnelOAuthLoginStatus>;
+  readonly onGetTunnelOAuthLoginStatus: () => Promise<TunnelOAuthLoginStatus>;
+  readonly onCancelTunnelOAuthLogin: () => Promise<TunnelOAuthLoginStatus>;
+  readonly onSwitchTunnelAuthToLegacy: () => Promise<TunnelStatus>;
+  readonly onLogoutTunnelOAuth: () => Promise<TunnelStatus>;
   readonly onOpenExternalSetupPage: (target: ExternalSetupTarget) => Promise<void>;
   readonly onRefresh: () => Promise<void>;
   readonly guidedTunnelSetupOpen: boolean;
@@ -43,7 +49,7 @@ type DestructiveApprovalKey = keyof DestructiveDeletePolicy['approvals'];
 export function SettingsPage(props: SettingsPageProps): ReactElement {
   const t = createTranslator(props.locale);
   const guidedTunnelRunning = isTunnelRunning(props.dashboard.tunnel);
-  const guidedTunnelConfigured = props.dashboard.tunnel.hasApiKey && props.dashboard.tunnel.profileExists;
+  const guidedTunnelConfigured = tunnelRuntimeCredentialAvailable(props.dashboard.tunnel) && props.dashboard.tunnel.profileExists;
   const [activeSection, setActiveSection] = useState<SettingsSection>(props.initialSection ?? 'general');
   const [apiKey, setApiKey] = useState('');
   const [showApiKey, setShowApiKey] = useState(false);
@@ -51,6 +57,8 @@ export function SettingsPage(props: SettingsPageProps): ReactElement {
   const [tunnelId, setTunnelId] = useState('');
   const [tunnelBusy, setTunnelBusy] = useState(false);
   const [tunnelMessage, setTunnelMessage] = useState<string | null>(null);
+  const [oauthLogin, setOauthLogin] = useState<TunnelOAuthLoginStatus | null>(null);
+  const [oauthBusy, setOauthBusy] = useState(false);
   const [savedMessage, setSavedMessage] = useState<string | null>(null);
   const [stdioProfile, setStdioProfile] = useState<PermissionProfileName>(props.dashboard.stdioPermissionProfile);
   const [strictRoots, setStrictRoots] = useState(props.dashboard.stdioStrictRoots);
@@ -93,6 +101,19 @@ export function SettingsPage(props: SettingsPageProps): ReactElement {
   useEffect(() => {
     setClientPath(props.dashboard.tunnel.clientPath ?? '');
   }, [props.dashboard.tunnel.clientPath]);
+
+  useEffect(() => {
+    if (oauthLogin?.state !== 'waiting_for_browser' && oauthLogin?.state !== 'exchanging') return;
+    let cancelled = false;
+    const poll = window.setInterval(() => {
+      void props.onGetTunnelOAuthLoginStatus().then(async (status) => {
+        if (cancelled) return;
+        setOauthLogin(status);
+        if (status.state === 'completed') await props.onRefresh();
+      }).catch(() => undefined);
+    }, 1_000);
+    return (): void => { cancelled = true; window.clearInterval(poll); };
+  }, [oauthLogin?.state, props]);
 
   function updateDestructivePolicy(next: DestructiveDeletePolicy): void {
     void props.onDestructiveDeletePolicyChange(next);
@@ -214,6 +235,40 @@ export function SettingsPage(props: SettingsPageProps): ReactElement {
     } catch (cause: unknown) {
       setTunnelMessage(cause instanceof Error ? cause.message : (props.locale === 'th' ? 'หยุด Tunnel ไม่สำเร็จ' : 'Could not stop tunnel.'));
     } finally { setTunnelBusy(false); }
+  }
+
+  async function beginOAuthLogin(): Promise<void> {
+    setOauthBusy(true);
+    setTunnelMessage(null);
+    try {
+      const status = await props.onBeginTunnelOAuthLogin();
+      setOauthLogin(status);
+      if (!status.available && status.message !== null) setTunnelMessage(status.message);
+    } catch (cause: unknown) {
+      setTunnelMessage(cause instanceof Error ? cause.message : 'OAuth login could not be started');
+    } finally { setOauthBusy(false); }
+  }
+
+  async function rollbackToLegacyAuth(): Promise<void> {
+    setOauthBusy(true);
+    try {
+      await props.onSwitchTunnelAuthToLegacy();
+      await props.onRefresh();
+      setOauthLogin(null);
+    } catch (cause: unknown) {
+      setTunnelMessage(cause instanceof Error ? cause.message : 'Could not switch back to Runtime API key authentication');
+    } finally { setOauthBusy(false); }
+  }
+
+  async function logoutOAuth(): Promise<void> {
+    setOauthBusy(true);
+    try {
+      await props.onLogoutTunnelOAuth();
+      await props.onRefresh();
+      setOauthLogin(null);
+    } catch (cause: unknown) {
+      setTunnelMessage(cause instanceof Error ? cause.message : 'OAuth logout failed');
+    } finally { setOauthBusy(false); }
   }
 
   async function setRecoveryRetentionDays(days: number): Promise<void> {
@@ -439,6 +494,43 @@ export function SettingsPage(props: SettingsPageProps): ReactElement {
 
           {activeSection === 'tunnel' ? (
             <>
+              <section className="panel settings-card settings-card-polished" aria-label="Tunnel authentication">
+                <SettingsCardHeading
+                  icon="◎"
+                  title={props.locale === 'th' ? 'การยืนยันตัวตน Secure Tunnel' : 'Secure Tunnel Authentication'}
+                  subtitle={props.locale === 'th' ? 'เลือกวิธีรับ credential สำหรับ Tunnel โดยไม่เปลี่ยน Persistent Tunnel ID อัตโนมัติ' : 'Choose how Tunnel credentials are obtained without silently replacing the persistent Tunnel ID'}
+                  badge={props.dashboard.tunnel.auth?.mode === 'oauth' ? 'OAUTH' : 'API KEY'}
+                />
+                <div className="setting-grid two-col">
+                  <div className="setting-field">
+                    <span className="field-label">{props.locale === 'th' ? 'วิธีที่ใช้อยู่' : 'Active method'}</span>
+                    <strong>{props.dashboard.tunnel.auth?.mode === 'oauth' ? 'OAuth Sign-in' : 'Runtime API key'}</strong>
+                    <p className="hint">{props.dashboard.tunnel.auth?.mode === 'oauth'
+                      ? (props.dashboard.tunnel.auth.accountLabel ?? (props.locale === 'th' ? 'ลงชื่อเข้าใช้แล้ว' : 'Signed in'))
+                      : (props.locale === 'th' ? 'วิธีเดิมยังรองรับเต็มรูปแบบและไม่บังคับย้าย' : 'The original method remains fully supported; migration is never forced.')}</p>
+                  </div>
+                  <div className="setting-field">
+                    <span className="field-label">OAuth provisioning</span>
+                    <strong>{props.dashboard.tunnel.oauth?.available ? (props.locale === 'th' ? 'พร้อมใช้งาน' : 'Available') : (props.locale === 'th' ? 'ยังไม่พร้อม' : 'Unavailable')}</strong>
+                    {props.dashboard.tunnel.oauth?.reason === null || props.dashboard.tunnel.oauth?.reason === undefined ? null : <p className="hint">{props.dashboard.tunnel.oauth.reason}</p>}
+                  </div>
+                </div>
+                <div className="inline-actions">
+                  {props.dashboard.tunnel.auth?.mode === 'oauth' ? (
+                    <>
+                      <button type="button" disabled={oauthBusy || !props.dashboard.tunnel.auth.hasLegacyApiKey} onClick={() => { void rollbackToLegacyAuth(); }}>{props.locale === 'th' ? 'กลับไปใช้ Runtime API key' : 'Switch back to Runtime API key'}</button>
+                      <button type="button" disabled={oauthBusy} onClick={() => { void logoutOAuth(); }}>{props.locale === 'th' ? 'ออกจากระบบ OAuth' : 'Sign out OAuth'}</button>
+                    </>
+                  ) : (
+                    <button type="button" className="btn-save-gold" disabled={oauthBusy || props.dashboard.tunnel.oauth?.available !== true} onClick={() => { void beginOAuthLogin(); }}>
+                      {oauthBusy ? (props.locale === 'th' ? 'กำลังเริ่ม…' : 'Starting…') : (props.locale === 'th' ? 'ลงชื่อเข้าใช้ด้วย OAuth' : 'Sign in with OAuth')}
+                    </button>
+                  )}
+                  {oauthLogin?.state === 'waiting_for_browser' || oauthLogin?.state === 'exchanging' ? <button type="button" onClick={() => { void props.onCancelTunnelOAuthLogin().then(setOauthLogin); }}>{props.locale === 'th' ? 'ยกเลิกการลงชื่อเข้าใช้' : 'Cancel sign-in'}</button> : null}
+                </div>
+                {oauthLogin === null ? null : <p className="hint" role="status">OAuth: {oauthLogin.state}{oauthLogin.message === null ? '' : ` — ${oauthLogin.message}`}</p>}
+              </section>
+
               <section className="panel settings-card settings-card-polished guided-tunnel-launch-card" aria-label={t('guidedTunnel.openGuide')}>
                 <SettingsCardHeading icon="↗" title={t('guidedTunnel.openGuide')} subtitle={t('guidedTunnel.privacy')} badge={guidedTunnelRunning ? 'RUNNING' : guidedTunnelConfigured ? 'READY' : 'SETUP'} />
                 <p className="hint">{guidedTunnelRunning ? t('guidedTunnel.localComplete') : guidedTunnelConfigured ? t('guidedTunnel.configured') : t('guidedTunnel.dismissedHint')}</p>

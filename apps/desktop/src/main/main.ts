@@ -50,6 +50,7 @@ import {
   type StartMcpRequest,
   type StartProcessRequest,
   type StopProcessRequest,
+  type TunnelOAuthLoginStatus,
   type TunnelStatus,
   type UiLocale,
   type UserSettings,
@@ -111,6 +112,11 @@ export interface DesktopIpcServices {
   startTunnel(): Promise<TunnelStatus>;
   stopTunnel(): Promise<TunnelStatus>;
   getTunnelStatus(): Promise<TunnelStatus>;
+  beginTunnelOAuthLogin(): Promise<TunnelOAuthLoginStatus>;
+  getTunnelOAuthLoginStatus(): Promise<TunnelOAuthLoginStatus>;
+  cancelTunnelOAuthLogin(): Promise<TunnelOAuthLoginStatus>;
+  switchTunnelAuthToLegacy(): Promise<TunnelStatus>;
+  logoutTunnelOAuth(): Promise<TunnelStatus>;
   setTunnelClientPath(request: SetTunnelClientPathRequest): Promise<{ readonly clientPath: string }>;
   setLocale(request: SetLocaleRequest): Promise<{ readonly locale: UiLocale }>;
   setUserSettings(request: SetUserSettingsRequest): Promise<{ readonly settings: UserSettings; readonly restartRequired: boolean }>;
@@ -257,6 +263,11 @@ const defaultDesktopServices: DesktopIpcServices = {
   startTunnel: async (): Promise<TunnelStatus> => emptyTunnel,
   stopTunnel: async (): Promise<TunnelStatus> => emptyTunnel,
   getTunnelStatus: async (): Promise<TunnelStatus> => emptyTunnel,
+  beginTunnelOAuthLogin: async (): Promise<TunnelOAuthLoginStatus> => ({ state: 'idle', available: false, providerId: null, authorizationUrl: null, message: 'OAuth unavailable' }),
+  getTunnelOAuthLoginStatus: async (): Promise<TunnelOAuthLoginStatus> => ({ state: 'idle', available: false, providerId: null, authorizationUrl: null, message: 'OAuth unavailable' }),
+  cancelTunnelOAuthLogin: async (): Promise<TunnelOAuthLoginStatus> => ({ state: 'idle', available: false, providerId: null, authorizationUrl: null, message: 'OAuth unavailable' }),
+  switchTunnelAuthToLegacy: async (): Promise<TunnelStatus> => emptyTunnel,
+  logoutTunnelOAuth: async (): Promise<TunnelStatus> => emptyTunnel,
   setTunnelClientPath: async (request): Promise<{ readonly clientPath: string }> => ({ clientPath: request.clientPath }),
   setLocale: async (request): Promise<{ readonly locale: UiLocale }> => ({ locale: request.locale }),
   setUserSettings: async (request): Promise<{ readonly settings: UserSettings; readonly restartRequired: boolean }> => ({ settings: request.settings, restartRequired: false }),
@@ -426,6 +437,40 @@ export function registerIpcHandlers(
     assertTrustedSender(event, getMainWindow());
     assertNoPayload(payload);
     return services.getTunnelStatus();
+  });
+  ipcMain.handle(ipcChannels.beginTunnelOAuthLogin, async (event, payload: unknown) => {
+    assertTrustedSender(event, getMainWindow());
+    assertNoPayload(payload);
+    const status = await services.beginTunnelOAuthLogin();
+    if (status.authorizationUrl !== null) {
+      try {
+        await shell.openExternal(status.authorizationUrl);
+      } catch (error) {
+        await services.cancelTunnelOAuthLogin();
+        throw error;
+      }
+    }
+    return status;
+  });
+  ipcMain.handle(ipcChannels.getTunnelOAuthLoginStatus, async (event, payload: unknown) => {
+    assertTrustedSender(event, getMainWindow());
+    assertNoPayload(payload);
+    return services.getTunnelOAuthLoginStatus();
+  });
+  ipcMain.handle(ipcChannels.cancelTunnelOAuthLogin, async (event, payload: unknown) => {
+    assertTrustedSender(event, getMainWindow());
+    assertNoPayload(payload);
+    return services.cancelTunnelOAuthLogin();
+  });
+  ipcMain.handle(ipcChannels.switchTunnelAuthToLegacy, async (event, payload: unknown) => {
+    assertTrustedSender(event, getMainWindow());
+    assertNoPayload(payload);
+    return services.switchTunnelAuthToLegacy();
+  });
+  ipcMain.handle(ipcChannels.logoutTunnelOAuth, async (event, payload: unknown) => {
+    assertTrustedSender(event, getMainWindow());
+    assertNoPayload(payload);
+    return services.logoutTunnelOAuth();
   });
   ipcMain.handle(ipcChannels.setTunnelClientPath, async (event, payload: unknown) => {
     assertTrustedSender(event, getMainWindow());

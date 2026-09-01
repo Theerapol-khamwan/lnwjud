@@ -54,6 +54,9 @@ import {
   type StartMcpRequest,
   type StartProcessRequest,
   type StopProcessRequest,
+  type TunnelAuthStatus,
+  type TunnelOAuthCapabilityStatus,
+  type TunnelOAuthLoginStatus,
   type TunnelStatus,
   type UiLocale,
   type UpdateStatus,
@@ -210,6 +213,48 @@ function tunnelPersistentStatus(value: unknown): TunnelStatus['persistent'] {
   };
 }
 
+function tunnelAuthStatus(value: unknown): TunnelAuthStatus | undefined {
+  if (value === undefined) return undefined;
+  if (!isRecord(value)) throw new Error('Invalid IPC response');
+  const mode = value.mode;
+  if (mode !== 'legacy_api_key' && mode !== 'oauth') throw new Error('Invalid IPC response');
+  return {
+    mode,
+    authReady: booleanField(value, 'authReady'),
+    runtimeCredentialAvailable: booleanField(value, 'runtimeCredentialAvailable'),
+    hasLegacyApiKey: booleanField(value, 'hasLegacyApiKey'),
+    accountLabel: nullableString(value.accountLabel),
+    organizationId: nullableString(value.organizationId),
+    workspaceId: nullableString(value.workspaceId),
+    expiresAt: nullableString(value.expiresAt),
+    requiresUserAction: booleanField(value, 'requiresUserAction'),
+    message: nullableString(value.message),
+  };
+}
+
+function tunnelOAuthLoginStatus(value: unknown): TunnelOAuthLoginStatus {
+  if (!isRecord(value)) throw new Error('Invalid IPC response');
+  const state = value.state;
+  if (state !== 'idle' && state !== 'waiting_for_browser' && state !== 'exchanging' && state !== 'completed' && state !== 'failed') throw new Error('Invalid IPC response');
+  return {
+    state,
+    available: booleanField(value, 'available'),
+    providerId: nullableString(value.providerId),
+    authorizationUrl: nullableString(value.authorizationUrl),
+    message: nullableString(value.message),
+  };
+}
+
+function tunnelOAuthCapabilityStatus(value: unknown): TunnelOAuthCapabilityStatus | undefined {
+  if (value === undefined) return undefined;
+  if (!isRecord(value)) throw new Error('Invalid IPC response');
+  return {
+    available: booleanField(value, 'available'),
+    providerId: nullableString(value.providerId),
+    reason: nullableString(value.reason),
+  };
+}
+
 function tunnelStatus(value: unknown): TunnelStatus {
   if (!isRecord(value)) throw new Error('Invalid IPC response');
   const state = value.state;
@@ -218,10 +263,18 @@ function tunnelStatus(value: unknown): TunnelStatus {
     throw new Error('Invalid IPC response');
   }
   if (source !== 'desktop' && source !== 'external') throw new Error('Invalid IPC response');
+  const authReady = value.authReady === undefined ? undefined : booleanField(value, 'authReady');
+  const runtimeCredentialAvailable = value.runtimeCredentialAvailable === undefined ? undefined : booleanField(value, 'runtimeCredentialAvailable');
+  const auth = tunnelAuthStatus(value.auth);
+  const oauth = tunnelOAuthCapabilityStatus(value.oauth);
   return {
     state,
     source,
     hasApiKey: booleanField(value, 'hasApiKey'),
+    ...(authReady === undefined ? {} : { authReady }),
+    ...(runtimeCredentialAvailable === undefined ? {} : { runtimeCredentialAvailable }),
+    ...(auth === undefined ? {} : { auth }),
+    ...(oauth === undefined ? {} : { oauth }),
     clientPath: nullableString(value.clientPath),
     profileExists: booleanField(value, 'profileExists'),
     message: nullableString(value.message),
@@ -1091,6 +1144,11 @@ const api: LnwjudApi = {
   startTunnel: () => invoke(ipcChannels.startTunnel).then(tunnelStatus),
   stopTunnel: () => invoke(ipcChannels.stopTunnel).then(tunnelStatus),
   getTunnelStatus: () => invoke(ipcChannels.getTunnelStatus).then(tunnelStatus),
+  beginTunnelOAuthLogin: () => invoke(ipcChannels.beginTunnelOAuthLogin).then(tunnelOAuthLoginStatus),
+  getTunnelOAuthLoginStatus: () => invoke(ipcChannels.getTunnelOAuthLoginStatus).then(tunnelOAuthLoginStatus),
+  cancelTunnelOAuthLogin: () => invoke(ipcChannels.cancelTunnelOAuthLogin).then(tunnelOAuthLoginStatus),
+  switchTunnelAuthToLegacy: () => invoke(ipcChannels.switchTunnelAuthToLegacy).then(tunnelStatus),
+  logoutTunnelOAuth: () => invoke(ipcChannels.logoutTunnelOAuth).then(tunnelStatus),
   setTunnelClientPath,
   setLocale,
   setUserSettings,

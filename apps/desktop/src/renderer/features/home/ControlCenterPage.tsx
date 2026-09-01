@@ -2,6 +2,7 @@ import { useEffect, useState, type ReactElement } from 'react';
 import type { DashboardSnapshot, IncidentClassification, UiLocale, WorkspaceSummary } from '@lnwjud/ipc-contracts';
 import { formatDateTime } from '../../date-time.js';
 import { createTranslator } from '../../i18n/index.js';
+import { tunnelRuntimeCredentialAvailable } from '../../tunnel-auth-readiness.js';
 import { settleWorkspaceAdd, type AddWorkspaceAction } from '../workspaces/workspace-add.js';
 
 interface ControlCenterPageProps {
@@ -35,6 +36,7 @@ export function ControlCenterPage(props: ControlCenterPageProps): ReactElement {
   const [projectBusyId, setProjectBusyId] = useState<string | null>(null);
   const activeWorkspaceIds = new Set(dashboard.activeWorkspaces.map((workspace) => workspace.id));
   const activeProjects = props.workspaces.filter((workspace) => activeWorkspaceIds.has(workspace.id));
+  const tunnelCredentialAvailable = tunnelRuntimeCredentialAvailable(dashboard.tunnel);
 
   useEffect(() => {
     setSelectedId(dashboard.selectedWorkspace?.id ?? '');
@@ -48,7 +50,7 @@ export function ControlCenterPage(props: ControlCenterPageProps): ReactElement {
 
   const tunnelLabel = dashboard.tunnel.state === 'running'
     ? dashboard.tunnel.source === 'external'
-      ? (!dashboard.tunnel.hasApiKey || !dashboard.tunnel.profileExists ? t('tunnel.incompleteExternal') : t('tunnel.runningExternal'))
+      ? (!tunnelCredentialAvailable || !dashboard.tunnel.profileExists ? t('tunnel.incompleteExternal') : t('tunnel.runningExternal'))
       : t('tunnel.running')
     : dashboard.tunnel.state === 'starting'
       ? t('tunnel.starting')
@@ -166,9 +168,9 @@ export function ControlCenterPage(props: ControlCenterPageProps): ReactElement {
           <h2>{t('tunnel.title')}</h2>
           <p data-testid="tunnel-status">{tunnelLabel}</p>
           {dashboard.tunnel.message ? <p className="hint error-text">{dashboard.tunnel.message}</p> : null}
-          {!dashboard.tunnel.hasApiKey ? <p className="hint">{t('tunnel.needKey')}</p> : null}
+          {!tunnelCredentialAvailable ? <p className="hint">{t('tunnel.needKey')}</p> : null}
           {!dashboard.tunnel.profileExists ? <p className="hint">{t('tunnel.needProfile')}</p> : null}
-          {dashboard.tunnel.hasApiKey && dashboard.tunnel.profileExists ? null : (
+          {tunnelCredentialAvailable && dashboard.tunnel.profileExists ? null : (
             <div className="guided-tunnel-home-entry">
               <p className="hint">{t('guidedTunnel.dismissedHint')}</p>
               <button type="button" className="btn-save-gold" onClick={props.onOpenTunnelSetup}>{t('guidedTunnel.openGuide')}</button>
@@ -177,7 +179,7 @@ export function ControlCenterPage(props: ControlCenterPageProps): ReactElement {
           <div className="inline-actions">
             <button
               type="button"
-              disabled={props.tunnelBusy || !dashboard.tunnel.hasApiKey || dashboard.tunnel.state === 'running'}
+              disabled={props.tunnelBusy || !tunnelCredentialAvailable || dashboard.tunnel.state === 'running'}
               onClick={() => { void props.onStartTunnel(); }}
             >
               {t('tunnel.start')}

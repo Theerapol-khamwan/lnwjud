@@ -1,5 +1,5 @@
 export const APP_NAME = 'lnwjud';
-export const APP_VERSION = '4.45.0';
+export const APP_VERSION = '4.50.0';
 
 export const ipcChannels = {
   listWorkspaces: 'lnwjud:list-workspaces',
@@ -28,6 +28,11 @@ export const ipcChannels = {
   startTunnel: 'lnwjud:start-tunnel',
   stopTunnel: 'lnwjud:stop-tunnel',
   getTunnelStatus: 'lnwjud:get-tunnel-status',
+  beginTunnelOAuthLogin: 'lnwjud:begin-tunnel-oauth-login',
+  getTunnelOAuthLoginStatus: 'lnwjud:get-tunnel-oauth-login-status',
+  cancelTunnelOAuthLogin: 'lnwjud:cancel-tunnel-oauth-login',
+  switchTunnelAuthToLegacy: 'lnwjud:switch-tunnel-auth-to-legacy',
+  logoutTunnelOAuth: 'lnwjud:logout-tunnel-oauth',
   setTunnelClientPath: 'lnwjud:set-tunnel-client-path',
   setLocale: 'lnwjud:set-locale',
   setUserSettings: 'lnwjud:set-user-settings',
@@ -375,11 +380,48 @@ export interface TunnelPersistentStatus {
   readonly capabilityEvidence: string | null;
 }
 
+export type TunnelAuthMode = 'legacy_api_key' | 'oauth';
+
+export interface TunnelAuthStatus {
+  readonly mode: TunnelAuthMode;
+  readonly authReady: boolean;
+  readonly runtimeCredentialAvailable: boolean;
+  readonly hasLegacyApiKey: boolean;
+  readonly accountLabel: string | null;
+  readonly organizationId: string | null;
+  readonly workspaceId: string | null;
+  readonly expiresAt: string | null;
+  readonly requiresUserAction: boolean;
+  readonly message: string | null;
+}
+
+export interface TunnelOAuthCapabilityStatus {
+  readonly available: boolean;
+  readonly providerId: string | null;
+  readonly reason: string | null;
+}
+
+export type TunnelOAuthLoginState = 'idle' | 'waiting_for_browser' | 'exchanging' | 'completed' | 'failed';
+
+export interface TunnelOAuthLoginStatus {
+  readonly state: TunnelOAuthLoginState;
+  readonly available: boolean;
+  readonly providerId: string | null;
+  readonly authorizationUrl: string | null;
+  readonly message: string | null;
+}
+
 export interface TunnelStatus {
   readonly state: TunnelRunState;
   /** desktop = started by this app; external = started by a script or another process. */
   readonly source: 'desktop' | 'external';
+  /** Legacy compatibility field. Prefer authReady/runtimeCredentialAvailable for new gates. */
   readonly hasApiKey: boolean;
+  /** Auth-neutral readiness emitted by OAuth-aware Desktop builds. Optional for older fixtures/clients. */
+  readonly authReady?: boolean;
+  readonly runtimeCredentialAvailable?: boolean;
+  readonly auth?: TunnelAuthStatus;
+  readonly oauth?: TunnelOAuthCapabilityStatus;
   readonly clientPath: string | null;
   readonly profileExists: boolean;
   readonly message: string | null;
@@ -787,6 +829,11 @@ export interface IpcRequestMap {
   readonly [ipcChannels.startTunnel]: undefined;
   readonly [ipcChannels.stopTunnel]: undefined;
   readonly [ipcChannels.getTunnelStatus]: undefined;
+  readonly [ipcChannels.beginTunnelOAuthLogin]: undefined;
+  readonly [ipcChannels.getTunnelOAuthLoginStatus]: undefined;
+  readonly [ipcChannels.cancelTunnelOAuthLogin]: undefined;
+  readonly [ipcChannels.switchTunnelAuthToLegacy]: undefined;
+  readonly [ipcChannels.logoutTunnelOAuth]: undefined;
   readonly [ipcChannels.setTunnelClientPath]: SetTunnelClientPathRequest;
   readonly [ipcChannels.setLocale]: SetLocaleRequest;
   readonly [ipcChannels.setUserSettings]: SetUserSettingsRequest;
@@ -836,6 +883,11 @@ export interface IpcResponseMap {
   readonly [ipcChannels.startTunnel]: TunnelStatus;
   readonly [ipcChannels.stopTunnel]: TunnelStatus;
   readonly [ipcChannels.getTunnelStatus]: TunnelStatus;
+  readonly [ipcChannels.beginTunnelOAuthLogin]: TunnelOAuthLoginStatus;
+  readonly [ipcChannels.getTunnelOAuthLoginStatus]: TunnelOAuthLoginStatus;
+  readonly [ipcChannels.cancelTunnelOAuthLogin]: TunnelOAuthLoginStatus;
+  readonly [ipcChannels.switchTunnelAuthToLegacy]: TunnelStatus;
+  readonly [ipcChannels.logoutTunnelOAuth]: TunnelStatus;
   readonly [ipcChannels.setTunnelClientPath]: { readonly clientPath: string };
   readonly [ipcChannels.setLocale]: { readonly locale: UiLocale };
   readonly [ipcChannels.setUserSettings]: { readonly settings: UserSettings; readonly restartRequired: boolean };
@@ -889,6 +941,11 @@ export interface LnwjudApi {
   startTunnel(): Promise<IpcResponseMap[typeof ipcChannels.startTunnel]>;
   stopTunnel(): Promise<IpcResponseMap[typeof ipcChannels.stopTunnel]>;
   getTunnelStatus(): Promise<IpcResponseMap[typeof ipcChannels.getTunnelStatus]>;
+  beginTunnelOAuthLogin(): Promise<IpcResponseMap[typeof ipcChannels.beginTunnelOAuthLogin]>;
+  getTunnelOAuthLoginStatus(): Promise<IpcResponseMap[typeof ipcChannels.getTunnelOAuthLoginStatus]>;
+  cancelTunnelOAuthLogin(): Promise<IpcResponseMap[typeof ipcChannels.cancelTunnelOAuthLogin]>;
+  switchTunnelAuthToLegacy(): Promise<IpcResponseMap[typeof ipcChannels.switchTunnelAuthToLegacy]>;
+  logoutTunnelOAuth(): Promise<IpcResponseMap[typeof ipcChannels.logoutTunnelOAuth]>;
   setTunnelClientPath(request: SetTunnelClientPathRequest): Promise<IpcResponseMap[typeof ipcChannels.setTunnelClientPath]>;
   setLocale(request: SetLocaleRequest): Promise<IpcResponseMap[typeof ipcChannels.setLocale]>;
   setUserSettings(request: SetUserSettingsRequest): Promise<IpcResponseMap[typeof ipcChannels.setUserSettings]>;

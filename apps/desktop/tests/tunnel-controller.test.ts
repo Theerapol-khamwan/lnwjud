@@ -249,6 +249,7 @@ describe('TunnelController lifecycle', () => {
   it('stops a surviving persistent runtime through its recorded owner executable, not the newly selected client', async () => {
     const dataPath = await mkdtemp(path.join(os.tmpdir(), 'lnwjud-tunnel-owner-client-'));
     temporaryRoots.push(dataPath);
+    vi.stubEnv('APPDATA', path.join(dataPath, 'appdata'));
     const ownerClient = path.join(dataPath, 'owner-tunnel-client.exe');
     const newlySelectedClient = path.join(dataPath, 'new-tunnel-client.exe');
     await writeFile(ownerClient, 'owner', 'utf8');

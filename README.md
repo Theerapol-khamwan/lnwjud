@@ -44,18 +44,25 @@ over outbound HTTPS, forwards MCP work to lnwjud's Desktop loopback HTTP MCP,
 and returns the response without opening a public inbound port on the Windows
 machine.
 
-## Current version: v4.45.0
+## Current version: v4.50.0
 
-The v4.45.0 release target and runtime contract contain **231 total MCP tool definitions**,
+The v4.50.0 release target and runtime contract contain **231 total MCP tool definitions**,
 with **224 advertised by default** and **all 231 advertised when the six `codex_*`
 delegation tools plus the bounded read-only `agent_swarm_run` tool are enabled**. The seven Codex/Agent Swarm definitions are opt-in;
 the default surface still exposes every other current first-party definition. The earlier 184-tool snapshot remains
 only as the compatibility baseline used by the v4 architecture; new v4 gateway
 capabilities are additive.
 
-### What's new in v4.45.0
+### What's new in v4.50.0
 
-- Upgrades the bundled official OpenAI Secure MCP Tunnel client from `v0.0.12` to **`v0.0.13`** for Windows x64, with the release archive pinned to its verified SHA-256 before packaging.
+- Adds a tunnel authentication abstraction so Persistent Tunnel identity, authentication method, and runtime credential are modeled independently while preserving the existing Tunnel ID + Runtime API key workflow for every current user.
+- Keeps legacy Runtime API key authentication as the default for upgrades and fresh installs; no existing user is forced to sign in or migrate, and `lnwjud.runtime.secret` remains the backward-compatible DPAPI-protected fallback.
+- Adds OAuth-ready PKCE/state/loopback session infrastructure, secure DPAPI refresh-session storage, memory-only runtime credential handling, sanitized IPC status, and transactional auth-mode switching/rollback without exposing tokens to the renderer, argv, logs, incident reports, or profile files.
+- Adds optional **Sign in with OAuth**, **Switch back to Runtime API key**, and **Sign out OAuth** flows in Secure Tunnel settings, but exposes OAuth provisioning as unavailable unless the configured provider explicitly supports Secure MCP Tunnel runtime-credential provisioning.
+- Fails closed on account/organization/Tunnel-ID mismatch and never substitutes ChatGPT/Codex browser sessions or unrelated access tokens for the official Secure MCP Tunnel Runtime API key contract.
+- Preserves the same Persistent Tunnel ID across auth-mode changes and commits a migration only after the new runtime credential is usable and the persistent runtime has reconciled successfully; failed migrations roll back to the retained legacy credential.
+- Updates startup, Doctor, Control Center, onboarding, preload/IPC contracts, continuity tests, and updater/reinstall semantics to use auth-neutral `authReady` / `runtimeCredentialAvailable` status while retaining `hasApiKey` compatibility for older integrations.
+- Keeps the v4.45 runtime hardening and upgrades intact, including the bundled official OpenAI Secure MCP Tunnel client `v0.0.13` for Windows x64 with pinned release evidence.
 - Preserves the complete official v0.0.13 adjacent runtime set inside Setup and Portable, including `tunnel-client.exe`, pinned `cloudflared.exe`, its manifest, license/notice inventory and SPDX metadata; the Cloudflared companion is packaged but is not enabled automatically by lnwjud.
 - Verifies the real v0.0.13 managed-runtime CLI/status contract while retaining v0.0.12 parser compatibility for users who deliberately select an older manual override.
 - Separates **Persistent Tunnel Identity** from runtime Run/Stop intent: an explicit **Stop Tunnel** is now durable across lnwjud restarts and automatic reconnect remains paused until the user explicitly starts the tunnel again.
@@ -168,13 +175,13 @@ stops the current local HTTP listener.
 
 1. Download the latest published installer from
    [GitHub Releases](https://github.com/engasnm111/lnwjud/releases/latest).
-   Current Windows 10/11 x64 artifacts are `lnwjud-Setup-4.45.0.exe` (recommended installer) and `lnwjud-Portable-4.45.0.exe` (no installation required).
+   Current Windows 10/11 x64 artifacts are `lnwjud-Setup-4.50.0.exe` (recommended installer) and `lnwjud-Portable-4.50.0.exe` (no installation required).
 2. Run the NSIS installer and launch **lnwjud Agent Control Center**.
 3. Add or select the project/workspace you want lnwjud to operate on.
 4. Review **Settings** before attaching an AI client, especially Permission
    Profile and Unrestricted Mode.
 
-If you prefer not to install the app, run `lnwjud-Portable-4.45.0.exe` directly.
+If you prefer not to install the app, run `lnwjud-Portable-4.50.0.exe` directly.
 Portable mode uses the same per-user lnwjud data/settings location as the installer;
 it is a portable executable, not a keep-all-data-next-to-the-EXE mode.
 Automatic updates preserve the distribution you chose. Installer users read
@@ -327,8 +334,8 @@ Secure Tunnel จะส่งงานเข้าที่ Desktop loopback HTT
 
 ### 1. ติดตั้ง lnwjud หรือใช้ Portable
 
-1. แบบแนะนำ: ดาวน์โหลด `lnwjud-Setup-4.45.0.exe` แล้วติดตั้งตามปกติ
-2. ถ้าไม่ต้องการติดตั้ง: ดาวน์โหลด `lnwjud-Portable-4.45.0.exe` แล้วเปิดได้ทันที
+1. แบบแนะนำ: ดาวน์โหลด `lnwjud-Setup-4.50.0.exe` แล้วติดตั้งตามปกติ
+2. ถ้าไม่ต้องการติดตั้ง: ดาวน์โหลด `lnwjud-Portable-4.50.0.exe` แล้วเปิดได้ทันที
 3. เปิด **lnwjud Agent Control Center**
 4. เพิ่มหรือเลือก Project/Workspace ที่ต้องการให้ ChatGPT ทำงานด้วย
 
@@ -343,7 +350,7 @@ Portable ใช้ Settings/ข้อมูลต่อผู้ใช้ Window
 
 ### 3. tunnel-client มากับตัวติดตั้งแล้ว
 
-ถ้าใช้ `lnwjud-Setup-4.45.0.exe` หรือ `lnwjud-Portable-4.45.0.exe` บน Windows x64 **ไม่ต้องดาวน์โหลด
+ถ้าใช้ `lnwjud-Setup-4.50.0.exe` หรือ `lnwjud-Portable-4.50.0.exe` บน Windows x64 **ไม่ต้องดาวน์โหลด
 `tunnel-client.exe` เอง** ตัว release รวม official OpenAI
 `tunnel-client v0.0.13` มาให้และ lnwjud จะเลือกใช้ให้อัตโนมัติ
 
@@ -619,8 +626,8 @@ corepack pnpm@10.15.0 package:windows
 The Windows 10/11 x64 artifacts are written to:
 
 ```text
-apps/desktop/dist/installers/lnwjud-Setup-4.45.0.exe
-apps/desktop/dist/installers/lnwjud-Portable-4.45.0.exe
+apps/desktop/dist/installers/lnwjud-Setup-4.50.0.exe
+apps/desktop/dist/installers/lnwjud-Portable-4.50.0.exe
 ```
 
 The installer is per-user by default. The portable executable needs no installation but uses the same per-user lnwjud data/settings location. A common installed executable path is:
@@ -945,10 +952,7 @@ Enterprise/Edu administrators may need to enable this before it appears.
 5. Select the tunnel or enter its tunnel_id.
 6. Create the connection and review the discovered tools and schemas.
 
-lnwjud does not expose an OAuth login endpoint. Do not invent OAuth URLs or
-paste the runtime key into the ChatGPT connector form. Tunnel authentication is
-handled by tunnel-client; ChatGPT selects the OpenAI-hosted tunnel. Choose a
-no-extra-auth option only when the tunnel form offers it.
+lnwjud v4.50.0 contains a local desktop OAuth sign-in framework for Tunnel credential provisioning, but it is enabled only when a configured provider explicitly supports the official Secure MCP Tunnel runtime-credential contract. Do not invent OAuth URLs, reuse ChatGPT/Codex browser-session tokens, or paste the runtime key into the ChatGPT connector form. Tunnel transport authentication remains handled by tunnel-client; ChatGPT selects the OpenAI-hosted tunnel. Choose a no-extra-auth option only when the tunnel form offers it.
 
 ### Attach it to a new chat
 
