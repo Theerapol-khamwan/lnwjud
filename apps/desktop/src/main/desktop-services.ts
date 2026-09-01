@@ -154,6 +154,7 @@ import { buildIncidentReport, collectRelevantListeners, collectRelevantProcessTr
 import { DesktopMcpLifecycle } from './mcp-lifecycle.js';
 import { WorkLogViewState } from './work-log-view-state.js';
 import { installPdfProvider, type InstalledPdfProvider } from './pdf-provider-installer.js';
+import { RemoteMcpController } from './remote-mcp-controller.js';
 import { CLIENT_PATH_SETTING, TunnelController } from './tunnel-controller.js';
 import { legacyTunnelSecretPath, oauthTunnelSessionPath, LegacyApiKeyCredentialProvider } from './tunnel-auth.js';
 import { TunnelAuthCoordinator } from './tunnel-auth-coordinator.js';
@@ -459,6 +460,10 @@ export function createDesktopRuntime(dataPath: string, options: DesktopRuntimeOp
     getRuntimeOwnerPath: (): string | null => settingsRepository.get(tunnelRuntimeOwnerPathSettingKey),
     setRuntimeOwnerPath: (value: string): void => { settingsRepository.set(tunnelRuntimeOwnerPathSettingKey, value.trim()); },
   });
+  const remoteMcpController = new RemoteMcpController({
+    dataPath,
+    getLocalMcpUrl: async (): Promise<string | null> => (await mcpLifecycle.start()).url,
+  });
   const oauthLoginManager = new TunnelOAuthLoginManager({
     backend: oauthTunnelBackend,
     provider: oauthTunnelAuthProvider,
@@ -718,6 +723,7 @@ export function createDesktopRuntime(dataPath: string, options: DesktopRuntimeOp
     { id: 'network_access', required: false, summaryKey: 'requirement.network_access', probe: () => capabilityRequirement('web_fetch') },
     { id: 'scheduler_runtime', required: false, summaryKey: 'requirement.scheduler_runtime', probe: () => capabilityRequirement('scheduler') },
     { id: 'tunnel_runtime', required: false, summaryKey: 'requirement.tunnel_runtime', remediationId: 'configure_tunnel', probe: async (): Promise<{ status: 'pass' | 'fail'; detail: string }> => { const status = await tunnelController.diagnosticStatus(); return { status: status.state === 'running' ? 'pass' : 'fail', detail: status.message ?? `Tunnel is ${status.state}` }; } },
+    { id: 'remote_mcp_ngrok', required: false, summaryKey: 'requirement.remote_mcp_ngrok', probe: async (): Promise<{ status: 'pass' | 'warn'; detail: string }> => { const status = await remoteMcpController.status(); return status.state === 'running' && status.publicMcpUrl !== null ? { status: 'pass', detail: `OAuth-protected Remote MCP online: ${status.publicMcpUrl}` } : { status: 'warn', detail: status.message ?? (status.installed ? 'Remote MCP is optional and currently stopped' : 'Remote MCP is optional; ngrok is not installed') }; } },
     { id: 'external_mcp_connection', required: false, summaryKey: 'requirement.external_mcp_connection', remediationId: 'connect_external_mcp', probe: async (): Promise<{ status: 'pass' | 'warn' | 'unknown'; detail: string }> => { const listed = await extensionsService.listMcpServers(); return !listed.ok ? { status: 'unknown', detail: listed.error.message } : { status: listed.value.servers.some((server) => server.enabled && server.connected) ? 'pass' : 'warn', detail: `${listed.value.servers.length} external MCP server(s) discovered` }; } },
     { id: 'local_pdf_provider', required: false, summaryKey: 'requirement.local_pdf_provider', remediationId: 'configure_pdf_provider', probe: localPdfProviderRequirement },
     { id: 'configured_lsp', required: false, summaryKey: 'requirement.configured_lsp', remediationId: 'configure_lsp', probe: configuredLspRequirement },
@@ -865,6 +871,7 @@ export function createDesktopRuntime(dataPath: string, options: DesktopRuntimeOp
       const workLog = await buildWorkLog(auditRepository, workLogViewState);
       const inFlight = activityTracker.listInFlight().map(toInFlightItem);
       const tunnel = await observedTunnelStatus();
+      const remoteMcp = await remoteMcpController.status();
       const backups = await backupService.list();
       let recovery: DashboardSnapshot['recovery'];
       if (selectedWorkspace === null) {
@@ -920,6 +927,7 @@ export function createDesktopRuntime(dataPath: string, options: DesktopRuntimeOp
         workLog,
         inFlight,
         tunnel,
+        remoteMcp,
         settings: readSettings(),
         appVersion: APP_VERSION,
       };
@@ -1047,6 +1055,12 @@ export function createDesktopRuntime(dataPath: string, options: DesktopRuntimeOp
       await reconcileTunnelAfterAuthModeChange();
       return observedTunnelStatus();
     },
+    getRemoteMcpStatus: () => remoteMcpController.status(),
+    installRemoteMcpProvider: async () => { const status = await remoteMcpController.installProvider(); logHub.feed('mcp', 'info', `[REMOTE MCP] ngrok provider: ${status.message ?? status.state}`); return status; },
+    saveRemoteMcpAuthtoken: async (request) => { const status = await remoteMcpController.saveAuthtoken(request.authtoken); logHub.feed('mcp', 'info', '[REMOTE MCP] ngrok authtoken stored with Windows DPAPI'); return status; },
+    startRemoteMcp: async () => { const status = await remoteMcpController.start(); logHub.feed('mcp', 'info', `[REMOTE MCP] online ${status.publicMcpUrl ?? ''}`.trim()); return status; },
+    stopRemoteMcp: async () => { const status = await remoteMcpController.stop(); logHub.feed('mcp', 'info', '[REMOTE MCP] stopped'); return status; },
+    regenerateRemoteMcpPairingCode: async () => { const status = await remoteMcpController.regeneratePairingCode(); logHub.feed('mcp', 'info', '[REMOTE MCP] OAuth pairing code regenerated'); return status; },
     setTunnelClientPath: async (request: SetTunnelClientPathRequest): Promise<{ readonly clientPath: string }> => {
       const clientPath = await tunnelController.replaceClientPath(request.clientPath);
       if (readSettings().tunnelAutoReconnect) {
@@ -1216,6 +1230,7 @@ export function createDesktopRuntime(dataPath: string, options: DesktopRuntimeOp
       readSettings().tunnelAutoReconnect,
     ),
     close: async (): Promise<void> => {
+      await remoteMcpController.close();
       await tunnelController.shutdownForDesktopExit();
       logHub.stop();
       await mcpLifecycle.close();

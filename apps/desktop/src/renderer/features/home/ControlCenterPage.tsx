@@ -39,6 +39,11 @@ export function ControlCenterPage(props: ControlCenterPageProps): ReactElement {
   const activeProjects = props.workspaces.filter((workspace) => activeWorkspaceIds.has(workspace.id));
   const tunnelCredentialAvailable = tunnelRuntimeCredentialAvailable(dashboard.tunnel);
   const tunnelPresentation = tunnelAuthPresentation(dashboard.tunnel);
+  const remoteMcp = dashboard.remoteMcp ?? {
+    state: 'stopped' as const, provider: 'ngrok' as const, installed: false, hasAuthtoken: false, ngrokPath: null,
+    localMcpUrl: dashboard.mcp.url, localGatewayUrl: null, publicMcpUrl: null, pairingCode: null, pairingCodeExpiresAt: null,
+    oauthProtected: true, message: null,
+  };
 
   useEffect(() => {
     setSelectedId(dashboard.selectedWorkspace?.id ?? '');
@@ -138,6 +143,7 @@ export function ControlCenterPage(props: ControlCenterPageProps): ReactElement {
           <SecurityMetric label={t('security.unrestricted')} value={onOff(dashboard.unrestricted)} state={dashboard.unrestricted ? 'warn' : 'safe'} />
           <SecurityMetric label={t('security.workspaceScope')} value={workspaceScope} state={dashboard.stdioStrictRoots ? 'safe' : 'warn'} />
           <SecurityMetric label={t('security.tunnelAccess')} value={tunnelLabel} state={dashboard.tunnel.state === 'running' ? 'active' : 'neutral'} />
+          <SecurityMetric label="Remote MCP OAuth" value={remoteMcp.state === 'running' ? 'ONLINE' : remoteMcp.installed && remoteMcp.hasAuthtoken ? 'READY' : 'SETUP'} state={remoteMcp.state === 'running' ? 'active' : 'neutral'} />
           <SecurityMetric label={t('security.registeredWorkspaces')} value={String(props.workspaces.length)} />
         </div>
         {stdioBroad ? <div className="security-warning" role="status">⚠ {t('security.warningBroad')}</div> : null}
@@ -164,6 +170,13 @@ export function ControlCenterPage(props: ControlCenterPageProps): ReactElement {
           </div>
           <p className="hint">{t('mcp.stdioCommand')}</p>
           <code className="endpoint">{dashboard.connectionModes.stdioCommand}</code>
+          <div className="settings-mini-heading"><strong>Remote MCP · OAuth</strong><span>{remoteMcp.state.toUpperCase()}</span></div>
+          <code className="endpoint">{remoteMcp.publicMcpUrl ?? '—'}</code>
+          <div className="inline-actions">
+            <button type="button" disabled={remoteMcp.publicMcpUrl === null} onClick={() => { if (remoteMcp.publicMcpUrl !== null) void copyText(remoteMcp.publicMcpUrl); }}>{props.locale === 'th' ? 'Copy Public /mcp' : 'Copy public /mcp'}</button>
+            <button type="button" onClick={props.onOpenTunnelSetup}>{props.locale === 'th' ? 'ตั้งค่า OAuth / ngrok' : 'Configure OAuth / ngrok'}</button>
+          </div>
+          {remoteMcp.pairingCode === null ? null : <p className="hint"><strong>OAuth Pairing Code: {remoteMcp.pairingCode}</strong></p>}
         </section>
 
         <section className="panel">

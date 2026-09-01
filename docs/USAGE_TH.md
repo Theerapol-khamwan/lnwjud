@@ -65,7 +65,22 @@ Portable ของ lnwjud หมายถึง **ตัวโปรแกรม
 
 ดังนั้นผู้ใช้เลือกแบบไหนตอนดาวน์โหลดครั้งแรก ก็จะได้รับ update ของแบบนั้นต่อไป ข้อมูล/Settings ต่อผู้ใช้ Windows ยังคงใช้ชุดเดิมตามปกติ
 
-## 3. เลือกวิธียืนยันตัวตนของ Tunnel
+## 3A. Remote MCP ผ่าน ngrok + OAuth (แนะนำสำหรับ ChatGPT เว็บ)
+
+ใน v4.51.0 วิธีที่ง่ายที่สุดสำหรับ ChatGPT เว็บคือ **Remote MCP — ngrok + OAuth** ซึ่งแยกจาก OpenAI Secure MCP Tunnel เดิมอย่างชัดเจน. Local MCP ของ lnwjud ยังคง bind เฉพาะ loopback เช่น `http://127.0.0.1:18765/mcp`; lnwjud จะสร้าง OAuth-protected loopback gateway อีกชั้น แล้วให้ ngrok เปิดเฉพาะ gateway นั้นออกเป็น HTTPS public URL ที่ลงท้าย `/mcp`.
+
+ขั้นตอนใช้งานปกติ:
+
+1. เปิด **Settings → Remote MCP & Tunnel**
+2. กด **ติดตั้ง ngrok อัตโนมัติ** — lnwjud ใช้คำสั่ง WinGet ทางการ `winget install ngrok -s msstore` จึงไม่ต้องดาวน์โหลด `ngrok.exe` เองและไม่ bundle binary ของ ngrok มากับ installer
+3. เปิดหน้า ngrok Authtoken จากปุ่มใน lnwjud แล้ววาง token ครั้งเดียว; lnwjud เก็บ token ด้วย Windows DPAPI และส่งให้ process ผ่าน `NGROK_AUTHTOKEN` เท่านั้น ไม่ใส่ใน command line หรือ config plaintext
+4. กด **Start Remote MCP**
+5. เมื่อสถานะเป็น RUNNING ให้กด **Copy MCP URL** แล้วนำ URL `https://...ngrok.app/mcp` ไปใส่ใน ChatGPT App/Connector แบบ Server URL
+6. เลือก **OAuth** ใน ChatGPT; เมื่อ browser เปิดหน้าอนุมัติ ให้ใส่ **OAuth Pairing Code 6 หลัก** ที่แสดงใน lnwjud. Pairing code มีอายุสั้นและถูกใช้ได้ครั้งเดียวต่อการอนุมัติ; หากหมดอายุให้กดสร้างใหม่
+
+Remote MCP gateway รองรับ OAuth discovery, Dynamic Client Registration, Authorization Code + PKCE S256, access token และ refresh token. คำขอ `/mcp` ที่ไม่มี bearer token ที่ถูกต้องจะถูกปฏิเสธ และ Authorization header จากอินเทอร์เน็ตจะไม่ถูกส่งต่อเข้า local MCP โดยตรง.
+
+## 3. เลือกวิธียืนยันตัวตนของ OpenAI Secure MCP Tunnel
 
 หน้า **Settings → Secure Tunnel Authentication** แสดงวิธีที่กำลังใช้อยู่เป็น `OAUTH` หรือ `API KEY` และทุกหน้าหลัก/Logs/Doctor จะอิงค่านี้เหมือนกัน. เมื่ออยู่โหมด OAuth หน้าหลักจะแสดง OAuth account/status และไม่พาเข้า wizard สำหรับวาง Runtime API key; ฟอร์ม Runtime API key ยังอยู่เฉพาะส่วน Advanced ในฐานะ legacy fallback/troubleshooting. Transport ยังคงเป็น **OpenAI Secure MCP Tunnel** ไม่ว่า auth mode จะเป็นแบบใด.
 

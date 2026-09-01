@@ -57,8 +57,13 @@ capabilities are additive.
 
 > Upgrading from v4.44.0? The release notes below are cumulative so users can see the major changes that landed after the last broadly documented v4.44.0 baseline. v4.45.0 focused on tunnel/runtime reliability and performance, v4.50.0 introduced the OAuth-ready authentication architecture, and v4.51.0 makes that authentication mode visible and consistent across the Desktop UI and diagnostics.
 
-#### v4.51.0 — OAuth-aware Desktop experience
+#### v4.51.0 — Remote MCP OAuth + clearer Tunnel authentication
 
+- Adds **Remote MCP via ngrok + OAuth** as the recommended easy ChatGPT connection path: lnwjud keeps its local Streamable HTTP MCP on loopback (normally `http://127.0.0.1:18765/mcp`), runs a separate OAuth-protected loopback gateway, and lets ngrok expose only that protected gateway as a public HTTPS `/mcp` URL.
+- Adds one-click **official ngrok installation through Microsoft Store/WinGet** instead of redistributing `ngrok.exe`; users paste their ngrok authtoken once, lnwjud stores it with Windows DPAPI, injects it only through the child-process environment, starts/stops ngrok automatically, detects the public URL, and provides Copy MCP URL controls.
+- Implements MCP OAuth discovery, Dynamic Client Registration, Authorization Code + PKCE S256, bearer-token protection, refresh tokens, and a short-lived **6-digit pairing code** shown by lnwjud during authorization so discovering the public ngrok URL alone is not enough to authorize access.
+- Renames the Settings navigation to **Remote MCP & Tunnel — OAuth, ngrok, API Key, Client**, shows Remote MCP state/public URL/pairing code on Home, adds an optional Doctor check, and records Remote MCP lifecycle events in Live Logs without logging OAuth/ngrok secrets.
+- Preserves **OpenAI Secure MCP Tunnel** as a separate connection mode. Its Runtime API key workflow remains supported; the earlier v4.50 Secure-Tunnel OAuth provisioning capability remains fail-closed and is explicitly separated in the UI from the working Remote MCP OAuth flow.
 - Makes the entire Desktop presentation follow the active Tunnel authentication mode instead of hardcoded Runtime API key copy: Home/Control Center, Settings, onboarding routing, Doctor navigation, embedded Live Logs, and the standalone log viewer now distinguish **OAuth authentication** from the underlying **Secure MCP Tunnel transport**.
 - Adds a centralized auth-presentation model and propagates sanitized Tunnel auth metadata into log snapshots so detached log windows render the same OAuth/API-key state as the main window without receiving tokens or credential material.
 - Keeps the legacy Tunnel ID + Runtime API key wizard as the primary flow only for legacy mode; OAuth mode stays on the OAuth connection surface, while legacy Runtime API key controls remain explicitly labeled as fallback/troubleshooting.
@@ -175,6 +180,7 @@ full scans can still inspect paths allowed by the active workspace/policy.
 
 | Client / use case | Connection | What must run on Windows | Notes |
 | --- | --- | --- | --- |
+| ChatGPT web developer-mode app | Remote MCP via ngrok + OAuth | lnwjud Desktop + ngrok | Recommended easy path: public HTTPS `/mcp` terminates at a separate OAuth-protected loopback gateway; 6-digit pairing code required during authorization |
 | ChatGPT web developer-mode app | OpenAI Secure MCP Tunnel | `tunnel-client` + lnwjud Desktop | Private outbound-only path to the Desktop loopback HTTP MCP; no public MCP port |
 | Codex CLI or another local MCP host | Local stdio MCP | `lnwjud-mcp-stdio.cmd` | Lowest-overhead local MCP path |
 | Local MCP client / dashboard diagnostics | Loopback Streamable HTTP | lnwjud Desktop | Defaults to `http://127.0.0.1:18765/mcp`; actual URL is shown in the UI |

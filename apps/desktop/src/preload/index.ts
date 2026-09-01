@@ -40,6 +40,8 @@ import {
   type RestoreCheckpointRequest,
   type RestoreRecoveryItemRequest,
   type SaveTunnelApiKeyRequest,
+  type SaveRemoteMcpAuthtokenRequest,
+  type RemoteMcpStatus,
   type ScheduleRestoreBackupRequest,
   type SelectWorkspaceRequest,
   type SetWorkspaceActiveRequest,
@@ -283,6 +285,27 @@ function tunnelStatus(value: unknown): TunnelStatus {
   };
 }
 
+function remoteMcpStatus(value: unknown): RemoteMcpStatus {
+  if (!isRecord(value)) throw new Error('Invalid IPC response');
+  const state = value.state;
+  if (state !== 'stopped' && state !== 'installing' && state !== 'starting' && state !== 'running' && state !== 'error') throw new Error('Invalid IPC response');
+  if (value.provider !== 'ngrok') throw new Error('Invalid IPC response');
+  return {
+    state,
+    provider: 'ngrok',
+    installed: booleanField(value, 'installed'),
+    hasAuthtoken: booleanField(value, 'hasAuthtoken'),
+    ngrokPath: nullableString(value.ngrokPath),
+    localMcpUrl: nullableString(value.localMcpUrl),
+    localGatewayUrl: nullableString(value.localGatewayUrl),
+    publicMcpUrl: nullableString(value.publicMcpUrl),
+    pairingCode: nullableString(value.pairingCode),
+    pairingCodeExpiresAt: nullableString(value.pairingCodeExpiresAt),
+    oauthProtected: booleanField(value, 'oauthProtected'),
+    message: nullableString(value.message),
+  };
+}
+
 function userSettings(value: unknown): UserSettings {
   if (!isRecord(value) || !isRecord(value.customPermission) || !isRecord(value.extensions)) throw new Error('Invalid IPC response');
   const custom = value.customPermission;
@@ -404,6 +427,7 @@ function dashboard(value: unknown): DashboardSnapshot {
     workLog: workLogEntries(value.workLog),
     inFlight: inFlightItems(value.inFlight),
     tunnel: tunnelStatus(value.tunnel),
+    remoteMcp: remoteMcpStatus(value.remoteMcp),
     settings: userSettings(value.settings),
     appVersion: stringField(value, 'appVersion'),
   };
@@ -899,6 +923,13 @@ function saveTunnelApiKey(request: SaveTunnelApiKeyRequest): Promise<{ readonly 
   });
 }
 
+function saveRemoteMcpAuthtoken(request: SaveRemoteMcpAuthtokenRequest): Promise<RemoteMcpStatus> {
+  if (!isRecord(request) || typeof request.authtoken !== 'string' || request.authtoken.trim().length === 0) {
+    return Promise.reject(new Error('Invalid IPC request'));
+  }
+  return invoke(ipcChannels.saveRemoteMcpAuthtoken, { authtoken: request.authtoken }).then(remoteMcpStatus);
+}
+
 function setTunnelClientPath(request: SetTunnelClientPathRequest): Promise<{ readonly clientPath: string }> {
   if (!isRecord(request) || typeof request.clientPath !== 'string' || request.clientPath.trim().length === 0) {
     return Promise.reject(new Error('Invalid IPC request'));
@@ -1150,6 +1181,12 @@ const api: LnwjudApi = {
   cancelTunnelOAuthLogin: () => invoke(ipcChannels.cancelTunnelOAuthLogin).then(tunnelOAuthLoginStatus),
   switchTunnelAuthToLegacy: () => invoke(ipcChannels.switchTunnelAuthToLegacy).then(tunnelStatus),
   logoutTunnelOAuth: () => invoke(ipcChannels.logoutTunnelOAuth).then(tunnelStatus),
+  getRemoteMcpStatus: () => invoke(ipcChannels.getRemoteMcpStatus).then(remoteMcpStatus),
+  installRemoteMcpProvider: () => invoke(ipcChannels.installRemoteMcpProvider).then(remoteMcpStatus),
+  saveRemoteMcpAuthtoken,
+  startRemoteMcp: () => invoke(ipcChannels.startRemoteMcp).then(remoteMcpStatus),
+  stopRemoteMcp: () => invoke(ipcChannels.stopRemoteMcp).then(remoteMcpStatus),
+  regenerateRemoteMcpPairingCode: () => invoke(ipcChannels.regenerateRemoteMcpPairingCode).then(remoteMcpStatus),
   setTunnelClientPath,
   setLocale,
   setUserSettings,

@@ -52,6 +52,11 @@ export function SettingsPage(props: SettingsPageProps): ReactElement {
   const guidedTunnelRunning = isTunnelRunning(props.dashboard.tunnel);
   const guidedTunnelConfigured = tunnelRuntimeCredentialAvailable(props.dashboard.tunnel) && props.dashboard.tunnel.profileExists;
   const tunnelPresentation = tunnelAuthPresentation(props.dashboard.tunnel);
+  const remoteMcp = props.dashboard.remoteMcp ?? {
+    state: 'stopped' as const, provider: 'ngrok' as const, installed: false, hasAuthtoken: false, ngrokPath: null,
+    localMcpUrl: props.dashboard.mcp.url, localGatewayUrl: null, publicMcpUrl: null, pairingCode: null, pairingCodeExpiresAt: null,
+    oauthProtected: true, message: null,
+  };
   const [activeSection, setActiveSection] = useState<SettingsSection>(props.initialSection ?? 'general');
   const [apiKey, setApiKey] = useState('');
   const [showApiKey, setShowApiKey] = useState(false);
@@ -59,6 +64,9 @@ export function SettingsPage(props: SettingsPageProps): ReactElement {
   const [tunnelId, setTunnelId] = useState('');
   const [tunnelBusy, setTunnelBusy] = useState(false);
   const [tunnelMessage, setTunnelMessage] = useState<string | null>(null);
+  const [remoteMcpAuthtoken, setRemoteMcpAuthtoken] = useState('');
+  const [remoteMcpBusy, setRemoteMcpBusy] = useState(false);
+  const [remoteMcpMessage, setRemoteMcpMessage] = useState<string | null>(null);
   const [oauthLogin, setOauthLogin] = useState<TunnelOAuthLoginStatus | null>(null);
   const [oauthBusy, setOauthBusy] = useState(false);
   const [savedMessage, setSavedMessage] = useState<string | null>(null);
@@ -327,12 +335,40 @@ export function SettingsPage(props: SettingsPageProps): ReactElement {
     }
   }
 
+  async function runRemoteMcpAction(action: 'install' | 'save' | 'start' | 'stop' | 'regenerate'): Promise<void> {
+    setRemoteMcpBusy(true);
+    setRemoteMcpMessage(null);
+    try {
+      if (action === 'install') await window.lnwjud.installRemoteMcpProvider();
+      if (action === 'save') {
+        await window.lnwjud.saveRemoteMcpAuthtoken({ authtoken: remoteMcpAuthtoken });
+        setRemoteMcpAuthtoken('');
+      }
+      if (action === 'start') await window.lnwjud.startRemoteMcp();
+      if (action === 'stop') await window.lnwjud.stopRemoteMcp();
+      if (action === 'regenerate') await window.lnwjud.regenerateRemoteMcpPairingCode();
+      await props.onRefresh();
+      setRemoteMcpMessage(props.locale === 'th' ? 'อัปเดต Remote MCP เรียบร้อยแล้ว' : 'Remote MCP updated.');
+    } catch (cause: unknown) {
+      setRemoteMcpMessage(cause instanceof Error ? cause.message : 'Remote MCP action failed');
+    } finally {
+      setRemoteMcpBusy(false);
+    }
+  }
+
+  async function copyRemoteMcpUrl(): Promise<void> {
+    const value = remoteMcp.publicMcpUrl;
+    if (value === null) return;
+    await navigator.clipboard.writeText(value);
+    setRemoteMcpMessage(props.locale === 'th' ? 'คัดลอก Public MCP URL แล้ว' : 'Public MCP URL copied.');
+  }
+
   const navItems: readonly { id: SettingsSection; icon: string; title: string; description: string }[] = [
     { id: 'general', icon: '⌘', title: props.locale === 'th' ? 'ทั่วไป' : 'General', description: props.locale === 'th' ? 'ภาษา, Startup, Update' : 'Language, startup, updates' },
     { id: 'security', icon: '◇', title: props.locale === 'th' ? 'ความปลอดภัย' : 'Security', description: props.locale === 'th' ? 'สิทธิ์และ Workspace policy' : 'Permissions and workspace policy' },
     { id: 'tools', icon: '◎', title: props.locale === 'th' ? 'Tools' : 'Tools', description: props.locale === 'th' ? 'Codex, Timeout, Roots' : 'Codex, timeouts, roots' },
     { id: 'mcp', icon: '⬡', title: 'MCP & Extensions', description: props.locale === 'th' ? 'Servers, Skills, Allowlist' : 'Servers, skills, allowlist' },
-    { id: 'tunnel', icon: '↗', title: 'Secure Tunnel', description: props.locale === 'th' ? 'API Key, Client, Reconnect' : 'API key, client, reconnect' },
+    { id: 'tunnel', icon: '↗', title: props.locale === 'th' ? 'Remote MCP & Tunnel' : 'Remote MCP & Tunnel', description: props.locale === 'th' ? 'OAuth, ngrok, API Key, Client' : 'OAuth, ngrok, API key, client' },
     { id: 'backup', icon: '▣', title: props.locale === 'th' ? 'กู้คืนข้อมูล' : 'Recovery', description: props.locale === 'th' ? 'Recovery Trash, Checkpoint, Backup' : 'Recovery Trash, checkpoints, backups' },
   ];
 
@@ -496,11 +532,56 @@ export function SettingsPage(props: SettingsPageProps): ReactElement {
 
           {activeSection === 'tunnel' ? (
             <>
+              <section className="panel settings-card settings-card-polished guided-tunnel-launch-card" aria-label="Remote MCP with ngrok and OAuth">
+                <SettingsCardHeading
+                  icon="◎"
+                  title={props.locale === 'th' ? 'Remote MCP — ngrok + OAuth' : 'Remote MCP — ngrok + OAuth'}
+                  subtitle={props.locale === 'th' ? 'แนะนำ: lnwjud เปิด HTTPS /mcp ให้ ChatGPT ผ่าน ngrok และป้องกันด้วย OAuth + Pairing Code' : 'Recommended: expose lnwjud to ChatGPT through ngrok HTTPS /mcp protected by OAuth + a pairing code.'}
+                  badge={remoteMcp.state === 'running' ? 'RUNNING' : remoteMcp.installed && remoteMcp.hasAuthtoken ? 'READY' : 'SETUP'}
+                />
+                <div className="setting-grid two-col">
+                  <div className="setting-field">
+                    <span className="field-label">Local MCP</span>
+                    <code className="settings-path-display">{remoteMcp.localMcpUrl ?? props.dashboard.mcp.url ?? 'http://127.0.0.1:18765/mcp'}</code>
+                    <p className="hint">{props.locale === 'th' ? 'คงเป็น loopback บนเครื่อง ไม่เปิดพอร์ตนี้สู่ Internet โดยตรง' : 'Remains loopback-only; this port is never exposed directly to the Internet.'}</p>
+                  </div>
+                  <div className="setting-field">
+                    <span className="field-label">Public MCP URL</span>
+                    <code className="settings-path-display">{remoteMcp.publicMcpUrl ?? '—'}</code>
+                    <p className="hint">{props.locale === 'th' ? 'URL นี้ลงท้าย /mcp และเป็น URL ที่นำไปใส่ใน ChatGPT' : 'This /mcp URL is the one to add in ChatGPT.'}</p>
+                  </div>
+                </div>
+                <div className="tunnel-setup-box">
+                  <div className="settings-mini-heading"><strong>{props.locale === 'th' ? '1. เตรียม ngrok' : '1. Prepare ngrok'}</strong><span>{remoteMcp.installed ? 'INSTALLED' : 'NOT INSTALLED'}</span></div>
+                  <p className="hint">{props.locale === 'th' ? 'lnwjud ติดตั้ง ngrok จาก Microsoft Store ผ่าน WinGet ให้เอง ไม่ต้องดาวน์โหลดไฟล์เอง' : 'lnwjud installs ngrok from the Microsoft Store through WinGet; no manual download is required.'}</p>
+                  <div className="inline-actions">
+                    <button type="button" className="btn-save-gold" disabled={remoteMcpBusy || remoteMcp.installed} onClick={() => { void runRemoteMcpAction('install'); }}>{props.locale === 'th' ? 'ติดตั้ง ngrok อัตโนมัติ' : 'Install ngrok automatically'}</button>
+                    <button type="button" disabled={remoteMcpBusy} onClick={() => { void props.onOpenExternalSetupPage('ngrok_authtoken'); }}>{props.locale === 'th' ? 'เปิดหน้า ngrok Authtoken' : 'Open ngrok authtoken'}</button>
+                  </div>
+                  <label className="field-label" htmlFor="remote-mcp-authtoken">{props.locale === 'th' ? 'ngrok Authtoken (ใส่ครั้งเดียว)' : 'ngrok authtoken (one time)'}</label>
+                  <div className="form-row"><input id="remote-mcp-authtoken" type="password" autoComplete="off" placeholder={remoteMcp.hasAuthtoken ? '••••••••••••••••' : '2abc...'} value={remoteMcpAuthtoken} onChange={(event) => setRemoteMcpAuthtoken(event.target.value)} /><button type="button" className="btn-save-gold" disabled={remoteMcpBusy || remoteMcpAuthtoken.trim().length === 0} onClick={() => { void runRemoteMcpAction('save'); }}>{props.locale === 'th' ? 'บันทึกอย่างปลอดภัย' : 'Save securely'}</button></div>
+                  <p className="hint">{remoteMcp.hasAuthtoken ? (props.locale === 'th' ? '✓ เก็บด้วย Windows DPAPI แล้ว' : '✓ Stored with Windows DPAPI') : (props.locale === 'th' ? 'Authtoken ไม่ถูกส่งผ่าน command line หรือบันทึกลง config แบบ plaintext' : 'The authtoken is not passed on the command line or stored in plaintext config.')}</p>
+                </div>
+                <div className="tunnel-setup-box">
+                  <div className="settings-mini-heading"><strong>{props.locale === 'th' ? '2. เปิด Remote MCP' : '2. Start Remote MCP'}</strong><span>{remoteMcp.oauthProtected ? 'OAUTH PROTECTED' : 'AUTH REQUIRED'}</span></div>
+                  <div className="inline-actions">
+                    <button type="button" className="btn-save-gold" disabled={remoteMcpBusy || !remoteMcp.installed || !remoteMcp.hasAuthtoken || remoteMcp.state === 'running'} onClick={() => { void runRemoteMcpAction('start'); }}>{remoteMcpBusy && remoteMcp.state !== 'running' ? (props.locale === 'th' ? 'กำลังทำงาน…' : 'Working…') : (props.locale === 'th' ? 'Start Remote MCP' : 'Start Remote MCP')}</button>
+                    <button type="button" disabled={remoteMcpBusy || remoteMcp.state !== 'running'} onClick={() => { void runRemoteMcpAction('stop'); }}>{props.locale === 'th' ? 'หยุด' : 'Stop'}</button>
+                    <button type="button" disabled={remoteMcp.publicMcpUrl === null} onClick={() => { void copyRemoteMcpUrl(); }}>{props.locale === 'th' ? 'Copy MCP URL' : 'Copy MCP URL'}</button>
+                    <button type="button" disabled={remoteMcpBusy || remoteMcp.state !== 'running'} onClick={() => { void runRemoteMcpAction('regenerate'); }}>{props.locale === 'th' ? 'สร้าง Pairing Code ใหม่' : 'New pairing code'}</button>
+                  </div>
+                  {remoteMcp.pairingCode === null ? null : <div className="toast-success-banner"><strong>{props.locale === 'th' ? 'OAuth Pairing Code' : 'OAuth pairing code'}: {remoteMcp.pairingCode}</strong>{remoteMcp.pairingCodeExpiresAt === null ? null : ` · ${props.locale === 'th' ? 'หมดอายุ' : 'expires'} ${formatDateTime(remoteMcp.pairingCodeExpiresAt)}`}</div>}
+                  <p className="hint">{props.locale === 'th' ? 'ใน ChatGPT: สร้าง App แบบ URL เซิร์ฟเวอร์ → วาง Public MCP URL → เลือก OAuth → หน้าอนุมัติจะถาม Pairing Code จาก lnwjud' : 'In ChatGPT: create a Server URL app → paste the Public MCP URL → choose OAuth → enter the pairing code shown by lnwjud when authorization opens.'}</p>
+                  {remoteMcp.message === null ? null : <p className="hint">{remoteMcp.message}</p>}
+                  {remoteMcpMessage === null ? null : <div className={remoteMcpMessage.toLowerCase().includes('failed') || remoteMcpMessage.toLowerCase().includes('error') ? 'alert-box-warning' : 'toast-success-banner'} role="status">{remoteMcpMessage}</div>}
+                </div>
+              </section>
+
               <section className="panel settings-card settings-card-polished" aria-label="Tunnel authentication">
                 <SettingsCardHeading
                   icon="◎"
-                  title={props.locale === 'th' ? 'การยืนยันตัวตน Secure Tunnel' : 'Secure Tunnel Authentication'}
-                  subtitle={props.locale === 'th' ? 'เลือกวิธีรับ credential สำหรับ Tunnel โดยไม่เปลี่ยน Persistent Tunnel ID อัตโนมัติ' : 'Choose how Tunnel credentials are obtained without silently replacing the persistent Tunnel ID'}
+                  title={props.locale === 'th' ? 'OpenAI Secure MCP Tunnel' : 'OpenAI Secure MCP Tunnel'}
+                  subtitle={props.locale === 'th' ? 'โหมดเดิมสำหรับ OpenAI Tunnel transport; Runtime API key ยังรองรับเต็มรูปแบบ และ OAuth ส่วนนี้เป็นคนละระบบกับ Remote MCP OAuth ด้านบน' : 'Existing OpenAI Tunnel transport. Runtime API key remains fully supported; OAuth here is separate from the working Remote MCP OAuth above.'}
                   badge={props.dashboard.tunnel.auth?.mode === 'oauth' ? 'OAUTH' : 'API KEY'}
                 />
                 <div className="setting-grid two-col">
