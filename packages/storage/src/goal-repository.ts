@@ -349,6 +349,14 @@ export class SqliteGoalRepository implements GoalRepository, ScheduledContinuati
     });
   }
 
+  public async validateFinish(request: FinishGoalRecordRequest): Promise<void> {
+    this.transaction(() => {
+      const current = this.requireById(request.goalId);
+      this.assertOwner(current, request.ownerClientId);
+      this.assertMutableLease(current, request.ownerClientId, request.ownerSessionId, request.leaseTokenHash, request.expectedRevision, request.now);
+    });
+  }
+
   public async cancel(request: CancelGoalRecordRequest): Promise<CancelGoalRecordResult> {
     return this.transaction(() => {
       const current = this.requireById(request.goalId);

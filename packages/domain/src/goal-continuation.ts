@@ -212,6 +212,7 @@ export interface GoalRepository {
   getById(goalId: string): Promise<GoalRecord | null>;
   getByKey(workspaceId: string, goalKey: string): Promise<GoalRecord | null>;
   list(request: ListGoalRecordsRequest): Promise<readonly GoalRecord[]>;
+  validateFinish(request: FinishGoalRecordRequest): Promise<void>;
   checkpoint(request: CheckpointGoalRecordRequest): Promise<GoalRecord>;
   finish(request: FinishGoalRecordRequest): Promise<GoalRecord>;
   cancel(request: CancelGoalRecordRequest): Promise<CancelGoalRecordResult>;

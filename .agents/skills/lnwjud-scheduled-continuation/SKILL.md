@@ -79,10 +79,10 @@ If the user asks to cancel the goal, call `cancel_goal` with the latest expected
 1. Before deciding the work is done, wait for every active task ID to reach a terminal state and inspect its result. Clear stale task IDs in the final checkpoint.
 2. Re-run the acceptance evidence required by the goal. A generated artifact or passing subtest alone is not terminal proof unless it satisfies the goal.
 3. Call `finish_goal` with the current lease and revision even when no schedule exists or scheduling was disabled.
-4. Call `get_goal` and require `completed`, `failed`, or `blocked`. If it is still `active`, continue working; do not report completion.
-5. If `scheduledTaskCancellation.action` is `delete_native_task`, it refers to a distinct still-pending successor. Delete that exact pending task through the native ChatGPT host, record the native host deletion receipt, then require `get_scheduled_continuation.status: cancelled`.
+4. If `finish_goal` returns `status: active` with `completionState: pending_native_cleanup`, do not report completion. Follow its exact `scheduledTaskCancellation` instruction through the native ChatGPT host, record the matching native deletion or run receipt, require the continuation to be `cancelled` or `superseded`, then call `finish_goal` again with the unchanged active-goal revision.
+5. Call `get_goal` and require `completed`, `failed`, or `blocked`, and require `completionState: completed` from the final `finish_goal` result. If the goal is still `active`, continue cleanup/work; do not report completion.
 6. If the current one-time wake already fired and claim returns `terminal_noop` (or cancellation metadata says `already_fired`), do not delete, disable, pause, or reschedule that current host task. End the wake naturally so the host can mark its one-time run completed. Never use pause/disable as fake deletion or completion proof.
-7. Never report cancellation as successful while deletion is failed, uncertain, unverified, or still required. Never create another successor after terminal state.
+7. Never report cancellation as successful, and never report completion while deletion/run reconciliation is failed, uncertain, unverified, or still required. Never create another successor after terminal state.
 
 ## Invocation on another machine
 

@@ -912,7 +912,7 @@ describe('ScheduledContinuationService', () => {
     }
   });
 
-  it('reconciles an already-consumed native successor after finish without fake deletion or reopening the goal', async () => {
+  it('reconciles an already-consumed native successor after pending finish without fake deletion or reopening the goal', async () => {
     const { database, goals, scheduled, clock } = await fixture();
     try {
       const started = await startGoal(goals);
@@ -943,7 +943,8 @@ describe('ScheduledContinuationService', () => {
       expect(finished).toMatchObject({
         ok: true,
         value: {
-          status: 'completed',
+          status: 'active',
+          completionState: 'pending_native_cleanup',
           scheduledTaskCancellation: {
             action: 'delete_native_task',
             nativeTaskId: 'native-task-finish-consumed',
@@ -969,8 +970,107 @@ describe('ScheduledContinuationService', () => {
         },
       });
       expect(consumed).toMatchObject({ ok: true, value: { status: 'superseded' } });
+
+      const completed = await goals.finishGoal(actor, {
+        goalId: started.goalId,
+        leaseToken: started.leaseToken!,
+        expectedRevision: prepared.value.goal.revision,
+        status: 'completed',
+        summary: 'Completed after the native successor run was reconciled.',
+        evidence: [],
+      });
+      expect(completed).toMatchObject({
+        ok: true,
+        value: {
+          status: 'completed',
+          completionState: 'completed',
+          scheduledTaskCancellation: { action: 'none', reason: 'no_live_task' },
+        },
+      });
       await expect(goals.getGoal(actor, { goalId: started.goalId }))
         .resolves.toMatchObject({ ok: true, value: { status: 'completed' } });
+    } finally {
+      database.close();
+    }
+  });
+
+  it('keeps the goal active until the pending native successor has a deletion receipt', async () => {
+    const { database, goals, scheduled, clock } = await fixture();
+    try {
+      const started = await startGoal(goals);
+      const prepared = await scheduled.prepareScheduledContinuation(actor, validPrepare(started));
+      expect(prepared.ok).toBe(true);
+      if (!prepared.ok) throw new Error('prepare failed');
+
+      const created = await scheduled.recordScheduledContinuationReceipt(actor, {
+        continuationId: prepared.value.continuation.continuationId,
+        expectedVersion: prepared.value.continuation.version,
+        outcome: 'created',
+        nativeTaskId: 'native-task-completion-barrier',
+        dueAt: prepared.value.continuation.dueAt,
+        runsOn: 'cloud',
+      });
+      expect(created).toMatchObject({ ok: true, value: { status: 'scheduled', version: 1 } });
+      if (!created.ok) throw new Error('created receipt failed');
+
+      clock.set('2026-08-27T10:00:10.000Z');
+      const pending = await goals.finishGoal(actor, {
+        goalId: started.goalId,
+        leaseToken: started.leaseToken!,
+        expectedRevision: prepared.value.goal.revision,
+        status: 'completed',
+        summary: 'Work is complete but the native successor still needs cleanup.',
+        evidence: [],
+      });
+      expect(pending).toMatchObject({
+        ok: true,
+        value: {
+          status: 'active',
+          completionState: 'pending_native_cleanup',
+          scheduledTaskCancellation: {
+            action: 'delete_native_task',
+            nativeTaskId: 'native-task-completion-barrier',
+            receiptRequired: true,
+          },
+        },
+      });
+      await expect(goals.getGoal(actor, { goalId: started.goalId }))
+        .resolves.toMatchObject({ ok: true, value: { status: 'active' } });
+
+      const cancellation = await scheduled.getScheduledContinuation(actor, { goalId: started.goalId, latest: true });
+      expect(cancellation).toMatchObject({ ok: true, value: { status: 'cancel_required', version: 2 } });
+      if (!cancellation.ok) throw new Error('cancel-required continuation missing');
+      const cancelled = await scheduled.recordScheduledContinuationReceipt(actor, {
+        continuationId: cancellation.value.continuationId,
+        expectedVersion: cancellation.value.version,
+        outcome: 'cancelled',
+        nativeTaskId: 'native-task-completion-barrier',
+        nativeCancellationReceipt: {
+          provider: 'chatgpt_scheduled_task',
+          operation: 'delete',
+          nativeTaskId: 'native-task-completion-barrier',
+          state: 'deleted',
+          observedAt: '2026-08-27T10:00:12.000Z',
+        },
+      });
+      expect(cancelled).toMatchObject({ ok: true, value: { status: 'cancelled', version: 3 } });
+
+      const finished = await goals.finishGoal(actor, {
+        goalId: started.goalId,
+        leaseToken: started.leaseToken!,
+        expectedRevision: prepared.value.goal.revision,
+        status: 'completed',
+        summary: 'Work and native successor cleanup are complete.',
+        evidence: [],
+      });
+      expect(finished).toMatchObject({
+        ok: true,
+        value: {
+          status: 'completed',
+          completionState: 'completed',
+          scheduledTaskCancellation: { action: 'none', reason: 'no_live_task' },
+        },
+      });
     } finally {
       database.close();
     }
@@ -1008,7 +1108,8 @@ describe('ScheduledContinuationService', () => {
       expect(finished).toMatchObject({
         ok: true,
         value: {
-          status: 'completed',
+          status: 'active',
+          completionState: 'pending_native_cleanup',
           scheduledTaskCancellation: {
             action: 'delete_native_task',
             continuationId: prepared.value.continuation.continuationId,
@@ -1039,6 +1140,23 @@ describe('ScheduledContinuationService', () => {
         },
       });
       expect(cancelled).toMatchObject({ ok: true, value: { status: 'cancelled' } });
+
+      const completed = await goals.finishGoal(actor, {
+        goalId: started.goalId,
+        leaseToken: started.leaseToken!,
+        expectedRevision: prepared.value.goal.revision,
+        status: 'completed',
+        summary: 'Completed after successor C was deleted with a host receipt.',
+        evidence: [],
+      });
+      expect(completed).toMatchObject({
+        ok: true,
+        value: {
+          status: 'completed',
+          completionState: 'completed',
+          scheduledTaskCancellation: { action: 'none', reason: 'no_live_task' },
+        },
+      });
 
       clock.set('2026-08-27T10:02:00.000Z');
       await expect(scheduled.claimScheduledContinuation(lateWakeActor, {
@@ -1080,7 +1198,8 @@ describe('ScheduledContinuationService', () => {
       expect(finished).toMatchObject({
         ok: true,
         value: {
-          status: 'completed',
+          status: 'active',
+          completionState: 'pending_native_cleanup',
           scheduledTaskCancellation: {
             action: 'none',
             nativeTaskId: 'native-overdue-host-unknown',
@@ -1090,6 +1209,36 @@ describe('ScheduledContinuationService', () => {
       });
       await expect(scheduled.getScheduledContinuation(actor, { goalId: started.goalId, latest: true }))
         .resolves.toMatchObject({ ok: true, value: { status: 'cancel_uncertain', nativeTaskId: 'native-overdue-host-unknown' } });
+
+      const continuation = await scheduled.getScheduledContinuation(actor, { goalId: started.goalId, latest: true });
+      expect(continuation).toMatchObject({ ok: true });
+      if (!continuation.ok) throw new Error('uncertain continuation missing');
+      const consumed = await scheduled.recordScheduledContinuationReceipt(actor, {
+        continuationId: continuation.value.continuationId,
+        expectedVersion: continuation.value.version,
+        outcome: 'consumed',
+        nativeRunReceipt: {
+          provider: 'chatgpt_scheduled_task',
+          operation: 'run',
+          nativeTaskId: 'native-overdue-host-unknown',
+          state: 'consumed',
+          observedAt: '2026-08-27T10:03:01.000Z',
+        },
+      });
+      expect(consumed).toMatchObject({ ok: true, value: { status: 'superseded' } });
+
+      const completed = await goals.finishGoal(actor, {
+        goalId: started.goalId,
+        leaseToken: resumed.leaseToken!,
+        expectedRevision: resumed.revision,
+        status: 'completed',
+        summary: 'Completed after exact host run reconciliation.',
+        evidence: [],
+      });
+      expect(completed).toMatchObject({
+        ok: true,
+        value: { status: 'completed', completionState: 'completed' },
+      });
     } finally {
       database.close();
     }
