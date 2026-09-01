@@ -164,8 +164,9 @@ function fakeCodexSource(): string {
     "import { writeFile } from 'node:fs/promises';",
     "import path from 'node:path';",
     "process.stdout.write('fake-codex-started\\n');",
-    "await writeFile(path.join(process.cwd(), 'src', 'reviewed.ts'), 'export const reviewed = true;\\n', 'utf8');",
-    "if (process.argv[2]?.includes('hold')) await new Promise(() => { setInterval(() => {}, 1000); });",
+    "const hold = process.argv[2]?.includes('hold');",
+    "if (!hold) await writeFile(path.join(process.cwd(), 'src', 'reviewed.ts'), 'export const reviewed = true;\\n', 'utf8');",
+    "if (hold) await new Promise(() => { setInterval(() => {}, 1000); });",
   ].join('\n');
 }
 
