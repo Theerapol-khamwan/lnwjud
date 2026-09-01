@@ -129,10 +129,37 @@ export type ClaimScheduledContinuationResult =
   | {
       readonly outcome: 'acquired';
       readonly continuation: ScheduledContinuationSnapshot;
+      readonly successor: ScheduledContinuationSnapshot;
       readonly goal: Omit<RunGoalResult, 'leaseToken'>;
       readonly leaseToken: string;
       readonly leaseGeneration: number;
       readonly acquisition: 'normal' | 'expired_lease' | 'orphan_recovered';
+      readonly scheduleRequest: ScheduledContinuationRequest;
+      readonly handoffReady: false;
+      readonly currentWakeMayReturn: false;
+      readonly nextRequiredAction: 'create_native_task_and_record_receipt_before_current_wake_returns';
+    }
+  | {
+      readonly outcome: 'successor_required';
+      readonly continuation: ScheduledContinuationSnapshot;
+      readonly successor: ScheduledContinuationSnapshot;
+      readonly goal: GoalSnapshot;
+      readonly retryAfterSeconds: 120;
+      readonly scheduleRequest: ScheduledContinuationRequest;
+      readonly handoffReady: false;
+      readonly currentWakeMayReturn: false;
+      readonly nextRequiredAction: 'create_native_task_and_record_receipt_before_current_wake_returns';
+    }
+  | {
+      readonly outcome: 'successor_required';
+      readonly reason: 'native_task_creation_uncertain' | 'native_task_id_already_recorded' | 'native_task_receipt_missing';
+      readonly continuation: ScheduledContinuationSnapshot;
+      readonly successor: ScheduledContinuationSnapshot;
+      readonly goal: GoalSnapshot;
+      readonly retryAfterSeconds: 120;
+      readonly handoffReady: false;
+      readonly currentWakeMayReturn: false;
+      readonly nextRequiredAction: 'reconcile_reserved_successor_native_receipt_before_create_or_return';
     }
   | {
       readonly outcome: 'reschedule_required';
@@ -414,6 +441,10 @@ export class ScheduledContinuationService {
       const currentContinuation = await this.goals.getScheduledContinuation({ continuationId });
       if (currentContinuation === null) throw new GoalStateError('not_found', 'Scheduled continuation was not found');
       const currentGoal = await this.requireOwnedGoal(actor, currentContinuation.goalId);
+      const claimSuccessorRequestFingerprint = createHash('sha256')
+        .update(`claimed-successor-v1\0${continuationId}`)
+        .digest('hex');
+      const claimSuccessorId = `wake-${claimSuccessorRequestFingerprint.slice(0, 48)}`;
       const trackedTasks = currentGoal.trackedTasks ?? currentGoal.activeTaskIds.map((taskId) => legacyTrackedTask(taskId));
       // Liveness may perform async probes. Sample the authoritative transition time only after
       // those probes finish so a fresh observedAt cannot appear to come from the future.
@@ -421,6 +452,7 @@ export class ScheduledContinuationService {
       const nowDate = this.now();
       const now = nowDate.toISOString();
       const leaseToken = randomBytes(32).toString('base64url');
+      const claimSuccessorDueAt = new Date(nowDate.getTime() + DEFAULT_SUCCESSOR_DELAY_MINUTES * 60_000).toISOString();
       const claimed = await this.goals.claimScheduledContinuation({
         continuationId,
         ownerClientId: owner(actor),
@@ -430,17 +462,57 @@ export class ScheduledContinuationService {
         earlyToleranceSeconds: SCHEDULED_WAKE_EARLY_TOLERANCE_SECONDS,
         liveness,
         now,
+        claimSuccessorId,
+        claimSuccessorDueAt,
+        claimSuccessorRequestFingerprint,
       });
       const continuation = toPublicContinuation(claimed.continuation);
       const goal = toGoalSnapshot(claimed.goal);
       if (claimed.outcome === 'acquired') {
+        const successor = toPublicContinuation(claimed.successor);
         return ok({
           outcome: 'acquired',
           continuation,
+          successor,
           goal: { ...toRunSnapshot(goal), acquired: true },
           leaseToken,
           leaseGeneration: claimed.goal.leaseGeneration,
           acquisition: claimed.acquisition,
+          scheduleRequest: buildScheduleRequest(successor, claimed.goal.workspaceId, this.hostTimeZone),
+          handoffReady: false,
+          currentWakeMayReturn: false,
+          nextRequiredAction: 'create_native_task_and_record_receipt_before_current_wake_returns',
+        });
+      }
+      if (claimed.outcome === 'successor_required') {
+        const successor = toPublicContinuation(claimed.successor);
+        if (claimed.successorDisposition === 'existing_unconfirmed') {
+          return ok({
+            outcome: 'successor_required',
+            reason: successor.nativeTaskId !== undefined
+              ? 'native_task_id_already_recorded'
+              : successor.status === 'create_uncertain'
+                ? 'native_task_creation_uncertain'
+                : 'native_task_receipt_missing',
+            continuation,
+            successor,
+            goal,
+            retryAfterSeconds: 120,
+            handoffReady: false,
+            currentWakeMayReturn: false,
+            nextRequiredAction: 'reconcile_reserved_successor_native_receipt_before_create_or_return',
+          });
+        }
+        return ok({
+          outcome: 'successor_required',
+          continuation,
+          successor,
+          goal,
+          retryAfterSeconds: 120,
+          scheduleRequest: buildScheduleRequest(successor, claimed.goal.workspaceId, this.hostTimeZone),
+          handoffReady: false,
+          currentWakeMayReturn: false,
+          nextRequiredAction: 'create_native_task_and_record_receipt_before_current_wake_returns',
         });
       }
       if (claimed.outcome === 'reschedule_required') {
@@ -601,7 +673,7 @@ function buildScheduleRequest(
   workspaceId: string,
   hostTimeZone: string,
 ): ScheduledContinuationRequest {
-  const prompt = `Call claim_scheduled_continuation first for continuation ${continuation.continuationId}, goal ${continuation.goalId}, workspace ${workspaceId}; create/update the native task using scheduleRequest.schedule verbatim (explicit IANA TZID; dueAt remains the canonical absolute instant) and record the host-reported dueAt in the receipt. Native wake jitter up to 120 seconds early is accepted. If claim returns reschedule_required because this wake collided with a live or uncertain worker, do not create a replacement task. Update the exact same nativeTaskId from taskUpdateRequest to its +2-minute schedule, keep it enabled as a one-time cloud task, record rescheduled with the host-reported dueAt, then let this wake return naturally. Repeat collisions without a retry limit until claim can acquire the goal or the goal is terminal. If exact host metadata later proves a native task ran without claim completing, reconcile it as consumed with the exact host run receipt; consumed never means the goal work completed, and an active goal must reserve a fresh successor. If acquired, immediately reserve exactly one cloud successor using an adaptive delay between 2 and 25 minutes and attempt to create/record its native receipt. A prepared reservation is not handoff-ready, but native-task creation failure must not stop an otherwise valid live worker: record the failure truthfully and keep doing useful fenced work under the current lease while retrying recovery coverage. Before the worker returns or yields with the goal still active, require one confirmed cloud successor or a terminal goal. Omitted delay fails safe to +2 minutes; use 5/10/25 minutes only as an explicit watchdog while this run will genuinely keep executing. If an acquired worker will end while unfinished or no worker will remain after the response, leave its still-pending successor at +2 or move that still-pending future task to now+2 through expedite_scheduled_continuation. Keep working or waiting on active task IDs until their terminal results are inspected. Never send a completion response while get_goal still reports active. When acceptance evidence is complete, call finish_goal even if the user disabled further scheduling, then require get_goal to be terminal. Delete the exact distinct pending successor through the native ChatGPT Scheduled Task host only when scheduledTaskCancellation requests it, record cancelled only with the native host deletion receipt, then read the continuation back and require status cancelled. If claim returns terminal_noop, do not delete, disable, pause, or reschedule the current host task; return naturally so the host can mark the one-time run completed. Never use pause/disable as deletion or completion proof. Never report cancellation as successful while deletion is failed, uncertain, or unverified. If the goal is terminal, stop and do not schedule again. Never use Windows Task Scheduler.`;
+      const prompt = `Call claim_scheduled_continuation first for continuation ${continuation.continuationId}, goal ${continuation.goalId}, workspace ${workspaceId}; create/update the native task using scheduleRequest.schedule verbatim (explicit IANA TZID; dueAt remains the canonical absolute instant) and record the host-reported dueAt in the receipt. Native wake jitter up to 120 seconds early is accepted. If claim returns reschedule_required because this wake collided with a live or uncertain worker, do not create a replacement task. Update the exact same nativeTaskId from taskUpdateRequest to its +2-minute schedule, keep it enabled as a one-time cloud task, record rescheduled with the host-reported dueAt, then let this wake return naturally. Repeat collisions without a retry limit until claim can acquire the goal or the goal is terminal. If exact host metadata later proves a native task ran without claim completing, reconcile it as consumed with the exact host run receipt; consumed never means the goal work completed, and an active goal must retain successor coverage. If claim returns acquired, lnwjud has already reserved a fresh successor and returns its scheduleRequest; do not call prepare_scheduled_continuation again. Create that returned native task and record its host receipt. If claim returns successor_required with a scheduleRequest, reuse that exact returned successor/request instead of preparing another reservation; this is safe for a fresh reservation or a truthfully failed create with no native task ID. If claim returns successor_required with reason native_task_receipt_missing, native_task_creation_uncertain, or native_task_id_already_recorded, reconcile the exact host metadata/receipt first and never create blindly. A stale create_failed reservation may be refreshed to a new +2 due only after its absence is truthful, then retried with the returned request. A prepared reservation is not handoff-ready, but native-task creation failure must not stop an otherwise valid live worker: record the failure truthfully and keep doing useful fenced work under the current lease while retrying recovery coverage. Before the worker returns or yields with the goal still active, require one confirmed cloud successor or a terminal goal. The claimed successor defaults to +2 minutes; use expedite_scheduled_continuation if a still-pending future task must move to now+2 before the worker ends. Keep working or waiting on active task IDs until their terminal results are inspected. Never send a completion response while get_goal still reports active. When acceptance evidence is complete, call finish_goal even if the user disabled further scheduling, then require get_goal to be terminal. Delete the exact distinct pending successor through the native ChatGPT Scheduled Task host only when scheduledTaskCancellation requests it, record cancelled only with the native host deletion receipt, then read the continuation back and require status cancelled. If claim returns terminal_noop, do not delete, disable, pause, or reschedule the current host task; return naturally so the host can mark the one-time run completed. Never use pause/disable as deletion or completion proof. Never report cancellation as successful while deletion is failed, uncertain, or unverified. If the goal is terminal, stop and do not schedule again. Never use Windows Task Scheduler.`;
   return {
     provider: 'chatgpt_scheduled_task',
     occurrence: 'once',

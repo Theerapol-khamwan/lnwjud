@@ -1,5 +1,19 @@
 # Scheduled Continuation Capability Evidence
 
+## v4.45 claimed-successor hardening — 2026-09-01
+
+The v4.45 incident exposed a liveness gap between durable state and the native host: a scheduled wake successfully claimed an active goal, but the worker did not make the separate `prepare_scheduled_continuation` call requested only by prompt text. The firing continuation became historical, the goal stayed active, and no next reservation existed until the user prompted the agent again.
+
+The v4.45 repository contract now makes that omission impossible inside lnwjud. A successful `claim_scheduled_continuation` transaction acquires the new lease, marks the firing continuation `claimed`, inserts exactly one deterministic generation N+1 row as `prepared`, caps the acquired lease at the +2-minute handoff, and returns that successor with its host `scheduleRequest`. A repeated claim after an interrupted response returns `successor_required` with the same row. A replay with `native_task_receipt_missing`, `native_task_creation_uncertain`, or `native_task_id_already_recorded` requires exact host reconciliation before any create; only a truthfully failed create without a native ID can refresh to a new +2 retry request. Confirmed worker collisions retain the existing same-native-task +2-minute reschedule path; they do not create a replacement task.
+
+Focused implementation evidence on 2026-09-01:
+
+- application, storage, and goal-continuation state-machine suites: 52/52 passed;
+- MCP tool and bundled-skill contract suites: 5/5 passed;
+- acquired, interrupted-repeat, receipt, collision, orphan-recovery, lease-cap, finish, and exact-successor cancellation behaviors are exercised by repository/application tests.
+
+This proves the durable lnwjud state transition and published client contract. It does **not** prove that the external ChatGPT host created a native cloud task: `prepared`, `create_failed`, and `create_uncertain` remain unconfirmed. Host creation is accepted only after a real native task ID, host-reported due time, and `runsOn: cloud` receipt are recorded. A real two-wake host run remains the release-level E2E proof.
+
 ## Native one-time capability probe — 2026-08-27
 
 - Host surface: ChatGPT scheduled automation capability exposed to this chat.
@@ -15,7 +29,7 @@
 - Same-chat native serialization: not proven by this harmless probe. No workspace mutation was used for the probe.
 - Safety no longer assumes native serialization. A separately reviewed session-level workspace mutation fence now guards the rolling-continuation lane.
 
-## Session-level overlap fence evidence — 2026-08-27
+## Historical session-level overlap fence evidence — 2026-08-27
 
 The implementation persists the predecessor MCP session on the continuation, binds the durable goal lease to a session, and requires a scheduled successor to claim from a different session before workspace mutation is authorized. Before `dueAt`, only the predecessor lease session may mutate the fenced workspace. At/after `dueAt`, predecessor mutation is rejected until a successor successfully claims. A wake that reuses the predecessor session fails closed as `busy_blocked` instead of risking concurrent writers.
 
@@ -29,6 +43,6 @@ Final verification from the implementation worktree:
 - desktop package: 348/348 passed, plus the focused acceptance gate 28/28;
 - root lint, typecheck, build, documentation tool-catalog check, and Git diff whitespace check passed.
 
-## Current gate interpretation
+## Native-host gate interpretation
 
 The host proves a native one-time create/disable surface without Windows Task Scheduler or an undocumented OpenAI API. Native current-chat serialization/queuing itself remains unverified, but overlap safety no longer relies on that behavior: the lnwjud session-level mutation fence fails closed if ownership cannot be transferred safely. Any execution-mode claim remains `unverified` until the native host explicitly confirms `cloud` or `local`.

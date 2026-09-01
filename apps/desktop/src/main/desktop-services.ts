@@ -161,6 +161,8 @@ const activeWorkspaceIdsSettingKey = 'active_workspace_ids';
 const workLogClearedSettingKey = 'work_log_cleared_at';
 const localeSettingKey = 'ui_locale';
 const tunnelIdentitySettingKey = 'tunnel_identity_id';
+const tunnelRuntimeDesiredStateSettingKey = 'tunnel_runtime_desired_state';
+const tunnelRuntimeOwnerPathSettingKey = 'tunnel_runtime_owner_path';
 
 export interface DesktopRuntime {
   readonly services: DesktopIpcServices;
@@ -189,17 +191,21 @@ export interface DesktopRuntimeOptions {
 interface StartupTunnelController {
   status(): Promise<TunnelStatus>;
   startAutomatically(): Promise<TunnelStatus>;
+  reconcileStoppedRuntime(): Promise<TunnelStatus | null>;
 }
 
 /**
- * Desktop startup is recovery-only: it may start/reconcile the saved tunnel,
- * but it must never stop a surviving persistent runtime merely because a local
- * prerequisite is temporarily unavailable during an update or reinstall.
+ * Desktop startup is recovery-only: it may start/reconcile the saved tunnel and
+ * must enforce an explicit durable stopped intent before all start gates. A
+ * desired-running runtime is never stopped merely because a local prerequisite
+ * is temporarily unavailable during an update or reinstall.
  */
 export async function autoStartPersistentTunnel(
   tunnelController: StartupTunnelController,
   autoReconnect: boolean,
 ): Promise<TunnelStatus> {
+  const stopped = await tunnelController.reconcileStoppedRuntime();
+  if (stopped !== null) return stopped;
   const status = await tunnelController.status();
   if (!autoReconnect || !status.profileExists || !status.hasApiKey || status.clientPath === null) return status;
   return tunnelController.startAutomatically();
@@ -412,6 +418,13 @@ export function createDesktopRuntime(dataPath: string, options: DesktopRuntimeOp
     maxAutoRestarts: (): number => readSettings().tunnelMaxAutoRestarts,
     getTunnelId: (): string | null => settingsRepository.get(tunnelIdentitySettingKey),
     setTunnelId: (value: string): void => { settingsRepository.set(tunnelIdentitySettingKey, value.trim()); },
+    getRuntimeDesiredState: (): 'running' | 'stopped' | null => {
+      const value = settingsRepository.get(tunnelRuntimeDesiredStateSettingKey);
+      return value === 'running' || value === 'stopped' ? value : null;
+    },
+    setRuntimeDesiredState: (value: 'running' | 'stopped'): void => { settingsRepository.set(tunnelRuntimeDesiredStateSettingKey, value); },
+    getRuntimeOwnerPath: (): string | null => settingsRepository.get(tunnelRuntimeOwnerPathSettingKey),
+    setRuntimeOwnerPath: (value: string): void => { settingsRepository.set(tunnelRuntimeOwnerPathSettingKey, value.trim()); },
   });
   const logHub = new LogHub({
     tunnelLogPath: tunnelController.logPath(),
@@ -924,7 +937,7 @@ export function createDesktopRuntime(dataPath: string, options: DesktopRuntimeOp
       await tunnelController.saveApiKey(request.apiKey);
       if (readSettings().tunnelAutoReconnect) {
         const status = await tunnelController.status();
-        if (status.profileExists && status.clientPath !== null) await tunnelController.start();
+        if (status.profileExists && status.clientPath !== null) await tunnelController.startAutomatically();
       }
       return { saved: true };
     },
@@ -940,10 +953,10 @@ export function createDesktopRuntime(dataPath: string, options: DesktopRuntimeOp
     },
     getTunnelStatus: (): Promise<TunnelStatus> => observedTunnelStatus(),
     setTunnelClientPath: async (request: SetTunnelClientPathRequest): Promise<{ readonly clientPath: string }> => {
-      const clientPath = tunnelController.setClientPath(request.clientPath);
+      const clientPath = await tunnelController.replaceClientPath(request.clientPath);
       if (readSettings().tunnelAutoReconnect) {
         const status = await tunnelController.status();
-        if (status.profileExists && status.hasApiKey) await tunnelController.start();
+        if (status.profileExists && status.hasApiKey) await tunnelController.startAutomatically();
       }
       return { clientPath };
     },
@@ -965,7 +978,7 @@ export function createDesktopRuntime(dataPath: string, options: DesktopRuntimeOp
     },
     configureTunnelProfile: async (request: ConfigureTunnelProfileRequest): Promise<{ readonly configured: boolean; readonly profilePath: string }> => {
       const profilePath = await tunnelController.configureProfile(request.tunnelId);
-      if (readSettings().tunnelAutoReconnect) await tunnelController.start();
+      if (readSettings().tunnelAutoReconnect) await tunnelController.startAutomatically();
       return { configured: true, profilePath };
     },
     launchManagedBrowser: async (): Promise<ManagedBrowserStatus> => {

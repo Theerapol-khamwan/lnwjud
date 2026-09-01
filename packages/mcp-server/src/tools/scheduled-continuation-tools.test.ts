@@ -101,6 +101,12 @@ describe('scheduled continuation MCP tools', () => {
     expect(byName.get('claim_scheduled_continuation')?.description).toContain('handoffReady=false');
     expect(byName.get('claim_scheduled_continuation')?.description).toContain('currentWakeMayReturn=false');
     expect(byName.get('claim_scheduled_continuation')?.description).toContain('never count prepared as confirmed');
+    expect(byName.get('claim_scheduled_continuation')?.description).toContain('atomically reserves');
+    expect(byName.get('claim_scheduled_continuation')?.description).toContain('returned scheduleRequest');
+    expect(byName.get('claim_scheduled_continuation')?.description).toContain('do not call prepare_scheduled_continuation again');
+    expect(byName.get('claim_scheduled_continuation')?.description).toContain('successor_required');
+    expect(byName.get('claim_scheduled_continuation')?.description).toContain('never create blindly');
+    expect(byName.get('claim_scheduled_continuation')?.description).toContain('native_task_receipt_missing');
     expect(byName.get('claim_scheduled_continuation')?.description).toContain('terminal_noop');
     expect(byName.get('claim_scheduled_continuation')?.description).toContain('do not delete, disable, pause, or reschedule');
     expect(byName.get('cancel_scheduled_continuation')?.description).toContain('still-pending scheduled successor');

@@ -79,7 +79,10 @@ async function syncAllVersions() {
     testContent = testContent
       .replace(/pins the product release to v[0-9.]+/g, `pins the product release to v${version}`)
       .replace(/expect\(rootPackage\.version\)\.toBe\(['"][^'"]+['"]\);/g, `expect(rootPackage.version).toBe('${version}');`)
-      .replace(/expect\(desktopPackage\.version\)\.toBe\(['"][^'"]+['"]\);/g, `expect(desktopPackage.version).toBe('${version}');`);
+      .replace(/expect\(desktopPackage\.version\)\.toBe\(['"][^'"]+['"]\);/g, `expect(desktopPackage.version).toBe('${version}');`)
+      .replace(/expect\(packageJson\.version, packagePath\)\.toBe\(['"][^'"]+['"]\);/g, `expect(packageJson.version, packagePath).toBe('${version}');`)
+      .replace(/expect\(ipcContracts\)\.toContain\(["']APP_VERSION = ['"][^'"]+['"]["']\);/g, `expect(ipcContracts).toContain("APP_VERSION = '${version}'");`)
+      .replace(/expect\(shared\)\.toContain\(["']APP_VERSION = ['"][^'"]+['"]["']\);/g, `expect(shared).toContain("APP_VERSION = '${version}'");`);
     await writeFile(testPackagingPath, testContent, 'utf8');
     console.log(`Updated tests/packaging/desktop-packaging.test.ts -> v${version}`);
   } catch {
@@ -142,7 +145,10 @@ async function syncAllVersions() {
       .replace(/current v[0-9.]+ packaging contract/g, `current v${version} packaging contract`)
       .replace(/lnwjud-Setup-[0-9.]+\.exe/g, `lnwjud-Setup-${version}.exe`)
       .replace(/lnwjud-Portable-[0-9.]+\.exe/g, `lnwjud-Portable-${version}.exe`)],
-    ['docs/LNWJUD_CAPABILITIES.md', (content) => content.replace(/lnwjud v[0-9.]+/g, `lnwjud v${version}`)],
+    ['docs/LNWJUD_CAPABILITIES.md', (content) => content.replace(/lnwjud v[0-9.]+/g, `lnwjud v${version}`).replace(/ความสามารถหลักใน v[0-9.]+ คือ:/g, `ความสามารถหลักใน v${version} คือ:`)],
+    ['docs/architecture/MULTI_WORKSPACE_CONCURRENCY.md', (content) => content.replace(/current v[0-9.]+ runtime contract/g, `current v${version} runtime contract`)],
+    ['docs/architecture/TOOL_CONTRACT.md', (content) => content.replace(/snapshot synchronized for `v[0-9.]+`/g, `snapshot synchronized for ` + '`v' + version + '`')],
+    ['docs/architecture/UPGRADE_ARCHITECTURE.md', (content) => content.replace(/checkpoint synchronized for `v[0-9.]+`/g, `checkpoint synchronized for ` + '`v' + version + '`')],
   ];
   for (const [relativePath, update] of markdownTargets) {
     const targetPath = path.join(rootDir, relativePath);
@@ -153,6 +159,18 @@ async function syncAllVersions() {
     } catch {
       // optional/local documentation may be absent in a public checkout
     }
+  }
+
+  // 10. Update current runtime/user-facing version strings without touching dated plans/evidence.
+  const sourceTargets = [
+    ['packages/application/src/agent-swarm-service.ts', (content) => content.replace(/Agent swarm v[0-9.]+ supports read_only access only/g, `Agent swarm v${version} supports read_only access only`)],
+    ['packages/mcp-server/src/tool-registry.ts', (content) => content.replace(/v[0-9.]+ enforces read-only child sandboxes/g, `v${version} enforces read-only child sandboxes`)],
+  ];
+  for (const [relativePath, update] of sourceTargets) {
+    const targetPath = path.join(rootDir, relativePath);
+    const content = await readFile(targetPath, 'utf8');
+    await writeFile(targetPath, update(content), 'utf8');
+    console.log(`Updated ${relativePath} -> v${version}`);
   }
 
   console.log(`\nAll versions successfully synchronized to ${name} v${version}!`);

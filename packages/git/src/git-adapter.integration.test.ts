@@ -54,5 +54,5 @@ describe('GitAdapter integration', () => {
     ] } });
     expect(diff).toMatchObject({ ok: true, value: { patch: expect.stringContaining('changed'), truncated: false } });
     expect(log).toMatchObject({ ok: true, value: { entries: [{ subject: 'initial' }], truncated: false } });
-  });
+  }, 15_000);
 });

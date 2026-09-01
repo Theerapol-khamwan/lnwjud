@@ -1,8 +1,8 @@
-# คู่มือใช้งาน lnwjud v4.44.0 (ภาษาไทย)
+# คู่มือใช้งาน lnwjud v4.45.0 (ภาษาไทย)
 
 lnwjud คือ Windows-first local AI-agent runtime / MCP gateway สำหรับให้ ChatGPT, Codex และ MCP client อื่นทำงานกับเครื่อง Windows ของคุณ เช่น อ่าน/ค้น/แก้ไฟล์, Git, รันโปรเซส, Windows UI automation, WSL, Office และเครื่องมือพัฒนาอื่น ๆ โดยงานจริงยังทำบนเครื่องของคุณ
 
-> สำหรับผู้ใช้ Windows x64 ที่ใช้ `lnwjud-Setup-4.44.0.exe` หรือ `lnwjud-Portable-4.44.0.exe` **ไม่ต้องติดตั้ง Node.js และไม่ต้องดาวน์โหลด `tunnel-client.exe` เอง** ตัว release รวม private Node.js runtime และ official OpenAI `tunnel-client v0.0.12` มาให้แล้ว
+> สำหรับผู้ใช้ Windows x64 ที่ใช้ `lnwjud-Setup-4.45.0.exe` หรือ `lnwjud-Portable-4.45.0.exe` **ไม่ต้องติดตั้ง Node.js และไม่ต้องดาวน์โหลด `tunnel-client.exe` เอง** ตัว release รวม private Node.js runtime และ official OpenAI `tunnel-client v0.0.13` มาให้แล้ว
 
 ---
 
@@ -15,7 +15,7 @@ lnwjud คือ Windows-first local AI-agent runtime / MCP gateway สำหร
 สำหรับ v4.11.0 ตัวโปรแกรมแยก compatibility profile ตามระบบ: Windows 10 x64 ใช้ software rendering เป็นค่าเริ่มต้นเพื่อลดปัญหาหน้าจอ Electron/Chromium ค้าง, วาดไม่ครบ หรือบาง control กดไม่ได้บน GPU/driver รุ่นเก่า ส่วน Windows 11 x64 ยังใช้ hardware acceleration ตามปกติ
 
 งานภายในโปรแกรมที่ต้องเรียก PowerShell ใช้ `powershell.exe` ที่มากับ Windows ไม่บังคับให้ติดตั้ง PowerShell 7 และ child process ภายในถูกเปิดแบบซ่อนหน้าต่าง console. ระบบยังจำกัด durable background task พร้อมกันไว้ 16 งาน และ managed process พร้อมกันไว้ 24 งาน เพื่อกันกรณีหลายแชทสั่งงานพร้อมกันจนเกิด `conhost.exe` จำนวนมาก/CPU เต็ม
-- `lnwjud-Setup-4.44.0.exe` หรือ `lnwjud-Portable-4.44.0.exe`
+- `lnwjud-Setup-4.45.0.exe` หรือ `lnwjud-Portable-4.45.0.exe`
 - OpenAI Platform tunnel ที่ผูกกับ ChatGPT workspace ที่จะใช้
 - Runtime API key ที่มีสิทธิ์ **Tunnels Read + Use**
 - อินเทอร์เน็ตขาออก HTTPS สำหรับ Secure MCP Tunnel
@@ -35,7 +35,7 @@ Node.js, pnpm และ Git จำเป็นเฉพาะกรณีพั�
 
 ### แบบแนะนำ: Installer
 
-1. ดาวน์โหลด `lnwjud-Setup-4.44.0.exe` จาก GitHub Releases
+1. ดาวน์โหลด `lnwjud-Setup-4.45.0.exe` จาก GitHub Releases
 2. ติดตั้งตามปกติ
 3. เปิด **lnwjud Agent Control Center**
 4. เพิ่ม Project/Workspace ที่ต้องการใช้งาน
@@ -43,13 +43,13 @@ Node.js, pnpm และ Git จำเป็นเฉพาะกรณีพั�
 
 ### แบบไม่ต้องติดตั้ง: Portable EXE
 
-1. ดาวน์โหลด `lnwjud-Portable-4.44.0.exe`
+1. ดาวน์โหลด `lnwjud-Portable-4.45.0.exe`
 2. วางไว้ในโฟลเดอร์ที่ต้องการแล้วเปิดไฟล์ได้ทันที ไม่ต้องรัน installer
 3. เพิ่ม Project/Workspace และตั้ง Tunnel เหมือนเวอร์ชันติดตั้ง
 
 Portable ของ lnwjud หมายถึง **ตัวโปรแกรมเปิดได้โดยไม่ต้องติดตั้ง** แต่ตั้งใจใช้ข้อมูล/Settings ต่อผู้ใช้ Windows ชุดเดียวกับตัวติดตั้ง จึงไม่ใช่โหมดที่เก็บ database/settings ทุกอย่างไว้ข้างไฟล์ EXE ถ้าเคยใช้ตัวติดตั้งใน Windows account เดียวกัน Portable จะเห็นการตั้งค่าชุดเดียวกัน
 
-ทั้ง Installer และ Portable รวม `tunnel-client.exe` และ private Node runtime ไว้ใน package โดย lnwjud จะเลือก path ภายใน package เองเมื่อช่อง Tunnel Client Override ว่าง
+ทั้ง Installer และ Portable รวม official OpenAI `tunnel-client v0.0.13` และ private Node runtime ไว้ใน package โดย lnwjud จะเลือก path ภายใน package เองเมื่อช่อง Tunnel Client Override ว่าง ตัว Windows x64 bundle เก็บชุด runtime ทางการไว้ครบข้างกัน ได้แก่ `tunnel-client.exe`, `cloudflared.exe` v2026.8.2, `cloudflared-manifest.json`, LICENSE/NOTICE, license inventory และ SPDX SBOM แต่การมี `cloudflared.exe` อยู่ใน package **ไม่ได้หมายความว่า lnwjud เปิด Cloudflared mode ให้อัตโนมัติ** การเชื่อม Secure MCP Tunnel ปกติยังใช้พฤติกรรมเดิมจนกว่าจะตั้งค่าโหมดนั้นอย่างชัดเจน
 
 ### เปิดครั้งแรกและยังไม่มี Project
 
@@ -84,15 +84,18 @@ Portable ของ lnwjud หมายถึง **ตัวโปรแกรม
 
 1. ใส่ Runtime API key แล้วกด **Save key**
 2. ช่อง **tunnel-client (รวมมากับโปรแกรมแล้ว)** ให้ปล่อยว่างไว้
-   - lnwjud จะใช้ official OpenAI `tunnel-client v0.0.12` ที่ bundle มากับ Windows x64 package อัตโนมัติ
+   - lnwjud จะใช้ official OpenAI `tunnel-client v0.0.13` ที่ bundle มากับ Windows x64 package อัตโนมัติ
    - ปุ่ม Browse / Save override ใช้เฉพาะกรณี troubleshoot หรือต้องการทดสอบ client อื่น
-   - ถ้าเคยตั้ง override แล้วอยากกลับไปใช้ตัวที่มากับโปรแกรม ให้ล้างช่องแล้วกด **ใช้ตัวที่มากับโปรแกรม / Use bundled**
+   - เมื่อบันทึก custom override แล้ว path นั้นเป็นตัวเลือกหลัก ถ้าไฟล์หาย lnwjud จะแจ้ง error และ **จะไม่ fallback ไป bundled เองแบบเงียบ ๆ**
+   - ถ้าเคยตั้ง override แล้วอยากกลับไปใช้ตัวที่มากับโปรแกรม ให้ล้างช่องแล้วกด **ใช้ตัวที่มากับโปรแกรม / Use bundled** โดยชัดเจน
 3. ใส่ **OpenAI Tunnel ID**
 4. กด **Configure Tunnel**
 5. lnwjud จะสร้าง/ซ่อม profile ของตัวเองและชี้ Tunnel ไปยัง Desktop loopback MCP เช่น `http://127.0.0.1:<port>/mcp`
 6. ถ้ายังไม่เชื่อม ให้กด **Reconnect Tunnel เดิม** ใน Settings หรือ **Start Tunnel** จากหน้า Home
 
-ถ้าแก้ **Runtime API key**, **Tunnel ID** หรือ tunnel-client override ขณะที่ Persistent Tunnel Runtime เดิมยังทำงานอยู่ lnwjud จะ **ไม่ตัด runtime ทันทีตอนกำลังแก้ค่า**. เมื่อผู้ใช้กด **Start Tunnel** แบบ manual โปรแกรมจะตรวจ runtime เดิม, หยุด alias `lnwjud` แบบ controlled และยืนยันว่าหยุดแล้วก่อน reconnect ด้วยค่าที่บันทึกใหม่. Auto reconnect จะไม่เปลี่ยนไปใช้ Tunnel ID อื่นเอง. ถ้าหยุด runtime เดิมไม่ได้ UI จะแสดงข้อความให้หยุด Persistent Tunnel Runtime เดิมแล้วลอง Start ใหม่ แทนการปล่อย error `Runtime alias is attached to a different tunnel ID` แบบไม่มีทางแก้.
+`Persistent Tunnel Identity` มีหน้าที่จำ Tunnel ID เดิม และ **ไม่ใช่คำสั่งให้ runtime ต้องเปิดตลอดเวลา**. lnwjud เก็บ desired Run/Stop state แยกจาก identity: เมื่อผู้ใช้กด **Stop Tunnel** จะบันทึกสถานะ `stopped`, ปิด reconnect supervisor/timer, หยุด runtime และตรวจยืนยันการหยุดผ่าน `tunnel-client.exe` ที่เป็น owner จริง. สถานะ Stop นี้คงอยู่แม้ปิด/เปิด lnwjud ใหม่ และ Automatic reconnect จะไม่เปิด tunnel กลับเองจนกว่าผู้ใช้จะกด **Start Tunnel** อีกครั้ง. ถ้าโปรแกรมปิดผิดปกติระหว่าง Stop แล้ว runtime เดิมยังรอดอยู่ การเปิดครั้งถัดไปจะ reconcile desired `stopped` และพยายามหยุด owner เดิมต่อแทนการเปิด client ใหม่ซ้อน.
+
+ถ้าเปลี่ยน **Runtime API key**, **Tunnel ID** หรือ tunnel-client override ขณะที่ Persistent Tunnel Runtime เดิมทำงานอยู่ lnwjud จะรักษา ownership ให้ชัดเจน. สำหรับการเปลี่ยน tunnel-client โปรแกรมจะ validate path ใหม่ก่อน จากนั้นหยุดและยืนยัน runtime เดิมผ่าน executable owner ที่บันทึกไว้ **ก่อน** commit custom/bundled selection ใหม่; ถ้าหยุด owner เดิมไม่ได้ จะไม่ start client ตัวใหม่ซ้อน. สำหรับ Tunnel ID/credentials การ Start แบบ manual จะ reconcile alias `lnwjud` แบบ controlled ก่อน reconnect ด้วยค่าที่บันทึกใหม่. Auto reconnect จะไม่เปลี่ยนไปใช้ Tunnel ID อื่นเอง และการบันทึก key/path/profile จะไม่ override desired `stopped` ของผู้ใช้.
 
 ไม่ต้องรันคำสั่ง `init`, `doctor` หรือ `run` เองในการใช้งานปกติ
 
@@ -165,7 +168,7 @@ v4.11.0 เพิ่มเครื่องมือ `run_goal`, `get_goal`, `c
 
 ถ้างานยาวและผู้ใช้เปิดใช้ rolling Scheduled Continuation, `prepare_scheduled_continuation` จะ checkpoint และคืนคำขอสำหรับ native ChatGPT Scheduled Task แบบ **one-time/cloud โดยเลือกเวลาแบบ adaptive 2–25 นาที**. ถ้าไม่ระบุ delay ระบบจะใช้ **+2 นาที** แบบ fail-safe; 5/10/25 นาทีต้องเลือกโดยเจตนาเฉพาะตอนที่ worker ปัจจุบันจะทำงานต่อจริงเท่านั้น โดย 25 นาทีเป็นเพียงเพดาน watchdog สำหรับงานที่ยังเปิดกว้าง. ถ้า host turn กำลังจะคืน control หรือหลัง response นี้จะไม่มี worker ทำงานต่อ ต้องเตรียม successor ที่ +2 โดยตรง หรือเลื่อน **task เดิมที่ยืนยันแล้ว** เป็น `now+2` ก่อนคืน. Scheduled Task มีไว้กู้ chain หาก turn หาย ไม่ใช่เหตุให้ worker ปัจจุบันหยุดทำงานก่อนเวลา. หลัง `prepare` worker ที่ยังถือ lease ถูกต้องสามารถทำ fenced work ต่อได้แม้ native create ยังล้มเหลว/ไม่แน่นอน โดยต้อง record ความล้มเหลวตามจริงและ lease ยังถูก cap ด้วย handoff deadline; สิ่งที่ห้ามคือคืน control/handoff ขณะ durable continuation ยังไม่มี confirmed cloud successor. Native VEVENT ใช้ explicit IANA `TZID` ขณะที่ `dueAt` เป็น canonical absolute instant เพื่อไม่ให้ host ตีความ UTC `Z` เป็น local wall-clock ผิดเวลา. หลังสร้างต้อง record native task ID พร้อม `runsOn: cloud` ทันที.
 
-เมื่อ Scheduled turn ใหม่ตื่นขึ้น ต้อง `claim_scheduled_continuation` ก่อน mutation; ระบบยอมรับ native wake jitter ที่มาก่อน due ไม่เกิน 120 วินาทีเพื่อไม่ให้ one-time wake สูญหาย. ถ้า metadata จาก ChatGPT host ยืนยันภายหลังว่า native one-time task ตัวเดิมรัน/ถูก consume ไปแล้ว แต่ durable continuation ยังเป็น pending/live เพราะ claim ไม่จบ ให้บันทึก `consumed` พร้อม exact native host run receipt; สถานะนี้แปลเพียงว่า task ไม่ได้รออยู่แล้ว ไม่ได้แปลว่า goal complete และถ้า goal ยัง active ให้สร้าง successor ใหม่หลัง reconcile. ทุก rolling-mode mutation ควรแนบ `goalLease` token/generation ของ run ปัจจุบัน; เมื่อ Full Bypass ปิด token รุ่นเก่าหรือ proof ที่หายจะถูกปฏิเสธแม้ ChatGPT reuse MCP session เดิม. Full Bypass เปิดอยู่จะข้ามการบังคับ `goalLease` ที่ registry แต่ไม่ได้โอน ownership ของ scheduled goal ดังนั้น workflow แบบ scheduled ยังต้อง claim/แนบ proof เพื่อกันงานชนกัน. ถ้าชน worker จริง, lease หมดอายุแต่มี `blocking_job` running หรือหลักฐาน liveness ยังไม่แน่นอน ให้ consume wake แล้วจอง **successor ใหม่** ที่ `now+2 นาที`; ห้าม re-arm task ที่กำลัง firing. ถ้า lease ค้างแต่ไม่มี worker จริง จะ takeover ได้หลัง trustworthy no-worker probe สองรอบห่างอย่างน้อย 120 วินาทีและ CAS evidence ไม่เปลี่ยน; unknown evidence ห้าม force-unlock.
+เมื่อ Scheduled turn ใหม่ตื่นขึ้น ต้อง `claim_scheduled_continuation` ก่อน mutation; ระบบยอมรับ native wake jitter ที่มาก่อน due ไม่เกิน 120 วินาทีเพื่อไม่ให้ one-time wake สูญหาย. ถ้า claim สำเร็จแบบ `acquired` ธุรกรรมเดียวกันจะจอง successor รุ่นถัดไปเป็น `prepared` ที่ fail-safe **+2 นาที** พร้อมคืน `scheduleRequest`, `handoffReady: false` และ `currentWakeMayReturn: false`; ให้สร้าง native one-time task จาก request ที่คืนมาและ record host receipt ของ task นั้น โดย **ไม่เรียก `prepare_scheduled_continuation` ซ้ำ**. ถ้า response ขาดกลางทาง การ claim ซ้ำจะคืน `successor_required` พร้อม successor เดิมแทนการสร้างซ้ำ; ถ้าผลนี้มี `scheduleRequest` (reservation ใหม่หรือ `create_failed` ที่ไม่มี native task ID และยืนยันความล้มเหลวแล้ว) ให้ใช้ request เดิม ส่วนเหตุผล `native_task_receipt_missing`, `native_task_creation_uncertain` หรือ `native_task_id_already_recorded` ต้อง reconcile exact host metadata/receipt ก่อนและห้ามสร้างซ้ำแบบเดาสุ่ม. `create_failed` ที่ค้างจน due ผ่านจะ refresh เป็น due ใหม่ +2 ได้ต่อเมื่อยืนยันว่า host ไม่ได้สร้าง task จริง. ถ้า metadata จาก ChatGPT host ยืนยันภายหลังว่า native one-time task ตัวเดิมรัน/ถูก consume ไปแล้ว แต่ durable continuation ยังเป็น pending/live เพราะ claim ไม่จบ ให้บันทึก `consumed` พร้อม exact native host run receipt; สถานะนี้แปลเพียงว่า task ไม่ได้รออยู่แล้ว ไม่ได้แปลว่า goal complete และถ้า goal ยัง active ให้สร้าง successor ใหม่หลัง reconcile. ทุก rolling-mode mutation ควรแนบ `goalLease` token/generation ของ run ปัจจุบัน; เมื่อ Full Bypass ปิด token รุ่นเก่าหรือ proof ที่หายจะถูกปฏิเสธแม้ ChatGPT reuse MCP session เดิม. Full Bypass เปิดอยู่จะข้ามการบังคับ `goalLease` ที่ registry แต่ไม่ได้โอน ownership ของ scheduled goal ดังนั้น workflow แบบ scheduled ยังต้อง claim/แนบ proof เพื่อกันงานชนกัน. ถ้าชน worker จริง, lease หมดอายุแต่มี `blocking_job` running หรือหลักฐาน liveness ยังไม่แน่นอน ผลลัพธ์ `reschedule_required` จะให้เลื่อน **nativeTaskId เดิมที่ยืนยันแล้ว** ไป `now+2 นาที`, คง task ไว้แบบ enabled และ record receipt ของการ reschedule; ห้ามสร้าง replacement task ตอน collision. ถ้า lease ค้างแต่ไม่มี worker จริง จะ takeover ได้หลัง trustworthy no-worker probe สองรอบห่างอย่างน้อย 120 วินาทีและ CAS evidence ไม่เปลี่ยน; unknown evidence ห้าม force-unlock.
 
 ถ้ามี handoff-risk signal ที่ระบบกำหนดไว้หรือ host turn ต้องจบทั้งที่ goal ยัง active ให้ `expedite_scheduled_continuation` ดึง **task เดิม** มา `now+2`. ระหว่างมี `trackedTasks` ให้ใช้ bounded wait เฉพาะ `blocking_job` จนอ่าน terminal result จริง ห้ามรายงานว่าเสร็จจากข้อความ log ระหว่างทาง. เมื่อ acceptance ครบ ให้ `finish_goal` และอ่าน `get_goal` ยืนยัน terminal ก่อนตอบผู้ใช้เสมอ แม้ผู้ใช้จะสั่งหยุดตั้งเวลาแล้วก็ตาม—คำสั่งนั้นยกเลิกเฉพาะ successor ไม่ได้ยกเลิกหน้าที่ปิด goal. จากนั้นลบ exact native task ที่ระบบระบุ, record `cancelled` พร้อม native host deletion receipt จาก task ID เดิม และอ่านสถานะกลับให้เป็น `cancelled` ก่อนรายงานสำเร็จ ถ้ายังไม่มีผลลบจริง ห้ามอ้างว่ายกเลิกแล้ว. ใช้เฉพาะ native ChatGPT Scheduled Tasks; ห้าม Windows Task Scheduler, `schtasks.exe`, OS cron, shell timer, recurrence, browser automation หรือ undocumented OpenAI API.
 
@@ -287,13 +290,13 @@ corepack pnpm@10.15.0 build
 corepack pnpm@10.15.0 package:windows
 ```
 
-`package:windows` จะดาวน์โหลด official OpenAI tunnel-client v0.0.12 สำหรับ **ขั้นตอน build Windows artifacts** เท่านั้น ตรวจ SHA-256 ที่ pin ไว้ แล้ว bundle binary เข้า Installer/Portable อัตโนมัติ End user ที่ใช้ release ไม่ต้องทำขั้นตอนนี้
+`package:windows` จะดาวน์โหลด official OpenAI tunnel-client v0.0.13 Windows x64 archive สำหรับ **ขั้นตอน build Windows artifacts** เท่านั้น ตรวจ SHA-256 ที่ pin ไว้แบบ fail-closed แล้วเก็บ payload ทางการทั้งชุด (`tunnel-client.exe`, `cloudflared.exe` v2026.8.2, manifest, LICENSE/NOTICE, license inventory และ SPDX SBOM) เข้า Installer/Portable อัตโนมัติ End user ที่ใช้ release ไม่ต้องทำขั้นตอนนี้
 
 ไฟล์ที่ได้จะอยู่ที่:
 
 ```text
-apps/desktop/dist/installers/lnwjud-Setup-4.44.0.exe
-apps/desktop/dist/installers/lnwjud-Portable-4.44.0.exe
+apps/desktop/dist/installers/lnwjud-Setup-4.45.0.exe
+apps/desktop/dist/installers/lnwjud-Portable-4.45.0.exe
 apps/desktop/dist/installers/latest.yml
 apps/desktop/dist/installers/portable.yml
 ```

@@ -365,9 +365,9 @@ export function UserConfigPanel({ locale, permissionProfile, stdioPermissionProf
 
       {section === 'tunnel' ? (
         <section className="panel settings-card settings-card-polished" aria-label="Persistent tunnel runtime">
-          <CardHeading icon="↻" title="Persistent Tunnel Runtime" subtitle={locale === 'th' ? 'รักษา Tunnel ID เดิมและเชื่อมต่อใหม่ต่อเนื่องจนกว่าจะปิดเอง' : 'Keep the same tunnel identity and reconnect continuously until disabled'} badge={draft.tunnelAutoReconnect ? 'ON' : 'OFF'} />
-          <SettingSwitch checked={draft.tunnelAutoReconnect} label="Persistent runtime" description={locale === 'th' ? 'เมื่อเปิด ระบบจะ retry ต่อเนื่องด้วย backoff สูงสุดประมาณ 60 วินาที โดยไม่หยุดถาวรหลังหลุดหลายครั้ง' : 'Transient failures keep retrying with capped backoff instead of permanently giving up after a fixed number of exits.'} onChange={(value) => patch({ tunnelAutoReconnect: value })} />
-          <p className="hint">{locale === 'th' ? 'ค่า Maximum rapid reconnect เดิมยังเก็บไว้เพื่อ compatibility กับ v4.10 แต่ v4.11 ไม่ใช้เป็นจำนวนครั้งสูงสุดอีกต่อไป' : 'The legacy rapid-reconnect value is retained for v4.10 compatibility, but v4.11 no longer treats it as a permanent retry limit.'}</p>
+          <CardHeading icon="↻" title="Persistent Tunnel Runtime" subtitle={locale === 'th' ? 'รักษา Tunnel ID เดิม และ reconnect อัตโนมัติเฉพาะตอนที่ผู้ใช้สั่งให้ Runtime ทำงาน' : 'Keep the same Tunnel ID and reconnect only while the runtime is intended to run'} badge={draft.tunnelAutoReconnect ? 'ON' : 'OFF'} />
+          <SettingSwitch checked={draft.tunnelAutoReconnect} label={locale === 'th' ? 'เชื่อมต่อใหม่อัตโนมัติ' : 'Automatic reconnect'} description={locale === 'th' ? 'เมื่อเปิด ระบบจะ retry ด้วย backoff หลังการหลุด แต่ถ้าผู้ใช้กด Stop จะคงสถานะหยุดแม้เปิดโปรแกรมใหม่ จนกว่าจะกด Start Tunnel อีกครั้ง' : 'When enabled, transient failures retry with backoff. An explicit Stop remains stopped across app restarts until Start Tunnel is pressed again.'} onChange={(value) => patch({ tunnelAutoReconnect: value })} />
+          <p className="hint">{locale === 'th' ? 'Persistent Tunnel Identity เก็บ Tunnel ID เดิมแยกจากสถานะ Run/Stop; การจำ identity ไม่ได้บังคับให้ runtime ต้องเปิดตลอด' : 'Persistent Tunnel Identity is separate from Run/Stop state; remembering the identity does not force the runtime to stay running.'}</p>
         </section>
       ) : null}
 

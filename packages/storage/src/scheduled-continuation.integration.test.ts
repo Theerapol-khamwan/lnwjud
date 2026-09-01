@@ -1,4 +1,5 @@
 import { mkdtemp, rm } from 'node:fs/promises';
+import { createHash } from 'node:crypto';
 import { DatabaseSync } from 'node:sqlite';
 import os from 'node:os';
 import path from 'node:path';
@@ -108,6 +109,21 @@ function prepareRequest(
     executionPreference: 'cloud' as const,
     requestFingerprint,
     now,
+  };
+}
+
+function claimSuccessorFields(continuationId: string, dueAt: string): {
+  readonly claimSuccessorId: string;
+  readonly claimSuccessorDueAt: string;
+  readonly claimSuccessorRequestFingerprint: string;
+} {
+  const fingerprint = createHash('sha256')
+    .update(`claimed-successor-v1\0${continuationId}`)
+    .digest('hex');
+  return {
+    claimSuccessorId: `wake-${fingerprint.slice(0, 48)}`,
+    claimSuccessorDueAt: dueAt,
+    claimSuccessorRequestFingerprint: fingerprint,
   };
 }
 
@@ -509,9 +525,10 @@ describe('scheduled continuation repository state machine', () => {
       expect(continuedA.leaseExpiresAt).toBe('2026-08-27T00:22:00.000Z');
       expect(continuedA.revision).toBe(2);
 
+      const runBSuccessor = claimSuccessorFields('continuation-b', '2026-08-27T00:24:00.000Z');
       const runB = await repository.claimScheduledContinuation({
         continuationId: 'continuation-b',
-        recoveryContinuationId: 'continuation-b-recovery-unused',
+        ...runBSuccessor,
         ownerClientId: 'chatgpt-web-client',
         ownerSessionId: 'session-b',
         leaseTokenHash: 'lease-hash-b',
@@ -519,30 +536,23 @@ describe('scheduled continuation repository state machine', () => {
         now: '2026-08-27T00:22:00.000Z',
       });
       expect(runB.outcome).toBe('acquired');
+      if (runB.outcome !== 'acquired') throw new Error('run B did not acquire');
       expect(runB.goal.leaseTokenHash).toBe('lease-hash-b');
-
-      const preparedC = await repository.prepareScheduledContinuation(prepareRequest(
-        '2026-08-27T00:42:00.000Z',
-        '2026-08-27T00:44:00.000Z',
-        2,
-        'fp-c',
-        'continuation-c',
-        'lease-hash-b',
-        'session-b',
-      ));
-      expect(preparedC.continuation.generation).toBe(2);
-      expect(preparedC.continuation.dueAt).toBe('2026-08-27T00:44:00.000Z');
-      expect(preparedC.goal.leaseExpiresAt).toBe('2026-08-27T00:44:00.000Z');
+      const preparedC = runB.successor;
+      expect(preparedC.generation).toBe(2);
+      expect(preparedC.continuationId).toBe(runBSuccessor.claimSuccessorId);
+      expect(preparedC.dueAt).toBe('2026-08-27T00:24:00.000Z');
+      expect(runB.goal.leaseExpiresAt).toBe('2026-08-27T00:24:00.000Z');
 
       const scheduledC = await repository.recordScheduledContinuationReceipt({
-        continuationId: preparedC.continuation.continuationId,
+        continuationId: preparedC.continuationId,
         ownerClientId: 'chatgpt-web-client',
-        expectedVersion: preparedC.continuation.version,
+        expectedVersion: preparedC.version,
         outcome: 'created',
         nativeTaskId: 'native-task-c',
-        dueAt: preparedC.continuation.dueAt,
+        dueAt: preparedC.dueAt,
         runsOn: 'cloud',
-        now: '2026-08-27T00:42:05.000Z',
+        now: '2026-08-27T00:22:05.000Z',
       });
       expect(scheduledC.status).toBe('scheduled');
 
@@ -552,13 +562,13 @@ describe('scheduled continuation repository state machine', () => {
         ownerClientId: 'chatgpt-web-client',
         ownerSessionId: 'session-b',
         leaseTokenHash: 'lease-hash-b',
-        expectedRevision: preparedC.goal.revision,
+        expectedRevision: runB.goal.revision,
         status: 'completed',
         summary: 'Run B completed before successor C fired.',
         evidence: [],
-        now: '2026-08-27T00:43:00.000Z',
+        now: '2026-08-27T00:23:00.000Z',
       });
-      const cancellation = await repository.markGoalFinishedForScheduledContinuation('goal-1', '2026-08-27T00:43:00.000Z');
+      const cancellation = await repository.markGoalFinishedForScheduledContinuation('goal-1', '2026-08-27T00:23:00.000Z');
       expect(cancellation.continuation).toMatchObject({ status: 'cancel_required', nativeTaskId: 'native-task-c' });
       if (cancellation.continuation === null) throw new Error('missing cancellation continuation');
 
@@ -569,7 +579,7 @@ describe('scheduled continuation repository state machine', () => {
         outcome: 'cancelled',
         nativeTaskId: 'native-task-c',
         runsOn: 'cloud',
-        now: '2026-08-27T00:43:04.000Z',
+        now: '2026-08-27T00:23:04.000Z',
       })).rejects.toThrow('Cancelled receipt requires matching native host deletion evidence');
 
       const cancelledC = await repository.recordScheduledContinuationReceipt({
@@ -584,21 +594,21 @@ describe('scheduled continuation repository state machine', () => {
           operation: 'delete',
           nativeTaskId: 'native-task-c',
           state: 'deleted',
-          observedAt: '2026-08-27T00:43:05.000Z',
+          observedAt: '2026-08-27T00:23:05.000Z',
         },
-        now: '2026-08-27T00:43:05.000Z',
+        now: '2026-08-27T00:23:05.000Z',
       });
       expect(cancelledC.status).toBe('cancelled');
       expect(await repository.getLiveScheduledContinuation('goal-1')).toBeNull();
 
       const lateWake = await repository.claimScheduledContinuation({
-        continuationId: preparedC.continuation.continuationId,
-        recoveryContinuationId: 'continuation-c-late-recovery-unused',
+        continuationId: preparedC.continuationId,
+        ...claimSuccessorFields(preparedC.continuationId, '2026-08-27T00:26:00.000Z'),
         ownerClientId: 'chatgpt-web-client',
         ownerSessionId: 'session-c',
         leaseTokenHash: 'lease-hash-c',
         leaseSeconds: 600,
-        now: '2026-08-27T00:44:00.000Z',
+        now: '2026-08-27T00:24:00.000Z',
       });
       expect(lateWake.outcome).toBe('terminal_noop');
     } finally {
@@ -703,20 +713,35 @@ describe('scheduled continuation repository state machine', () => {
         now: '2026-08-27T00:21:50.000Z',
       });
 
+      const claimedSuccessor = claimSuccessorFields('continuation-claim', '2026-08-27T00:24:00.000Z');
       const winner = await repository.claimScheduledContinuation({
         continuationId: 'continuation-claim',
-        recoveryContinuationId: 'continuation-claim-recovery-winner',
+        ...claimedSuccessor,
         ownerClientId: 'chatgpt-web-client',
         ownerSessionId: 'session-b',
         leaseTokenHash: 'lease-hash-b',
         leaseSeconds: 600,
         now: '2026-08-27T00:22:00.000Z',
       });
-      expect(winner.outcome).toBe('acquired');
+      expect(winner).toMatchObject({
+        outcome: 'acquired',
+        continuation: { continuationId: 'continuation-claim', status: 'claimed' },
+        successor: {
+          continuationId: claimedSuccessor.claimSuccessorId,
+          generation: 2,
+          status: 'prepared',
+          dueAt: '2026-08-27T00:24:00.000Z',
+        },
+      });
+      await expect(repository.getLiveScheduledContinuation('goal-1')).resolves.toMatchObject({
+        continuationId: claimedSuccessor.claimSuccessorId,
+        generation: 2,
+        status: 'prepared',
+      });
 
       const loser = await repository.claimScheduledContinuation({
         continuationId: 'continuation-claim',
-        recoveryContinuationId: 'continuation-claim-recovery-loser',
+        ...claimedSuccessor,
         ownerClientId: 'chatgpt-web-client',
         ownerSessionId: 'session-c',
         leaseTokenHash: 'lease-hash-c',
@@ -724,21 +749,182 @@ describe('scheduled continuation repository state machine', () => {
         now: '2026-08-27T00:22:00.000Z',
       });
       expect(loser).toMatchObject({
-        outcome: 'already_claimed',
+        outcome: 'successor_required',
         continuation: { continuationId: 'continuation-claim', status: 'claimed' },
+        successor: { continuationId: claimedSuccessor.claimSuccessorId, status: 'prepared' },
       });
       expect(loser.goal.leaseTokenHash).toBe('lease-hash-b');
       const repeated = await repository.claimScheduledContinuation({
         continuationId: 'continuation-claim',
-        recoveryContinuationId: 'continuation-claim-recovery-third',
+        ...claimedSuccessor,
         ownerClientId: 'chatgpt-web-client',
         ownerSessionId: 'session-d',
         leaseTokenHash: 'lease-hash-d',
         leaseSeconds: 600,
         now: '2026-08-27T00:22:04.000Z',
       });
-      expect(repeated.outcome).toBe('already_claimed');
+      expect(repeated).toMatchObject({
+        outcome: 'successor_required',
+        successor: { continuationId: claimedSuccessor.claimSuccessorId, status: 'prepared' },
+      });
       expect(repeated.goal.leaseTokenHash).toBe('lease-hash-b');
+    } finally {
+      database.close();
+    }
+  });
+
+  it('repairs a legacy claimed row after its valid owner released the lease', async () => {
+    const database = await openDatabase();
+    const repository = new SqliteGoalRepository(database);
+    try {
+      await acquireGoalLease(repository, '2026-08-27T00:00:00.000Z');
+      const prepared = await repository.prepareScheduledContinuation(prepareRequest(
+        '2026-08-27T00:20:00.000Z',
+        '2026-08-27T00:22:00.000Z',
+        0,
+        'legacy-repair-fingerprint',
+        'continuation-legacy-repair',
+      ));
+      await repository.recordScheduledContinuationReceipt({
+        continuationId: prepared.continuation.continuationId,
+        ownerClientId: 'chatgpt-web-client',
+        expectedVersion: prepared.continuation.version,
+        outcome: 'created',
+        nativeTaskId: 'native-task-legacy-repair',
+        dueAt: prepared.continuation.dueAt,
+        runsOn: 'cloud',
+        now: '2026-08-27T00:20:05.000Z',
+      });
+      await repository.checkpoint({
+        checkpointId: 'release-before-legacy-claim',
+        goalId: 'goal-1',
+        ownerClientId: 'chatgpt-web-client',
+        ownerSessionId: 'session-a',
+        leaseTokenHash: 'lease-hash-a',
+        expectedRevision: prepared.goal.revision,
+        plan: { steps: [] },
+        currentPhase: 'handoff',
+        summary: 'Release before the scheduled wake.',
+        stepUpdates: [],
+        nextAction: 'The scheduled wake claims the goal.',
+        blockers: [],
+        evidence: [],
+        activeTaskIds: [],
+        releaseLease: true,
+        now: '2026-08-27T00:21:50.000Z',
+      });
+
+      const acquired = await repository.claimScheduledContinuation({
+        continuationId: prepared.continuation.continuationId,
+        ...claimSuccessorFields(prepared.continuation.continuationId, '2026-08-27T00:24:00.000Z'),
+        ownerClientId: 'chatgpt-web-client',
+        ownerSessionId: 'session-b',
+        leaseTokenHash: 'lease-hash-b',
+        leaseSeconds: 600,
+        now: '2026-08-27T00:22:00.000Z',
+      });
+      expect(acquired.outcome).toBe('acquired');
+      if (acquired.outcome !== 'acquired') throw new Error('scheduled wake did not acquire');
+      const released = await repository.checkpoint({
+        checkpointId: 'release-after-interrupted-claim',
+        goalId: 'goal-1',
+        ownerClientId: 'chatgpt-web-client',
+        ownerSessionId: 'session-b',
+        leaseTokenHash: 'lease-hash-b',
+        expectedRevision: acquired.goal.revision,
+        plan: { steps: [] },
+        currentPhase: 'interrupted',
+        summary: 'Simulate a valid worker release after a legacy claim response was interrupted.',
+        stepUpdates: [],
+        nextAction: 'Repair the missing successor from a repeated claim.',
+        blockers: [],
+        evidence: [],
+        activeTaskIds: [],
+        releaseLease: true,
+        now: '2026-08-27T00:22:20.000Z',
+      });
+      database.connection.prepare('DELETE FROM goal_scheduled_continuations WHERE id = ?')
+        .run(acquired.successor.continuationId);
+
+      const repaired = await repository.claimScheduledContinuation({
+        continuationId: prepared.continuation.continuationId,
+        ...claimSuccessorFields(prepared.continuation.continuationId, '2026-08-27T00:24:30.000Z'),
+        ownerClientId: 'chatgpt-web-client',
+        ownerSessionId: 'session-c',
+        leaseTokenHash: 'lease-hash-c',
+        leaseSeconds: 600,
+        now: '2026-08-27T00:22:30.000Z',
+      });
+      expect(repaired).toMatchObject({
+        outcome: 'successor_required',
+        successor: {
+          generation: acquired.continuation.generation + 1,
+          sourceGoalRevision: released.revision,
+          status: 'prepared',
+          dueAt: '2026-08-27T00:24:30.000Z',
+        },
+      });
+      expect(repaired.goal.leaseExpiresAt).toBeUndefined();
+    } finally {
+      database.close();
+    }
+  });
+
+  it.each([
+    ['identity', { claimSuccessorId: 'arbitrary-successor-id' }],
+    ['due time', { claimSuccessorDueAt: '2026-08-27T00:25:00.000Z' }],
+    ['fingerprint', { claimSuccessorRequestFingerprint: 'arbitrary-successor-fingerprint' }],
+  ])('rejects a claimed successor with a non-deterministic %s', async (_field, override) => {
+    const database = await openDatabase();
+    const repository = new SqliteGoalRepository(database);
+    try {
+      await acquireGoalLease(repository, '2026-08-27T00:00:00.000Z');
+      const prepared = await repository.prepareScheduledContinuation(prepareRequest(
+        '2026-08-27T00:20:00.000Z',
+        '2026-08-27T00:22:00.000Z',
+        0,
+        'deterministic-claim-fingerprint',
+        'continuation-deterministic',
+      ));
+      await repository.recordScheduledContinuationReceipt({
+        continuationId: prepared.continuation.continuationId,
+        ownerClientId: 'chatgpt-web-client',
+        expectedVersion: prepared.continuation.version,
+        outcome: 'created',
+        nativeTaskId: 'native-task-deterministic',
+        dueAt: prepared.continuation.dueAt,
+        runsOn: 'cloud',
+        now: '2026-08-27T00:20:05.000Z',
+      });
+      await repository.checkpoint({
+        checkpointId: `release-before-deterministic-${_field}`,
+        goalId: 'goal-1',
+        ownerClientId: 'chatgpt-web-client',
+        ownerSessionId: 'session-a',
+        leaseTokenHash: 'lease-hash-a',
+        expectedRevision: prepared.goal.revision,
+        plan: { steps: [] },
+        currentPhase: 'handoff',
+        summary: 'Release before checking the deterministic claim contract.',
+        stepUpdates: [],
+        nextAction: 'Reject a divergent successor request.',
+        blockers: [],
+        evidence: [],
+        activeTaskIds: [],
+        releaseLease: true,
+        now: '2026-08-27T00:21:50.000Z',
+      });
+
+      await expect(repository.claimScheduledContinuation({
+        continuationId: prepared.continuation.continuationId,
+        ...claimSuccessorFields(prepared.continuation.continuationId, '2026-08-27T00:24:00.000Z'),
+        ...override,
+        ownerClientId: 'chatgpt-web-client',
+        ownerSessionId: 'session-b',
+        leaseTokenHash: 'lease-hash-b',
+        leaseSeconds: 600,
+        now: '2026-08-27T00:22:00.000Z',
+      })).rejects.toMatchObject({ reason: 'conflict' });
     } finally {
       database.close();
     }
@@ -829,6 +1015,7 @@ describe('scheduled continuation repository state machine', () => {
       if (goal === null) throw new Error('goal missing');
       const result = await repository.claimScheduledContinuation({
         continuationId: prepared.continuation.continuationId,
+        ...claimSuccessorFields(prepared.continuation.continuationId, '2026-08-27T00:24:00.000Z'),
         ownerClientId: 'chatgpt-web-client',
         ownerSessionId: 'session-b',
         leaseTokenHash: 'lease-hash-b',
@@ -893,6 +1080,7 @@ describe('scheduled continuation repository state machine', () => {
 
       const collision = await repository.claimScheduledContinuation({
         continuationId: 'continuation-busy-original',
+        ...claimSuccessorFields('continuation-busy-original', '2026-08-27T00:24:00.000Z'),
         ownerClientId: 'chatgpt-web-client',
         ownerSessionId: 'session-b',
         leaseTokenHash: 'lease-hash-b',
@@ -923,6 +1111,7 @@ describe('scheduled continuation repository state machine', () => {
 
       const repeated = await repository.claimScheduledContinuation({
         continuationId: 'continuation-busy-original',
+        ...claimSuccessorFields('continuation-busy-original', '2026-08-27T00:24:30.000Z'),
         ownerClientId: 'chatgpt-web-client',
         ownerSessionId: 'session-c',
         leaseTokenHash: 'lease-hash-c',
@@ -974,6 +1163,7 @@ describe('scheduled continuation repository state machine', () => {
 
       const blocked = await repository.claimScheduledContinuation({
         continuationId: 'continuation-busy-uncertain',
+        ...claimSuccessorFields('continuation-busy-uncertain', '2026-08-27T00:24:00.000Z'),
         ownerClientId: 'chatgpt-web-client',
         ownerSessionId: 'session-b',
         leaseTokenHash: 'lease-hash-b',
@@ -1039,6 +1229,7 @@ describe('scheduled continuation repository state machine', () => {
       if (goal === null) throw new Error('goal missing');
       const result = await repository.claimScheduledContinuation({
         continuationId: prepared.continuation.continuationId,
+        ...claimSuccessorFields(prepared.continuation.continuationId, '2026-08-27T00:24:00.000Z'),
         ownerClientId: 'chatgpt-web-client',
         ownerSessionId: 'session-b',
         leaseTokenHash: 'lease-hash-b',
@@ -1104,6 +1295,7 @@ describe('scheduled continuation repository state machine', () => {
 
       const firstProbe = await repository.claimScheduledContinuation({
         continuationId: prepared.continuation.continuationId,
+        ...claimSuccessorFields(prepared.continuation.continuationId, '2026-08-27T00:24:00.000Z'),
         ownerClientId: 'chatgpt-web-client',
         ownerSessionId: 'session-a',
         leaseTokenHash: 'lease-hash-b',
@@ -1139,6 +1331,7 @@ describe('scheduled continuation repository state machine', () => {
 
       const recovered = await repository.claimScheduledContinuation({
         continuationId: firstProbe.continuation.continuationId,
+        ...claimSuccessorFields(firstProbe.continuation.continuationId, '2026-08-27T00:26:00.000Z'),
         ownerClientId: 'chatgpt-web-client',
         ownerSessionId: 'session-a',
         leaseTokenHash: 'lease-hash-b',
@@ -1147,26 +1340,19 @@ describe('scheduled continuation repository state machine', () => {
         now: '2026-08-27T00:24:00.000Z',
       });
       expect(recovered).toMatchObject({ outcome: 'acquired', acquisition: 'orphan_recovered' });
+      if (recovered.outcome !== 'acquired') throw new Error('orphan was not recovered');
       expect(recovered.goal.leaseGeneration).toBe(predecessor.leaseGeneration + 1);
       expect(recovered.goal.leaseTokenHash).toBe('lease-hash-b');
 
-      const successor = await repository.prepareScheduledContinuation(prepareRequest(
-        '2026-08-27T00:24:01.000Z',
-        '2026-08-27T00:49:01.000Z',
-        recovered.goal.revision,
-        'orphan-successor-fp',
-        'continuation-after-orphan',
-        'lease-hash-b',
-        'session-a',
-      ));
-      expect(successor.continuation.generation).toBe(2);
+      const successor = recovered.successor;
+      expect(successor.generation).toBe(2);
       await repository.recordScheduledContinuationReceipt({
-        continuationId: successor.continuation.continuationId,
+        continuationId: successor.continuationId,
         ownerClientId: 'chatgpt-web-client',
-        expectedVersion: successor.continuation.version,
+        expectedVersion: successor.version,
         outcome: 'created',
         nativeTaskId: 'native-task-after-orphan',
-        dueAt: successor.continuation.dueAt,
+        dueAt: successor.dueAt,
         runsOn: 'cloud',
         now: '2026-08-27T00:24:01.500Z',
       });
@@ -1228,6 +1414,7 @@ describe('scheduled continuation repository state machine', () => {
 
       const firstProbe = await repository.claimScheduledContinuation({
         continuationId: prepared.continuation.continuationId,
+        ...claimSuccessorFields(prepared.continuation.continuationId, '2026-08-27T00:24:00.000Z'),
         ownerClientId: 'chatgpt-web-client',
         ownerSessionId: 'session-b',
         leaseTokenHash: 'lease-hash-b',
@@ -1290,6 +1477,7 @@ describe('scheduled continuation repository state machine', () => {
 
       const secondProbe = await repository.claimScheduledContinuation({
         continuationId: firstProbe.continuation.continuationId,
+        ...claimSuccessorFields(firstProbe.continuation.continuationId, '2026-08-27T00:26:00.000Z'),
         ownerClientId: 'chatgpt-web-client',
         ownerSessionId: 'session-b',
         leaseTokenHash: 'lease-hash-b',
@@ -1414,7 +1602,7 @@ describe('scheduled continuation repository state machine', () => {
 
       const claim = await repository.claimScheduledContinuation({
         continuationId: 'continuation-terminal',
-        recoveryContinuationId: 'continuation-terminal-recovery-unused',
+        ...claimSuccessorFields('continuation-terminal', '2026-08-27T00:24:00.000Z'),
         ownerClientId: 'chatgpt-web-client',
         ownerSessionId: 'session-b',
         leaseTokenHash: 'lease-hash-b',

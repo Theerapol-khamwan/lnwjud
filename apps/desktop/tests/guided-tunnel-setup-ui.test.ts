@@ -139,7 +139,7 @@ describe('guided tunnel onboarding UI', () => {
         lastReconnectAt: null,
         nextReconnectAt: null,
         lastErrorCode: 'TUNNEL_ID_MISMATCH',
-        clientVersion: '0.0.12',
+        clientVersion: '0.0.13',
         localMcpUrl: 'http://127.0.0.1:18765/mcp',
         uiUrl: null,
         readyBeforeRetire: false,

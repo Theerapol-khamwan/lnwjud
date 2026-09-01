@@ -65,6 +65,10 @@ export interface TunnelControllerOptions {
   readonly maxAutoRestarts?: () => number;
   readonly getTunnelId?: () => string | null;
   readonly setTunnelId?: (value: string) => void;
+  readonly getRuntimeDesiredState?: () => 'running' | 'stopped' | null;
+  readonly setRuntimeDesiredState?: (value: 'running' | 'stopped') => void;
+  readonly getRuntimeOwnerPath?: () => string | null;
+  readonly setRuntimeOwnerPath?: (value: string) => void;
   readonly createRuntimeAdapter?: (options: TunnelRuntimeAdapterOptions) => TunnelRuntimeReconcilerAdapter;
 }
 
@@ -113,10 +117,9 @@ export class TunnelController {
 
   public resolveClientPath(): string | null {
     const configured = this.options.getClientPath();
-    if (configured !== null && configured.trim().length > 0 && existsSync(configured)) return configured;
+    if (configured !== null && configured.trim().length > 0) return configured;
     const bundled = this.options.getBundledClientPath?.() ?? null;
-    if (bundled !== null && bundled.trim().length > 0 && existsSync(bundled)) return bundled;
-    return configured ?? bundled;
+    return bundled;
   }
 
   public async hasApiKey(): Promise<boolean> {
@@ -183,6 +186,53 @@ export class TunnelController {
     this.runtimeConfigurationDirty = true;
     if (this.runtimeMode === 'native-managed') this.disposeRuntimeSupervisor();
     return resolved;
+  }
+
+  /**
+   * Switch the selected tunnel-client without ever running two owners at once.
+   * The currently active runtime is stopped and verified through its recorded
+   * owner executable before the new selection is committed.
+   */
+  public async replaceClientPath(clientPath: string): Promise<string> {
+    const trimmed = clientPath.trim();
+    const next = trimmed.length === 0 ? '' : path.resolve(trimmed);
+    if (next.length > 0 && !existsSync(next)) throw new Error('tunnel-client.exe was not found');
+
+    const currentRaw = this.options.getClientPath()?.trim() ?? '';
+    const current = currentRaw.length === 0 ? '' : path.resolve(currentRaw);
+    if (current.toLowerCase() === next.toLowerCase()) return next;
+
+    const desiredState = this.runtimeDesiredState();
+    const status = await this.status();
+    const runtimeActive = status.state === 'running'
+      || status.state === 'starting'
+      || status.persistent?.runtimeAliasActive === true
+      || this.runtimeOwnerPath() !== null;
+    if (runtimeActive) {
+      const stopped = await this.requestStop();
+      if (
+        stopped.state === 'running'
+        || stopped.state === 'starting'
+        || stopped.persistent?.runtimeAliasActive === true
+      ) {
+        throw new Error('Could not positively verify the Persistent Tunnel Runtime stopped; client path was not changed');
+      }
+      if (
+        this.runtimeOwnerPath() !== null
+        || (this.child !== null && this.child.exitCode === null)
+        || this.tunnelLock !== null
+      ) {
+        throw new Error(
+          `Could not positively verify the recorded Persistent Tunnel Runtime stopped; client path was not changed `
+          + `(owner=${this.runtimeOwnerPath() ?? 'none'}, child=${this.child?.pid ?? 'none'}, lock=${this.tunnelLock === null ? 'none' : 'held'})`,
+        );
+      }
+    }
+
+    this.options.setClientPath(next);
+    this.runtimeConfigurationDirty = true;
+    this.intentionalStop = desiredState === 'stopped';
+    return next;
   }
 
   public async status(): Promise<TunnelStatus> {
@@ -302,12 +352,26 @@ export class TunnelController {
     }
   }
 
-  public startAutomatically(): Promise<TunnelStatus> {
+  public async reconcileStoppedRuntime(): Promise<TunnelStatus | null> {
+    if (this.runtimeDesiredState() !== 'stopped') return null;
+    const status = await this.status();
+    const survivingRuntime = status.state === 'running'
+      || status.state === 'starting'
+      || status.persistent?.runtimeAliasActive === true
+      || this.runtimeOwnerPath() !== null;
+    if (survivingRuntime) return this.requestStop();
+    return status;
+  }
+
+  public async startAutomatically(): Promise<TunnelStatus> {
+    const stopped = await this.reconcileStoppedRuntime();
+    if (stopped !== null) return stopped;
     if (this.intentionalStop) return this.status();
     return this.startWithIntent(false);
   }
 
   public start(): Promise<TunnelStatus> {
+    this.options.setRuntimeDesiredState?.('running');
     return this.startWithIntent(true);
   }
 
@@ -407,6 +471,7 @@ export class TunnelController {
   }
 
   public stop(): Promise<TunnelStatus> {
+    this.options.setRuntimeDesiredState?.('stopped');
     return this.requestStop();
   }
 
@@ -434,6 +499,7 @@ export class TunnelController {
         throw new Error(result.snapshot.message ?? 'Tunnel runtime did not stop');
       }
       this.disposeRuntimeSupervisor();
+      this.options.setRuntimeOwnerPath?.('');
       this.state = 'stopped';
       this.message = null;
       this.lastApiKey = null;
@@ -442,9 +508,13 @@ export class TunnelController {
       this.invalidateExternalProbeCache();
       return this.status();
     }
-    await this.stopPersistedNativeRuntimeIfOwned();
     await this.killOwnedChild();
+    // A profile-child is the positively owned runtime even when the selected
+    // client cannot expose native runtime controls. Stop that child first so
+    // the persisted-owner reconciliation can safely prove no survivor remains.
+    await this.stopPersistedNativeRuntimeIfOwned();
     await this.releaseTunnelLock();
+    this.options.setRuntimeOwnerPath?.('');
     this.state = 'stopped';
     this.message = null;
     this.lastApiKey = null;
@@ -471,6 +541,7 @@ export class TunnelController {
     }
     await this.killOwnedChild();
     await this.releaseTunnelLock();
+    this.options.setRuntimeOwnerPath?.('');
     this.runtimeMode = null;
   }
 
@@ -650,6 +721,7 @@ export class TunnelController {
       },
     );
     this.child = child;
+    this.options.setRuntimeOwnerPath?.(path.resolve(clientPath));
     this.ownedChildStartedAt = null;
     if (Number.isInteger(child.pid) && (child.pid ?? 0) > 0) {
       const childPid = child.pid as number;
@@ -659,6 +731,7 @@ export class TunnelController {
     }
     child.on('error', (error) => {
       if (this.child === child) { this.child = null; this.ownedChildStartedAt = null; }
+      this.options.setRuntimeOwnerPath?.('');
       this.state = 'error';
       this.message = error.message;
       this.scheduleRestart(clientPath);
@@ -666,6 +739,9 @@ export class TunnelController {
     child.on('exit', (code) => {
       if (this.child === child) { this.child = null; this.ownedChildStartedAt = null; }
       if (this.intentionalStop) {
+        // Keep the durable owner until stopOnce has reconciled native state
+        // and forced an external-liveness check. Clearing it here would let a
+        // surviving descendant/external runtime be orphaned during a switch.
         this.state = 'stopped';
         this.message = null;
         return;
@@ -684,7 +760,10 @@ export class TunnelController {
       this.restartAttempts = 0;
     }
     this.restartAttempts += 1;
-    if (!this.autoReconnectEnabled()) return;
+    if (!this.autoReconnectEnabled() || this.runtimeDesiredState() === 'stopped') {
+      this.options.setRuntimeOwnerPath?.('');
+      return;
+    }
     const rapidThreshold = this.maxAutoRestarts();
     if (rapidThreshold > 0 && this.restartAttempts > rapidThreshold) {
       this.message = `${this.message} — reconnect continues with capped backoff after ${rapidThreshold} rapid exits`;
@@ -703,7 +782,7 @@ export class TunnelController {
   }
 
   private scheduleRestart(clientPath: string): void {
-    if (this.intentionalStop || !this.autoReconnectEnabled()) return;
+    if (this.intentionalStop || this.runtimeDesiredState() === 'stopped' || !this.autoReconnectEnabled()) return;
     this.clearRestartTimer();
     const delay = Math.min(RESTART_DELAY_MS * (2 ** Math.max(0, this.restartAttempts - 1)), 30_000);
     this.restartTimer = setTimeout(() => {
@@ -719,6 +798,15 @@ export class TunnelController {
         })
         .catch(() => undefined);
     }, delay);
+  }
+
+  private runtimeDesiredState(): 'running' | 'stopped' {
+    return this.options.getRuntimeDesiredState?.() === 'stopped' ? 'stopped' : 'running';
+  }
+
+  private runtimeOwnerPath(): string | null {
+    const value = this.options.getRuntimeOwnerPath?.()?.trim() ?? '';
+    return value.length === 0 ? null : path.resolve(value);
   }
 
   private autoReconnectEnabled(): boolean {
@@ -756,30 +844,70 @@ export class TunnelController {
   public async stopPersistedNativeRuntimeIfOwned(): Promise<boolean> {
     const storedTunnelIdRaw = this.options.getTunnelId?.()?.trim() ?? '';
     const storedTunnelId = /^tunnel_[A-Za-z0-9_-]{8,128}$/.test(storedTunnelIdRaw) ? storedTunnelIdRaw : null;
-    const clientPath = this.resolveClientPath();
+    const recordedOwner = this.runtimeOwnerPath();
+    if (recordedOwner !== null && !existsSync(recordedOwner)) {
+      throw new Error(`Recorded Persistent Tunnel Runtime owner is missing: ${recordedOwner}. Refusing to stop it through a different tunnel-client.`);
+    }
+    const clientPath = recordedOwner ?? this.resolveClientPath();
     if (clientPath === null || !existsSync(clientPath)) return false;
 
     const adapter = this.createRuntimeAdapter(clientPath, '');
-    if (storedTunnelId === null && adapter.runtimeAlias() !== TUNNEL_RUNTIME_ALIAS) return false;
+    if (storedTunnelId === null && adapter.runtimeAlias() !== TUNNEL_RUNTIME_ALIAS) {
+      if (recordedOwner !== null) {
+        return this.clearRecordedRuntimeOwnerOnlyWhenExternalGone('its dedicated lnwjud alias is unavailable');
+      }
+      return false;
+    }
     let capabilities;
     try {
       capabilities = await adapter.capabilities();
-    } catch {
+    } catch (error: unknown) {
+      const detail = error instanceof Error ? error.message : 'capability probe failed';
+      throw new Error(`Could not verify the recorded Persistent Tunnel Runtime owner through ${clientPath}: ${detail}`);
+    }
+    if (!capabilities.nativeRuntimes) {
+      if (recordedOwner !== null) {
+        return this.clearRecordedRuntimeOwnerOnlyWhenExternalGone('its owner does not expose native runtime control');
+      }
       return false;
     }
-    if (!capabilities.nativeRuntimes) return false;
 
     let nativeStatus;
     try {
       nativeStatus = await adapter.status();
-    } catch {
+    } catch (error: unknown) {
+      const detail = error instanceof Error ? error.message : 'status probe failed';
+      throw new Error(`Could not verify the recorded Persistent Tunnel Runtime owner through ${clientPath}: ${detail}`);
+    }
+    if (!nativeStatus.exists) {
+      if (recordedOwner !== null) {
+        return this.clearRecordedRuntimeOwnerOnlyWhenExternalGone('the recorded owner reports that the lnwjud alias is absent');
+      }
       return false;
     }
-    if (!nativeStatus.exists) return false;
     if (storedTunnelId !== null && nativeStatus.tunnelId !== null && nativeStatus.tunnelId !== storedTunnelId) {
       throw new Error('Persistent tunnel alias lnwjud belongs to a different Tunnel ID; refusing to stop it automatically');
     }
-    if (nativeStatus.running) await adapter.stop();
+    if (nativeStatus.running) {
+      const stopped = await adapter.stop();
+      if (stopped.exists && stopped.running) {
+        throw new Error('Could not positively verify the recorded Persistent Tunnel Runtime stopped');
+      }
+    }
+    if (recordedOwner !== null) {
+      return this.clearRecordedRuntimeOwnerOnlyWhenExternalGone('the recorded owner reports that the lnwjud alias is stopped');
+    }
+    this.options.setRuntimeOwnerPath?.('');
+    this.invalidateExternalProbeCache();
+    return true;
+  }
+
+  private async clearRecordedRuntimeOwnerOnlyWhenExternalGone(reason: string): Promise<boolean> {
+    const externalProbe = await this.probeExternalRunning(true);
+    if (externalProbe !== 'gone') {
+      throw new Error(`Could not positively verify the recorded Persistent Tunnel Runtime stopped: ${reason}; external liveness is ${externalProbe}`);
+    }
+    this.options.setRuntimeOwnerPath?.('');
     this.invalidateExternalProbeCache();
     return true;
   }
@@ -891,6 +1019,7 @@ export class TunnelController {
       this.disposeRuntimeSupervisor();
       return null;
     }
+    this.options.setRuntimeOwnerPath?.(path.resolve(clientPath));
     this.runtimeSnapshot = supervisor.snapshot() ?? result.snapshot;
     this.applyRuntimeSnapshot(this.runtimeSnapshot);
     if (this.runtimeSnapshot.state === 'running' && (allowPersistentConfigurationReplacement || !this.runtimeConfigurationDirty)) {

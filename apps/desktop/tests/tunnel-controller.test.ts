@@ -47,6 +47,107 @@ describe('TunnelController lifecycle', () => {
     expect(await readTunnelLock(fixture.profileDir)).toBeNull();
   });
 
+  it('kills an owned profile child before reconciling a recorded owner with no native runtime support', async () => {
+    const dataPath = await mkdtemp(path.join(os.tmpdir(), 'lnwjud-tunnel-profile-child-stop-order-'));
+    temporaryRoots.push(dataPath);
+    vi.stubEnv('APPDATA', path.join(dataPath, 'appdata'));
+    const ownerClient = path.join(dataPath, 'owner-tunnel-client.exe');
+    await writeFile(ownerClient, 'owner', 'utf8');
+    let ownerPath = ownerClient;
+    let externalLive = true;
+    const child = new EventEmitter() as FakeChild;
+    child.exitCode = null;
+    child.pid = 7124;
+    child.kill = vi.fn(() => {
+      externalLive = false;
+      child.exitCode = 0;
+      child.emit('exit', 0);
+      return true;
+    });
+    const controller = new TunnelController({
+      getClientPath: (): string => ownerClient,
+      setClientPath: (): void => undefined,
+      getDataPath: (): string => dataPath,
+      getTunnelId: (): string => 'tunnel_fixture012345',
+      getRuntimeOwnerPath: (): string => ownerPath,
+      setRuntimeOwnerPath: (value): void => { ownerPath = value; },
+      isExternalTunnelRunning: async (): Promise<boolean> => externalLive,
+      createRuntimeAdapter: (): TunnelRuntimeReconcilerAdapter => ({
+        runtimeAlias: (): string => 'lnwjud',
+        capabilities: vi.fn(async () => ({
+          clientVersion: 'fixture', nativeRuntimes: false, managedConnect: false, healthProbe: true,
+          pollHealthGate: true, readyBeforeRetire: false, strictZeroDowntime: false, evidence: 'fixture',
+        })),
+        status: vi.fn(async () => ({
+          exists: true, running: false, healthy: false, ready: false, pollHealthy: false,
+          tunnelId: 'tunnel_fixture012345', mcpServerUrl: null, pid: null, uiUrl: null, message: null,
+        })),
+        connect: vi.fn(),
+        stop: vi.fn(),
+      }),
+    });
+    const internals = controllerInternals(controller);
+    internals.child = child as unknown as ChildProcess;
+    internals.ownedChildStartedAt = '2026-08-20T00:00:00.000Z';
+    internals.runtimeMode = 'profile-child';
+    internals.state = 'running';
+
+    await expect(controller.stop()).resolves.toMatchObject({ state: 'stopped' });
+    expect(child.kill).toHaveBeenCalledTimes(1);
+    expect(ownerPath).toBe('');
+  });
+
+  it('retains the old client when an exited profile child leaves external runtime liveness unverified', async () => {
+    const dataPath = await mkdtemp(path.join(os.tmpdir(), 'lnwjud-tunnel-profile-child-survivor-'));
+    temporaryRoots.push(dataPath);
+    vi.stubEnv('APPDATA', path.join(dataPath, 'appdata'));
+    const ownerClient = path.join(dataPath, 'owner-tunnel-client.exe');
+    const nextClient = path.join(dataPath, 'next-tunnel-client.exe');
+    await writeFile(ownerClient, 'owner', 'utf8');
+    await writeFile(nextClient, 'next', 'utf8');
+    let configured = ownerClient;
+    let ownerPath = ownerClient;
+    const child = new EventEmitter() as FakeChild;
+    child.exitCode = null;
+    child.pid = 7125;
+    child.kill = vi.fn(() => {
+      child.exitCode = 0;
+      child.emit('exit', 0);
+      return true;
+    });
+    const controller = new TunnelController({
+      getClientPath: (): string => configured,
+      setClientPath: (value): void => { configured = value; },
+      getDataPath: (): string => dataPath,
+      getTunnelId: (): string => 'tunnel_fixture012345',
+      getRuntimeOwnerPath: (): string => ownerPath,
+      setRuntimeOwnerPath: (value): void => { ownerPath = value; },
+      isExternalTunnelRunning: async (): Promise<boolean> => true,
+      createRuntimeAdapter: (): TunnelRuntimeReconcilerAdapter => ({
+        runtimeAlias: (): string => 'lnwjud',
+        capabilities: vi.fn(async () => ({
+          clientVersion: 'fixture', nativeRuntimes: false, managedConnect: false, healthProbe: true,
+          pollHealthGate: true, readyBeforeRetire: false, strictZeroDowntime: false, evidence: 'fixture',
+        })),
+        status: vi.fn(async () => ({
+          exists: true, running: false, healthy: false, ready: false, pollHealthy: false,
+          tunnelId: 'tunnel_fixture012345', mcpServerUrl: null, pid: null, uiUrl: null, message: null,
+        })),
+        connect: vi.fn(),
+        stop: vi.fn(),
+      }),
+    });
+    const internals = controllerInternals(controller);
+    internals.child = child as unknown as ChildProcess;
+    internals.ownedChildStartedAt = '2026-08-20T00:00:00.000Z';
+    internals.runtimeMode = 'profile-child';
+    internals.state = 'running';
+
+    await expect(controller.replaceClientPath(nextClient)).rejects.toThrow('Could not positively verify');
+    expect(configured).toBe(ownerClient);
+    expect(ownerPath).toBe(ownerClient);
+  });
+
   it('does not let a pending automatic start override an explicit operator stop', async () => {
     const dataPath = await mkdtemp(path.join(os.tmpdir(), 'lnwjud-tunnel-auto-stop-'));
     temporaryRoots.push(dataPath);
@@ -60,6 +161,324 @@ describe('TunnelController lifecycle', () => {
 
     await expect(controller.stop()).resolves.toMatchObject({ state: 'stopped' });
     await expect(controller.startAutomatically()).resolves.toMatchObject({ state: 'stopped' });
+  });
+
+  it('persists explicit operator Stop intent so a new controller stays stopped after app restart', async () => {
+    const dataPath = await mkdtemp(path.join(os.tmpdir(), 'lnwjud-tunnel-durable-stop-'));
+    temporaryRoots.push(dataPath);
+    vi.stubEnv('APPDATA', path.join(dataPath, 'appdata'));
+    let desiredState: 'running' | 'stopped' | null = null;
+    const options = {
+      getClientPath: (): string | null => null,
+      setClientPath: (): void => undefined,
+      getDataPath: (): string => dataPath,
+      getRuntimeDesiredState: (): 'running' | 'stopped' | null => desiredState,
+      setRuntimeDesiredState: (value: 'running' | 'stopped'): void => { desiredState = value; },
+      isExternalTunnelRunning: async (): Promise<boolean> => false,
+    };
+
+    const first = new TunnelController(options);
+    await expect(first.stop()).resolves.toMatchObject({ state: 'stopped' });
+    expect(desiredState).toBe('stopped');
+
+    const restarted = new TunnelController(options);
+    await expect(restarted.startAutomatically()).resolves.toMatchObject({ state: 'stopped' });
+    expect(desiredState).toBe('stopped');
+  });
+
+  it('enforces a durable stopped desired state on restart by stopping a surviving recorded owner runtime', async () => {
+    const dataPath = await mkdtemp(path.join(os.tmpdir(), 'lnwjud-tunnel-durable-stop-survivor-'));
+    temporaryRoots.push(dataPath);
+    vi.stubEnv('APPDATA', path.join(dataPath, 'appdata'));
+    const ownerClient = path.join(dataPath, 'owner-tunnel-client.exe');
+    await writeFile(ownerClient, 'owner', 'utf8');
+    let ownerPath = ownerClient;
+    let stopped = false;
+    const capabilities: TunnelRuntimeCapabilities = {
+      clientVersion: 'fixture', nativeRuntimes: true, managedConnect: true, healthProbe: true,
+      pollHealthGate: true, readyBeforeRetire: false, strictZeroDowntime: false, evidence: 'fixture',
+    };
+    const controller = new TunnelController({
+      getClientPath: (): string => ownerClient,
+      setClientPath: (): void => undefined,
+      getDataPath: (): string => dataPath,
+      getTunnelId: (): string => 'tunnel_fixture012345',
+      getRuntimeDesiredState: (): 'stopped' => 'stopped',
+      getRuntimeOwnerPath: (): string => ownerPath,
+      setRuntimeOwnerPath: (value): void => { ownerPath = value; },
+      isExternalTunnelRunning: async (): Promise<boolean> => !stopped,
+      createRuntimeAdapter: (): TunnelRuntimeReconcilerAdapter => ({
+        runtimeAlias: (): string => 'lnwjud',
+        capabilities: vi.fn(async () => capabilities),
+        status: vi.fn(async () => ({
+          exists: true, running: !stopped, healthy: !stopped, ready: !stopped, pollHealthy: !stopped,
+          tunnelId: 'tunnel_fixture012345', mcpServerUrl: 'http://127.0.0.1:17654/mcp', pid: stopped ? null : 4321, uiUrl: null, message: null,
+        })),
+        connect: vi.fn(),
+        stop: vi.fn(async () => {
+          stopped = true;
+          return {
+            exists: true, running: false, healthy: false, ready: false, pollHealthy: null,
+            tunnelId: 'tunnel_fixture012345', mcpServerUrl: 'http://127.0.0.1:17654/mcp', pid: null, uiUrl: null, message: null,
+          };
+        }),
+      }),
+    });
+
+    await expect(controller.startAutomatically()).resolves.toMatchObject({ state: 'stopped' });
+    expect(stopped).toBe(true);
+    expect(ownerPath).toBe('');
+  });
+
+  it('keeps an explicit missing custom client authoritative instead of silently falling back to bundled', async () => {
+    const dataPath = await mkdtemp(path.join(os.tmpdir(), 'lnwjud-tunnel-custom-authority-'));
+    temporaryRoots.push(dataPath);
+    const custom = path.join(dataPath, 'missing-custom.exe');
+    const bundled = path.join(dataPath, 'bundled-tunnel-client.exe');
+    await writeFile(bundled, 'bundled', 'utf8');
+    const controller = new TunnelController({
+      getClientPath: (): string => custom,
+      getBundledClientPath: (): string => bundled,
+      setClientPath: (): void => undefined,
+      getDataPath: (): string => dataPath,
+    });
+
+    expect(controller.resolveClientPath()).toBe(custom);
+  });
+
+  it('stops a surviving persistent runtime through its recorded owner executable, not the newly selected client', async () => {
+    const dataPath = await mkdtemp(path.join(os.tmpdir(), 'lnwjud-tunnel-owner-client-'));
+    temporaryRoots.push(dataPath);
+    const ownerClient = path.join(dataPath, 'owner-tunnel-client.exe');
+    const newlySelectedClient = path.join(dataPath, 'new-tunnel-client.exe');
+    await writeFile(ownerClient, 'owner', 'utf8');
+    await writeFile(newlySelectedClient, 'new', 'utf8');
+    const adapterPaths: string[] = [];
+    let stopped = false;
+    const capabilities: TunnelRuntimeCapabilities = {
+      clientVersion: 'fixture', nativeRuntimes: true, managedConnect: true, healthProbe: true,
+      pollHealthGate: true, readyBeforeRetire: false, strictZeroDowntime: false, evidence: 'fixture',
+    };
+    const controller = new TunnelController({
+      getClientPath: (): string => newlySelectedClient,
+      setClientPath: (): void => undefined,
+      getDataPath: (): string => dataPath,
+      getTunnelId: (): string => 'tunnel_fixture012345',
+      getRuntimeOwnerPath: (): string => ownerClient,
+      setRuntimeOwnerPath: (): void => undefined,
+      isExternalTunnelRunning: async (): Promise<boolean> => !stopped,
+      createRuntimeAdapter: (options): TunnelRuntimeReconcilerAdapter => {
+        adapterPaths.push(options.clientPath);
+        return {
+          runtimeAlias: (): string => 'lnwjud',
+          capabilities: vi.fn(async () => capabilities),
+          status: vi.fn(async () => ({
+            exists: true, running: true, healthy: true, ready: true, pollHealthy: true,
+            tunnelId: 'tunnel_fixture012345', mcpServerUrl: 'http://127.0.0.1:17654/mcp', pid: 4321, uiUrl: null, message: null,
+          })),
+          connect: vi.fn(),
+          stop: vi.fn(async () => {
+            stopped = true;
+            return {
+            exists: true, running: false, healthy: false, ready: false, pollHealthy: null,
+            tunnelId: 'tunnel_fixture012345', mcpServerUrl: 'http://127.0.0.1:17654/mcp', pid: null, uiUrl: null, message: null,
+            };
+          }),
+        };
+      },
+    });
+
+    await expect(controller.stopPersistedNativeRuntimeIfOwned()).resolves.toBe(true);
+    expect(adapterPaths).toEqual([ownerClient]);
+  });
+
+  it('commits a client-path switch only after the active owner runtime is confirmed stopped', async () => {
+    const dataPath = await mkdtemp(path.join(os.tmpdir(), 'lnwjud-tunnel-client-switch-'));
+    temporaryRoots.push(dataPath);
+    vi.stubEnv('APPDATA', path.join(dataPath, 'appdata'));
+    const ownerClient = path.join(dataPath, 'owner-tunnel-client.exe');
+    const nextClient = path.join(dataPath, 'next-tunnel-client.exe');
+    await writeFile(ownerClient, 'owner', 'utf8');
+    await writeFile(nextClient, 'next', 'utf8');
+    let configured = ownerClient;
+    let ownerPath = ownerClient;
+    let stopped = false;
+    const capabilities: TunnelRuntimeCapabilities = {
+      clientVersion: 'fixture', nativeRuntimes: true, managedConnect: true, healthProbe: true,
+      pollHealthGate: true, readyBeforeRetire: false, strictZeroDowntime: false, evidence: 'fixture',
+    };
+    const controller = new TunnelController({
+      getClientPath: (): string => configured,
+      setClientPath: (value): void => {
+        expect(stopped).toBe(true);
+        configured = value;
+      },
+      getDataPath: (): string => dataPath,
+      getTunnelId: (): string => 'tunnel_fixture012345',
+      getRuntimeOwnerPath: (): string => ownerPath,
+      setRuntimeOwnerPath: (value): void => { ownerPath = value; },
+      getRuntimeDesiredState: (): 'running' => 'running',
+      isExternalTunnelRunning: async (): Promise<boolean> => !stopped,
+      createRuntimeAdapter: (options): TunnelRuntimeReconcilerAdapter => {
+        expect(options.clientPath).toBe(ownerClient);
+        return {
+          runtimeAlias: (): string => 'lnwjud',
+          capabilities: vi.fn(async () => capabilities),
+          status: vi.fn(async () => ({
+            exists: true, running: !stopped, healthy: !stopped, ready: !stopped, pollHealthy: !stopped,
+            tunnelId: 'tunnel_fixture012345', mcpServerUrl: 'http://127.0.0.1:17654/mcp', pid: stopped ? null : 4321, uiUrl: null, message: null,
+          })),
+          connect: vi.fn(),
+          stop: vi.fn(async () => {
+            stopped = true;
+            return {
+              exists: true, running: false, healthy: false, ready: false, pollHealthy: null,
+              tunnelId: 'tunnel_fixture012345', mcpServerUrl: 'http://127.0.0.1:17654/mcp', pid: null, uiUrl: null, message: null,
+            };
+          }),
+        };
+      },
+    });
+
+    await expect(controller.replaceClientPath(nextClient)).resolves.toBe(nextClient);
+    expect(stopped).toBe(true);
+    expect(configured).toBe(nextClient);
+    expect(ownerPath).toBe('');
+  });
+
+  it('keeps the old client selection and owner when persistent-runtime stop verification fails', async () => {
+    const dataPath = await mkdtemp(path.join(os.tmpdir(), 'lnwjud-tunnel-client-switch-fail-'));
+    temporaryRoots.push(dataPath);
+    const ownerClient = path.join(dataPath, 'owner-tunnel-client.exe');
+    const nextClient = path.join(dataPath, 'next-tunnel-client.exe');
+    await writeFile(ownerClient, 'owner', 'utf8');
+    await writeFile(nextClient, 'next', 'utf8');
+    let configured = ownerClient;
+    let ownerPath = ownerClient;
+    const capabilities: TunnelRuntimeCapabilities = {
+      clientVersion: 'fixture', nativeRuntimes: true, managedConnect: true, healthProbe: true,
+      pollHealthGate: true, readyBeforeRetire: false, strictZeroDowntime: false, evidence: 'fixture',
+    };
+    const controller = new TunnelController({
+      getClientPath: (): string => configured,
+      setClientPath: (value): void => { configured = value; },
+      getDataPath: (): string => dataPath,
+      getTunnelId: (): string => 'tunnel_fixture012345',
+      getRuntimeOwnerPath: (): string => ownerPath,
+      setRuntimeOwnerPath: (value): void => { ownerPath = value; },
+      getRuntimeDesiredState: (): 'running' => 'running',
+      isExternalTunnelRunning: async (): Promise<boolean> => true,
+      createRuntimeAdapter: (): TunnelRuntimeReconcilerAdapter => ({
+        runtimeAlias: (): string => 'lnwjud',
+        capabilities: vi.fn(async () => capabilities),
+        status: vi.fn(async () => { throw new Error('owner status unavailable'); }),
+        connect: vi.fn(),
+        stop: vi.fn(),
+      }),
+    });
+
+    await expect(controller.replaceClientPath(nextClient)).rejects.toThrow('Could not verify the recorded Persistent Tunnel Runtime owner');
+    expect(configured).toBe(ownerClient);
+    expect(ownerPath).toBe(ownerClient);
+  });
+
+  it.each([
+    {
+      caseName: 'the recorded owner lacks native-runtime capability',
+      nativeRuntimes: false,
+      runtimeStatus: {
+        exists: true, running: true, healthy: true, ready: true, pollHealthy: true,
+        tunnelId: 'tunnel_fixture012345', mcpServerUrl: 'http://127.0.0.1:17654/mcp', pid: 4321, uiUrl: null, message: null,
+      },
+    },
+    {
+      caseName: 'the recorded owner reports that the alias is absent',
+      nativeRuntimes: true,
+      runtimeStatus: {
+        exists: false, running: false, healthy: null, ready: null, pollHealthy: null,
+        tunnelId: null, mcpServerUrl: null, pid: null, uiUrl: null, message: 'alias lnwjud not found',
+      },
+    },
+    {
+      caseName: 'the recorded owner reports a stopped alias while external liveness remains live',
+      nativeRuntimes: true,
+      runtimeStatus: {
+        exists: true, running: false, healthy: false, ready: false, pollHealthy: false,
+        tunnelId: 'tunnel_fixture012345', mcpServerUrl: null, pid: null, uiUrl: null, message: null,
+      },
+    },
+  ])('retains the old client and owner when $caseName', async ({ nativeRuntimes, runtimeStatus }) => {
+    const dataPath = await mkdtemp(path.join(os.tmpdir(), 'lnwjud-tunnel-client-switch-unverified-'));
+    temporaryRoots.push(dataPath);
+    const ownerClient = path.join(dataPath, 'owner-tunnel-client.exe');
+    const nextClient = path.join(dataPath, 'next-tunnel-client.exe');
+    await writeFile(ownerClient, 'owner', 'utf8');
+    await writeFile(nextClient, 'next', 'utf8');
+    let configured = ownerClient;
+    let ownerPath = ownerClient;
+    const controller = new TunnelController({
+      getClientPath: (): string => configured,
+      setClientPath: (value): void => { configured = value; },
+      getDataPath: (): string => dataPath,
+      getTunnelId: (): string => 'tunnel_fixture012345',
+      getRuntimeOwnerPath: (): string => ownerPath,
+      setRuntimeOwnerPath: (value): void => { ownerPath = value; },
+      getRuntimeDesiredState: (): 'running' => 'running',
+      isExternalTunnelRunning: async (): Promise<boolean> => true,
+      createRuntimeAdapter: (): TunnelRuntimeReconcilerAdapter => ({
+        runtimeAlias: (): string => 'lnwjud',
+        capabilities: vi.fn(async () => ({
+          clientVersion: 'fixture', nativeRuntimes, managedConnect: nativeRuntimes, healthProbe: true,
+          pollHealthGate: true, readyBeforeRetire: false, strictZeroDowntime: false, evidence: 'fixture',
+        })),
+        status: vi.fn(async () => runtimeStatus),
+        connect: vi.fn(),
+        stop: vi.fn(),
+      }),
+    });
+
+    await expect(controller.replaceClientPath(nextClient)).rejects.toThrow('Could not positively verify the recorded Persistent Tunnel Runtime stopped');
+    expect(configured).toBe(ownerClient);
+    expect(ownerPath).toBe(ownerClient);
+  });
+
+  it('clears a stale recorded owner and commits the client switch when alias absence and external liveness both prove it is gone', async () => {
+    const dataPath = await mkdtemp(path.join(os.tmpdir(), 'lnwjud-tunnel-client-switch-gone-'));
+    temporaryRoots.push(dataPath);
+    vi.stubEnv('APPDATA', path.join(dataPath, 'appdata'));
+    const ownerClient = path.join(dataPath, 'owner-tunnel-client.exe');
+    const nextClient = path.join(dataPath, 'next-tunnel-client.exe');
+    await writeFile(ownerClient, 'owner', 'utf8');
+    await writeFile(nextClient, 'next', 'utf8');
+    let configured = ownerClient;
+    let ownerPath = ownerClient;
+    const controller = new TunnelController({
+      getClientPath: (): string => configured,
+      setClientPath: (value): void => { configured = value; },
+      getDataPath: (): string => dataPath,
+      getTunnelId: (): string => 'tunnel_fixture012345',
+      getRuntimeOwnerPath: (): string => ownerPath,
+      setRuntimeOwnerPath: (value): void => { ownerPath = value; },
+      getRuntimeDesiredState: (): 'stopped' => 'stopped',
+      isExternalTunnelRunning: async (): Promise<boolean> => false,
+      createRuntimeAdapter: (): TunnelRuntimeReconcilerAdapter => ({
+        runtimeAlias: (): string => 'lnwjud',
+        capabilities: vi.fn(async () => ({
+          clientVersion: 'fixture', nativeRuntimes: true, managedConnect: true, healthProbe: true,
+          pollHealthGate: true, readyBeforeRetire: false, strictZeroDowntime: false, evidence: 'fixture',
+        })),
+        status: vi.fn(async () => ({
+          exists: false, running: false, healthy: null, ready: null, pollHealthy: null,
+          tunnelId: null, mcpServerUrl: null, pid: null, uiUrl: null, message: 'alias lnwjud not found',
+        })),
+        connect: vi.fn(),
+        stop: vi.fn(),
+      }),
+    });
+
+    await expect(controller.replaceClientPath(nextClient)).resolves.toBe(nextClient);
+    expect(configured).toBe(nextClient);
+    expect(ownerPath).toBe('');
   });
 
   it('re-adopts a surviving native runtime after status first observes it as external', async () => {
@@ -315,7 +734,7 @@ describe('TunnelController lifecycle', () => {
     const adapter: TunnelRuntimeReconcilerAdapter = {
       runtimeAlias: (): string => 'lnwjud',
       capabilities: vi.fn(async () => ({
-        clientVersion: '0.0.12+fixture', nativeRuntimes: true, managedConnect: true, healthProbe: true,
+        clientVersion: '0.0.13+fixture', nativeRuntimes: true, managedConnect: true, healthProbe: true,
         pollHealthGate: true, readyBeforeRetire: false, strictZeroDowntime: false, evidence: 'fixture',
       })),
       status: vi.fn(async () => ({
@@ -1009,6 +1428,7 @@ function controllerInternals(controller: TunnelController): {
   externalProbeAt: number;
   lastExternalProbe: 'live' | 'gone' | 'unverifiable';
   runtimeConfigurationDirty: boolean;
+  runtimeMode: 'native-managed' | 'profile-child' | null;
 } {
   return controller as unknown as {
     child: ChildProcess | null;
@@ -1018,6 +1438,7 @@ function controllerInternals(controller: TunnelController): {
     externalProbeAt: number;
     lastExternalProbe: 'live' | 'gone' | 'unverifiable';
     runtimeConfigurationDirty: boolean;
+    runtimeMode: 'native-managed' | 'profile-child' | null;
   };
 }
 

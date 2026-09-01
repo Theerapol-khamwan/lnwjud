@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import type { DatabaseSync } from 'node:sqlite';
 import {
   GoalStateError,
@@ -23,6 +24,7 @@ import {
   type ListGoalRecordsRequest,
   type ClaimScheduledContinuationRecordRequest,
   type ClaimScheduledContinuationRecordResult,
+  type ClaimSuccessorDisposition,
   type GetScheduledContinuationRecordRequest,
   type GoalScheduledContinuationFinishResult,
   type ExpediteScheduledContinuationRecordRequest,
@@ -771,9 +773,38 @@ export class SqliteGoalRepository implements GoalRepository, ScheduledContinuati
       const goal = this.requireById(row.goal_id);
       this.assertOwner(goal, request.ownerClientId);
 
-      if (continuation.status === 'claimed' || continuation.status === 'superseded') {
-        return { outcome: 'already_claimed', continuation, goal };
+      if (continuation.status === 'claimed') {
+        if (goal.status !== 'active') return { outcome: 'already_claimed', continuation, goal };
+        const liveSuccessor = this.selectLiveScheduledContinuation(goal.id);
+        if (liveSuccessor !== undefined) {
+          const observedSuccessor = this.toScheduledContinuationRecord(liveSuccessor);
+          if (observedSuccessor.generation !== continuation.generation + 1) {
+            throw new GoalStateError('conflict', 'Claimed continuation has an unexpected live successor generation');
+          }
+          if (observedSuccessor.status === 'prepared' || observedSuccessor.status === 'create_failed' || observedSuccessor.status === 'create_uncertain') {
+            const prepared = this.prepareFreshClaimSuccessor(request, continuation, goal, false);
+            return {
+              outcome: 'successor_required',
+              continuation,
+              successor: prepared.successor,
+              successorDisposition: prepared.disposition,
+              goal,
+              retryAfterSeconds: COLLISION_RESCHEDULE_SECONDS,
+            };
+          }
+          return { outcome: 'already_claimed', continuation, goal };
+        }
+        const prepared = this.prepareFreshClaimSuccessor(request, continuation, goal, false);
+        return {
+          outcome: 'successor_required',
+          continuation,
+          successor: prepared.successor,
+          successorDisposition: prepared.disposition,
+          goal: this.requireById(goal.id),
+          retryAfterSeconds: COLLISION_RESCHEDULE_SECONDS,
+        };
       }
+      if (continuation.status === 'superseded') return { outcome: 'already_claimed', continuation, goal };
       if (continuation.status === 'terminal_noop') return { outcome: 'terminal_noop', continuation, goal };
       if (goal.status !== 'active') {
         const changed = this.database.connection.prepare(`
@@ -938,12 +969,187 @@ export class SqliteGoalRepository implements GoalRepository, ScheduledContinuati
     if (Number(changedContinuation.changes) !== 1) {
       throw new GoalStateError('conflict', 'Scheduled continuation claim lost the continuation compare-and-swap race');
     }
+    const claimedContinuation = this.requireScheduledContinuationById(request.continuationId);
+    const claimedGoal = this.requireById(goal.id);
+    const prepared = this.prepareFreshClaimSuccessor(request, claimedContinuation, claimedGoal, true);
+    const reservedGoal = this.requireById(goal.id);
     return {
       outcome: 'acquired',
       acquisition,
-      continuation: this.requireScheduledContinuationById(request.continuationId),
-      goal: this.requireById(goal.id),
+      continuation: claimedContinuation,
+      successor: prepared.successor,
+      successorDisposition: 'freshly_reserved',
+      goal: reservedGoal,
     };
+  }
+
+  private prepareFreshClaimSuccessor(
+    request: ClaimScheduledContinuationRecordRequest,
+    continuation: ScheduledContinuationRecord,
+    goal: GoalRecord,
+    requireLeaseCap: boolean,
+  ): { readonly successor: ScheduledContinuationRecord; readonly disposition: ClaimSuccessorDisposition } {
+    if (continuation.nativeTaskId === undefined || continuation.confirmedRunsOn !== 'cloud') {
+      throw new GoalStateError('corrupt', 'Claimed continuation is missing its confirmed native cloud task');
+    }
+    const identity = createHash('sha256')
+      .update(`claimed-successor-v1\0${continuation.continuationId}`)
+      .digest('hex');
+    const successorId = `wake-${identity.slice(0, 48)}`;
+    const successorRequestFingerprint = identity;
+    if (request.claimSuccessorId !== successorId) {
+      throw new GoalStateError('conflict', 'Claimed successor identity is not deterministic for the firing continuation');
+    }
+    if (request.claimSuccessorRequestFingerprint !== successorRequestFingerprint) {
+      throw new GoalStateError('conflict', 'Claimed successor fingerprint is not deterministic for the firing continuation');
+    }
+
+    const existingRow = this.selectScheduledContinuationById(successorId);
+    if (existingRow !== undefined) {
+      const existing = this.toScheduledContinuationRecord(existingRow);
+      this.assertClaimSuccessorInvariant(request, continuation, goal, existing, successorRequestFingerprint);
+      const refreshed = this.refreshUnconfirmedClaimSuccessorIfStale(request, goal, existing, requireLeaseCap);
+      return {
+        successor: refreshed.successor,
+        disposition: refreshed.disposition,
+      };
+    }
+
+    const liveSuccessor = this.selectLiveScheduledContinuation(goal.id);
+    if (liveSuccessor !== undefined) {
+      const existing = this.toScheduledContinuationRecord(liveSuccessor);
+      this.assertClaimSuccessorInvariant(request, continuation, goal, existing, successorRequestFingerprint);
+      const refreshed = this.refreshUnconfirmedClaimSuccessorIfStale(request, goal, existing, requireLeaseCap);
+      return {
+        successor: refreshed.successor,
+        disposition: refreshed.disposition,
+      };
+    }
+
+    const generation = this.nextScheduledContinuationGeneration(goal.id);
+    if (generation !== continuation.generation + 1) {
+      throw new GoalStateError('conflict', 'Claimed successor generation is not contiguous');
+    }
+    const successorDueAt = addSeconds(request.now, COLLISION_RESCHEDULE_SECONDS);
+    if (request.claimSuccessorDueAt !== successorDueAt) {
+      throw new GoalStateError('conflict', 'Claimed successor due time must be exactly two minutes after reservation');
+    }
+    this.database.connection.prepare(`
+      INSERT INTO goal_scheduled_continuations (
+        id, goal_id, source_session_id, generation, source_goal_revision, status, occurrence, destination,
+        execution_preference, confirmed_runs_on, due_at, pending_due_at, native_task_id, request_fingerprint,
+        version, reschedule_reason, reschedule_count, last_collision_at, last_rescheduled_at,
+        orphan_probe_started_at, orphan_probe_lease_generation, orphan_probe_activity_seq, orphan_recovery_count,
+        last_detail, created_at, updated_at, claimed_at, terminal_at
+      ) VALUES (
+        ?, ?, ?, ?, ?, 'prepared', 'once', 'current_chat',
+        'cloud', NULL, ?, NULL, NULL, ?,
+        0, NULL, 0, NULL, NULL,
+        NULL, NULL, NULL, ?,
+        'Successful wake claim atomically reserved the next one-time successor', ?, ?, NULL, NULL
+      )
+    `).run(
+      successorId,
+      goal.id,
+      request.ownerSessionId,
+      generation,
+      goal.revision,
+      successorDueAt,
+      successorRequestFingerprint,
+      continuation.orphanRecoveryCount,
+      request.now,
+      request.now,
+    );
+    this.capGoalLeaseAtClaimSuccessor(goal, successorDueAt, request.now, requireLeaseCap);
+    return {
+      successor: this.requireScheduledContinuationById(successorId),
+      disposition: 'freshly_reserved',
+    };
+  }
+
+  private assertClaimSuccessorInvariant(
+    request: ClaimScheduledContinuationRecordRequest,
+    continuation: ScheduledContinuationRecord,
+    goal: GoalRecord,
+    successor: ScheduledContinuationRecord,
+    expectedFingerprint: string,
+  ): void {
+    if (
+      successor.goalId !== goal.id
+      || successor.continuationId !== request.claimSuccessorId
+      || successor.generation !== continuation.generation + 1
+      || successor.requestFingerprint !== expectedFingerprint
+      || successor.sourceGoalRevision < continuation.sourceGoalRevision
+      || successor.sourceGoalRevision > goal.revision
+      || !['prepared', 'create_failed', 'create_uncertain'].includes(successor.status)
+    ) {
+      throw new GoalStateError('conflict', 'Claimed continuation has an invalid deterministic successor');
+    }
+    // Concurrent callers may derive different +2 request instants. Once a
+    // successor exists, its transaction-authored dueAt is canonical.
+    parseIso(successor.dueAt, 'claimed successor due_at');
+  }
+
+  private refreshUnconfirmedClaimSuccessorIfStale(
+    request: ClaimScheduledContinuationRecordRequest,
+    goal: GoalRecord,
+    successor: ScheduledContinuationRecord,
+    requireLeaseCap: boolean,
+  ): {
+    readonly successor: ScheduledContinuationRecord;
+    readonly disposition: Extract<ClaimSuccessorDisposition, 'existing_unconfirmed' | 'retryable_failed_create' | 'refreshed_failed_create'>;
+  } {
+    const safelyRecreatable = successor.nativeTaskId === undefined && successor.status === 'create_failed';
+    if (safelyRecreatable) {
+      if (parseIso(successor.dueAt, 'claimed successor due_at') > parseIso(request.now, 'request time')) {
+        this.capGoalLeaseAtClaimSuccessor(goal, successor.dueAt, request.now, requireLeaseCap);
+        return { successor, disposition: 'retryable_failed_create' };
+      }
+      const refreshedDueAt = addSeconds(request.now, COLLISION_RESCHEDULE_SECONDS);
+      const changed = this.database.connection.prepare(`
+        UPDATE goal_scheduled_continuations
+        SET status = 'prepared', due_at = ?, version = version + 1, updated_at = ?,
+            last_detail = 'Truthfully failed claimed successor creation refreshed to a safe two-minute retry'
+        WHERE id = ? AND version = ? AND native_task_id IS NULL AND status = 'create_failed'
+      `).run(refreshedDueAt, request.now, successor.continuationId, successor.version);
+      if (Number(changed.changes) !== 1) {
+        throw new GoalStateError('conflict', 'Claimed successor refresh lost the compare-and-swap race');
+      }
+      this.capGoalLeaseAtClaimSuccessor(goal, refreshedDueAt, request.now, requireLeaseCap);
+      return {
+        successor: this.requireScheduledContinuationById(successor.continuationId),
+        disposition: 'refreshed_failed_create',
+      };
+    }
+    this.capGoalLeaseAtClaimSuccessor(goal, successor.dueAt, request.now, requireLeaseCap);
+    return { successor, disposition: 'existing_unconfirmed' };
+  }
+
+  private capGoalLeaseAtClaimSuccessor(
+    goal: GoalRecord,
+    successorDueAt: string,
+    now: string,
+    required: boolean,
+  ): void {
+    if (goal.leaseExpiresAt === undefined) {
+      if (required) throw corrupt('Active goal lease expiry is missing after scheduled claim');
+      return;
+    }
+    const leaseExpiresAt = minIso(goal.leaseExpiresAt, successorDueAt);
+    const cappedGoal = this.database.connection.prepare(`
+      UPDATE goals
+      SET lease_expires_at = ?, updated_at = ?
+      WHERE id = ? AND status = 'active' AND revision = ? AND lease_generation = ?
+    `).run(
+      leaseExpiresAt,
+      now,
+      goal.id,
+      goal.revision,
+      goal.leaseGeneration,
+    );
+    if (Number(cappedGoal.changes) !== 1) {
+      throw new GoalStateError('conflict', 'Claimed successor failed to cap the acquired goal lease');
+    }
   }
 
   private prepareSameTaskCollision(

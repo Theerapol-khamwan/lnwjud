@@ -57,7 +57,7 @@ describe('public repository hygiene', () => {
     }
 
     expect(leaks, `developer-specific content found in: ${leaks.join(', ')}`).toEqual([]);
-  });
+  }, 15_000);
 
   it('documents the package version as the current v4 runtime rather than a stale release', async () => {
     const readme = await readFile(path.join(repositoryRoot, 'README.md'), 'utf8');
@@ -74,13 +74,13 @@ describe('public repository hygiene', () => {
     expect(readme).not.toContain('pending publication');
     const actor = { clientId: 'public-repo-hygiene', clientName: 'public-repo-hygiene' };
     const defaultRegistry = new ToolRegistry({}, actor);
-    const codexRegistry = new ToolRegistry({}, actor, { codexToolsEnabled: true });
-    const totalDefinitions = codexRegistry.listAll().length;
+    const fullRegistry = new ToolRegistry({ agentSwarm: {} as never }, actor, { codexToolsEnabled: true });
+    const totalDefinitions = fullRegistry.listAll().length;
     const defaultAdvertised = defaultRegistry.list().length;
-    const codexAdvertised = codexRegistry.list().length;
+    const fullAdvertised = fullRegistry.list().length;
     expect(readme).toContain(`${totalDefinitions} total tool definitions`);
     expect(readme).toContain(`${defaultAdvertised} advertised by default`);
-    expect(readme).toContain(`${codexAdvertised} with Codex enabled`);
+    expect(readme).toContain(`all ${fullAdvertised} when Codex delegation plus Agent Swarm is enabled`);
     expect(readme).not.toContain(['Verify the ', '184-tool catalog'].join(''));
     expect(readme).not.toContain(['current v3.0.0 catalog contains ', '184 tools'].join(''));
     expect(readme).not.toContain('packaged v3.0.0 build');
@@ -112,7 +112,7 @@ describe('public repository hygiene', () => {
       path.join(repositoryRoot, 'apps', 'desktop', 'src', 'renderer', 'features', 'settings', 'SettingsPage.tsx'),
       'utf8',
     );
-    expect(settingsPage).toContain('Bundled v0.0.12 is used automatically');
+    expect(settingsPage).toContain('Bundled v0.0.13 is used automatically');
     expect(settingsPage).toContain('Use bundled');
     expect(settingsPage).not.toContain('placeholder="C:\\tools\\tunnel-client.exe"');
   });

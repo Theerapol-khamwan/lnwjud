@@ -195,7 +195,7 @@ describe('v4.11 persistent tunnel continuity acceptance', () => {
 
     for (const status of prerequisiteGaps) {
       const startAutomatically = vi.fn(async (): Promise<TunnelStatus> => status);
-      const controller = { status: vi.fn(async (): Promise<TunnelStatus> => status), startAutomatically };
+      const controller = { status: vi.fn(async (): Promise<TunnelStatus> => status), startAutomatically, reconcileStoppedRuntime: vi.fn(async (): Promise<null> => null) };
       await expect(autoStartPersistentTunnel(controller, true)).resolves.toBe(status);
       expect(startAutomatically).not.toHaveBeenCalled();
     }
@@ -213,9 +213,33 @@ describe('v4.11 persistent tunnel continuity acceptance', () => {
       persistent: null,
     };
     const startAutomatically = vi.fn(async (): Promise<TunnelStatus> => status);
-    const controller = { status: vi.fn(async (): Promise<TunnelStatus> => status), startAutomatically };
+    const controller = { status: vi.fn(async (): Promise<TunnelStatus> => status), startAutomatically, reconcileStoppedRuntime: vi.fn(async (): Promise<null> => null) };
 
     await expect(autoStartPersistentTunnel(controller, false)).resolves.toBe(status);
     expect(startAutomatically).not.toHaveBeenCalled();
+  });
+
+  it('reconciles a durable stopped state before auto-reconnect and startup-prerequisite gates', async () => {
+    const stopped: TunnelStatus = {
+      state: 'stopped',
+      source: 'desktop',
+      hasApiKey: false,
+      clientPath: null,
+      profileExists: false,
+      message: null,
+      logPath: 'C:\\Users\\fixture\\AppData\\Roaming\\tunnel-client\\lnwjud.log',
+      persistent: null,
+    };
+    const reconcileStoppedRuntime = vi.fn(async (): Promise<TunnelStatus | null> => stopped);
+    const controller = {
+      status: vi.fn(async (): Promise<TunnelStatus> => { throw new Error('startup prerequisites must not gate Stop reconciliation'); }),
+      startAutomatically: vi.fn(async (): Promise<TunnelStatus> => { throw new Error('running-state auto start must not execute'); }),
+      reconcileStoppedRuntime,
+    };
+
+    await expect(autoStartPersistentTunnel(controller, false)).resolves.toBe(stopped);
+    expect(reconcileStoppedRuntime).toHaveBeenCalledOnce();
+    expect(controller.status).not.toHaveBeenCalled();
+    expect(controller.startAutomatically).not.toHaveBeenCalled();
   });
 });

@@ -210,10 +210,16 @@ export interface ClaimScheduledContinuationRecordRequest {
   readonly leaseSeconds: number;
   readonly earlyToleranceSeconds?: number;
   readonly liveness: ScheduledContinuationWorkerLiveness;
+  /** Deterministic identity for the fresh one-time successor reserved with a successful claim. */
+  readonly claimSuccessorId: string;
+  readonly claimSuccessorDueAt: string;
+  readonly claimSuccessorRequestFingerprint: string;
   readonly now: string;
 }
 
 export type ScheduledContinuationAcquisition = 'normal' | 'expired_lease' | 'orphan_recovered';
+
+export type ClaimSuccessorDisposition = 'freshly_reserved' | 'existing_unconfirmed' | 'retryable_failed_create' | 'refreshed_failed_create';
 
 export type ClaimScheduledContinuationRecordResult =
   | {
@@ -221,6 +227,18 @@ export type ClaimScheduledContinuationRecordResult =
       readonly acquisition: ScheduledContinuationAcquisition;
       readonly goal: GoalRecord;
       readonly continuation: ScheduledContinuationRecord;
+      /** Fresh future ticket reserved atomically while the firing continuation becomes historical. */
+      readonly successor: ScheduledContinuationRecord;
+      readonly successorDisposition: 'freshly_reserved';
+    }
+  | {
+      readonly outcome: 'successor_required';
+      readonly goal: GoalRecord;
+      readonly continuation: ScheduledContinuationRecord;
+      readonly successor: ScheduledContinuationRecord;
+      /** Whether this transaction inserted, refreshed, or merely recovered the reservation. */
+      readonly successorDisposition: ClaimSuccessorDisposition;
+      readonly retryAfterSeconds: 120;
     }
   | {
       readonly outcome: 'reschedule_required';

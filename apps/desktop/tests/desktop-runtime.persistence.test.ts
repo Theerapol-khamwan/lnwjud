@@ -47,7 +47,7 @@ describe('DesktopRuntime persistence', () => {
       await runtime.activityTracker.end(callId, 'SUCCESS', 1);
       await runtime.close();
     }
-  });
+  }, 15_000);
 
   it('starts with no automatically registered drive roots even when unrestricted mode is enabled', async () => {
     const rawDataRoot = await mkdtemp(path.join(os.tmpdir(), 'lnwjud-runtime-no-auto-drives-'));

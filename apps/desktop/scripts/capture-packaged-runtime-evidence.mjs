@@ -19,6 +19,13 @@ const packagedRuntimeFiles = Object.freeze([
   { name: 'windows-capability-bridge.integrity.json', relativePath: 'resources/windows-capability-bridge.integrity.json' },
   { name: 'rg.exe', relativePath: 'resources/runtime-tools/ripgrep/rg.exe' },
   { name: 'tunnel-client.exe', relativePath: 'resources/tunnel-client/tunnel-client.exe' },
+  { name: 'cloudflared.exe', relativePath: 'resources/tunnel-client/cloudflared.exe' },
+  { name: 'cloudflared-manifest.json', relativePath: 'resources/tunnel-client/cloudflared-manifest.json' },
+  { name: 'tunnel-client LICENSE', relativePath: 'resources/tunnel-client/LICENSE' },
+  { name: 'tunnel-client NOTICE', relativePath: 'resources/tunnel-client/NOTICE' },
+  { name: 'tunnel-client license inventory', relativePath: 'resources/tunnel-client/tunnel-client-v0.0.13-windows-amd64-licenses.txt' },
+  { name: 'tunnel-client SPDX SBOM', relativePath: 'resources/tunnel-client/tunnel-client-v0.0.13-windows-amd64.spdx.json' },
+  { name: 'BUNDLED_TUNNEL_CLIENT.txt', relativePath: 'resources/tunnel-client/BUNDLED_TUNNEL_CLIENT.txt' },
 ]);
 
 export default async function capturePackagedRuntimeEvidence(context) {
