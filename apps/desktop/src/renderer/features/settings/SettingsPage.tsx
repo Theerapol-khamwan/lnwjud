@@ -363,6 +363,18 @@ export function SettingsPage(props: SettingsPageProps): ReactElement {
     setRemoteMcpMessage(props.locale === 'th' ? 'คัดลอก Public MCP URL แล้ว' : 'Public MCP URL copied.');
   }
 
+  async function openNgrokAuthtokenPage(): Promise<void> {
+    setRemoteMcpMessage(null);
+    try {
+      await props.onOpenExternalSetupPage('ngrok_authtoken');
+    } catch (cause: unknown) {
+      const detail = cause instanceof Error ? cause.message : '';
+      setRemoteMcpMessage(props.locale === 'th'
+        ? `ERROR: เปิดหน้า ngrok Authtoken ไม่สำเร็จ${detail.length === 0 ? '' : ` — ${detail}`}`
+        : `ERROR: Could not open the ngrok authtoken page${detail.length === 0 ? '' : ` — ${detail}`}`);
+    }
+  }
+
   const navItems: readonly { id: SettingsSection; icon: string; title: string; description: string }[] = [
     { id: 'general', icon: '⌘', title: props.locale === 'th' ? 'ทั่วไป' : 'General', description: props.locale === 'th' ? 'ภาษา, Startup, Update' : 'Language, startup, updates' },
     { id: 'security', icon: '◇', title: props.locale === 'th' ? 'ความปลอดภัย' : 'Security', description: props.locale === 'th' ? 'สิทธิ์และ Workspace policy' : 'Permissions and workspace policy' },
@@ -556,7 +568,7 @@ export function SettingsPage(props: SettingsPageProps): ReactElement {
                   <p className="hint">{props.locale === 'th' ? 'lnwjud ติดตั้ง ngrok จาก Microsoft Store ผ่าน WinGet ให้เอง ไม่ต้องดาวน์โหลดไฟล์เอง' : 'lnwjud installs ngrok from the Microsoft Store through WinGet; no manual download is required.'}</p>
                   <div className="inline-actions">
                     <button type="button" className="btn-save-gold" disabled={remoteMcpBusy || remoteMcp.installed} onClick={() => { void runRemoteMcpAction('install'); }}>{props.locale === 'th' ? 'ติดตั้ง ngrok อัตโนมัติ' : 'Install ngrok automatically'}</button>
-                    <button type="button" disabled={remoteMcpBusy} onClick={() => { void props.onOpenExternalSetupPage('ngrok_authtoken'); }}>{props.locale === 'th' ? 'เปิดหน้า ngrok Authtoken' : 'Open ngrok authtoken'}</button>
+                    <button type="button" disabled={remoteMcpBusy} onClick={() => { void openNgrokAuthtokenPage(); }}>{props.locale === 'th' ? 'เปิดหน้า ngrok Authtoken' : 'Open ngrok authtoken'}</button>
                   </div>
                   <label className="field-label" htmlFor="remote-mcp-authtoken">{props.locale === 'th' ? 'ngrok Authtoken (ใส่ครั้งเดียว)' : 'ngrok authtoken (one time)'}</label>
                   <div className="form-row"><input id="remote-mcp-authtoken" type="password" autoComplete="off" placeholder={remoteMcp.hasAuthtoken ? '••••••••••••••••' : '2abc...'} value={remoteMcpAuthtoken} onChange={(event) => setRemoteMcpAuthtoken(event.target.value)} /><button type="button" className="btn-save-gold" disabled={remoteMcpBusy || remoteMcpAuthtoken.trim().length === 0} onClick={() => { void runRemoteMcpAction('save'); }}>{props.locale === 'th' ? 'บันทึกอย่างปลอดภัย' : 'Save securely'}</button></div>

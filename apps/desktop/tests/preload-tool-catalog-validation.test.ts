@@ -1,5 +1,5 @@
 import { beforeAll, describe, expect, it, vi } from 'vitest';
-import type { LnwjudApi, ToolCatalogItem, ToolCatalogSnapshot } from '@lnwjud/ipc-contracts';
+import { ipcChannels, type LnwjudApi, type ToolCatalogItem, type ToolCatalogSnapshot } from '@lnwjud/ipc-contracts';
 
 const electron = vi.hoisted(() => ({
   exposed: undefined as LnwjudApi | undefined,
@@ -48,6 +48,12 @@ describe('preload Tool Catalog validation', () => {
       status: 'complete',
       detail: { kind: 'details', items: ['status=active', 'nested.revision=12'] },
     });
+  });
+
+  it('allows the ngrok authtoken setup target through the preload bridge', async () => {
+    electron.invoke.mockResolvedValueOnce({ opened: true });
+    await expect(electron.exposed!.openExternalSetupPage({ target: 'ngrok_authtoken' })).resolves.toEqual({ opened: true });
+    expect(electron.invoke).toHaveBeenLastCalledWith(ipcChannels.openExternalSetupPage, { target: 'ngrok_authtoken' });
   });
 
   it.each([

@@ -976,7 +976,7 @@ function configureTunnelProfile(request: ConfigureTunnelProfileRequest): Promise
 function openExternalSetupPage(request: OpenExternalSetupPageRequest): Promise<{ readonly opened: true }> {
   if (
     !isRecord(request) ||
-    (request.target !== 'openai_tunnels' && request.target !== 'openai_api_keys' && request.target !== 'chatgpt_plugins')
+    (request.target !== 'openai_tunnels' && request.target !== 'openai_api_keys' && request.target !== 'chatgpt_plugins' && request.target !== 'ngrok_authtoken')
   ) {
     return Promise.reject(new Error('Invalid IPC request'));
   }
