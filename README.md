@@ -55,11 +55,18 @@ capabilities are additive.
 
 ### What's new in v4.51.0
 
+> Upgrading from v4.44.0? The release notes below are cumulative so users can see the major changes that landed after the last broadly documented v4.44.0 baseline. v4.45.0 focused on tunnel/runtime reliability and performance, v4.50.0 introduced the OAuth-ready authentication architecture, and v4.51.0 makes that authentication mode visible and consistent across the Desktop UI and diagnostics.
+
+#### v4.51.0 — OAuth-aware Desktop experience
+
 - Makes the entire Desktop presentation follow the active Tunnel authentication mode instead of hardcoded Runtime API key copy: Home/Control Center, Settings, onboarding routing, Doctor navigation, embedded Live Logs, and the standalone log viewer now distinguish **OAuth authentication** from the underlying **Secure MCP Tunnel transport**.
 - Adds a centralized auth-presentation model and propagates sanitized Tunnel auth metadata into log snapshots so detached log windows render the same OAuth/API-key state as the main window without receiving tokens or credential material.
 - Keeps the legacy Tunnel ID + Runtime API key wizard as the primary flow only for legacy mode; OAuth mode stays on the OAuth connection surface, while legacy Runtime API key controls remain explicitly labeled as fallback/troubleshooting.
 - Adds OAuth-specific runtime log evidence (`auth=oauth` / `auth=legacy_api_key`) and extends incident-report redaction for authorization codes, PKCE/code verifiers, and OAuth callback query secrets.
 - Adds regression coverage for OAuth-vs-legacy presentation while preserving the existing fail-closed provisioning capability gate and legacy compatibility behavior.
+
+#### v4.50.0 — OAuth-ready tunnel authentication architecture
+
 - Adds a tunnel authentication abstraction so Persistent Tunnel identity, authentication method, and runtime credential are modeled independently while preserving the existing Tunnel ID + Runtime API key workflow for every current user.
 - Keeps legacy Runtime API key authentication as the default for upgrades and fresh installs; no existing user is forced to sign in or migrate, and `lnwjud.runtime.secret` remains the backward-compatible DPAPI-protected fallback.
 - Adds OAuth-ready PKCE/state/loopback session infrastructure, secure DPAPI refresh-session storage, memory-only runtime credential handling, sanitized IPC status, and transactional auth-mode switching/rollback without exposing tokens to the renderer, argv, logs, incident reports, or profile files.
@@ -67,6 +74,11 @@ capabilities are additive.
 - Fails closed on account/organization/Tunnel-ID mismatch and never substitutes ChatGPT/Codex browser sessions or unrelated access tokens for the official Secure MCP Tunnel Runtime API key contract.
 - Preserves the same Persistent Tunnel ID across auth-mode changes and commits a migration only after the new runtime credential is usable and the persistent runtime has reconciled successfully; failed migrations roll back to the retained legacy credential.
 - Updates startup, Doctor, Control Center, onboarding, preload/IPC contracts, continuity tests, and updater/reinstall semantics to use auth-neutral `authReady` / `runtimeCredentialAvailable` status while retaining `hasApiKey` compatibility for older integrations.
+
+> **OAuth availability:** v4.50.0 adds the secure OAuth architecture and UI controls, but OAuth runtime provisioning is enabled only when the configured provider can supply a supported Secure MCP Tunnel runtime credential. The existing Runtime API key path remains supported and is the compatibility fallback; lnwjud does not reuse unrelated ChatGPT/Codex browser tokens.
+
+#### v4.45.0 — Secure Tunnel, continuation, logs, and performance hardening
+
 - Keeps the v4.45 runtime hardening and upgrades intact, including the bundled official OpenAI Secure MCP Tunnel client `v0.0.13` for Windows x64 with pinned release evidence.
 - Preserves the complete official v0.0.13 adjacent runtime set inside Setup and Portable, including `tunnel-client.exe`, pinned `cloudflared.exe`, its manifest, license/notice inventory and SPDX metadata; the Cloudflared companion is packaged but is not enabled automatically by lnwjud.
 - Verifies the real v0.0.13 managed-runtime CLI/status contract while retaining v0.0.12 parser compatibility for users who deliberately select an older manual override.
@@ -233,7 +245,9 @@ A few operating-system boundaries still apply:
 
 ### 2. Prepare OpenAI Secure MCP Tunnel for ChatGPT web
 
-OpenAI's Secure MCP Tunnel flow requires a Platform tunnel ID and a runtime
+lnwjud v4.50.0+ separates the **Secure MCP Tunnel transport** from the **authentication method** used to obtain its runtime credential. Existing installations can continue using a Platform Tunnel ID + Runtime API key. OAuth-capable providers can use the OAuth controls shown by lnwjud when supported; if OAuth runtime provisioning is unavailable, lnwjud fails closed and keeps the Runtime API key workflow available instead of substituting an unrelated account token.
+
+The legacy/compatibility Secure MCP Tunnel flow requires a Platform tunnel ID and a runtime
 API key. The published Windows x64 installer and portable executable already contain the official
 OpenAI `tunnel-client v0.0.13`, so release users do **not** download or
 extract a separate tunnel-client package. The official Windows x64 bundle is kept intact beside the client, including pinned `cloudflared.exe` v2026.8.2, its manifest, license/notice files, license inventory, and SPDX SBOM. lnwjud does **not** enable Cloudflared mode merely because that companion is packaged; the normal Secure MCP Tunnel path remains unchanged unless that upstream mode is explicitly configured. Creating or editing a tunnel requires
