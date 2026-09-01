@@ -24,6 +24,11 @@ export function StandaloneLogViewer(): ReactElement {
     logIds.current.add(line.id);
     setLines((previous) => [...previous.slice(-(MAX_CLIENT_LOG_LINES - 1)), line]);
   }, []);
+  const resolveTargetDetail = useCallback(async (detailRef: string) => (await window.lnwjud.resolveActivityTargetDetail({ detailRef })).detail, []);
+  const searchTargetDetails = useCallback(async (
+    query: string,
+    candidates: readonly { readonly id: string; readonly detailRef: string | null }[],
+  ) => (await window.lnwjud.searchActivityTargetDetails({ query, candidates })).matchingIds, []);
 
   useEffect(() => {
     let disposed = false;
@@ -128,8 +133,8 @@ export function StandaloneLogViewer(): ReactElement {
           workspaceLabel={t('scope.workspace')}
           sessionLabel={t('scope.session')}
           scopeAllLabel={t('scope.all')}
-          onResolveTargetDetail={async (detailRef) => (await window.lnwjud.resolveActivityTargetDetail({ detailRef })).detail}
-          onSearchTargetDetails={async (query, candidates) => (await window.lnwjud.searchActivityTargetDetails({ query, candidates })).matchingIds}
+          onResolveTargetDetail={resolveTargetDetail}
+          onSearchTargetDetails={searchTargetDetails}
           showMoreLabel={t('logDetail.showMore')}
           showLessLabel={t('logDetail.showLess')}
           detailHeadingLabel={t('logDetail.heading')}

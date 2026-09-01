@@ -47,6 +47,24 @@ describe('complete log detail resolution and export', () => {
     fixture.database.close();
   });
 
+  it('searches a large candidate set with one batched repository operation instead of one SQLite lookup per row', async () => {
+    const search = (desktopServices as unknown as { searchActivityTargetDetails?: SearchTargetDetails }).searchActivityTargetDetails;
+    expect(typeof search).toBe('function');
+    const calls: { readonly detailRefs: readonly string[]; readonly query: string }[] = [];
+    const repository = {
+      activityTargetDetailsMatching: async (detailRefs: readonly string[], query: string): Promise<ReadonlySet<string>> => {
+        calls.push({ detailRefs: [...detailRefs], query });
+        return new Set(['call-499']);
+      },
+    } as unknown as SqliteAuditRepository;
+    const candidates = Array.from({ length: 500 }, (_, index) => ({ id: `audit:${index}`, detailRef: `call-${index}` }));
+
+    await expect(search!(repository, candidates, 'needle')).resolves.toEqual(['audit:499']);
+    expect(calls).toHaveLength(1);
+    expect(calls[0]?.detailRefs).toHaveLength(500);
+    expect(calls[0]?.query).toBe('needle');
+  });
+
   it('exports all seven items from a persisted audit row in captured order', async () => {
     const items = ['a.ts', 'b.ts', 'c.ts', 'd.ts', 'e.ts', 'f.ts', 'g.ts'];
     const fixture = await createAuditFixture('persisted-call', items);

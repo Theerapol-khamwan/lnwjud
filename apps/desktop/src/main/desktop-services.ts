@@ -1638,18 +1638,10 @@ export async function searchActivityTargetDetails(
 ): Promise<readonly string[]> {
   const needle = query.trim();
   if (needle.length === 0) return [];
-  const matchesByReference = new Map<string, boolean>();
-  const matchingIds: string[] = [];
-  for (const candidate of candidates) {
-    if (candidate.detailRef === null) continue;
-    let matches = matchesByReference.get(candidate.detailRef);
-    if (matches === undefined) {
-      matches = await repository.activityTargetDetailMatches(candidate.detailRef, needle);
-      matchesByReference.set(candidate.detailRef, matches);
-    }
-    if (matches) matchingIds.push(candidate.id);
-  }
-  return matchingIds;
+  const detailRefs = [...new Set(candidates.flatMap((candidate) => candidate.detailRef === null ? [] : [candidate.detailRef]))];
+  if (detailRefs.length === 0) return [];
+  const matchingRefs = await repository.activityTargetDetailsMatching(detailRefs, needle);
+  return candidates.flatMap((candidate) => candidate.detailRef !== null && matchingRefs.has(candidate.detailRef) ? [candidate.id] : []);
 }
 
 export async function resolveWorkLogExportRows(

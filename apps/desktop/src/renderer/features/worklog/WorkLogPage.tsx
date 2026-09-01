@@ -1,4 +1,4 @@
-import { useState, type ReactElement } from 'react';
+import { useCallback, useState, type ReactElement } from 'react';
 import type { DashboardSnapshot, UiLocale, WorkspaceSummary } from '@lnwjud/ipc-contracts';
 import { createTranslator } from '../../i18n/index.js';
 import { WorkLogPanel, type LogScopeSelection, type WorkLogFilter } from '../worklog/WorkLogPanel.js';
@@ -14,6 +14,11 @@ interface WorkLogPageProps {
 export function WorkLogPage(props: WorkLogPageProps): ReactElement {
   const t = createTranslator(props.locale);
   const [filter, setFilter] = useState<WorkLogFilter>('all');
+  const resolveTargetDetail = useCallback(async (detailRef: string) => (await window.lnwjud.resolveActivityTargetDetail({ detailRef })).detail, []);
+  const searchTargetDetails = useCallback(async (
+    query: string,
+    candidates: readonly { readonly id: string; readonly detailRef: string | null }[],
+  ) => (await window.lnwjud.searchActivityTargetDetails({ query, candidates })).matchingIds, []);
   return (
     <div className="page-content viewport-list-page worklog-page">
       <WorkLogPanel
@@ -29,8 +34,8 @@ export function WorkLogPage(props: WorkLogPageProps): ReactElement {
         onClear={props.onClearWorkLog}
         exportLabel={t('live.export')}
         onExport={props.onExportWorkLog}
-        onResolveTargetDetail={async (detailRef) => (await window.lnwjud.resolveActivityTargetDetail({ detailRef })).detail}
-        onSearchTargetDetails={async (query, candidates) => (await window.lnwjud.searchActivityTargetDetails({ query, candidates })).matchingIds}
+        onResolveTargetDetail={resolveTargetDetail}
+        onSearchTargetDetails={searchTargetDetails}
         entries={props.dashboard.workLog}
         inFlight={props.dashboard.inFlight}
         workspaces={props.workspaces}

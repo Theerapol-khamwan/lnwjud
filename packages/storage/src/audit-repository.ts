@@ -182,21 +182,85 @@ export class SqliteAuditRepository implements AuditEventRepository {
 
   /** Searches full retained items in SQLite and returns no detail content to the caller. */
   public async activityTargetDetailMatches(detailRef: string, query: string): Promise<boolean> {
+    return (await this.activityTargetDetailsMatching([detailRef], query)).has(detailRef);
+  }
+
+  /**
+   * Searches many retained detail references in bounded batches instead of issuing one
+   * synchronous better-sqlite3 query per visible log row. The yield between batches is
+   * intentional: desktop callers run on Electron's main process and must keep pumping the
+   * Windows message loop while a large log search is in progress.
+   */
+  public async activityTargetDetailsMatching(detailRefs: readonly string[], query: string): Promise<ReadonlySet<string>> {
     const needle = query.trim().toLocaleLowerCase();
-    if (detailRef.length === 0 || detailRef.length > 512 || needle.length === 0 || needle.length > 512) return false;
-    const completedSuffix = ':completed';
-    const phase = detailRef.endsWith(completedSuffix) ? 'completed' : 'started';
-    const lookup = phase === 'completed' ? detailRef.slice(0, -completedSuffix.length) : detailRef;
-    const row = this.database.connection.prepare(
-      `SELECT 1 AS matched
-       FROM audit_events, json_each(audit_events.metadata_json, '$.activityTargetDetail.items') AS item
-       WHERE (audit_events.id = ? OR json_extract(audit_events.metadata_json, '$.callId') = ?)
-         AND json_extract(audit_events.metadata_json, '$.phase') = ?
-         AND typeof(item.value) = 'text'
-         AND instr(lower(item.value), ?) > 0
-       LIMIT 1`,
-    ).get(lookup, lookup, phase, needle);
-    return isRecord(row) && row.matched === 1;
+    if (needle.length === 0 || needle.length > 512) return new Set();
+    const requested = [...new Set(detailRefs)]
+      .filter((detailRef) => detailRef.length > 0 && detailRef.length <= 512)
+      .map((detailRef) => {
+        const completedSuffix = ':completed';
+        const phase: 'completed' | 'started' = detailRef.endsWith(completedSuffix) ? 'completed' : 'started';
+        return {
+          detailRef,
+          lookup: phase === 'completed' ? detailRef.slice(0, -completedSuffix.length) : detailRef,
+          phase,
+        };
+      })
+      .filter((entry) => entry.lookup.length > 0);
+    if (requested.length === 0) return new Set();
+
+    const requestedByPhase = new Map<'started' | 'completed', Map<string, string[]>>([
+      ['started', new Map()],
+      ['completed', new Map()],
+    ]);
+    for (const entry of requested) {
+      const byLookup = requestedByPhase.get(entry.phase)!;
+      const refs = byLookup.get(entry.lookup) ?? [];
+      refs.push(entry.detailRef);
+      byLookup.set(entry.lookup, refs);
+    }
+
+    const matched = new Set<string>();
+    const batchSize = 500;
+    const statement = this.database.connection.prepare(
+      `WITH requested AS (SELECT value AS lookup FROM json_each(?))
+       SELECT
+         audit_events.id AS event_id,
+         json_extract(audit_events.metadata_json, '$.callId') AS call_id
+       FROM audit_events
+       WHERE json_extract(audit_events.metadata_json, '$.phase') = ?
+         AND (
+           audit_events.id IN (SELECT lookup FROM requested)
+           OR json_extract(audit_events.metadata_json, '$.callId') IN (SELECT lookup FROM requested)
+         )
+         AND EXISTS (
+           SELECT 1
+           FROM json_each(audit_events.metadata_json, '$.activityTargetDetail.items') AS item
+           WHERE typeof(item.value) = 'text'
+             AND instr(lower(item.value), ?) > 0
+         )`,
+    );
+    const totalBatches = [...requestedByPhase.values()]
+      .reduce((count, byLookup) => count + Math.ceil(byLookup.size / batchSize), 0);
+    let completedBatches = 0;
+    for (const [phase, byLookup] of requestedByPhase) {
+      const lookups = [...byLookup.keys()];
+      for (let offset = 0; offset < lookups.length; offset += batchSize) {
+        const batch = lookups.slice(offset, offset + batchSize);
+        const rows = statement.all(JSON.stringify(batch), phase, needle);
+        for (const row of rows) {
+          if (!isRecord(row) || typeof row.event_id !== 'string') continue;
+          const matchingLookups = typeof row.call_id === 'string' && row.call_id !== row.event_id
+            ? [row.event_id, row.call_id]
+            : [row.event_id];
+          for (const lookup of matchingLookups) {
+            for (const detailRef of byLookup.get(lookup) ?? []) matched.add(detailRef);
+          }
+        }
+        completedBatches += 1;
+        if (completedBatches < totalBatches) await new Promise<void>((resolve) => setImmediate(resolve));
+      }
+    }
+    return matched;
   }
 
   private toEvents(rows: unknown[]): AuditEvent[] {
