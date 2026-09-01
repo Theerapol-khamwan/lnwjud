@@ -43,7 +43,7 @@ describe('Windows release trust evidence', () => {
     expect(evidenceVerifier).toContain('const releaseArtifactOnly');
     expect(evidenceVerifier).toContain('verifyCapabilityBridgeArtifacts');
     expect(bridgeVerifier).toContain('packaged bridge bytes differ from staged package bytes');
-    for (const name of ['lnwjud-mcp-stdio.cjs', 'lnwjud-node.exe', 'windows-capability-bridge.ps1', 'windows-capability-bridge.sha256', 'windows-capability-bridge.integrity.json', 'rg.exe', 'tunnel-client.exe']) {
+    for (const name of ['lnwjud-mcp-stdio.cjs', 'lnwjud-node.exe', 'windows-capability-bridge.ps1', 'windows-capability-bridge.sha256', 'windows-capability-bridge.integrity.json', 'rg.exe', 'tunnel-client.exe', 'cloudflared.exe', 'cloudflared-manifest.json', "relativePath: 'resources/tunnel-client/LICENSE'", "relativePath: 'resources/tunnel-client/NOTICE'", 'tunnel-client-v0.0.13-windows-amd64-licenses.txt', 'tunnel-client-v0.0.13-windows-amd64.spdx.json', 'BUNDLED_TUNNEL_CLIENT.txt']) {
       expect(captureHook).toContain(name);
     }
   });

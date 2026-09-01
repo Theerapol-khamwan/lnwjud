@@ -8,11 +8,11 @@ const desktopRoot = path.resolve(import.meta.dirname, '..', '..', 'apps', 'deskt
 const repositoryRoot = path.resolve(desktopRoot, '..', '..');
 
 describe('Windows desktop packaging', () => {
-  it('pins the product release to v4.44.0', async () => {
+  it('pins the product release to v4.45.0', async () => {
     const rootPackage = JSON.parse(await readFile(path.join(repositoryRoot, 'package.json'), 'utf8')) as { version?: unknown };
     const desktopPackage = JSON.parse(await readFile(path.join(desktopRoot, 'package.json'), 'utf8')) as { version?: unknown };
-    expect(rootPackage.version).toBe('4.44.0');
-    expect(desktopPackage.version).toBe('4.44.0');
+    expect(rootPackage.version).toBe('4.45.0');
+    expect(desktopPackage.version).toBe('4.45.0');
   });
 
   it('keeps every workspace package and runtime version aligned', async () => {
@@ -28,12 +28,12 @@ describe('Windows desktop packaging', () => {
     }
     for (const packagePath of packagePaths) {
       const packageJson = JSON.parse(await readFile(packagePath, 'utf8')) as { version?: unknown };
-      expect(packageJson.version, packagePath).toBe('4.44.0');
+      expect(packageJson.version, packagePath).toBe('4.45.0');
     }
     const ipcContracts = await readFile(path.join(repositoryRoot, 'packages', 'ipc-contracts', 'src', 'index.ts'), 'utf8');
     const shared = await readFile(path.join(repositoryRoot, 'packages', 'shared', 'src', 'index.ts'), 'utf8');
-    expect(ipcContracts).toContain("APP_VERSION = '4.44.0'");
-    expect(shared).toContain("APP_VERSION = '4.44.0'");
+    expect(ipcContracts).toContain("APP_VERSION = '4.45.0'");
+    expect(shared).toContain("APP_VERSION = '4.45.0'");
   });
 
   it('publishes complete desktop application metadata', async () => {
@@ -85,6 +85,8 @@ describe('Windows desktop packaging', () => {
     expect(config).toContain('to: lnwjud-node.exe');
     expect(config).toContain('build/runtime-tools');
     expect(config).toContain('to: runtime-tools');
+    expect(config).toContain('from: build/tunnel-client');
+    expect(config).toContain('to: tunnel-client');
     expect(config).toContain('from: ../../.agents/skills/lnwjud-scheduled-continuation');
     expect(config).toContain('to: agent-skills/lnwjud-scheduled-continuation');
     await access(path.join(repositoryRoot, '.agents', 'skills', 'lnwjud-scheduled-continuation', 'SKILL.md'));
@@ -128,7 +130,7 @@ describe('Windows desktop packaging', () => {
     expect(ocrProject).not.toContain('10.0.28000');
   });
 
-  it('pins and verifies the official Windows x64 ripgrep runtime used by packaged search', async () => {
+  it('pins and verifies the official Windows x64 runtime downloads used by packaging', async () => {
     const prepareRipgrep = await readFile(path.join(desktopRoot, 'scripts', 'prepare-ripgrep.ps1'), 'utf8');
     const prepareTunnel = await readFile(path.join(desktopRoot, 'scripts', 'prepare-tunnel-client.ps1'), 'utf8');
     expect(prepareRipgrep).toContain("$version = '15.2.0'");
@@ -137,6 +139,17 @@ describe('Windows desktop packaging', () => {
     expect(prepareRipgrep).toContain("'runtime-tools\\ripgrep'");
     expect(prepareRipgrep).toContain("'BUNDLED_RIPGREP.txt'");
     expect(prepareRipgrep).toContain("-Filter 'rg.exe'");
+
+    expect(prepareTunnel).toContain("$version = '0.0.13'");
+    expect(prepareTunnel).toContain('tunnel-client-v$version-windows-amd64.zip');
+    expect(prepareTunnel).toContain("$expectedSha256 = '17113162b353906bbb884c3ed7620facba5cc72b5fdc94fd54fd7208c7166edb'");
+    for (const required of ['tunnel-client.exe', 'cloudflared.exe', 'cloudflared-manifest.json', 'LICENSE', 'NOTICE', 'windows-amd64-licenses.txt', 'windows-amd64.spdx.json', 'BUNDLED_TUNNEL_CLIENT.txt']) {
+      expect(prepareTunnel).toContain(required);
+    }
+    expect(prepareTunnel).toContain('Remove-Item -LiteralPath $zipPath -Force');
+    expect(prepareTunnel).toContain('archive_files=');
+    expect(prepareTunnel).toContain('cloudflared_manifest_sha256=');
+
     for (const script of [prepareRipgrep, prepareTunnel]) {
       expect(script).toContain('[System.Security.Cryptography.SHA256]::Create()');
       expect(script).not.toContain('Get-FileHash');

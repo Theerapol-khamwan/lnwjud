@@ -170,4 +170,46 @@ describe('parseNativeRuntimeStatus', () => {
       pid: 21980,
     }));
   });
+
+  it('parses the real tunnel-client 0.0.13 stopped-status shape without treating unknown poll health as failure', () => {
+    expect(parseNativeRuntimeStatus(JSON.stringify({
+      admin_profile: 'default',
+      alias: 'lnwjud',
+      control_plane_poll_health: {
+        reason: 'no live admin UI system snapshot',
+        state: 'unknown',
+      },
+      healthy: false,
+      local: {
+        control_plane_poll_health: {
+          reason: 'no live admin UI system snapshot',
+          state: 'unknown',
+        },
+        process_running: false,
+        runtime_state: 'stopped',
+      },
+      process: {
+        mode: 'stopped',
+        target_kind: 'server_url',
+        target_value: 'http://127.0.0.1:18765/mcp',
+        tunnel_id: 'tunnel_fixture013345',
+      },
+      process_running: false,
+      profile_exists: true,
+      ready: false,
+      runtime_state: 'stopped',
+      tunnel_id: 'tunnel_fixture013345',
+      ui_url: '',
+    }))).toEqual(expect.objectContaining({
+      exists: true,
+      running: false,
+      healthy: false,
+      ready: false,
+      pollHealthy: null,
+      tunnelId: 'tunnel_fixture013345',
+      mcpServerUrl: 'http://127.0.0.1:18765/mcp',
+      pid: null,
+      uiUrl: null,
+    }));
+  });
 });

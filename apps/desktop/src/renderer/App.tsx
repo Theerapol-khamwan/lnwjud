@@ -70,6 +70,7 @@ export function App(): ReactElement {
   const [startupDoctorReady, setStartupDoctorReady] = useState(false);
   const [requestedSettingsSection, setRequestedSettingsSection] = useState<{ readonly section: SettingsSection; readonly focus?: SettingsFocusTarget; readonly requestId: number } | undefined>(undefined);
   const incidentBusyRef = useRef(false);
+  const refreshBusyRef = useRef(false);
   const logIds = useRef<Set<number>>(new Set());
   const guidedTunnelLaunchSignature = useRef<string | null>(null);
   const startupDoctorVersion = useRef<string | null>(null);
@@ -189,28 +190,34 @@ export function App(): ReactElement {
   }
 
   const refresh = useCallback(async (): Promise<void> => {
-    const [dashboardResult, workspacesResult] = await Promise.allSettled([
-      window.lnwjud.getDashboard(),
-      window.lnwjud.listWorkspaces(),
-    ]);
-    const failures: string[] = [];
-    if (dashboardResult.status === 'fulfilled') {
-      setDashboard(dashboardResult.value);
-      setLocale(dashboardResult.value.locale);
-    } else {
-      failures.push(errorMessage(dashboardResult.reason, createTranslator(locale)('error.desktopService')));
+    if (refreshBusyRef.current) return;
+    refreshBusyRef.current = true;
+    try {
+      const [dashboardResult, workspacesResult] = await Promise.allSettled([
+        window.lnwjud.getDashboard(),
+        window.lnwjud.listWorkspaces(),
+      ]);
+      const failures: string[] = [];
+      if (dashboardResult.status === 'fulfilled') {
+        setDashboard(dashboardResult.value);
+        setLocale(dashboardResult.value.locale);
+      } else {
+        failures.push(errorMessage(dashboardResult.reason, createTranslator(locale)('error.desktopService')));
+      }
+      if (workspacesResult.status === 'fulfilled') {
+        setWorkspaces(workspacesResult.value);
+      } else {
+        failures.push(errorMessage(workspacesResult.reason, createTranslator(locale)('error.desktopService')));
+      }
+      setBootError(failures.length === 0 ? null : failures.join(' · '));
+    } finally {
+      refreshBusyRef.current = false;
     }
-    if (workspacesResult.status === 'fulfilled') {
-      setWorkspaces(workspacesResult.value);
-    } else {
-      failures.push(errorMessage(workspacesResult.reason, createTranslator(locale)('error.desktopService')));
-    }
-    setBootError(failures.length === 0 ? null : failures.join(' · '));
   }, [locale]);
 
   useEffect(() => {
     void refresh();
-    const interval = window.setInterval(() => { void refresh(); }, 1_000);
+    const interval = window.setInterval(() => { void refresh(); }, 2_000);
     return (): void => { window.clearInterval(interval); };
   }, [refresh]);
 

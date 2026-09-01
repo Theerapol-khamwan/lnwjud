@@ -138,8 +138,11 @@ export interface GoalSnapshot {
   readonly terminalAt?: string;
 }
 
+export type FinishGoalCompletionState = 'completed' | 'pending_native_cleanup';
+
 export interface FinishGoalResult extends GoalSnapshot {
   readonly scheduledTaskCancellation: ScheduledTaskCancellationInstruction;
+  readonly completionState: FinishGoalCompletionState;
 }
 
 export interface CancelGoalResult extends GoalSnapshot {
@@ -295,7 +298,7 @@ export class GoalContinuationService {
       if (current.ownerClientId !== ownerClientId) return err(appError('PERMISSION_DENIED', 'Goal belongs to another client'));
       if (!Number.isInteger(request.expectedRevision) || request.expectedRevision < 0) return err(appError('INVALID_INPUT', 'expectedRevision is invalid'));
       const now = this.now().toISOString();
-      const goal = await this.goals.finish({
+      const finishRequest = {
         checkpointId: randomUUID(),
         goalId,
         ownerClientId,
@@ -306,7 +309,7 @@ export class GoalContinuationService {
         summary: safeText(request.summary, MAX_SUMMARY, 'summary'),
         evidence: normalizeEvidence(request.evidence),
         now,
-      });
+      } as const;
 
       let scheduledTaskCancellation: ScheduledTaskCancellationInstruction = {
         action: 'none',
@@ -314,13 +317,32 @@ export class GoalContinuationService {
       };
       if (this.scheduledContinuations !== undefined) {
         try {
+          await this.goals.validateFinish(finishRequest);
+        } catch (error: unknown) {
+          return this.mapError(error);
+        }
+        try {
           const marked = await this.scheduledContinuations.markGoalFinishedForScheduledContinuation(goalId, now);
           scheduledTaskCancellation = cancellationInstruction(marked.continuation);
+          if (requiresNativeCleanup(scheduledTaskCancellation)) {
+            const pendingGoal = await this.goals.getById(goalId);
+            if (pendingGoal === null) return err(appError('INVALID_INPUT', 'Goal was not found'));
+            return ok({
+              ...toSnapshot(pendingGoal),
+              completionState: 'pending_native_cleanup',
+              scheduledTaskCancellation,
+            });
+          }
         } catch {
-          scheduledTaskCancellation = { action: 'none', reason: 'native_task_unverified' };
+          return err(appError(
+            'CONFLICT',
+            'Goal completion is waiting for scheduled-continuation cleanup to be verified',
+            true,
+          ));
         }
       }
-      return ok({ ...toSnapshot(goal), scheduledTaskCancellation });
+      const goal = await this.goals.finish(finishRequest);
+      return ok({ ...toSnapshot(goal), completionState: 'completed', scheduledTaskCancellation });
     } catch (error: unknown) {
       return this.mapError(error);
     }
@@ -599,6 +621,10 @@ function normalizeTaskIds(values: readonly string[] | undefined): readonly strin
   if (values === undefined) return [];
   if (!Array.isArray(values) || values.length > MAX_ACTIVE_TASKS) throw new Error('activeTaskIds are invalid');
   return [...new Set(values.map((value) => requiredBounded(value, 'task id', MAX_TASK_ID)))];
+}
+
+function requiresNativeCleanup(instruction: ScheduledTaskCancellationInstruction): boolean {
+  return instruction.action === 'delete_native_task' || instruction.reason === 'native_task_unverified';
 }
 
 function normalizeTrackedTasks(

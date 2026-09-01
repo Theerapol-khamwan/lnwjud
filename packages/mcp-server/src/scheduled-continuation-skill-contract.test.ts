@@ -32,6 +32,12 @@ describe('scheduled continuation skill contract', () => {
     expect(skill).toContain('`handoffReady: false` / `currentWakeMayReturn: false`');
     expect(skill).toContain('never silently return with a merely `prepared` successor');
     expect(skill).toContain('claim_scheduled_continuation');
+    expect(skill).toContain('atomically reserves a fresh `prepared` successor');
+    expect(skill).toContain('never create blindly');
+    expect(skill).toContain('native_task_receipt_missing');
+    expect(skill).toContain('Do **not** call `prepare_scheduled_continuation` again');
+    expect(skill).toContain('returned `scheduleRequest`');
+    expect(skill).toContain('`successor_required`');
     expect(skill).toContain('expedite_scheduled_continuation');
     expect(skill).toContain('goalLease');
     expect(skill).toContain('orphan_recovered');

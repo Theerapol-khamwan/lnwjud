@@ -27,6 +27,8 @@ describe('durable goal MCP tools', () => {
     expect(byName.get('cancel_goal')).toMatchObject({ permission: 'WRITE', annotations: { readOnlyHint: false, destructiveHint: true } });
     expect(byName.get('finish_goal')?.description).toContain('must be called before any completion report');
     expect(byName.get('finish_goal')?.description).toContain('even when scheduling was disabled');
+    expect(byName.get('finish_goal')?.description).toContain('completionState=pending_native_cleanup');
+    expect(byName.get('finish_goal')?.description).toContain('call finish_goal again');
     expect(byName.get('cancel_goal')?.description).toContain('aborts in-flight fenced MCP requests');
     expect(byName.get('cancel_goal')?.description).toContain('status=skipped');
     expect(byName.get('cancel_goal')?.description).toContain('provider that is unavailable');
@@ -230,7 +232,8 @@ describe('durable goal MCP tools', () => {
             finishes += 1;
             return ok({
               goalId: 'goal-1',
-              status: 'completed',
+              status: 'active',
+              completionState: 'pending_native_cleanup',
               scheduledTaskCancellation: {
                 action: 'delete_native_task',
                 continuationId: 'continuation-c',
@@ -257,7 +260,8 @@ describe('durable goal MCP tools', () => {
     expect(result).toMatchObject({
       ok: true,
       value: {
-        status: 'completed',
+        status: 'active',
+        completionState: 'pending_native_cleanup',
         scheduledTaskCancellation: {
           action: 'delete_native_task',
           continuationId: 'continuation-c',

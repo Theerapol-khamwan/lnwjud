@@ -68,6 +68,13 @@ const requiredRuntime = new Set([
   'resources/windows-capability-bridge.integrity.json',
   'resources/runtime-tools/ripgrep/rg.exe',
   'resources/tunnel-client/tunnel-client.exe',
+  'resources/tunnel-client/cloudflared.exe',
+  'resources/tunnel-client/cloudflared-manifest.json',
+  'resources/tunnel-client/LICENSE',
+  'resources/tunnel-client/NOTICE',
+  'resources/tunnel-client/tunnel-client-v0.0.13-windows-amd64-licenses.txt',
+  'resources/tunnel-client/tunnel-client-v0.0.13-windows-amd64.spdx.json',
+  'resources/tunnel-client/BUNDLED_TUNNEL_CLIENT.txt',
 ]);
 if (!Array.isArray(provenance.runtime)) throw new Error('Provenance runtime list is missing');
 for (const runtime of provenance.runtime) {

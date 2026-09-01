@@ -6,6 +6,8 @@ The packaged MCP stdio launcher is self-contained: `lnwjud-mcp-stdio.cmd` launch
 
 Core text/file search is also self-contained. Packaging downloads the pinned official Windows x64 ripgrep archive, verifies its SHA-256, preserves its license notices, and ships `resources/runtime-tools/ripgrep/rg.exe` in both Setup and Portable builds. Desktop and `lnwjud-mcp-stdio.cmd` prepend that private directory to the child runtime PATH, so users do not need to install ripgrep themselves.
 
+OpenAI Secure MCP Tunnel is self-contained as well. Packaging pins official `tunnel-client v0.0.13` for Windows amd64 and verifies archive SHA-256 `17113162b353906bbb884c3ed7620facba5cc72b5fdc94fd54fd7208c7166edb` before extraction. The complete seven-file upstream payload is preserved under `resources/tunnel-client/`: `tunnel-client.exe`, pinned `cloudflared.exe` v2026.8.2, `cloudflared-manifest.json`, `LICENSE`, `NOTICE`, the Windows amd64 license inventory, and SPDX SBOM; lnwjud also writes `BUNDLED_TUNNEL_CLIENT.txt` with the archive/runtime hashes used for provenance. Shipping the adjacent Cloudflared companion does not enable Cloudflared mode by default; normal lnwjud Secure MCP Tunnel behavior remains unchanged unless that upstream mode is explicitly configured.
+
 On the first launch of each lnwjud version, Desktop runs the core Doctor checks automatically before tunnel onboarding. Only core failures (supported Windows x64, database, bundled ripgrep, workspace initialization, and local MCP readiness) interrupt startup and keep navigation on Doctor. Git and optional capabilities such as Codex, WSL, Python, FFmpeg, and Windows OCR may report warnings or feature-specific unavailable states but do not block first-run.
 
 The current release target is x64 only. Windows 7/8/8.1 and 32-bit Windows are not supported release targets.
@@ -27,7 +29,7 @@ The package script rebuilds the workspace, generates the current MCP stdio bundl
 
 ## Current electron-builder contract
 
-`apps/desktop/electron-builder.yml` is the source of truth. The current v4.44.0 packaging contract is:
+`apps/desktop/electron-builder.yml` is the source of truth. The current v4.45.0 packaging contract is:
 
 - `asar: true`.
 - Windows x64 targets: NSIS installer + portable executable.
@@ -70,12 +72,12 @@ The `makeappx.exe`/`signtool.exe` steps need the Windows SDK. No certificate or 
 
 ## Expected Windows outputs
 
-For v4.44.0:
+For v4.45.0:
 
 ```text
-apps/desktop/dist/installers/lnwjud-Setup-4.44.0.exe
-apps/desktop/dist/installers/lnwjud-Setup-4.44.0.exe.blockmap
-apps/desktop/dist/installers/lnwjud-Portable-4.44.0.exe
+apps/desktop/dist/installers/lnwjud-Setup-4.45.0.exe
+apps/desktop/dist/installers/lnwjud-Setup-4.45.0.exe.blockmap
+apps/desktop/dist/installers/lnwjud-Portable-4.45.0.exe
 apps/desktop/dist/installers/latest.yml
 apps/desktop/dist/installers/portable.yml
 apps/desktop/dist/installers/SHA256SUMS.txt
