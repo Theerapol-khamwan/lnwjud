@@ -41,13 +41,9 @@ export function StandaloneLogViewer(): ReactElement {
       appendLine(line);
       if (line.source === 'tunnel') setTunnelLogExists(true);
     });
-    const interval = window.setInterval(() => {
-      void window.lnwjud.getDashboard().catch(() => undefined);
-    }, 1_000);
     return (): void => {
       disposed = true;
       unsubscribe();
-      window.clearInterval(interval);
     };
   }, [appendLine]);
 

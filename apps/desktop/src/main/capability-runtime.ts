@@ -24,6 +24,7 @@ import {
 import type { Result } from '@lnwjud/domain';
 import type { DashboardSnapshot } from '@lnwjud/ipc-contracts';
 import { DEFAULT_SHELL_SYNCHRONOUS_WAIT_SECONDS } from '@lnwjud/shared';
+import { AsyncTtlCache } from './async-ttl-cache.js';
 
 export interface LocalCapabilityRuntime {
   readonly service: LocalCapabilityService;
@@ -84,13 +85,14 @@ export function createLocalCapabilityRuntime(
   const officeBackend = new WindowsNativeCapabilityBackend('office', windowsBridge, process.platform, nativeOptions);
   const webFetchBackend = new WebFetchCapabilityBackend();
   const schedulerBackend = new SchedulerCapabilityBackend();
-  const wslAvailabilityProbe = async (): Promise<Result<unknown>> => {
+  const wslAvailabilityCache = new AsyncTtlCache<Result<unknown>>(15_000);
+  const wslAvailabilityProbe = (): Promise<Result<unknown>> => wslAvailabilityCache.get(async () => {
     const result = await shellBackend.execute({ operation: 'run', executable: 'wsl.exe', arguments: ['--status'], cwd: dataPath, execution: 'foreground', timeout_seconds: 5, max_output_bytes: 32 * 1024, userConfirmed: false });
     if (!result.ok) return { ok: true, value: { available: false, ready: false, local: true, reason: 'wsl_executable_unavailable' } };
     const value = isRecord(result.value) ? result.value : {};
     const ready = value.state === 'completed' && value.exit_code === 0;
     return { ok: true, value: { available: ready, ready, local: true, ...(ready ? {} : { reason: 'wsl_status_failed' }) } };
-  };
+  });
   const wslBackend = new WslCapabilityBackend({
     platform: process.platform,
     runner: shellBackend,

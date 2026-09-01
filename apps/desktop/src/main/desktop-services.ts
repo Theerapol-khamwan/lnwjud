@@ -142,6 +142,7 @@ import {
 } from '@lnwjud/ipc-contracts';
 import type { DesktopIpcServices } from './main.js';
 import { buildCapabilitySummary, createLocalCapabilityRuntime } from './capability-runtime.js';
+import { AsyncTtlCache } from './async-ttl-cache.js';
 import { RequirementRegistry, type RequirementDefinition, type RequirementProbeResult } from './tool-catalog/requirement-registry.js';
 import { RemediationRegistry } from './tool-catalog/remediation-registry.js';
 import { ToolCatalogService, type ToolCatalogServiceOptions } from './tool-catalog/tool-catalog-service.js';
@@ -434,6 +435,10 @@ export function createDesktopRuntime(dataPath: string, options: DesktopRuntimeOp
     logHub.feedIfNew('mcp', key, 'error', message);
   };
   const trackedProcesses = new Map<string, string>();
+  const gitSummaryCache = new AsyncTtlCache<DashboardSnapshot['gitSummary']>(5_000);
+  const codexSummaryCache = new AsyncTtlCache<DashboardSnapshot['codex']>(60_000);
+  const capabilitySummaryCache = new AsyncTtlCache<DashboardSnapshot['capabilities']>(15_000);
+  let gitSummaryWorkspaceId: string | null = null;
   let lastRecoveryRetentionSweepAt = 0;
   const recoveryRetentionSweepIntervalMs = 6 * 60 * 60 * 1000;
 
@@ -775,13 +780,18 @@ export function createDesktopRuntime(dataPath: string, options: DesktopRuntimeOp
       });
       const selectedWorkspace = await resolveSelectedWorkspace(workspaceService, settingsRepository);
       const activeWorkspaces = await resolveActiveProjectWorkspaces();
+      const selectedWorkspaceId = selectedWorkspace?.id ?? null;
+      if (gitSummaryWorkspaceId !== selectedWorkspaceId) {
+        gitSummaryWorkspaceId = selectedWorkspaceId;
+        gitSummaryCache.clear();
+      }
       const gitSummary = selectedWorkspace === null
         ? { branch: null, changedFiles: 0, stagedFiles: 0, message: 'No workspace selected' }
-        : await buildGitSummary(selectedWorkspace, gitService, actor);
-      const codex = await buildCodexSummary(codexDiscovery);
+        : await gitSummaryCache.get(() => buildGitSummary(selectedWorkspace, gitService, actor));
+      const codex = await codexSummaryCache.get(() => buildCodexSummary(codexDiscovery));
       const recentAuditEvents = await buildAuditSummary(auditRepository, settingsRepository);
       const processSummaries = await listTrackedProcesses(processService, trackedProcesses);
-      const capabilities = await buildCapabilitySummary(capabilityRuntime.health);
+      const capabilities = await capabilitySummaryCache.get(() => buildCapabilitySummary(capabilityRuntime.health));
       const mcp = mcpLifecycle.status();
       const workLog = await buildWorkLog(auditRepository, workLogViewState);
       const inFlight = activityTracker.listInFlight().map(toInFlightItem);
