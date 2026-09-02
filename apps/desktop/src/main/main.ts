@@ -168,7 +168,7 @@ const emptyTunnel: TunnelStatus = {
 const emptyRemoteMcp: RemoteMcpStatus = {
   state: 'stopped', provider: 'ngrok', installed: false, hasAuthtoken: false, ngrokPath: null,
   localMcpUrl: null, localGatewayUrl: null, publicMcpUrl: null, pairingCode: null, pairingCodeExpiresAt: null,
-  oauthProtected: true, message: null,
+  oauthProtected: true, oauthConnected: false, pairingRequired: false, autoStartEnabled: false, message: null,
 };
 const defaultUserSettings: UserSettings = {
   customPermission: { read: 'ALLOW', write: 'ASK', execute: 'ASK', dangerous: 'DENY', allowedExecutables: [] },
@@ -1689,6 +1689,9 @@ function bootstrapDesktop(): void {
     createDesktopTray();
     void runtime.autoStartTunnel().catch((error: unknown) => {
       console.error(`Tunnel persistent runtime auto-start failed: ${error instanceof Error ? error.message : 'unknown error'}`);
+    });
+    void runtime.autoStartRemoteMcp().catch((error: unknown) => {
+      console.error(`Remote MCP persistent runtime auto-start failed: ${error instanceof Error ? error.message : 'unknown error'}`);
     });
     initAutoUpdater(runtime);
     app.on('activate', () => {

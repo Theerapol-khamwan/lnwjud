@@ -11,6 +11,27 @@ interface RegisteredClient {
   readonly clientId: string;
   readonly redirectUris: readonly string[];
   readonly clientName: string | null;
+  readonly trusted: boolean;
+}
+
+export interface RemoteMcpPersistedState {
+  readonly schemaVersion: 1;
+  readonly desiredRunning: boolean;
+  readonly trustedClients: ReadonlyArray<{
+    readonly clientId: string;
+    readonly redirectUris: readonly string[];
+    readonly clientName: string | null;
+  }>;
+  readonly refreshGrants: ReadonlyArray<{
+    readonly refreshToken: string;
+    readonly clientId: string;
+    readonly expiresAt: number;
+  }>;
+}
+
+export interface RemoteMcpStatePersistence {
+  load(): Promise<RemoteMcpPersistedState | null>;
+  save(state: RemoteMcpPersistedState): Promise<void>;
 }
 
 interface AuthorizationCode {
@@ -41,6 +62,7 @@ export interface RemoteMcpControllerOptions {
   readonly dataPath: string;
   readonly getLocalMcpUrl: () => Promise<string | null>;
   readonly now?: () => number;
+  readonly persistence?: RemoteMcpStatePersistence;
 }
 
 const NGROK_API = 'http://127.0.0.1:4040/api/tunnels';
@@ -53,6 +75,9 @@ export class RemoteMcpController {
   private readonly dataPath: string;
   private readonly getLocalMcpUrl: () => Promise<string | null>;
   private readonly now: () => number;
+  private readonly persistence: RemoteMcpStatePersistence;
+  private persistenceLoaded = false;
+  private desiredRunning = false;
   private gateway: Server | null = null;
   private gatewayUrl: string | null = null;
   private publicOrigin: string | null = null;
@@ -73,9 +98,11 @@ export class RemoteMcpController {
     this.dataPath = options.dataPath;
     this.getLocalMcpUrl = options.getLocalMcpUrl;
     this.now = options.now ?? Date.now;
+    this.persistence = options.persistence ?? createRemoteMcpStatePersistence(options.dataPath);
   }
 
   public async status(): Promise<RemoteMcpStatus> {
+    await this.ensurePersistenceLoaded();
     const localMcpUrl = await this.getLocalMcpUrl().catch(() => null);
     const probeNow = this.now();
     if (this.ngrokProbeAt === 0 || probeNow - this.ngrokProbeAt >= 30_000) {
@@ -100,6 +127,9 @@ export class RemoteMcpController {
       pairingCode: this.runState === 'running' ? this.pairingCode : null,
       pairingCodeExpiresAt: this.runState === 'running' && this.pairingExpiresAt > 0 ? new Date(this.pairingExpiresAt).toISOString() : null,
       oauthProtected: true,
+      oauthConnected: this.hasTrustedClient(),
+      pairingRequired: this.runState === 'running' && !this.hasTrustedClient(),
+      autoStartEnabled: this.desiredRunning,
       message: this.message,
     };
   }
@@ -140,12 +170,25 @@ export class RemoteMcpController {
   }
 
   public async regeneratePairingCode(): Promise<RemoteMcpStatus> {
+    await this.ensurePersistenceLoaded();
+    for (const [clientId, client] of this.clients) this.clients.set(clientId, { ...client, trusted: false });
+    this.authCodes.clear();
+    this.accessTokens.clear();
+    this.refreshTokens.clear();
     this.issuePairingCode();
-    this.message = 'A new OAuth pairing code was generated';
+    await this.persistState();
+    this.message = 'ChatGPT authorization was reset. Pair once to trust this connection again.';
     return this.status();
   }
 
+  public async autoStartIfDesired(): Promise<RemoteMcpStatus> {
+    await this.ensurePersistenceLoaded();
+    if (!this.desiredRunning || !this.hasTrustedClient()) return this.status();
+    return this.start();
+  }
+
   public async start(): Promise<RemoteMcpStatus> {
+    await this.ensurePersistenceLoaded();
     if (this.runState === 'running') return this.status();
     this.runState = 'starting';
     this.message = 'Starting protected Remote MCP…';
@@ -166,7 +209,12 @@ export class RemoteMcpController {
       if (recoveredStaleNgrok) this.message = 'Recovered a stale lnwjud ngrok runtime from a previous Desktop session';
       await this.startGateway(localMcpUrl);
       if (this.gatewayUrl === null) throw new Error('Remote MCP gateway did not start');
-      this.issuePairingCode();
+      if (this.hasTrustedClient()) {
+        this.pairingCode = null;
+        this.pairingExpiresAt = 0;
+      } else {
+        this.issuePairingCode();
+      }
       this.publicOrigin = null;
       let lastNgrokDiagnostic: string | null = null;
       let ngrokDiagnosticBuffer = '';
@@ -211,7 +259,11 @@ export class RemoteMcpController {
       const origin = outcome.origin;
       this.publicOrigin = origin;
       this.runState = 'running';
-      this.message = 'Remote MCP is online and protected by OAuth + pairing code';
+      this.desiredRunning = true;
+      await this.persistState();
+      this.message = this.hasTrustedClient()
+        ? 'Remote MCP is online. ChatGPT authorization is trusted and will reconnect automatically.'
+        : 'Remote MCP is online. Pair ChatGPT once to trust this connection.';
       return this.status();
     } catch (error) {
       await this.stopOwnedRuntime();
@@ -222,9 +274,12 @@ export class RemoteMcpController {
   }
 
   public async stop(): Promise<RemoteMcpStatus> {
+    await this.ensurePersistenceLoaded();
     this.runState = 'stopped';
-    this.message = 'Remote MCP stopped';
+    this.desiredRunning = false;
+    this.message = 'Remote MCP stopped. Automatic start is disabled until you start it again.';
     await this.stopOwnedRuntime();
+    await this.persistState();
     return this.status();
   }
 
@@ -280,7 +335,7 @@ export class RemoteMcpController {
       const redirectUris = Array.isArray(body.redirect_uris) ? body.redirect_uris.filter((entry): entry is string => typeof entry === 'string' && isSafeRedirectUri(entry)) : [];
       if (redirectUris.length === 0) { json(response, 400, { error: 'invalid_redirect_uri' }); return; }
       const clientId = token(24);
-      this.clients.set(clientId, { clientId, redirectUris, clientName: typeof body.client_name === 'string' ? body.client_name.slice(0, 120) : null });
+      this.clients.set(clientId, { clientId, redirectUris, clientName: typeof body.client_name === 'string' ? body.client_name.slice(0, 120) : null, trusted: false });
       json(response, 201, { client_id: clientId, redirect_uris: redirectUris, token_endpoint_auth_method: 'none' });
       return;
     }
@@ -324,30 +379,35 @@ export class RemoteMcpController {
       json(response, 400, { error: 'invalid_request' });
       return;
     }
-    const submitted = params.get('pairing_code');
-    if (submitted === null) {
-      html(
-        response,
-        200,
-        authorizePairingPage({
-          clientName: client.clientName ?? 'ChatGPT',
-          clientId,
-          redirectUri,
-          state,
-          challenge,
-        }),
-        [new URL(redirectUri).origin],
-      );
-      return;
-    }
-    if (!this.verifyPairingCode(submitted)) {
-      html(response, 403, pairingErrorPage());
-      return;
+    if (!client.trusted) {
+      const submitted = params.get('pairing_code');
+      if (submitted === null) {
+        html(
+          response,
+          200,
+          authorizePairingPage({
+            clientName: client.clientName ?? 'ChatGPT',
+            clientId,
+            redirectUri,
+            state,
+            challenge,
+          }),
+          [new URL(redirectUri).origin],
+        );
+        return;
+      }
+      if (!this.verifyPairingCode(submitted)) {
+        html(response, 403, pairingErrorPage());
+        return;
+      }
+      this.clients.set(clientId, { ...client, trusted: true });
+      this.pairingCode = null;
+      this.pairingExpiresAt = 0;
+      this.message = 'ChatGPT authorized. This OAuth connection is remembered for future starts.';
+      await this.persistState();
     }
     const code = token(32);
     this.authCodes.set(code, { clientId, redirectUri, codeChallenge: challenge, expiresAt: this.now() + CODE_TTL_MS });
-    this.pairingCode = null;
-    this.pairingExpiresAt = 0;
     const destination = new URL(redirectUri);
     destination.searchParams.set('code', code);
     if (state.length > 0) destination.searchParams.set('state', state);
@@ -367,7 +427,7 @@ export class RemoteMcpController {
       if (grant === undefined || grant.expiresAt <= this.now() || grant.clientId !== clientId || grant.redirectUri !== (params.get('redirect_uri') ?? '') || !verifyPkce(verifier, grant.codeChallenge)) {
         json(response, 400, { error: 'invalid_grant' }); return;
       }
-      this.issueTokens(clientId, response);
+      await this.issueTokens(clientId, response);
       return;
     }
     if (grantType === 'refresh_token') {
@@ -377,17 +437,18 @@ export class RemoteMcpController {
         json(response, 400, { error: 'invalid_grant' }); return;
       }
       this.refreshTokens.delete(refresh);
-      this.issueTokens(clientId, response);
+      await this.issueTokens(clientId, response);
       return;
     }
     json(response, 400, { error: 'unsupported_grant_type' });
   }
 
-  private issueTokens(clientId: string, response: ServerResponse): void {
+  private async issueTokens(clientId: string, response: ServerResponse): Promise<void> {
     const access = token(32);
     const refresh = token(32);
     this.accessTokens.set(access, { clientId, expiresAt: this.now() + ACCESS_TTL_MS });
     this.refreshTokens.set(refresh, { clientId, expiresAt: this.now() + REFRESH_TTL_MS });
+    await this.persistState();
     json(response, 200, { access_token: access, token_type: 'Bearer', expires_in: Math.floor(ACCESS_TTL_MS / 1000), refresh_token: refresh });
   }
 
@@ -421,6 +482,48 @@ export class RemoteMcpController {
     return this.publicOrigin;
   }
 
+  private hasTrustedClient(): boolean {
+    for (const client of this.clients.values()) if (client.trusted) return true;
+    return false;
+  }
+
+  private async ensurePersistenceLoaded(): Promise<void> {
+    if (this.persistenceLoaded) return;
+    this.persistenceLoaded = true;
+    let state: RemoteMcpPersistedState | null = null;
+    try {
+      state = await this.persistence.load();
+    } catch (error) {
+      this.message = `Saved Remote MCP authorization could not be loaded: ${errorMessage(error)}`;
+    }
+    if (state === null) return;
+    this.desiredRunning = state.desiredRunning;
+    for (const client of state.trustedClients.slice(0, 32)) {
+      this.clients.set(client.clientId, { ...client, trusted: true });
+    }
+    const trustedClientIds = new Set([...this.clients.values()].filter((client) => client.trusted).map((client) => client.clientId));
+    for (const grant of state.refreshGrants.slice(0, 64)) {
+      if (grant.expiresAt > this.now() && trustedClientIds.has(grant.clientId)) {
+        this.refreshTokens.set(grant.refreshToken, { clientId: grant.clientId, expiresAt: grant.expiresAt });
+      }
+    }
+  }
+
+  private async persistState(): Promise<void> {
+    if (!this.persistenceLoaded) return;
+    const now = this.now();
+    const trustedClients = [...this.clients.values()]
+      .filter((client) => client.trusted)
+      .slice(0, 32)
+      .map(({ clientId, redirectUris, clientName }) => ({ clientId, redirectUris: [...redirectUris], clientName }));
+    const trustedClientIds = new Set(trustedClients.map((client) => client.clientId));
+    const refreshGrants = [...this.refreshTokens.entries()]
+      .filter(([, grant]) => grant.expiresAt > now && trustedClientIds.has(grant.clientId))
+      .slice(-64)
+      .map(([refreshToken, grant]) => ({ refreshToken, clientId: grant.clientId, expiresAt: grant.expiresAt }));
+    await this.persistence.save({ schemaVersion: 1, desiredRunning: this.desiredRunning, trustedClients, refreshGrants });
+  }
+
   private secretDir(): string { return path.join(this.dataPath, 'remote-mcp'); }
   private secretPath(): string { return path.join(this.secretDir(), 'ngrok-authtoken.secret'); }
   private async hasAuthtoken(): Promise<boolean> { return (await this.loadAuthtoken().catch(() => null)) !== null; }
@@ -446,11 +549,65 @@ export class RemoteMcpController {
     this.gateway = null;
     this.gatewayUrl = null;
     if (server !== null) await new Promise<void>((resolve) => server.close(() => resolve()));
-    this.clients.clear();
     this.authCodes.clear();
     this.accessTokens.clear();
-    this.refreshTokens.clear();
   }
+}
+
+function createRemoteMcpStatePersistence(dataPath: string): RemoteMcpStatePersistence {
+  const directory = path.join(dataPath, 'remote-mcp');
+  const filename = path.join(directory, 'oauth-state.secret');
+  return {
+    load: async (): Promise<RemoteMcpPersistedState | null> => {
+      let encrypted: string;
+      try {
+        encrypted = await readFile(filename, 'utf8');
+      } catch (error) {
+        if (isMissingFileError(error)) return null;
+        throw error;
+      }
+      const plainText = await unprotectTunnelSecret(encrypted);
+      return normalizePersistedState(JSON.parse(plainText) as unknown);
+    },
+    save: async (state: RemoteMcpPersistedState): Promise<void> => {
+      await mkdir(directory, { recursive: true });
+      const encrypted = await protectTunnelSecret(JSON.stringify(state));
+      await writeFile(filename, encrypted, { encoding: 'utf8', mode: 0o600 });
+    },
+  };
+}
+
+function normalizePersistedState(value: unknown): RemoteMcpPersistedState | null {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return null;
+  const record = value as Record<string, unknown>;
+  if (record.schemaVersion !== 1 || typeof record.desiredRunning !== 'boolean') return null;
+  const clients = Array.isArray(record.trustedClients) ? record.trustedClients : [];
+  const trustedClients = clients.flatMap((entry) => {
+    if (typeof entry !== 'object' || entry === null || Array.isArray(entry)) return [];
+    const client = entry as Record<string, unknown>;
+    if (typeof client.clientId !== 'string' || client.clientId.length === 0 || client.clientId.length > 256) return [];
+    const redirectUris = Array.isArray(client.redirectUris)
+      ? client.redirectUris.filter((uri): uri is string => typeof uri === 'string' && isSafeRedirectUri(uri)).slice(0, 16)
+      : [];
+    if (redirectUris.length === 0) return [];
+    const clientName = typeof client.clientName === 'string' ? client.clientName.slice(0, 120) : null;
+    return [{ clientId: client.clientId, redirectUris, clientName }];
+  }).slice(0, 32);
+  const trustedClientIds = new Set(trustedClients.map((client) => client.clientId));
+  const grants = Array.isArray(record.refreshGrants) ? record.refreshGrants : [];
+  const refreshGrants = grants.flatMap((entry) => {
+    if (typeof entry !== 'object' || entry === null || Array.isArray(entry)) return [];
+    const grant = entry as Record<string, unknown>;
+    if (typeof grant.refreshToken !== 'string' || grant.refreshToken.length < 32 || grant.refreshToken.length > 256) return [];
+    if (typeof grant.clientId !== 'string' || !trustedClientIds.has(grant.clientId)) return [];
+    if (typeof grant.expiresAt !== 'number' || !Number.isFinite(grant.expiresAt)) return [];
+    return [{ refreshToken: grant.refreshToken, clientId: grant.clientId, expiresAt: grant.expiresAt }];
+  }).slice(-64);
+  return { schemaVersion: 1, desiredRunning: record.desiredRunning, trustedClients, refreshGrants };
+}
+
+function isMissingFileError(error: unknown): boolean {
+  return typeof error === 'object' && error !== null && 'code' in error && (error as { readonly code?: unknown }).code === 'ENOENT';
 }
 
 export function buildNgrokHttpArgs(gatewayUrl: string): string[] {

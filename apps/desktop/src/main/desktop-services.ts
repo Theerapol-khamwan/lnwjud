@@ -118,6 +118,7 @@ import {
   type McpConnectionStatus,
   type PermissionProfileName as IpcPermissionProfileName,
   type ProcessSummary,
+  type RemoteMcpStatus,
   type RestoreCheckpointRequest,
   type RestoreRecoveryItemRequest,
   type SaveTunnelApiKeyRequest,
@@ -189,6 +190,7 @@ export interface DesktopRuntime {
   ensureDefaultWorkspace(rootPath: string): Promise<string>;
   autoStartMcp(): Promise<McpConnectionStatus>;
   autoStartTunnel(): Promise<TunnelStatus | null>;
+  autoStartRemoteMcp(): Promise<RemoteMcpStatus>;
   close(): Promise<void>;
 }
 
@@ -1229,6 +1231,7 @@ export function createDesktopRuntime(dataPath: string, options: DesktopRuntimeOp
       tunnelController,
       readSettings().tunnelAutoReconnect,
     ),
+    autoStartRemoteMcp: async (): Promise<RemoteMcpStatus> => remoteMcpController.autoStartIfDesired(),
     close: async (): Promise<void> => {
       await remoteMcpController.close();
       await tunnelController.shutdownForDesktopExit();

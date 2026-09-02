@@ -436,11 +436,45 @@
 }
 
 .tunnel-setup-box {
-  margin-top: 16px;
-  padding: 14px;
+  display: grid;
+  gap: 14px;
+  margin-top: 18px;
+  padding: 18px;
   border: 1px solid rgba(230, 184, 74, .14);
   border-radius: 13px;
   background: rgba(230, 184, 74, .035);
+}
+
+.tunnel-setup-box > .settings-mini-heading {
+  margin-bottom: 0;
+}
+
+.tunnel-setup-box > .hint {
+  margin: 0;
+}
+
+.tunnel-setup-box > .field-label {
+  margin: 2px 0 -6px;
+}
+
+.tunnel-setup-box > .inline-actions,
+.tunnel-setup-box > .form-row,
+.tunnel-setup-box > .toast-success-banner,
+.tunnel-setup-box > .alert-box-warning {
+  margin-top: 0;
+  margin-bottom: 0;
+}
+
+.remote-mcp-auth-banner {
+  display: grid;
+  gap: 6px;
+  padding: 14px 16px;
+}
+
+.remote-mcp-auth-banner span {
+  color: var(--text-secondary);
+  font-size: 11px;
+  line-height: 1.55;
 }
 
 .settings-save-bar {

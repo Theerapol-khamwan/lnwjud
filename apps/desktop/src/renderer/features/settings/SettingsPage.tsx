@@ -55,7 +55,7 @@ export function SettingsPage(props: SettingsPageProps): ReactElement {
   const remoteMcp = props.dashboard.remoteMcp ?? {
     state: 'stopped' as const, provider: 'ngrok' as const, installed: false, hasAuthtoken: false, ngrokPath: null,
     localMcpUrl: props.dashboard.mcp.url, localGatewayUrl: null, publicMcpUrl: null, pairingCode: null, pairingCodeExpiresAt: null,
-    oauthProtected: true, message: null,
+    oauthProtected: true, oauthConnected: false, pairingRequired: false, autoStartEnabled: false, message: null,
   };
   const ngrokReady = remoteMcp.installed && remoteMcp.ngrokPath !== null;
   const remoteMcpOnline = remoteMcp.state === 'running';
@@ -351,6 +351,12 @@ export function SettingsPage(props: SettingsPageProps): ReactElement {
   }
 
   async function runRemoteMcpAction(action: 'install' | 'save' | 'start' | 'stop' | 'regenerate'): Promise<void> {
+    if (action === 'regenerate') {
+      const confirmed = window.confirm(props.locale === 'th'
+        ? 'เชื่อม ChatGPT ใหม่? การเชื่อมต่อ OAuth ที่จำไว้และ Refresh Token เดิมจะถูกยกเลิก แล้วต้อง Pairing อีกครั้งหนึ่ง'
+        : 'Reconnect ChatGPT? The remembered OAuth trust and existing refresh tokens will be revoked, and one new pairing will be required.');
+      if (!confirmed) return;
+    }
     setRemoteMcpBusy(true);
     setRemoteMcpMessage(null);
     try {
@@ -578,7 +584,7 @@ export function SettingsPage(props: SettingsPageProps): ReactElement {
                   <div className="connection-method-summary-copy">
                     <span className="connection-method-kicker">{props.locale === 'th' ? 'แนะนำ · OAuth' : 'Recommended · OAuth'}</span>
                     <strong>Remote MCP — ngrok + OAuth</strong>
-                    <span>{props.locale === 'th' ? 'เชื่อม ChatGPT ผ่าน HTTPS /mcp พร้อม OAuth + Pairing Code' : 'Connect ChatGPT through HTTPS /mcp with OAuth + a pairing code.'}</span>
+                    <span>{props.locale === 'th' ? 'เชื่อม ChatGPT ผ่าน HTTPS /mcp — Pairing เฉพาะครั้งแรก แล้วจำ OAuth ไว้ให้' : 'Connect ChatGPT through HTTPS /mcp — pair once, then keep the OAuth connection trusted.'}</span>
                   </div>
                   <div className="connection-method-summary-status">
                     <span className={`connection-method-live-dot ${remoteMcpOnline ? 'is-online' : ''}`} aria-hidden="true" />
@@ -590,7 +596,7 @@ export function SettingsPage(props: SettingsPageProps): ReactElement {
                 <SettingsCardHeading
                   icon="◎"
                   title={props.locale === 'th' ? 'Remote MCP — ngrok + OAuth' : 'Remote MCP — ngrok + OAuth'}
-                  subtitle={props.locale === 'th' ? 'แนะนำ: lnwjud เปิด HTTPS /mcp ให้ ChatGPT ผ่าน ngrok และป้องกันด้วย OAuth + Pairing Code' : 'Recommended: expose lnwjud to ChatGPT through ngrok HTTPS /mcp protected by OAuth + a pairing code.'}
+                  subtitle={props.locale === 'th' ? 'แนะนำ: เชื่อม ChatGPT ผ่าน OAuth ครั้งแรกครั้งเดียว จากนั้น lnwjud จำสิทธิ์และเปิด Remote MCP อัตโนมัติเมื่อเปิดโปรแกรม' : 'Recommended: authorize ChatGPT once; lnwjud remembers the OAuth trust and can auto-start Remote MCP on later launches.'}
                   badge={remoteMcp.state === 'running' ? 'RUNNING' : remoteMcp.installed && remoteMcp.hasAuthtoken ? 'READY' : 'SETUP'}
                 />
                 <div className="setting-grid two-col">
@@ -629,15 +635,16 @@ export function SettingsPage(props: SettingsPageProps): ReactElement {
                   <p className="hint">{remoteMcp.hasAuthtoken ? (props.locale === 'th' ? '✓ เก็บด้วย Windows DPAPI แล้ว' : '✓ Stored with Windows DPAPI') : (props.locale === 'th' ? 'Authtoken ไม่ถูกส่งผ่าน command line หรือบันทึกลง config แบบ plaintext' : 'The authtoken is not passed on the command line or stored in plaintext config.')}</p>
                 </div>
                 <div className="tunnel-setup-box">
-                  <div className="settings-mini-heading"><strong>{props.locale === 'th' ? '2. เปิด Remote MCP' : '2. Start Remote MCP'}</strong><span>{remoteMcp.oauthProtected ? 'OAUTH PROTECTED' : 'AUTH REQUIRED'}</span></div>
+                  <div className="settings-mini-heading"><strong>{props.locale === 'th' ? '2. เปิด Remote MCP' : '2. Start Remote MCP'}</strong><span>{remoteMcp.oauthConnected ? 'CHATGPT LINKED' : remoteMcp.pairingRequired ? 'PAIR ONCE' : remoteMcp.oauthProtected ? 'OAUTH PROTECTED' : 'AUTH REQUIRED'}</span></div>
                   <div className="inline-actions">
                     <button type="button" className="btn-save-gold" disabled={remoteMcpBusy || !remoteMcp.hasAuthtoken || remoteMcp.state === 'running'} onClick={() => { void runRemoteMcpAction('start'); }}>{remoteMcpBusy && remoteMcp.state !== 'running' ? (props.locale === 'th' ? 'กำลังทำงาน…' : 'Working…') : (props.locale === 'th' ? 'Start Remote MCP' : 'Start Remote MCP')}</button>
                     <button type="button" disabled={remoteMcpBusy || remoteMcp.state !== 'running'} onClick={() => { void runRemoteMcpAction('stop'); }}>{props.locale === 'th' ? 'หยุด' : 'Stop'}</button>
                     <button type="button" disabled={remoteMcp.publicMcpUrl === null} onClick={() => { void copyRemoteMcpUrl(); }}>{props.locale === 'th' ? 'Copy MCP URL' : 'Copy MCP URL'}</button>
-                    <button type="button" disabled={remoteMcpBusy || remoteMcp.state !== 'running'} onClick={() => { void runRemoteMcpAction('regenerate'); }}>{props.locale === 'th' ? 'สร้าง Pairing Code ใหม่' : 'New pairing code'}</button>
+                    <button type="button" disabled={remoteMcpBusy || !remoteMcp.oauthConnected} onClick={() => { void runRemoteMcpAction('regenerate'); }}>{props.locale === 'th' ? 'เชื่อม ChatGPT ใหม่' : 'Reconnect ChatGPT'}</button>
                   </div>
-                  {remoteMcp.pairingCode === null ? null : <div className="toast-success-banner"><strong>{props.locale === 'th' ? 'OAuth Pairing Code' : 'OAuth pairing code'}: {remoteMcp.pairingCode}</strong>{remoteMcp.pairingCodeExpiresAt === null ? null : ` · ${props.locale === 'th' ? 'หมดอายุ' : 'expires'} ${formatDateTime(remoteMcp.pairingCodeExpiresAt)}`}</div>}
-                  <p className="hint">{props.locale === 'th' ? 'กด Start ได้เลยหลังบันทึก Authtoken — lnwjud จะตรวจ/ซ่อม ngrok, เปิด HTTPS endpoint และสร้าง OAuth Pairing Code ให้อัตโนมัติ จากนั้นใน ChatGPT: สร้าง App แบบ URL เซิร์ฟเวอร์ → วาง Public MCP URL → เลือก OAuth' : 'After saving the authtoken, press Start directly — lnwjud verifies/repairs ngrok, opens the HTTPS endpoint, and generates the OAuth pairing code automatically. Then in ChatGPT: create a Server URL app → paste the Public MCP URL → choose OAuth.'}</p>
+                  {remoteMcp.oauthConnected ? <div className="toast-success-banner remote-mcp-auth-banner" role="status"><strong>{props.locale === 'th' ? '✓ ChatGPT เชื่อมแล้ว' : '✓ ChatGPT connected'}</strong><span>{remoteMcp.autoStartEnabled ? (props.locale === 'th' ? 'จำ OAuth ไว้แล้ว · เปิด lnwjud ครั้งถัดไป Remote MCP จะ Start อัตโนมัติ' : 'OAuth trust is remembered · Remote MCP will auto-start on the next lnwjud launch.') : (props.locale === 'th' ? 'จำ OAuth ไว้แล้ว · Auto-start ปิดอยู่เพราะ Remote MCP ถูกหยุดด้วยผู้ใช้' : 'OAuth trust is remembered · auto-start is off because Remote MCP was stopped manually.')}</span></div> : null}
+                  {remoteMcp.pairingCode === null ? null : <div className="alert-box-warning remote-mcp-auth-banner" role="status"><strong>{props.locale === 'th' ? 'Pairing ครั้งแรก' : 'First-time pairing'}: {remoteMcp.pairingCode}</strong><span>{remoteMcp.pairingCodeExpiresAt === null ? (props.locale === 'th' ? 'ใช้โค้ดนี้เพื่ออนุญาต ChatGPT ครั้งเดียว' : 'Use this code to authorize ChatGPT once.') : `${props.locale === 'th' ? 'หมดอายุ' : 'expires'} ${formatDateTime(remoteMcp.pairingCodeExpiresAt)}`}</span></div>}
+                  <p className="hint">{props.locale === 'th' ? 'ครั้งแรก: กด Start → นำ Public MCP URL ไปเพิ่มใน ChatGPT แบบ OAuth → ใส่ Pairing Code ครั้งเดียวเพื่อยืนยันว่าเป็นเครื่องของคุณ หลังจากนั้น lnwjud จะเก็บ OAuth trust/refresh grant แบบเข้ารหัสและไม่ถาม Pairing ซ้ำตอน Start หรือเปิดโปรแกรมใหม่ หากต้องการเปลี่ยนบัญชี/เชื่อมใหม่ ให้กด “เชื่อม ChatGPT ใหม่” เท่านั้น' : 'First time: Start → add the Public MCP URL in ChatGPT with OAuth → enter the pairing code once to confirm this machine. lnwjud then stores the OAuth trust/refresh grant encrypted, so Start and later app launches do not ask for pairing again. Use “Reconnect ChatGPT” only when you deliberately want to re-authorize.'}</p>
                   {remoteMcp.message === null ? null : <div className={remoteMcp.state === 'error' ? 'alert-box-warning' : 'hint'} role="status">{remoteMcp.message}{remoteMcp.ngrokPath === null ? '' : ` · ngrok: ${remoteMcp.ngrokPath}`}</div>}
                   {remoteMcpMessage === null ? null : <div className={remoteMcp.state === 'error' || /failed|error|exit|stopped unexpectedly/i.test(remoteMcpMessage) ? 'alert-box-warning' : 'toast-success-banner'} role="status">{remoteMcpMessage}</div>}
                 </div>

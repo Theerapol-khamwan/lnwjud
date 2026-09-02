@@ -628,6 +628,40 @@ button.titlebar-version:hover {
   box-shadow: inset 0 2px 6px rgba(0, 0, 0, 0.5);
 }
 
+.home-remote-mcp-block {
+  display: grid;
+  gap: 13px;
+  margin-top: 22px;
+  padding-top: 20px;
+  border-top: 1px solid var(--border-subtle);
+}
+
+.home-remote-mcp-block .settings-mini-heading,
+.home-remote-mcp-block .endpoint,
+.home-remote-mcp-block .inline-actions {
+  margin-top: 0;
+  margin-bottom: 0;
+}
+
+.home-remote-mcp-status {
+  padding: 11px 13px;
+  border-radius: 10px;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.home-remote-mcp-status.is-connected {
+  border: 1px solid rgba(74, 222, 128, .26);
+  background: rgba(34, 197, 94, .09);
+  color: #9ce7b6;
+}
+
+.home-remote-mcp-status.is-pairing {
+  border: 1px solid rgba(230, 184, 74, .28);
+  background: rgba(230, 184, 74, .08);
+  color: var(--gold-bright);
+}
+
 .error-text {
   color: var(--danger);
 }

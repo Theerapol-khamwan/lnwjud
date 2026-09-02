@@ -42,7 +42,7 @@ export function ControlCenterPage(props: ControlCenterPageProps): ReactElement {
   const remoteMcp = dashboard.remoteMcp ?? {
     state: 'stopped' as const, provider: 'ngrok' as const, installed: false, hasAuthtoken: false, ngrokPath: null,
     localMcpUrl: dashboard.mcp.url, localGatewayUrl: null, publicMcpUrl: null, pairingCode: null, pairingCodeExpiresAt: null,
-    oauthProtected: true, message: null,
+    oauthProtected: true, oauthConnected: false, pairingRequired: false, autoStartEnabled: false, message: null,
   };
   const remoteMcpOnline = remoteMcp.state === 'running';
   const [secureTunnelExpanded, setSecureTunnelExpanded] = useState(!remoteMcpOnline);
@@ -149,7 +149,7 @@ export function ControlCenterPage(props: ControlCenterPageProps): ReactElement {
           <SecurityMetric label={t('security.unrestricted')} value={onOff(dashboard.unrestricted)} state={dashboard.unrestricted ? 'warn' : 'safe'} />
           <SecurityMetric label={t('security.workspaceScope')} value={workspaceScope} state={dashboard.stdioStrictRoots ? 'safe' : 'warn'} />
           <SecurityMetric label={t('security.tunnelAccess')} value={tunnelLabel} state={dashboard.tunnel.state === 'running' ? 'active' : 'neutral'} />
-          <SecurityMetric label="Remote MCP OAuth" value={remoteMcp.state === 'running' ? 'ONLINE' : remoteMcp.installed && remoteMcp.hasAuthtoken ? 'READY' : 'SETUP'} state={remoteMcp.state === 'running' ? 'active' : 'neutral'} />
+          <SecurityMetric label="Remote MCP OAuth" value={remoteMcp.state === 'running' ? 'ONLINE' : remoteMcp.oauthConnected ? (remoteMcp.autoStartEnabled ? 'LINKED · AUTO' : 'LINKED') : remoteMcp.installed && remoteMcp.hasAuthtoken ? 'READY' : 'SETUP'} state={remoteMcp.state === 'running' || remoteMcp.oauthConnected ? 'active' : 'neutral'} />
           <SecurityMetric label={t('security.registeredWorkspaces')} value={String(props.workspaces.length)} />
         </div>
         {stdioBroad ? <div className="security-warning" role="status">⚠ {t('security.warningBroad')}</div> : null}
@@ -176,13 +176,16 @@ export function ControlCenterPage(props: ControlCenterPageProps): ReactElement {
           </div>
           <p className="hint">{t('mcp.stdioCommand')}</p>
           <code className="endpoint">{dashboard.connectionModes.stdioCommand}</code>
-          <div className="settings-mini-heading"><strong>Remote MCP · OAuth</strong><span>{remoteMcp.state.toUpperCase()}</span></div>
-          <code className="endpoint">{remoteMcp.publicMcpUrl ?? '—'}</code>
-          <div className="inline-actions">
-            <button type="button" disabled={remoteMcp.publicMcpUrl === null} onClick={() => { if (remoteMcp.publicMcpUrl !== null) void copyText(remoteMcp.publicMcpUrl); }}>{props.locale === 'th' ? 'Copy Public /mcp' : 'Copy public /mcp'}</button>
-            <button type="button" onClick={props.onOpenTunnelSetup}>{props.locale === 'th' ? 'ตั้งค่า OAuth / ngrok' : 'Configure OAuth / ngrok'}</button>
+          <div className="home-remote-mcp-block">
+            <div className="settings-mini-heading"><strong>Remote MCP · OAuth</strong><span>{remoteMcp.state === 'running' ? 'ONLINE' : remoteMcp.oauthConnected ? (remoteMcp.autoStartEnabled ? 'LINKED · AUTO' : 'LINKED') : remoteMcp.state.toUpperCase()}</span></div>
+            <code className="endpoint">{remoteMcp.publicMcpUrl ?? '—'}</code>
+            <div className="inline-actions">
+              <button type="button" disabled={remoteMcp.publicMcpUrl === null} onClick={() => { if (remoteMcp.publicMcpUrl !== null) void copyText(remoteMcp.publicMcpUrl); }}>{props.locale === 'th' ? 'Copy Public /mcp' : 'Copy public /mcp'}</button>
+              <button type="button" onClick={props.onOpenTunnelSetup}>{props.locale === 'th' ? 'ตั้งค่า OAuth / ngrok' : 'Configure OAuth / ngrok'}</button>
+            </div>
+            {remoteMcp.oauthConnected ? <div className="home-remote-mcp-status is-connected">{props.locale === 'th' ? (remoteMcp.autoStartEnabled ? '✓ ChatGPT เชื่อมแล้ว · เปิด lnwjud ครั้งถัดไปจะ Start Remote MCP อัตโนมัติ' : '✓ ChatGPT เชื่อมแล้ว · การเชื่อมต่อยังถูกจำไว้ แต่ Auto-start ปิดอยู่') : (remoteMcp.autoStartEnabled ? '✓ ChatGPT connected · Remote MCP will auto-start with lnwjud.' : '✓ ChatGPT connected · authorization is remembered, but auto-start is off.')}</div> : null}
+            {remoteMcp.pairingCode === null ? null : <div className="home-remote-mcp-status is-pairing"><strong>{props.locale === 'th' ? 'Pairing ครั้งแรก' : 'First-time pairing'}: {remoteMcp.pairingCode}</strong></div>}
           </div>
-          {remoteMcp.pairingCode === null ? null : <p className="hint"><strong>OAuth Pairing Code: {remoteMcp.pairingCode}</strong></p>}
         </section>
 
         <details

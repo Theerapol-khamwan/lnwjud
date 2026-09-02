@@ -1,5 +1,5 @@
 export const APP_NAME = 'lnwjud';
-export const APP_VERSION = '4.51.0';
+export const APP_VERSION = '4.52.0';
 
 export const ipcChannels = {
   listWorkspaces: 'lnwjud:list-workspaces',
@@ -431,6 +431,9 @@ export interface RemoteMcpStatus {
   readonly pairingCode: string | null;
   readonly pairingCodeExpiresAt: string | null;
   readonly oauthProtected: boolean;
+  readonly oauthConnected: boolean;
+  readonly pairingRequired: boolean;
+  readonly autoStartEnabled: boolean;
   readonly message: string | null;
 }
 

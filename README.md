@@ -44,18 +44,27 @@ over outbound HTTPS, forwards MCP work to lnwjud's Desktop loopback HTTP MCP,
 and returns the response without opening a public inbound port on the Windows
 machine.
 
-## Current version: v4.51.0
+## Current version: v4.52.0
 
-The v4.51.0 release target and runtime contract contain **231 total MCP tool definitions**,
+The v4.52.0 release target and runtime contract contain **231 total MCP tool definitions**,
 with **224 advertised by default** and **all 231 advertised when the six `codex_*`
 delegation tools plus the bounded read-only `agent_swarm_run` tool are enabled**. The seven Codex/Agent Swarm definitions are opt-in;
 the default surface still exposes every other current first-party definition. The earlier 184-tool snapshot remains
 only as the compatibility baseline used by the v4 architecture; new v4 gateway
 capabilities are additive.
 
-### What's new in v4.51.0
+### What's new in v4.52.0
 
-> Upgrading from v4.44.0? The release notes below are cumulative so users can see the major changes that landed after the last broadly documented v4.44.0 baseline. v4.45.0 focused on tunnel/runtime reliability and performance, v4.50.0 introduced the OAuth-ready authentication architecture, and v4.51.0 makes that authentication mode visible and consistent across the Desktop UI and diagnostics.
+> Upgrading from v4.44.0? The release notes below are cumulative so users can see the major changes that landed after the last broadly documented v4.44.0 baseline. v4.45.0 focused on tunnel/runtime reliability and performance, v4.50.0 introduced the OAuth-ready authentication architecture, v4.51.0 made Remote MCP OAuth and the connection hierarchy visible, and v4.52.0 makes that Remote MCP connection persistent instead of requiring repeated pairing.
+
+#### Pair once, remember OAuth, auto-start Remote MCP
+
+- Changes Remote MCP OAuth to a **pair-once trust model**. The first ChatGPT authorization still uses the short-lived 6-digit pairing code so knowing the public ngrok URL is not enough to authorize a client, but after approval lnwjud remembers that registered ChatGPT client and does not ask for pairing again on ordinary Start or app restart.
+- Persists trusted Dynamic Client Registration metadata plus valid OAuth refresh grants in a **Windows DPAPI-encrypted Remote MCP state file**. Access tokens remain memory-only; saved refresh grants are rotated normally and expired grants are discarded on load.
+- Adds durable Remote MCP run intent. After a successful Start, reopening lnwjud automatically starts the protected Remote MCP runtime when the trusted OAuth connection and ngrok prerequisites still exist. An explicit **Stop** disables automatic start while preserving the trusted OAuth relationship, so starting later does not force re-pairing.
+- Replaces the routine “New pairing code” action with **Reconnect ChatGPT**. That action is intentionally destructive to the saved Remote MCP trust/refresh grants and is used only when the user wants to authorize ChatGPT again, change the connected account/client, or recover a broken OAuth relationship.
+- Updates Home and Settings to show `CHATGPT LINKED`, `LINKED · AUTO`, first-time pairing, and remembered-authorization state instead of presenting pairing as a recurring requirement. The Remote MCP cards also receive larger vertical gaps, separated status banners, and wrapping path/status layout for clearer scanning on normal Windows 10/11 window sizes.
+- Keeps the previously introduced connection hierarchy: **Remote MCP — ngrok + OAuth** is Recommended, **OpenAI Secure MCP Tunnel** remains Alternative/Advanced, and advanced users may still run both at the same time.
 
 #### v4.51.0 — Remote MCP OAuth + clearer Tunnel authentication
 
@@ -181,7 +190,7 @@ full scans can still inspect paths allowed by the active workspace/policy.
 
 | Client / use case | Connection | What must run on Windows | Notes |
 | --- | --- | --- | --- |
-| ChatGPT web developer-mode app | Remote MCP via ngrok + OAuth | lnwjud Desktop + ngrok | Recommended easy path: public HTTPS `/mcp` terminates at a separate OAuth-protected loopback gateway; 6-digit pairing code required during authorization |
+| ChatGPT web developer-mode app | Remote MCP via ngrok + OAuth | lnwjud Desktop + ngrok | Recommended easy path: public HTTPS `/mcp` terminates at a separate OAuth-protected loopback gateway; 6-digit pairing is required only for the first authorization or an explicit Reconnect ChatGPT |
 | ChatGPT web developer-mode app | OpenAI Secure MCP Tunnel | `tunnel-client` + lnwjud Desktop | Private outbound-only path to the Desktop loopback HTTP MCP; no public MCP port |
 | Codex CLI or another local MCP host | Local stdio MCP | `lnwjud-mcp-stdio.cmd` | Lowest-overhead local MCP path |
 | Local MCP client / dashboard diagnostics | Loopback Streamable HTTP | lnwjud Desktop | Defaults to `http://127.0.0.1:18765/mcp`; actual URL is shown in the UI |
@@ -201,13 +210,13 @@ stops the current local HTTP listener.
 
 1. Download the latest published installer from
    [GitHub Releases](https://github.com/engasnm111/lnwjud/releases/latest).
-   Current Windows 10/11 x64 artifacts are `lnwjud-Setup-4.51.0.exe` (recommended installer) and `lnwjud-Portable-4.51.0.exe` (no installation required).
+   Current Windows 10/11 x64 artifacts are `lnwjud-Setup-4.52.0.exe` (recommended installer) and `lnwjud-Portable-4.52.0.exe` (no installation required).
 2. Run the NSIS installer and launch **lnwjud Agent Control Center**.
 3. Add or select the project/workspace you want lnwjud to operate on.
 4. Review **Settings** before attaching an AI client, especially Permission
    Profile and Unrestricted Mode.
 
-If you prefer not to install the app, run `lnwjud-Portable-4.51.0.exe` directly.
+If you prefer not to install the app, run `lnwjud-Portable-4.52.0.exe` directly.
 Portable mode uses the same per-user lnwjud data/settings location as the installer;
 it is a portable executable, not a keep-all-data-next-to-the-EXE mode.
 Automatic updates preserve the distribution you chose. Installer users read
@@ -362,8 +371,8 @@ Secure Tunnel จะส่งงานเข้าที่ Desktop loopback HTT
 
 ### 1. ติดตั้ง lnwjud หรือใช้ Portable
 
-1. แบบแนะนำ: ดาวน์โหลด `lnwjud-Setup-4.51.0.exe` แล้วติดตั้งตามปกติ
-2. ถ้าไม่ต้องการติดตั้ง: ดาวน์โหลด `lnwjud-Portable-4.51.0.exe` แล้วเปิดได้ทันที
+1. แบบแนะนำ: ดาวน์โหลด `lnwjud-Setup-4.52.0.exe` แล้วติดตั้งตามปกติ
+2. ถ้าไม่ต้องการติดตั้ง: ดาวน์โหลด `lnwjud-Portable-4.52.0.exe` แล้วเปิดได้ทันที
 3. เปิด **lnwjud Agent Control Center**
 4. เพิ่มหรือเลือก Project/Workspace ที่ต้องการให้ ChatGPT ทำงานด้วย
 
@@ -378,7 +387,7 @@ Portable ใช้ Settings/ข้อมูลต่อผู้ใช้ Window
 
 ### 3. tunnel-client มากับตัวติดตั้งแล้ว
 
-ถ้าใช้ `lnwjud-Setup-4.51.0.exe` หรือ `lnwjud-Portable-4.51.0.exe` บน Windows x64 **ไม่ต้องดาวน์โหลด
+ถ้าใช้ `lnwjud-Setup-4.52.0.exe` หรือ `lnwjud-Portable-4.52.0.exe` บน Windows x64 **ไม่ต้องดาวน์โหลด
 `tunnel-client.exe` เอง** ตัว release รวม official OpenAI
 `tunnel-client v0.0.13` มาให้และ lnwjud จะเลือกใช้ให้อัตโนมัติ
 
@@ -654,8 +663,8 @@ corepack pnpm@10.15.0 package:windows
 The Windows 10/11 x64 artifacts are written to:
 
 ```text
-apps/desktop/dist/installers/lnwjud-Setup-4.51.0.exe
-apps/desktop/dist/installers/lnwjud-Portable-4.51.0.exe
+apps/desktop/dist/installers/lnwjud-Setup-4.52.0.exe
+apps/desktop/dist/installers/lnwjud-Portable-4.52.0.exe
 ```
 
 The installer is per-user by default. The portable executable needs no installation but uses the same per-user lnwjud data/settings location. A common installed executable path is:

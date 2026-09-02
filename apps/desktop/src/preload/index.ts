@@ -302,6 +302,9 @@ function remoteMcpStatus(value: unknown): RemoteMcpStatus {
     pairingCode: nullableString(value.pairingCode),
     pairingCodeExpiresAt: nullableString(value.pairingCodeExpiresAt),
     oauthProtected: booleanField(value, 'oauthProtected'),
+    oauthConnected: booleanField(value, 'oauthConnected'),
+    pairingRequired: booleanField(value, 'pairingRequired'),
+    autoStartEnabled: booleanField(value, 'autoStartEnabled'),
     message: nullableString(value.message),
   };
 }
