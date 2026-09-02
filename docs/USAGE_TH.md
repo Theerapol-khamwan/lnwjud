@@ -72,11 +72,11 @@ Portable ของ lnwjud หมายถึง **ตัวโปรแกรม
 ขั้นตอนใช้งานปกติ:
 
 1. เปิด **Settings → Remote MCP & Tunnel**
-2. กด **ติดตั้ง ngrok อัตโนมัติ** — lnwjud ใช้คำสั่ง WinGet ทางการ `winget install ngrok -s msstore` จึงไม่ต้องดาวน์โหลด `ngrok.exe` เองและไม่ bundle binary ของ ngrok มากับ installer
+2. ดูสถานะ ngrok ก่อน: ถ้าขึ้น **READY / ✓ ngrok พร้อมใช้งาน** แปลว่า lnwjud ตรวจด้วย `ngrok version` แล้วและปุ่มติดตั้งจะถูกปิดไว้ ไม่ต้องติดตั้งซ้ำ; ถ้ายังเป็น **NOT READY** จึงค่อยกด **ติดตั้ง ngrok อัตโนมัติ** — lnwjud ใช้คำสั่ง WinGet ทางการ `winget install ngrok -s msstore` จึงไม่ต้องดาวน์โหลด `ngrok.exe` เองและไม่ bundle binary ของ ngrok มากับ installer
 3. เปิดหน้า ngrok Authtoken จากปุ่มใน lnwjud แล้ววาง token ครั้งเดียว; lnwjud เก็บ token ด้วย Windows DPAPI และส่งให้ process ผ่าน `NGROK_AUTHTOKEN` เท่านั้น ไม่ใส่ใน command line หรือ config plaintext
 4. กด **Start Remote MCP**
 5. เมื่อสถานะเป็น RUNNING ให้กด **Copy MCP URL** แล้วนำ URL `https://...ngrok.app/mcp` ไปใส่ใน ChatGPT App/Connector แบบ Server URL
-6. เลือก **OAuth** ใน ChatGPT; เมื่อ browser เปิดหน้าอนุมัติ ให้ใส่ **OAuth Pairing Code 6 หลัก** ที่แสดงใน lnwjud. Pairing code มีอายุสั้นและถูกใช้ได้ครั้งเดียวต่อการอนุมัติ; หากหมดอายุให้กดสร้างใหม่
+6. เลือก **OAuth** ใน ChatGPT; เมื่อ browser เปิดหน้าอนุมัติแบบธีม lnwjud ให้ใส่ **OAuth Pairing Code 6 หลัก** ที่แสดงใน lnwjud แล้วกด **Authorize ChatGPT**. เมื่อสำเร็จ browser จะ redirect กลับ ChatGPT อัตโนมัติ. Pairing code มีอายุสั้นและถูกใช้ได้ครั้งเดียวต่อการอนุมัติ; หากหมดอายุให้กดสร้างใหม่
 
 Remote MCP gateway รองรับ OAuth discovery, Dynamic Client Registration, Authorization Code + PKCE S256, access token และ refresh token. คำขอ `/mcp` ที่ไม่มี bearer token ที่ถูกต้องจะถูกปฏิเสธ และ Authorization header จากอินเทอร์เน็ตจะไม่ถูกส่งต่อเข้า local MCP โดยตรง.
 

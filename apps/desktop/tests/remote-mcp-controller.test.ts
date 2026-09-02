@@ -90,7 +90,13 @@ describe('Remote MCP OAuth gateway', () => {
     authorize.searchParams.set('code_challenge_method', 'S256');
     const consent = await fetch(authorize, { redirect: 'manual' });
     expect(consent.status).toBe(200);
-    expect(await consent.text()).toContain('pairing code');
+    expect(consent.headers.get('content-security-policy')).toContain("form-action 'self' https://chatgpt.com");
+    expect(consent.headers.get('content-security-policy')).toContain("frame-ancestors 'none'");
+    const consentHtml = await consent.text();
+    expect(consentHtml).toContain('pairing code');
+    expect(consentHtml).toContain('lnwjud');
+    expect(consentHtml).toContain('action="/oauth/authorize"');
+    expect(consentHtml).toContain('Secure pairing');
 
     const approved = await fetch(`${origin}/oauth/authorize`, {
       method: 'POST',

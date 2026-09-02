@@ -310,12 +310,22 @@ export class RemoteMcpController {
     }
     const submitted = params.get('pairing_code');
     if (submitted === null) {
-      const escaped = escapeHtml;
-      html(response, 200, `<!doctype html><html><head><meta name="viewport" content="width=device-width"><title>Authorize lnwjud</title></head><body style="font-family:system-ui;max-width:560px;margin:48px auto;padding:0 20px"><h1>Authorize ChatGPT</h1><p>Enter the 6-digit pairing code shown in lnwjud Desktop. This prevents anyone who discovers your ngrok URL from authorizing themselves.</p><form method="post"><input type="hidden" name="response_type" value="code"><input type="hidden" name="client_id" value="${escaped(clientId)}"><input type="hidden" name="redirect_uri" value="${escaped(redirectUri)}"><input type="hidden" name="state" value="${escaped(state)}"><input type="hidden" name="code_challenge" value="${escaped(challenge)}"><input type="hidden" name="code_challenge_method" value="S256"><label>Pairing code<br><input autofocus inputmode="numeric" pattern="[0-9]{6}" name="pairing_code" required style="font-size:24px;letter-spacing:6px;padding:10px"></label><p><button type="submit" style="font-size:16px;padding:10px 18px">Authorize</button></p></form></body></html>`);
+      html(
+        response,
+        200,
+        authorizePairingPage({
+          clientName: client.clientName ?? 'ChatGPT',
+          clientId,
+          redirectUri,
+          state,
+          challenge,
+        }),
+        [new URL(redirectUri).origin],
+      );
       return;
     }
     if (!this.verifyPairingCode(submitted)) {
-      html(response, 403, '<h1>Pairing code rejected</h1><p>Generate a new code in lnwjud Desktop and try again.</p>');
+      html(response, 403, pairingErrorPage());
       return;
     }
     const code = token(32);
@@ -517,13 +527,73 @@ function json(response: ServerResponse, status: number, value: unknown): void {
   response.setHeader('Cache-Control', 'no-store');
   response.end(JSON.stringify(value));
 }
-function html(response: ServerResponse, status: number, body: string): void {
+function html(response: ServerResponse, status: number, body: string, formActionOrigins: readonly string[] = []): void {
+  const formActions = ["'self'", ...formActionOrigins.map((origin) => new URL(origin).origin)].join(' ');
   response.statusCode = status;
   response.setHeader('Content-Type', 'text/html; charset=utf-8');
   response.setHeader('Cache-Control', 'no-store');
-  response.setHeader('Content-Security-Policy', "default-src 'none'; style-src 'unsafe-inline'; form-action 'self'");
+  response.setHeader('Content-Security-Policy', `default-src 'none'; style-src 'unsafe-inline'; form-action ${formActions}; base-uri 'none'; frame-ancestors 'none'`);
+  response.setHeader('Referrer-Policy', 'no-referrer');
+  response.setHeader('X-Content-Type-Options', 'nosniff');
   response.end(body);
 }
+
+function authorizePairingPage(input: { readonly clientName: string; readonly clientId: string; readonly redirectUri: string; readonly state: string; readonly challenge: string }): string {
+  const escaped = escapeHtml;
+  return `<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="color-scheme" content="dark">
+  <title>Authorize ${escaped(input.clientName)} · lnwjud</title>
+  <style>
+    :root{font-family:Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;color:#f6f7fb;background:#070a10}
+    *{box-sizing:border-box}body{margin:0;min-height:100vh;display:grid;place-items:center;padding:28px;background:radial-gradient(circle at 50% -10%,rgba(220,180,72,.14),transparent 34%),linear-gradient(180deg,#080b12 0%,#05070b 100%);color:#f6f7fb}
+    .shell{width:min(100%,560px)}.brand{display:flex;align-items:center;justify-content:space-between;margin:0 0 14px;padding:0 4px;color:#d8ae42;font-weight:800;letter-spacing:.02em}.version{font-size:12px;color:#8b95a7;font-weight:650}
+    .card{border:1px solid rgba(219,181,78,.22);border-radius:22px;background:linear-gradient(180deg,rgba(19,24,34,.97),rgba(10,14,21,.98));box-shadow:0 24px 70px rgba(0,0,0,.48),inset 0 1px rgba(255,255,255,.035);overflow:hidden}
+    .accent{height:3px;background:linear-gradient(90deg,#8b681d,#edc55e,#8b681d)}.content{padding:30px}.eyebrow{display:inline-flex;align-items:center;gap:8px;border:1px solid rgba(87,204,135,.25);border-radius:999px;padding:6px 10px;background:rgba(54,163,101,.08);color:#75dda0;font-size:12px;font-weight:750;letter-spacing:.08em;text-transform:uppercase}.dot{width:7px;height:7px;border-radius:50%;background:#61d993;box-shadow:0 0 14px rgba(97,217,147,.55)}
+    h1{font-size:30px;line-height:1.1;margin:18px 0 10px;letter-spacing:-.035em}p{margin:0;color:#aeb7c7;line-height:1.65}.client{color:#f8d873}.steps{margin:24px 0 20px;padding:15px 16px;border:1px solid #232b39;border-radius:14px;background:#0a0e15;color:#9fa9ba;font-size:13px;line-height:1.6}.steps strong{color:#d8dee8}
+    label{display:block;margin:0 0 9px;color:#dce2ec;font-size:13px;font-weight:700}.code{width:100%;height:66px;border:1px solid #30394a;border-radius:14px;background:#070a0f;color:#f4d06a;outline:none;padding:0 18px;font:800 28px/1 ui-monospace,SFMono-Regular,Consolas,monospace;letter-spacing:.34em;text-align:center;transition:border-color .15s,box-shadow .15s}.code:focus{border-color:#d6ad43;box-shadow:0 0 0 4px rgba(214,173,67,.1)}
+    button{width:100%;height:50px;margin-top:14px;border:1px solid #d9b54f;border-radius:13px;background:linear-gradient(180deg,#e7c35e,#bc8e29);color:#171109;font:800 15px/1 inherit;cursor:pointer;box-shadow:0 8px 22px rgba(187,140,35,.2)}button:hover{filter:brightness(1.06)}button:active{transform:translateY(1px)}
+    .security{display:flex;gap:10px;margin-top:18px;padding-top:18px;border-top:1px solid #202735;color:#7f8a9c;font-size:12px;line-height:1.55}.shield{color:#6bdc99;font-size:15px}.foot{margin-top:12px;text-align:center;color:#5f6978;font-size:11px}
+    @media (max-width:520px){body{padding:16px}.content{padding:23px 20px}h1{font-size:26px}.code{font-size:24px;letter-spacing:.26em}}
+  </style>
+</head>
+<body>
+  <main class="shell">
+    <div class="brand"><span>◈ lnwjud</span><span class="version">REMOTE MCP · OAUTH</span></div>
+    <section class="card" aria-labelledby="authorize-title">
+      <div class="accent"></div>
+      <div class="content">
+        <div class="eyebrow"><span class="dot"></span> Secure pairing</div>
+        <h1 id="authorize-title">Authorize <span class="client">${escaped(input.clientName)}</span></h1>
+        <p>Enter the 6-digit pairing code shown in lnwjud Desktop to approve this Remote MCP connection.</p>
+        <div class="steps"><strong>Where to find it:</strong> lnwjud Desktop → Settings → Remote MCP &amp; Tunnel → OAuth Pairing Code. The code expires automatically.</div>
+        <form method="post" action="/oauth/authorize">
+          <input type="hidden" name="response_type" value="code">
+          <input type="hidden" name="client_id" value="${escaped(input.clientId)}">
+          <input type="hidden" name="redirect_uri" value="${escaped(input.redirectUri)}">
+          <input type="hidden" name="state" value="${escaped(input.state)}">
+          <input type="hidden" name="code_challenge" value="${escaped(input.challenge)}">
+          <input type="hidden" name="code_challenge_method" value="S256">
+          <label for="pairing-code">Pairing code</label>
+          <input id="pairing-code" class="code" autofocus autocomplete="one-time-code" inputmode="numeric" pattern="[0-9]{6}" minlength="6" maxlength="6" name="pairing_code" required aria-describedby="pairing-help">
+          <button type="submit">Authorize ChatGPT</button>
+        </form>
+        <div id="pairing-help" class="security"><span class="shield">◆</span><span>The pairing code is verified locally by lnwjud. A discovered ngrok URL alone is not enough to authorize a client.</span></div>
+      </div>
+    </section>
+    <div class="foot">lnwjud Remote MCP · OAuth 2.0 + PKCE</div>
+  </main>
+</body>
+</html>`;
+}
+
+function pairingErrorPage(): string {
+  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="color-scheme" content="dark"><title>Pairing code rejected · lnwjud</title><style>:root{font-family:Inter,ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif;color:#eef1f6;background:#070a10}*{box-sizing:border-box}body{margin:0;min-height:100vh;display:grid;place-items:center;padding:24px;background:#070a10}.card{width:min(100%,520px);padding:30px;border:1px solid rgba(221,80,80,.3);border-radius:20px;background:#10151e;box-shadow:0 24px 70px rgba(0,0,0,.45)}.mark{color:#ff7d7d;font-size:28px}h1{margin:12px 0 8px;font-size:28px}p{margin:0;color:#aeb7c7;line-height:1.65}.hint{margin-top:18px;padding:13px 14px;border-radius:12px;background:#0a0e15;border:1px solid #242d3a;color:#d5b861;font-size:13px}</style></head><body><main class="card"><div class="mark">◇</div><h1>Pairing code rejected</h1><p>The code is invalid or expired. Generate a new OAuth Pairing Code in lnwjud Desktop and start the authorization again.</p><div class="hint">Settings → Remote MCP &amp; Tunnel → สร้าง Pairing Code ใหม่</div></main></body></html>`;
+}
+
 function token(bytes: number): string { return randomBytes(bytes).toString('base64url'); }
 function verifyPkce(verifier: string, challenge: string): boolean {
   if (verifier.length < 43 || verifier.length > 128) return false;

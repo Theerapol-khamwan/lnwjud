@@ -57,6 +57,7 @@ export function SettingsPage(props: SettingsPageProps): ReactElement {
     localMcpUrl: props.dashboard.mcp.url, localGatewayUrl: null, publicMcpUrl: null, pairingCode: null, pairingCodeExpiresAt: null,
     oauthProtected: true, message: null,
   };
+  const ngrokReady = remoteMcp.installed && remoteMcp.ngrokPath !== null;
   const [activeSection, setActiveSection] = useState<SettingsSection>(props.initialSection ?? 'general');
   const [apiKey, setApiKey] = useState('');
   const [showApiKey, setShowApiKey] = useState(false);
@@ -564,10 +565,22 @@ export function SettingsPage(props: SettingsPageProps): ReactElement {
                   </div>
                 </div>
                 <div className="tunnel-setup-box">
-                  <div className="settings-mini-heading"><strong>{props.locale === 'th' ? '1. เตรียม ngrok' : '1. Prepare ngrok'}</strong><span>{remoteMcp.installed ? 'INSTALLED' : 'NOT INSTALLED'}</span></div>
-                  <p className="hint">{props.locale === 'th' ? 'lnwjud ตรวจว่า ngrok รันได้จริงและติดตั้ง/ซ่อมจาก Microsoft Store ผ่าน WinGet ให้เอง ไม่ต้องดาวน์โหลดไฟล์หรือเปิด CMD เอง' : 'lnwjud verifies that ngrok can actually run and can install/repair it from the Microsoft Store through WinGet; no manual download or terminal setup is required.'}</p>
+                  <div className="settings-mini-heading"><strong>{props.locale === 'th' ? '1. เตรียม ngrok' : '1. Prepare ngrok'}</strong><span>{ngrokReady ? 'READY' : remoteMcp.state === 'installing' ? 'INSTALLING' : 'NOT READY'}</span></div>
+                  <p className="hint">{props.locale === 'th' ? 'lnwjud ตรวจ ngrok จากการรัน `ngrok version` จริง ถ้าขึ้น READY ด้านล่าง แปลว่าติดตั้งแล้วและไม่ต้องกดติดตั้งซ้ำ' : 'lnwjud verifies ngrok by actually running `ngrok version`. When the status below is READY, it is installed and does not need to be installed again.'}</p>
+                  <div className={ngrokReady ? 'toast-success-banner' : 'alert-box-warning'} role="status">
+                    <strong>{ngrokReady ? (props.locale === 'th' ? '✓ ngrok ติดตั้งแล้วและพร้อมใช้งาน' : '✓ ngrok is installed and ready') : (props.locale === 'th' ? 'ยังไม่พบ ngrok ที่รันได้' : 'No runnable ngrok installation detected')}</strong>
+                    {ngrokReady && remoteMcp.ngrokPath !== null ? <span>{` · ${remoteMcp.ngrokPath}`}</span> : null}
+                  </div>
                   <div className="inline-actions">
-                    <button type="button" className="btn-save-gold" disabled={remoteMcpBusy || remoteMcp.state === 'running'} onClick={() => { void runRemoteMcpAction('install'); }}>{props.locale === 'th' ? 'ติดตั้ง/ซ่อม ngrok อัตโนมัติ' : 'Install/repair ngrok automatically'}</button>
+                    <button type="button" className="btn-save-gold" disabled={remoteMcpBusy || remoteMcp.state === 'running' || ngrokReady} onClick={() => { void runRemoteMcpAction('install'); }}>
+                      {ngrokReady
+                        ? (props.locale === 'th' ? '✓ ngrok พร้อมใช้งาน' : '✓ ngrok ready')
+                        : remoteMcp.state === 'installing'
+                          ? (props.locale === 'th' ? 'กำลังติดตั้ง/ซ่อม…' : 'Installing/repairing…')
+                          : remoteMcp.state === 'error'
+                            ? (props.locale === 'th' ? 'ติดตั้ง/ซ่อม ngrok อัตโนมัติ' : 'Install/repair ngrok automatically')
+                            : (props.locale === 'th' ? 'ติดตั้ง ngrok อัตโนมัติ' : 'Install ngrok automatically')}
+                    </button>
                     <button type="button" disabled={remoteMcpBusy} onClick={() => { void openNgrokAuthtokenPage(); }}>{props.locale === 'th' ? 'เปิดหน้า ngrok Authtoken' : 'Open ngrok authtoken'}</button>
                   </div>
                   <label className="field-label" htmlFor="remote-mcp-authtoken">{props.locale === 'th' ? 'ngrok Authtoken (ใส่ครั้งเดียว)' : 'ngrok authtoken (one time)'}</label>
