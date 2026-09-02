@@ -37,7 +37,7 @@ describe('Remote MCP OAuth gateway', () => {
       response.end(JSON.stringify({ ok: true, path: request.url }));
     }));
     const localMcpUrl = `${upstreamOrigin}/mcp`;
-    const controller = new RemoteMcpController({ dataPath: 'C:\\tmp\\lnwjud-remote-mcp-test', getLocalMcpUrl: async () => localMcpUrl });
+    const controller = new RemoteMcpController({ dataPath: 'C:\\tmp\\lnwjud-remote-mcp-test', getLocalMcpUrl: async (): Promise<string> => localMcpUrl });
     const internal = controller as unknown as RemoteMcpTestAccess;
     await internal.startGateway(localMcpUrl);
     expect(internal.gatewayUrl).not.toBeNull();
@@ -117,7 +117,7 @@ describe('Remote MCP OAuth gateway', () => {
 
   it('rejects insecure non-loopback OAuth redirect URIs', async () => {
     const upstreamOrigin = await listen(createServer((_request, response) => response.end('{}')));
-    const controller = new RemoteMcpController({ dataPath: 'C:\\tmp\\lnwjud-remote-mcp-test-2', getLocalMcpUrl: async () => `${upstreamOrigin}/mcp` });
+    const controller = new RemoteMcpController({ dataPath: 'C:\\tmp\\lnwjud-remote-mcp-test-2', getLocalMcpUrl: async (): Promise<string> => `${upstreamOrigin}/mcp` });
     const internal = controller as unknown as RemoteMcpTestAccess;
     await internal.startGateway(`${upstreamOrigin}/mcp`);
     internal.publicOrigin = internal.gatewayUrl;
