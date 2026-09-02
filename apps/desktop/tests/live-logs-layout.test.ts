@@ -39,6 +39,22 @@ describe('viewport-sized log and list layout', () => {
     ], { workspaceId: null, sessionId: null }, 'second', [], currentMatches).map((line) => line.id)).toEqual([2]);
   });
 
+  it('labels tunnel logs as OAuth when OAuth authentication is active', () => {
+    const embedded = renderToStaticMarkup(createElement(LiveLogsPage, {
+      locale: 'en', lines: [], tunnelLogPath: null, tunnelLogExists: false,
+      tunnelAuth: {
+        mode: 'oauth', authReady: true, runtimeCredentialAvailable: true, hasLegacyApiKey: true,
+        accountLabel: 'oauth@example.test', organizationId: null, workspaceId: null, expiresAt: null,
+        requiresUserAction: false, message: null,
+      },
+      onClear: noop, onClearAll: noop, onExport: noop, onPopOut: noop, onCaptureIncident: noop,
+      incidentBusy: false, incidentClassification: null, incidentCapturedAt: null, incidentNotice: null, workspaces: [],
+    }));
+    expect(embedded).toContain('OAuth / Tunnel');
+    expect(embedded).toContain('Real-time OAuth session, Secure Tunnel transport, MCP activity, and process logs');
+    expect(embedded).not.toContain('Real-time tunnel, MCP activity, and process logs');
+  });
+
   it('marks both embedded and pop-out viewers with dedicated fixed viewport containers', () => {
     const embedded = renderToStaticMarkup(createElement(LiveLogsPage, {
       locale: 'en', lines: [], tunnelLogPath: null, tunnelLogExists: false,
@@ -89,6 +105,30 @@ describe('viewport-sized log and list layout', () => {
     expect(markup).not.toContain('[RESULT] shell SUCCESS callId=abc — powershell');
   });
 
+  it('explains what Processes contains and renders mirrored process lifecycle badges', () => {
+    const embedded = renderToStaticMarkup(createElement(LiveLogsPage, {
+      locale: 'en', lines: [], tunnelLogPath: null, tunnelLogExists: false,
+      onClear: noop, onClearAll: noop, onExport: noop, onPopOut: noop, onCaptureIncident: noop,
+      incidentBusy: false, incidentClassification: null, incidentCapturedAt: null, incidentNotice: null, workspaces: [],
+    }));
+    expect(embedded).toContain('Processes');
+
+    const processLine = {
+      id: 12, source: 'process' as const, timestamp: '2026-09-02T00:00:12.000Z', level: 'info' as const,
+      workspaceId: 'ws-a', sessionId: 'session-a', text: '[RESULT] shell SUCCESS callId=process-call — pnpm lint',
+      correlation: { kind: 'mcp' as const, phase: 'completed' as const, callId: 'process-call', toolName: 'shell', resultCode: 'SUCCESS' as const },
+    };
+    expect(logDisplayParts(processLine)).toEqual({ kind: 'result', detail: 'shell SUCCESS callId=process-call — pnpm lint' });
+    const processMarkup = renderToStaticMarkup(createElement(LogStreamPanel, {
+      source: 'process', title: 'Processes', lines: [processLine], tunnelLogPath: null, tunnelLogExists: false,
+      description: 'Shows real process work run by the Agent', waitingLabel: 'No process activity yet',
+      filterPlaceholder: 'filter', pauseLabel: 'pause', followLabel: 'follow', clearLabel: 'clear', clearSessionLabel: 'clear session', clearWorkspaceLabel: 'clear workspace', exportLabel: 'export',
+      onClear: noop, onExport: noop,
+    }));
+    expect(processMarkup).toContain('Shows real process work run by the Agent');
+    expect(processMarkup).toContain('event-tag result');
+  });
+
   it('offers clear-all controls in both embedded and pop-out Live Logs', () => {
     const embedded = renderToStaticMarkup(createElement(LiveLogsPage, {
       locale: 'en', lines: [], tunnelLogPath: null, tunnelLogExists: false,
@@ -98,6 +138,17 @@ describe('viewport-sized log and list layout', () => {
     const standalone = renderToStaticMarkup(createElement(StandaloneLogViewer));
     expect(embedded).toContain('Clear All Logs');
     expect(standalone).toContain('ล้าง Log ทั้งหมด');
+  });
+
+  it('uses full-width equal Workspace/Session filters across log panels and white clear-all text', () => {
+    const css = readFileSync(new URL('../src/renderer/styles.css', import.meta.url), 'utf8');
+    const livePanel = readFileSync(new URL('../src/renderer/features/live/LogStreamPanel.tsx', import.meta.url), 'utf8');
+    const workLogPanel = readFileSync(new URL('../src/renderer/features/worklog/WorkLogPanel.tsx', import.meta.url), 'utf8');
+    expect(css).toMatch(/\.scope-filter-bar label\s*\{[^}]*flex:\s*1 1 0[^}]*min-width:\s*220px/s);
+    expect(css).toMatch(/\.scope-filter-bar select\s*\{[^}]*width:\s*100%[^}]*min-width:\s*0/s);
+    expect(css).toMatch(/\.clear-all-logs-button\s*\{[^}]*color:\s*#fff/s);
+    expect(livePanel).toContain('className="scope-filter-bar"');
+    expect(workLogPanel).toContain('className="scope-filter-bar"');
   });
 
   it('filters Live Logs by workspace/session and keeps scoped rows distinct', () => {

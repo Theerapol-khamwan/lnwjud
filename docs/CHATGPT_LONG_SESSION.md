@@ -76,6 +76,7 @@ Public tools:
 
 Flow ที่ควรใช้:
 
+0. ก่อน mutation แรกของงานหลายขั้นที่มีแก้ไข + verify/build/package/push/release preparation หรือมีโอกาสยาวเกิน host turn ให้เรียก `run_goal(..., scheduledContinuation: "auto")` โดยอัตโนมัติ แม้ผู้ใช้ไม่ได้พิมพ์ชื่อ skill หรือขอตั้งเวลา; ถ้างานลักษณะนี้เริ่มไปแล้วแต่ยังไม่มี active durable goal ให้ enroll ก่อน mutation ถัดไป ห้ามปล่อย workflow ยาวทำต่อแบบไม่มี goal เพราะจะไม่มี continuation ให้ scheduler arm ได้
 1. Scheduled turn เรียก `run_goal` ด้วย `workspaceId` และ `goalKey` เดิมทุกครั้ง
 2. ถ้า `acquired: false` แปลว่ามี turn อื่นถือ lease อยู่ ให้รายงานสถานะแล้ว **ห้ามเริ่ม mutation/process ซ้ำ**
 3. ถ้า `acquired: true` ให้ใช้ `currentPhase`, `pendingSteps`, `nextAction`, `trackedTasks`, `activeTaskIds` และ `lastCheckpoint` เป็น continuation state

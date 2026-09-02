@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, rm } from 'node:fs/promises';
+import { mkdtemp, readFile, readdir, rm } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -45,6 +45,24 @@ describe('complete log detail resolution and export', () => {
     ], 'hidden-needle');
     expect(matches).toEqual(['audit:matching-event']);
     fixture.database.close();
+  });
+
+  it('searches a large candidate set with one batched repository operation instead of one SQLite lookup per row', async () => {
+    const search = (desktopServices as unknown as { searchActivityTargetDetails?: SearchTargetDetails }).searchActivityTargetDetails;
+    expect(typeof search).toBe('function');
+    const calls: { readonly detailRefs: readonly string[]; readonly query: string }[] = [];
+    const repository = {
+      activityTargetDetailsMatching: async (detailRefs: readonly string[], query: string): Promise<ReadonlySet<string>> => {
+        calls.push({ detailRefs: [...detailRefs], query });
+        return new Set(['call-499']);
+      },
+    } as unknown as SqliteAuditRepository;
+    const candidates = Array.from({ length: 500 }, (_, index) => ({ id: `audit:${index}`, detailRef: `call-${index}` }));
+
+    await expect(search!(repository, candidates, 'needle')).resolves.toEqual(['audit:499']);
+    expect(calls).toHaveLength(1);
+    expect(calls[0]?.detailRefs).toHaveLength(500);
+    expect(calls[0]?.query).toBe('needle');
   });
 
   it('exports all seven items from a persisted audit row in captured order', async () => {
@@ -145,6 +163,30 @@ describe('complete log detail resolution and export', () => {
     const filePath = path.join(root, 'complete-log.txt');
     await writeRows!(filePath, ['row\r\nFiles:\r\n- a.ts\r\n- hidden-nine.ts']);
     expect(await readFile(filePath, 'utf8')).toBe('row\r\nFiles:\r\n- a.ts\r\n- hidden-nine.ts\r\n');
+  });
+
+  it('writes to the selected txt path while streaming instead of exposing a tmp-suffixed export', async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), 'lnwjud-log-export-visible-path-'));
+    temporaryRoots.push(root);
+    const writeRows = (desktopServices as unknown as { writeSerializedLogRows?: (filePath: string, rows: AsyncIterable<string>) => Promise<void> }).writeSerializedLogRows;
+    expect(typeof writeRows).toBe('function');
+    const filePath = path.join(root, 'lnwjud-process-logs.txt');
+    let releaseSecondRow!: () => void;
+    const waitForSecondRow = new Promise<void>((resolve) => { releaseSecondRow = resolve; });
+    let firstRowYielded!: () => void;
+    const firstRowWritten = new Promise<void>((resolve) => { firstRowYielded = resolve; });
+    async function* rows(): AsyncIterable<string> {
+      yield 'first';
+      firstRowYielded();
+      await waitForSecondRow;
+      yield 'second';
+    }
+    const writing = writeRows!(filePath, rows());
+    await firstRowWritten;
+    expect(await readdir(root)).toEqual(['lnwjud-process-logs.txt']);
+    releaseSecondRow();
+    await writing;
+    expect(await readFile(filePath, 'utf8')).toBe('first\r\nsecond\r\n');
   });
 
   it('resolves the next Work Log detail only after the writer consumes the previous yield', async () => {

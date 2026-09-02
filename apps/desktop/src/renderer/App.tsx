@@ -17,6 +17,7 @@ import type {
   IncidentClassification,
   ExternalSetupTarget,
   TunnelStatus,
+  TunnelOAuthLoginStatus,
   WorkspaceSummary,
 } from '@lnwjud/ipc-contracts';
 import { AppShell, type Screen } from './features/shell/AppShell.js';
@@ -496,6 +497,30 @@ export function App(): ReactElement {
     }
   }
 
+  async function beginTunnelOAuthLogin(): Promise<TunnelOAuthLoginStatus> {
+    return window.lnwjud.beginTunnelOAuthLogin();
+  }
+
+  async function getTunnelOAuthLoginStatus(): Promise<TunnelOAuthLoginStatus> {
+    return window.lnwjud.getTunnelOAuthLoginStatus();
+  }
+
+  async function cancelTunnelOAuthLogin(): Promise<TunnelOAuthLoginStatus> {
+    return window.lnwjud.cancelTunnelOAuthLogin();
+  }
+
+  async function switchTunnelAuthToLegacy(): Promise<TunnelStatus> {
+    const status = await window.lnwjud.switchTunnelAuthToLegacy();
+    await refresh();
+    return status;
+  }
+
+  async function logoutTunnelOAuth(): Promise<TunnelStatus> {
+    const status = await window.lnwjud.logoutTunnelOAuth();
+    await refresh();
+    return status;
+  }
+
   async function createBackup(): Promise<void> {
     await window.lnwjud.createBackup();
     await refresh();
@@ -761,6 +786,7 @@ export function App(): ReactElement {
           lines={logLines}
           tunnelLogPath={tunnelLogPath}
           tunnelLogExists={tunnelLogExists}
+          tunnelAuth={dashboard.tunnel.auth}
           onClear={clearLogSource}
           onClearAll={clearAllLogs}
           onExport={exportLogSource}
@@ -794,6 +820,11 @@ export function App(): ReactElement {
           onConfigureTunnelProfile={configureTunnelProfile}
           onStartTunnel={startTunnelWithStatus}
           onStopTunnel={stopTunnel}
+          onBeginTunnelOAuthLogin={beginTunnelOAuthLogin}
+          onGetTunnelOAuthLoginStatus={getTunnelOAuthLoginStatus}
+          onCancelTunnelOAuthLogin={cancelTunnelOAuthLogin}
+          onSwitchTunnelAuthToLegacy={switchTunnelAuthToLegacy}
+          onLogoutTunnelOAuth={logoutTunnelOAuth}
           onOpenExternalSetupPage={openExternalSetupPage}
           onRefresh={refresh}
           guidedTunnelSetupOpen={guidedTunnelSetupOpen}

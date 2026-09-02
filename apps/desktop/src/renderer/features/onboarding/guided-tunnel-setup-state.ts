@@ -1,4 +1,5 @@
 import type { TunnelStatus } from '@lnwjud/ipc-contracts';
+import { tunnelRuntimeCredentialAvailable } from '../../tunnel-auth-readiness.js';
 
 export type GuidedTunnelSetupState = 'not_started' | 'in_progress' | 'dismissed' | 'completed';
 export type GuidedTunnelLaunchDecision = 'none' | 'show_tip' | 'resume_settings';
@@ -14,11 +15,11 @@ const guidedTunnelSetupStates = new Set<GuidedTunnelSetupState>([
 ]);
 
 export function isFreshTunnelSetup(tunnel: TunnelStatus): boolean {
-  return !tunnel.hasApiKey && !tunnel.profileExists;
+  return !tunnelRuntimeCredentialAvailable(tunnel) && !tunnel.profileExists;
 }
 
 export function isTunnelConfigured(tunnel: TunnelStatus): boolean {
-  return tunnel.hasApiKey && tunnel.profileExists;
+  return tunnelRuntimeCredentialAvailable(tunnel) && tunnel.profileExists;
 }
 
 export function isTunnelRunning(tunnel: TunnelStatus): boolean {
@@ -32,13 +33,16 @@ export function isTunnelRunning(tunnel: TunnelStatus): boolean {
 
 export function guidedTunnelPrerequisiteSignature(tunnel: TunnelStatus): string {
   const runtime = isTunnelRunning(tunnel) ? 'running' : 'not-running';
-  return `${tunnel.hasApiKey ? 'key' : 'no-key'}:${tunnel.profileExists ? 'profile' : 'no-profile'}:${runtime}`;
+  return `${tunnelRuntimeCredentialAvailable(tunnel) ? 'key' : 'no-key'}:${tunnel.profileExists ? 'profile' : 'no-profile'}:${runtime}`;
 }
 
 export function guidedTunnelLaunchDecision(
   tunnel: TunnelStatus,
   state: GuidedTunnelSetupState,
 ): GuidedTunnelLaunchDecision {
+  // OAuth mode is managed by the authentication card in Settings. Never route an
+  // OAuth user into the legacy Tunnel ID + Runtime API key wizard.
+  if (tunnel.auth?.mode === 'oauth') return 'none';
   // Existing configured users must never be redirected back into onboarding on
   // update/reinstall/restart. The persistent runtime may still be reconciling for
   // a moment, but the saved Tunnel ID/profile + DPAPI key are already sufficient.
@@ -51,7 +55,7 @@ export function guidedTunnelLaunchDecision(
 
 export function initialGuidedTunnelStep(tunnel: TunnelStatus): GuidedTunnelStep {
   if (!tunnel.profileExists) return 'create_tunnel';
-  if (!tunnel.hasApiKey) return 'save_key';
+  if (!tunnelRuntimeCredentialAvailable(tunnel)) return 'save_key';
   if (isTunnelRunning(tunnel)) return 'connect_chatgpt';
   return 'start';
 }

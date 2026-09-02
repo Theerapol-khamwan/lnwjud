@@ -159,12 +159,16 @@ describe('production desktop IPC acceptance', () => {
     const handler = requiredHandler(ipcChannels.openExternalSetupPage);
 
     await expect(handler(trusted, { target: 'openai_tunnels' })).resolves.toEqual({ opened: true });
-    expect(electronHarness.shellOpenExternal).toHaveBeenCalledExactlyOnceWith(
+    expect(electronHarness.shellOpenExternal).toHaveBeenCalledWith(
       'https://platform.openai.com/settings/organization/tunnels',
+    );
+    await expect(handler(trusted, { target: 'ngrok_authtoken' })).resolves.toEqual({ opened: true });
+    expect(electronHarness.shellOpenExternal).toHaveBeenLastCalledWith(
+      'https://dashboard.ngrok.com/get-started/your-authtoken',
     );
     await expect(handler(trusted, { target: 'https://evil.example/' })).rejects.toThrow(/target/);
     await expect(handler(untrusted, { target: 'openai_tunnels' })).rejects.toThrow('IPC sender rejected');
-    expect(electronHarness.shellOpenExternal).toHaveBeenCalledTimes(1);
+    expect(electronHarness.shellOpenExternal).toHaveBeenCalledTimes(2);
   });
 
   it('exposes updater status, manual check, and install actions through trusted IPC', async () => {

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState, type ReactElement } from 'react';
-import { workspaceScopeMatches, type LiveLogExportReference, type LogLine, type LogSource, type WorkspaceSummary } from '@lnwjud/ipc-contracts';
+import { workspaceScopeMatches, type LiveLogExportReference, type LogLine, type LogSource, type TunnelAuthStatus, type WorkspaceSummary } from '@lnwjud/ipc-contracts';
 import { createTranslator } from '../../i18n/index.js';
+import { tunnelAuthPresentation } from '../../tunnel-auth-presentation.js';
 import { applyLogSnapshot } from './log-buffer.js';
 import { LogStreamPanel, type LogScopeSelection } from './LogStreamPanel.js';
 
@@ -12,15 +13,22 @@ export function StandaloneLogViewer(): ReactElement {
   const [lines, setLines] = useState<readonly LogLine[]>([]);
   const [tunnelLogPath, setTunnelLogPath] = useState<string | null>(null);
   const [tunnelLogExists, setTunnelLogExists] = useState(false);
+  const [tunnelAuth, setTunnelAuth] = useState<TunnelAuthStatus | undefined>(undefined);
   const [tab, setTab] = useState<LogSource>('tunnel');
   const [workspaces, setWorkspaces] = useState<readonly WorkspaceSummary[]>([]);
   const logIds = useRef<Set<number>>(new Set());
+  const tunnelPresentation = tunnelAuthPresentation({ auth: tunnelAuth });
 
   const appendLine = useCallback((line: LogLine): void => {
     if (logIds.current.has(line.id)) return;
     logIds.current.add(line.id);
     setLines((previous) => [...previous.slice(-(MAX_CLIENT_LOG_LINES - 1)), line]);
   }, []);
+  const resolveTargetDetail = useCallback(async (detailRef: string) => (await window.lnwjud.resolveActivityTargetDetail({ detailRef })).detail, []);
+  const searchTargetDetails = useCallback(async (
+    query: string,
+    candidates: readonly { readonly id: string; readonly detailRef: string | null }[],
+  ) => (await window.lnwjud.searchActivityTargetDetails({ query, candidates })).matchingIds, []);
 
   useEffect(() => {
     let disposed = false;
@@ -33,6 +41,7 @@ export function StandaloneLogViewer(): ReactElement {
       });
       setTunnelLogPath(snapshot.tunnelLogPath);
       setTunnelLogExists(snapshot.tunnelLogExists);
+      setTunnelAuth(snapshot.tunnelAuth);
     }).catch(() => undefined);
     void window.lnwjud.listWorkspaces().then((nextWorkspaces) => {
       if (!disposed) setWorkspaces(nextWorkspaces);
@@ -101,14 +110,14 @@ export function StandaloneLogViewer(): ReactElement {
                 className={tab === source ? 'log-tab active' : 'log-tab'}
                 onClick={() => setTab(source)}
               >
-                {source === 'tunnel' ? t('live.tabTunnel') : source === 'mcp' ? t('live.tabMcp') : t('live.tabProcess')}
+                {source === 'tunnel' ? t(tunnelPresentation.logTabKey) : source === 'mcp' ? t('live.tabMcp') : t('live.tabProcess')}
               </button>
             ))}
           </div>
           <button type="button" className="clear-all-logs-button" onClick={() => { void clearAll(); }}>ล้าง Log ทั้งหมด</button>
         </div>
         <LogStreamPanel
-          title={tab === 'tunnel' ? t('live.tabTunnel') : tab === 'mcp' ? t('live.tabMcp') : t('live.tabProcess')}
+          title={tab === 'tunnel' ? t(tunnelPresentation.logTabKey) : tab === 'mcp' ? t('live.tabMcp') : t('live.tabProcess')}
           source={tab}
           lines={lines.filter((line) => line.source === tab)}
           tunnelLogPath={tunnelLogPath}
@@ -120,12 +129,13 @@ export function StandaloneLogViewer(): ReactElement {
           clearSessionLabel={t('scope.clearSession')}
           clearWorkspaceLabel={t('scope.clearWorkspace')}
           exportLabel={t('live.export')}
-          waitingLabel={tab === 'tunnel' ? t('live.waitingTunnel') : t('live.waiting')}
+          waitingLabel={tab === 'tunnel' ? t(tunnelPresentation.logWaitingKey) : tab === 'process' ? t('live.waitingProcess') : t('live.waiting')}
+          {...(tab === 'process' ? { description: t('live.processHint') } : {})}
           workspaceLabel={t('scope.workspace')}
           sessionLabel={t('scope.session')}
           scopeAllLabel={t('scope.all')}
-          onResolveTargetDetail={async (detailRef) => (await window.lnwjud.resolveActivityTargetDetail({ detailRef })).detail}
-          onSearchTargetDetails={async (query, candidates) => (await window.lnwjud.searchActivityTargetDetails({ query, candidates })).matchingIds}
+          onResolveTargetDetail={resolveTargetDetail}
+          onSearchTargetDetails={searchTargetDetails}
           showMoreLabel={t('logDetail.showMore')}
           showLessLabel={t('logDetail.showLess')}
           detailHeadingLabel={t('logDetail.heading')}

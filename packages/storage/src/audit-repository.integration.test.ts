@@ -84,6 +84,41 @@ describe('SqliteAuditRepository', () => {
     database.close();
   });
 
+  it('batch-searches retained target detail by call id, event id, and completed reference', async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), 'lnwjud-audit-detail-search-db-'));
+    temporaryRoots.push(root);
+    const database = new SqliteDatabase(path.join(root, 'state.db'));
+    const repository = new SqliteAuditRepository(database);
+    const base = {
+      actorId: 'client-1', actorName: 'test', action: 'mcp_tool:read_file', resultCode: 'SUCCESS', durationMs: 1,
+    } as const;
+    await repository.insert({
+      ...base,
+      id: 'started-a',
+      timestamp: '2026-08-20T00:00:00.000Z',
+      metadata: {
+        callId: 'call-a', phase: 'started', toolName: 'read_file',
+        activityTargetDetail: { kind: 'files', items: ['visible.ts', 'hidden-needle.ts'] },
+      },
+    });
+    await repository.insert({
+      ...base,
+      id: 'completed-a',
+      timestamp: '2026-08-20T00:00:01.000Z',
+      metadata: {
+        callId: 'call-a', phase: 'completed', toolName: 'read_file',
+        activityTargetDetail: { kind: 'details', items: ['completed-needle'] },
+      },
+    });
+
+    await expect(repository.activityTargetDetailsMatching(
+      ['call-a', 'started-a', 'call-a:completed', 'missing-ref'],
+      'needle',
+    )).resolves.toEqual(new Set(['call-a', 'started-a', 'call-a:completed']));
+    await expect(repository.activityTargetDetailsMatching(['call-a'], 'absent')).resolves.toEqual(new Set());
+    database.close();
+  });
+
 });
 
 

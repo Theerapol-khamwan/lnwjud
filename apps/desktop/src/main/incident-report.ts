@@ -8,7 +8,8 @@ const execFileAsync = promisify(execFile);
 const MAX_ENTRIES = 200;
 const MAX_TEXT = 512;
 const MAX_IDS = 50;
-const SENSITIVE_KEY = '(?:access[_-]?token|refresh[_-]?token|id[_-]?token|auth[_-]?token|x[_-]?api[_-]?key|api[_-]?key|client[_-]?secret|authorization|password|token|secret)';
+const SENSITIVE_KEY = '(?:access[_-]?token|refresh[_-]?token|id[_-]?token|auth[_-]?token|authorization[_-]?code|code[_-]?verifier|pkce[_-]?verifier|x[_-]?api[_-]?key|api[_-]?key|client[_-]?secret|authorization|password|token|secret)';
+const OAUTH_QUERY_SECRET_VALUE = /([?&](?:code|authorization_code|code_verifier|pkce_verifier)=)[^&#\s]+/gi;
 const AUTHORIZATION_VALUE = /\bauthorization\s*[:=]\s*[a-z][a-z0-9._~-]*\s+[^\r\n,;]+/gi;
 const JSON_SECRET_VALUE = new RegExp(`("${SENSITIVE_KEY}"\\s*:\\s*)(?:"(?:\\\\.|[^"\\\\])*"|[^,}\\]\\r\\n]*)`, 'gi');
 const ASSIGNED_SECRET_VALUE = new RegExp(`(^|[?&\\s;,{])(${SENSITIVE_KEY})(\\s*[:=]\\s*)(?:"(?:\\\\.|[^"\\\\])*"|'[^']*'|[^\\r\\n,;&}\\]]+)`, 'gi');
@@ -57,6 +58,7 @@ export function pairMcpCalls(lines: readonly IncidentLine[]): readonly IncidentC
   const lastClosed = new Map<string, number>();
   const seenEvents = new Set<string>();
   for (const [index, line] of lines.entries()) {
+    if (line.source !== 'mcp') continue;
     const correlation = line.correlation;
     if (correlation?.kind !== 'mcp') continue;
     const identity = mcpEvidenceIdentity(line, correlation);
@@ -241,6 +243,7 @@ function normalizeUpdaterEvents(events: readonly string[]): IncidentReport['upda
 }
 function safe(value: string): string {
   return value
+    .replace(OAUTH_QUERY_SECRET_VALUE, '$1[REDACTED]')
     .replace(AUTHORIZATION_VALUE, 'authorization=[REDACTED]')
     .replace(CLI_SECRET_VALUE, (_match, prefix: string, flag: string) => `${prefix}${flag} [REDACTED]`)
     .replace(PREFIXED_ENV_SECRET_VALUE, (_match, prefix: string, key: string, separator: string) => `${prefix}${key}${separator}[REDACTED]`)

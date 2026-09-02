@@ -1,7 +1,9 @@
 import { useEffect, useState, type ReactElement } from 'react';
-import type { DashboardSnapshot, DestructiveDeletePolicy, ExternalSetupTarget, PdfProviderInstallResult, PermissionProfileName, TunnelStatus, UiLocale, UserSettings } from '@lnwjud/ipc-contracts';
+import type { DashboardSnapshot, DestructiveDeletePolicy, ExternalSetupTarget, PdfProviderInstallResult, PermissionProfileName, TunnelOAuthLoginStatus, TunnelStatus, UiLocale, UserSettings } from '@lnwjud/ipc-contracts';
 import { formatDateTime } from '../../date-time.js';
 import { createTranslator } from '../../i18n/index.js';
+import { tunnelRuntimeCredentialAvailable } from '../../tunnel-auth-readiness.js';
+import { tunnelAuthPresentation } from '../../tunnel-auth-presentation.js';
 import { GuidedTunnelSetup } from '../onboarding/GuidedTunnelSetup.js';
 import { isTunnelRunning } from '../onboarding/guided-tunnel-setup-state.js';
 import { SettingSwitch } from './SettingSwitch.js';
@@ -27,6 +29,11 @@ interface SettingsPageProps {
   readonly onConfigureTunnelProfile: (tunnelId: string) => Promise<string>;
   readonly onStartTunnel: () => Promise<TunnelStatus>;
   readonly onStopTunnel: () => Promise<void>;
+  readonly onBeginTunnelOAuthLogin: () => Promise<TunnelOAuthLoginStatus>;
+  readonly onGetTunnelOAuthLoginStatus: () => Promise<TunnelOAuthLoginStatus>;
+  readonly onCancelTunnelOAuthLogin: () => Promise<TunnelOAuthLoginStatus>;
+  readonly onSwitchTunnelAuthToLegacy: () => Promise<TunnelStatus>;
+  readonly onLogoutTunnelOAuth: () => Promise<TunnelStatus>;
   readonly onOpenExternalSetupPage: (target: ExternalSetupTarget) => Promise<void>;
   readonly onRefresh: () => Promise<void>;
   readonly guidedTunnelSetupOpen: boolean;
@@ -43,7 +50,19 @@ type DestructiveApprovalKey = keyof DestructiveDeletePolicy['approvals'];
 export function SettingsPage(props: SettingsPageProps): ReactElement {
   const t = createTranslator(props.locale);
   const guidedTunnelRunning = isTunnelRunning(props.dashboard.tunnel);
-  const guidedTunnelConfigured = props.dashboard.tunnel.hasApiKey && props.dashboard.tunnel.profileExists;
+  const guidedTunnelConfigured = tunnelRuntimeCredentialAvailable(props.dashboard.tunnel) && props.dashboard.tunnel.profileExists;
+  const tunnelPresentation = tunnelAuthPresentation(props.dashboard.tunnel);
+  const remoteMcp = props.dashboard.remoteMcp ?? {
+    state: 'stopped' as const, provider: 'ngrok' as const, installed: false, hasAuthtoken: false, ngrokPath: null,
+    localMcpUrl: props.dashboard.mcp.url, localGatewayUrl: null, publicMcpUrl: null, pairingCode: null, pairingCodeExpiresAt: null,
+    oauthProtected: true, oauthConnected: false, pairingRequired: false, autoStartEnabled: false, message: null,
+  };
+  const ngrokReady = remoteMcp.installed && remoteMcp.ngrokPath !== null;
+  const remoteMcpOnline = remoteMcp.state === 'running';
+  const secureTunnelOnline = props.dashboard.tunnel.state === 'running';
+  const activeRemoteConnections = Number(remoteMcpOnline) + Number(secureTunnelOnline);
+  const [remoteMethodOpen, setRemoteMethodOpen] = useState(remoteMcpOnline || !guidedTunnelConfigured);
+  const [secureMethodOpen, setSecureMethodOpen] = useState(!remoteMcpOnline);
   const [activeSection, setActiveSection] = useState<SettingsSection>(props.initialSection ?? 'general');
   const [apiKey, setApiKey] = useState('');
   const [showApiKey, setShowApiKey] = useState(false);
@@ -51,6 +70,11 @@ export function SettingsPage(props: SettingsPageProps): ReactElement {
   const [tunnelId, setTunnelId] = useState('');
   const [tunnelBusy, setTunnelBusy] = useState(false);
   const [tunnelMessage, setTunnelMessage] = useState<string | null>(null);
+  const [remoteMcpAuthtoken, setRemoteMcpAuthtoken] = useState('');
+  const [remoteMcpBusy, setRemoteMcpBusy] = useState(false);
+  const [remoteMcpMessage, setRemoteMcpMessage] = useState<string | null>(null);
+  const [oauthLogin, setOauthLogin] = useState<TunnelOAuthLoginStatus | null>(null);
+  const [oauthBusy, setOauthBusy] = useState(false);
   const [savedMessage, setSavedMessage] = useState<string | null>(null);
   const [stdioProfile, setStdioProfile] = useState<PermissionProfileName>(props.dashboard.stdioPermissionProfile);
   const [strictRoots, setStrictRoots] = useState(props.dashboard.stdioStrictRoots);
@@ -70,6 +94,15 @@ export function SettingsPage(props: SettingsPageProps): ReactElement {
     if (props.requestedSection === undefined) return;
     setActiveSection(props.requestedSection.section);
   }, [props.requestedSection]);
+
+  useEffect(() => {
+    if (remoteMcpOnline) {
+      setRemoteMethodOpen(true);
+      setSecureMethodOpen(false);
+      return;
+    }
+    if (secureTunnelOnline) setSecureMethodOpen(true);
+  }, [remoteMcpOnline, secureTunnelOnline]);
 
   useEffect(() => {
     const request = props.requestedSection;
@@ -93,6 +126,19 @@ export function SettingsPage(props: SettingsPageProps): ReactElement {
   useEffect(() => {
     setClientPath(props.dashboard.tunnel.clientPath ?? '');
   }, [props.dashboard.tunnel.clientPath]);
+
+  useEffect(() => {
+    if (oauthLogin?.state !== 'waiting_for_browser' && oauthLogin?.state !== 'exchanging') return;
+    let cancelled = false;
+    const poll = window.setInterval(() => {
+      void props.onGetTunnelOAuthLoginStatus().then(async (status) => {
+        if (cancelled) return;
+        setOauthLogin(status);
+        if (status.state === 'completed') await props.onRefresh();
+      }).catch(() => undefined);
+    }, 1_000);
+    return (): void => { cancelled = true; window.clearInterval(poll); };
+  }, [oauthLogin?.state, props]);
 
   function updateDestructivePolicy(next: DestructiveDeletePolicy): void {
     void props.onDestructiveDeletePolicyChange(next);
@@ -216,6 +262,40 @@ export function SettingsPage(props: SettingsPageProps): ReactElement {
     } finally { setTunnelBusy(false); }
   }
 
+  async function beginOAuthLogin(): Promise<void> {
+    setOauthBusy(true);
+    setTunnelMessage(null);
+    try {
+      const status = await props.onBeginTunnelOAuthLogin();
+      setOauthLogin(status);
+      if (!status.available && status.message !== null) setTunnelMessage(status.message);
+    } catch (cause: unknown) {
+      setTunnelMessage(cause instanceof Error ? cause.message : 'OAuth login could not be started');
+    } finally { setOauthBusy(false); }
+  }
+
+  async function rollbackToLegacyAuth(): Promise<void> {
+    setOauthBusy(true);
+    try {
+      await props.onSwitchTunnelAuthToLegacy();
+      await props.onRefresh();
+      setOauthLogin(null);
+    } catch (cause: unknown) {
+      setTunnelMessage(cause instanceof Error ? cause.message : 'Could not switch back to Runtime API key authentication');
+    } finally { setOauthBusy(false); }
+  }
+
+  async function logoutOAuth(): Promise<void> {
+    setOauthBusy(true);
+    try {
+      await props.onLogoutTunnelOAuth();
+      await props.onRefresh();
+      setOauthLogin(null);
+    } catch (cause: unknown) {
+      setTunnelMessage(cause instanceof Error ? cause.message : 'OAuth logout failed');
+    } finally { setOauthBusy(false); }
+  }
+
   async function setRecoveryRetentionDays(days: number): Promise<void> {
     const previousDays = props.dashboard.settings.recoveryRetentionDays;
     if (days > 0 && (previousDays === 0 || days < previousDays)) {
@@ -270,12 +350,58 @@ export function SettingsPage(props: SettingsPageProps): ReactElement {
     }
   }
 
+  async function runRemoteMcpAction(action: 'install' | 'save' | 'start' | 'stop' | 'regenerate'): Promise<void> {
+    if (action === 'regenerate') {
+      const confirmed = window.confirm(props.locale === 'th'
+        ? 'เชื่อม ChatGPT ใหม่? การเชื่อมต่อ OAuth ที่จำไว้และ Refresh Token เดิมจะถูกยกเลิก แล้วต้อง Pairing อีกครั้งหนึ่ง'
+        : 'Reconnect ChatGPT? The remembered OAuth trust and existing refresh tokens will be revoked, and one new pairing will be required.');
+      if (!confirmed) return;
+    }
+    setRemoteMcpBusy(true);
+    setRemoteMcpMessage(null);
+    try {
+      if (action === 'install') await window.lnwjud.installRemoteMcpProvider();
+      if (action === 'save') {
+        await window.lnwjud.saveRemoteMcpAuthtoken({ authtoken: remoteMcpAuthtoken });
+        setRemoteMcpAuthtoken('');
+      }
+      if (action === 'start') await window.lnwjud.startRemoteMcp();
+      if (action === 'stop') await window.lnwjud.stopRemoteMcp();
+      if (action === 'regenerate') await window.lnwjud.regenerateRemoteMcpPairingCode();
+      await props.onRefresh();
+      setRemoteMcpMessage(props.locale === 'th' ? 'อัปเดต Remote MCP เรียบร้อยแล้ว' : 'Remote MCP updated.');
+    } catch (cause: unknown) {
+      setRemoteMcpMessage(cause instanceof Error ? cause.message : 'Remote MCP action failed');
+    } finally {
+      setRemoteMcpBusy(false);
+    }
+  }
+
+  async function copyRemoteMcpUrl(): Promise<void> {
+    const value = remoteMcp.publicMcpUrl;
+    if (value === null) return;
+    await navigator.clipboard.writeText(value);
+    setRemoteMcpMessage(props.locale === 'th' ? 'คัดลอก Public MCP URL แล้ว' : 'Public MCP URL copied.');
+  }
+
+  async function openNgrokAuthtokenPage(): Promise<void> {
+    setRemoteMcpMessage(null);
+    try {
+      await props.onOpenExternalSetupPage('ngrok_authtoken');
+    } catch (cause: unknown) {
+      const detail = cause instanceof Error ? cause.message : '';
+      setRemoteMcpMessage(props.locale === 'th'
+        ? `ERROR: เปิดหน้า ngrok Authtoken ไม่สำเร็จ${detail.length === 0 ? '' : ` — ${detail}`}`
+        : `ERROR: Could not open the ngrok authtoken page${detail.length === 0 ? '' : ` — ${detail}`}`);
+    }
+  }
+
   const navItems: readonly { id: SettingsSection; icon: string; title: string; description: string }[] = [
     { id: 'general', icon: '⌘', title: props.locale === 'th' ? 'ทั่วไป' : 'General', description: props.locale === 'th' ? 'ภาษา, Startup, Update' : 'Language, startup, updates' },
     { id: 'security', icon: '◇', title: props.locale === 'th' ? 'ความปลอดภัย' : 'Security', description: props.locale === 'th' ? 'สิทธิ์และ Workspace policy' : 'Permissions and workspace policy' },
     { id: 'tools', icon: '◎', title: props.locale === 'th' ? 'Tools' : 'Tools', description: props.locale === 'th' ? 'Codex, Timeout, Roots' : 'Codex, timeouts, roots' },
     { id: 'mcp', icon: '⬡', title: 'MCP & Extensions', description: props.locale === 'th' ? 'Servers, Skills, Allowlist' : 'Servers, skills, allowlist' },
-    { id: 'tunnel', icon: '↗', title: 'Secure Tunnel', description: props.locale === 'th' ? 'API Key, Client, Reconnect' : 'API key, client, reconnect' },
+    { id: 'tunnel', icon: '↗', title: props.locale === 'th' ? 'Remote MCP & Tunnel' : 'Remote MCP & Tunnel', description: props.locale === 'th' ? 'OAuth, ngrok, API Key, Client' : 'OAuth, ngrok, API key, client' },
     { id: 'backup', icon: '▣', title: props.locale === 'th' ? 'กู้คืนข้อมูล' : 'Recovery', description: props.locale === 'th' ? 'Recovery Trash, Checkpoint, Backup' : 'Recovery Trash, checkpoints, backups' },
   ];
 
@@ -439,29 +565,189 @@ export function SettingsPage(props: SettingsPageProps): ReactElement {
 
           {activeSection === 'tunnel' ? (
             <>
-              <section className="panel settings-card settings-card-polished guided-tunnel-launch-card" aria-label={t('guidedTunnel.openGuide')}>
-                <SettingsCardHeading icon="↗" title={t('guidedTunnel.openGuide')} subtitle={t('guidedTunnel.privacy')} badge={guidedTunnelRunning ? 'RUNNING' : guidedTunnelConfigured ? 'READY' : 'SETUP'} />
-                <p className="hint">{guidedTunnelRunning ? t('guidedTunnel.localComplete') : guidedTunnelConfigured ? t('guidedTunnel.configured') : t('guidedTunnel.dismissedHint')}</p>
-                <button type="button" className="btn-save-gold" onClick={() => props.onGuidedTunnelSetupOpenChange(true)}>{t('guidedTunnel.openGuide')}</button>
+              <div className="connection-choice-intro" role="note">
+                <div>
+                  <strong>{props.locale === 'th' ? 'เลือกวิธีเชื่อมต่อหลัก 1 วิธี' : 'Choose one primary connection method'}</strong>
+                  <p>{props.locale === 'th'
+                    ? 'สำหรับผู้ใช้ทั่วไป แนะนำ Remote MCP OAuth ด้านล่าง ส่วน Secure MCP Tunnel เป็นตัวเลือกทางเลือก/ขั้นสูง แต่ผู้ใช้ที่ต้องการสามารถเปิดทั้งสองพร้อมกันได้'
+                    : 'For most users, Remote MCP OAuth is recommended. Secure MCP Tunnel remains an alternative/advanced option, and both may run at the same time when needed.'}</p>
+                </div>
+                <span className={`connection-count-chip ${activeRemoteConnections > 1 ? 'is-dual' : activeRemoteConnections === 1 ? 'is-online' : ''}`}>{activeRemoteConnections} {props.locale === 'th' ? 'ช่องทางออนไลน์' : 'online'}</span>
+              </div>
+
+              <details
+                className="connection-method-stack is-recommended"
+                open={remoteMethodOpen}
+                onToggle={(event) => setRemoteMethodOpen(event.currentTarget.open)}
+              >
+                <summary className="connection-method-summary">
+                  <div className="connection-method-summary-copy">
+                    <span className="connection-method-kicker">{props.locale === 'th' ? 'แนะนำ · OAuth' : 'Recommended · OAuth'}</span>
+                    <strong>Remote MCP — ngrok + OAuth</strong>
+                    <span>{props.locale === 'th' ? 'เชื่อม ChatGPT ผ่าน HTTPS /mcp — Pairing เฉพาะครั้งแรก แล้วจำ OAuth ไว้ให้' : 'Connect ChatGPT through HTTPS /mcp — pair once, then keep the OAuth connection trusted.'}</span>
+                  </div>
+                  <div className="connection-method-summary-status">
+                    <span className={`connection-method-live-dot ${remoteMcpOnline ? 'is-online' : ''}`} aria-hidden="true" />
+                    <span>{remoteMcpOnline ? 'ONLINE' : ngrokReady && remoteMcp.hasAuthtoken ? 'READY' : 'SETUP'}</span>
+                    <span className="connection-method-chevron" aria-hidden="true">⌄</span>
+                  </div>
+                </summary>
+                <section className="panel settings-card settings-card-polished guided-tunnel-launch-card connection-method-panel" aria-label="Remote MCP with ngrok and OAuth">
+                <SettingsCardHeading
+                  icon="◎"
+                  title={props.locale === 'th' ? 'Remote MCP — ngrok + OAuth' : 'Remote MCP — ngrok + OAuth'}
+                  subtitle={props.locale === 'th' ? 'แนะนำ: เชื่อม ChatGPT ผ่าน OAuth ครั้งแรกครั้งเดียว จากนั้น lnwjud จำสิทธิ์และเปิด Remote MCP อัตโนมัติเมื่อเปิดโปรแกรม' : 'Recommended: authorize ChatGPT once; lnwjud remembers the OAuth trust and can auto-start Remote MCP on later launches.'}
+                  badge={remoteMcp.state === 'running' ? 'RUNNING' : remoteMcp.installed && remoteMcp.hasAuthtoken ? 'READY' : 'SETUP'}
+                />
+                <div className="setting-grid two-col">
+                  <div className="setting-field">
+                    <span className="field-label">Local MCP</span>
+                    <code className="settings-path-display">{remoteMcp.localMcpUrl ?? props.dashboard.mcp.url ?? 'http://127.0.0.1:18765/mcp'}</code>
+                    <p className="hint">{props.locale === 'th' ? 'คงเป็น loopback บนเครื่อง ไม่เปิดพอร์ตนี้สู่ Internet โดยตรง' : 'Remains loopback-only; this port is never exposed directly to the Internet.'}</p>
+                  </div>
+                  <div className="setting-field">
+                    <span className="field-label">Public MCP URL</span>
+                    <code className="settings-path-display">{remoteMcp.publicMcpUrl ?? '—'}</code>
+                    <p className="hint">{props.locale === 'th' ? 'URL นี้ลงท้าย /mcp และเป็น URL ที่นำไปใส่ใน ChatGPT' : 'This /mcp URL is the one to add in ChatGPT.'}</p>
+                  </div>
+                </div>
+                <div className="tunnel-setup-box">
+                  <div className="settings-mini-heading"><strong>{props.locale === 'th' ? '1. เตรียม ngrok' : '1. Prepare ngrok'}</strong><span>{ngrokReady ? 'READY' : remoteMcp.state === 'installing' ? 'INSTALLING' : 'NOT READY'}</span></div>
+                  <p className="hint">{props.locale === 'th' ? 'lnwjud ตรวจ ngrok จากการรัน `ngrok version` จริง ถ้าขึ้น READY ด้านล่าง แปลว่าติดตั้งแล้วและไม่ต้องกดติดตั้งซ้ำ' : 'lnwjud verifies ngrok by actually running `ngrok version`. When the status below is READY, it is installed and does not need to be installed again.'}</p>
+                  <div className={`${ngrokReady ? 'toast-success-banner' : 'alert-box-warning'} ngrok-readiness-banner`} role="status">
+                    <strong>{ngrokReady ? (props.locale === 'th' ? '✓ ngrok ติดตั้งแล้วและพร้อมใช้งาน' : '✓ ngrok is installed and ready') : (props.locale === 'th' ? 'ยังไม่พบ ngrok ที่รันได้' : 'No runnable ngrok installation detected')}</strong>
+                    {ngrokReady && remoteMcp.ngrokPath !== null ? <code className="ngrok-ready-path">{remoteMcp.ngrokPath}</code> : null}
+                  </div>
+                  <div className="inline-actions">
+                    <button type="button" className="btn-save-gold" disabled={remoteMcpBusy || remoteMcp.state === 'running' || ngrokReady} onClick={() => { void runRemoteMcpAction('install'); }}>
+                      {ngrokReady
+                        ? (props.locale === 'th' ? '✓ ngrok พร้อมใช้งาน' : '✓ ngrok ready')
+                        : remoteMcp.state === 'installing'
+                          ? (props.locale === 'th' ? 'กำลังติดตั้ง/ซ่อม…' : 'Installing/repairing…')
+                          : remoteMcp.state === 'error'
+                            ? (props.locale === 'th' ? 'ติดตั้ง/ซ่อม ngrok อัตโนมัติ' : 'Install/repair ngrok automatically')
+                            : (props.locale === 'th' ? 'ติดตั้ง ngrok อัตโนมัติ' : 'Install ngrok automatically')}
+                    </button>
+                    <button type="button" disabled={remoteMcpBusy} onClick={() => { void openNgrokAuthtokenPage(); }}>{props.locale === 'th' ? 'เปิดหน้า ngrok Authtoken' : 'Open ngrok authtoken'}</button>
+                  </div>
+                  <label className="field-label" htmlFor="remote-mcp-authtoken">{props.locale === 'th' ? 'ngrok Authtoken (ใส่ครั้งเดียว)' : 'ngrok authtoken (one time)'}</label>
+                  <div className="form-row"><input id="remote-mcp-authtoken" type="password" autoComplete="off" placeholder={remoteMcp.hasAuthtoken ? '••••••••••••••••' : '2abc...'} value={remoteMcpAuthtoken} onChange={(event) => setRemoteMcpAuthtoken(event.target.value)} /><button type="button" className="btn-save-gold" disabled={remoteMcpBusy || remoteMcpAuthtoken.trim().length === 0} onClick={() => { void runRemoteMcpAction('save'); }}>{props.locale === 'th' ? 'บันทึกอย่างปลอดภัย' : 'Save securely'}</button></div>
+                  <p className="hint">{remoteMcp.hasAuthtoken ? (props.locale === 'th' ? '✓ เก็บด้วย Windows DPAPI แล้ว' : '✓ Stored with Windows DPAPI') : (props.locale === 'th' ? 'Authtoken ไม่ถูกส่งผ่าน command line หรือบันทึกลง config แบบ plaintext' : 'The authtoken is not passed on the command line or stored in plaintext config.')}</p>
+                </div>
+                <div className="tunnel-setup-box">
+                  <div className="settings-mini-heading"><strong>{props.locale === 'th' ? '2. เปิด Remote MCP' : '2. Start Remote MCP'}</strong><span>{remoteMcp.oauthConnected ? 'CHATGPT LINKED' : remoteMcp.pairingRequired ? 'PAIR ONCE' : remoteMcp.oauthProtected ? 'OAUTH PROTECTED' : 'AUTH REQUIRED'}</span></div>
+                  <div className="inline-actions">
+                    <button type="button" className="btn-save-gold" disabled={remoteMcpBusy || !remoteMcp.hasAuthtoken || remoteMcp.state === 'running'} onClick={() => { void runRemoteMcpAction('start'); }}>{remoteMcpBusy && remoteMcp.state !== 'running' ? (props.locale === 'th' ? 'กำลังทำงาน…' : 'Working…') : (props.locale === 'th' ? 'Start Remote MCP' : 'Start Remote MCP')}</button>
+                    <button type="button" disabled={remoteMcpBusy || remoteMcp.state !== 'running'} onClick={() => { void runRemoteMcpAction('stop'); }}>{props.locale === 'th' ? 'หยุด' : 'Stop'}</button>
+                    <button type="button" disabled={remoteMcp.publicMcpUrl === null} onClick={() => { void copyRemoteMcpUrl(); }}>{props.locale === 'th' ? 'Copy MCP URL' : 'Copy MCP URL'}</button>
+                    <button type="button" disabled={remoteMcpBusy || !remoteMcp.oauthConnected} onClick={() => { void runRemoteMcpAction('regenerate'); }}>{props.locale === 'th' ? 'เชื่อม ChatGPT ใหม่' : 'Reconnect ChatGPT'}</button>
+                  </div>
+                  {remoteMcp.oauthConnected ? <div className="toast-success-banner remote-mcp-auth-banner" role="status"><strong>{props.locale === 'th' ? '✓ ChatGPT เชื่อมแล้ว' : '✓ ChatGPT connected'}</strong><span>{remoteMcp.autoStartEnabled ? (props.locale === 'th' ? 'จำ OAuth ไว้แล้ว · เปิด lnwjud ครั้งถัดไป Remote MCP จะ Start อัตโนมัติ' : 'OAuth trust is remembered · Remote MCP will auto-start on the next lnwjud launch.') : (props.locale === 'th' ? 'จำ OAuth ไว้แล้ว · Auto-start ปิดอยู่เพราะ Remote MCP ถูกหยุดด้วยผู้ใช้' : 'OAuth trust is remembered · auto-start is off because Remote MCP was stopped manually.')}</span></div> : null}
+                  {remoteMcp.pairingCode === null ? null : <div className="alert-box-warning remote-mcp-auth-banner" role="status"><strong className="remote-mcp-pairing-line"><span>{props.locale === 'th' ? 'Pairing ครั้งแรก' : 'First-time pairing'}:</span><span className="remote-mcp-pairing-pin" aria-label={`${props.locale === 'th' ? 'Pairing PIN' : 'Pairing PIN'} ${remoteMcp.pairingCode}`}>{remoteMcp.pairingCode}</span></strong><span>{remoteMcp.pairingCodeExpiresAt === null ? (props.locale === 'th' ? 'ใช้ PIN นี้เพื่ออนุญาต ChatGPT ครั้งเดียว' : 'Use this PIN to authorize ChatGPT once.') : `${props.locale === 'th' ? 'หมดอายุ' : 'expires'} ${formatDateTime(remoteMcp.pairingCodeExpiresAt)}`}</span></div>}
+                  <p className="hint">{props.locale === 'th' ? 'ครั้งแรก: กด Start → นำ Public MCP URL ไปเพิ่มใน ChatGPT แบบ OAuth → ใส่ Pairing Code ครั้งเดียวเพื่อยืนยันว่าเป็นเครื่องของคุณ หลังจากนั้น lnwjud จะเก็บ OAuth trust/refresh grant แบบเข้ารหัสและไม่ถาม Pairing ซ้ำตอน Start หรือเปิดโปรแกรมใหม่ หากต้องการเปลี่ยนบัญชี/เชื่อมใหม่ ให้กด “เชื่อม ChatGPT ใหม่” เท่านั้น' : 'First time: Start → add the Public MCP URL in ChatGPT with OAuth → enter the pairing code once to confirm this machine. lnwjud then stores the OAuth trust/refresh grant encrypted, so Start and later app launches do not ask for pairing again. Use “Reconnect ChatGPT” only when you deliberately want to re-authorize.'}</p>
+                  {remoteMcp.message === null ? null : <div className={remoteMcp.state === 'error' ? 'alert-box-warning' : 'hint'} role="status">{remoteMcp.message}{remoteMcp.ngrokPath === null ? '' : ` · ngrok: ${remoteMcp.ngrokPath}`}</div>}
+                  {remoteMcpMessage === null ? null : <div className={remoteMcp.state === 'error' || /failed|error|exit|stopped unexpectedly/i.test(remoteMcpMessage) ? 'alert-box-warning' : 'toast-success-banner'} role="status">{remoteMcpMessage}</div>}
+                </div>
               </section>
 
-              <GuidedTunnelSetup
-                locale={props.locale}
-                tunnel={props.dashboard.tunnel}
-                open={props.guidedTunnelSetupOpen}
-                onOpenChange={props.onGuidedTunnelSetupOpenChange}
-                onOpenExternal={props.onOpenExternalSetupPage}
-                onSaveApiKey={props.onSaveTunnelApiKey}
-                onConfigureProfile={props.onConfigureTunnelProfile}
-                onStartTunnel={props.onStartTunnel}
-                onRefresh={props.onRefresh}
-                onLocalComplete={props.onGuidedTunnelLocalComplete}
-              />
+              </details>
+
+              <details
+                className={`connection-method-stack ${remoteMcpOnline ? 'is-secondary' : ''}`}
+                open={secureMethodOpen}
+                onToggle={(event) => setSecureMethodOpen(event.currentTarget.open)}
+              >
+                <summary className="connection-method-summary">
+                  <div className="connection-method-summary-copy">
+                    <span className="connection-method-kicker">{remoteMcpOnline ? (props.locale === 'th' ? 'ทางเลือก / ขั้นสูง' : 'Alternative / advanced') : (props.locale === 'th' ? 'ทางเลือก' : 'Alternative')}</span>
+                    <strong>OpenAI Secure MCP Tunnel</strong>
+                    <span>{props.locale === 'th'
+                      ? 'Tunnel ID + Runtime API key เป็นโหมดตรงแบบเดิม; OAuth ภายใน Secure Tunnel (ถ้ามี) เป็นคนละระบบกับ Remote MCP OAuth ด้านบน'
+                      : 'Tunnel ID + Runtime API key is the original direct mode. Secure Tunnel OAuth, when available, is separate from Remote MCP OAuth above.'}</span>
+                  </div>
+                  <div className="connection-method-summary-status">
+                    <span className={`connection-method-live-dot ${secureTunnelOnline ? 'is-online' : ''}`} aria-hidden="true" />
+                    <span>{secureTunnelOnline ? 'ONLINE' : guidedTunnelConfigured ? 'READY' : 'SETUP'}</span>
+                    <span className="active-project-count">{props.dashboard.tunnel.auth?.mode === 'oauth' ? 'OAUTH' : 'API KEY'}</span>
+                    <span className="connection-method-chevron" aria-hidden="true">⌄</span>
+                  </div>
+                </summary>
+
+              <section className="panel settings-card settings-card-polished connection-method-panel" aria-label="Tunnel authentication">
+                <SettingsCardHeading
+                  icon="◎"
+                  title={props.locale === 'th' ? 'OpenAI Secure MCP Tunnel' : 'OpenAI Secure MCP Tunnel'}
+                  subtitle={props.locale === 'th' ? 'โหมดเดิมสำหรับ OpenAI Tunnel transport; Runtime API key ยังรองรับเต็มรูปแบบ และ OAuth ส่วนนี้เป็นคนละระบบกับ Remote MCP OAuth ด้านบน' : 'Existing OpenAI Tunnel transport. Runtime API key remains fully supported; OAuth here is separate from the working Remote MCP OAuth above.'}
+                  badge={props.dashboard.tunnel.auth?.mode === 'oauth' ? 'OAUTH' : 'API KEY'}
+                />
+                <div className="setting-grid two-col">
+                  <div className="setting-field">
+                    <span className="field-label">{props.locale === 'th' ? 'วิธีที่ใช้อยู่' : 'Active method'}</span>
+                    <strong>{props.dashboard.tunnel.auth?.mode === 'oauth' ? 'OAuth Sign-in' : 'Runtime API key'}</strong>
+                    <p className="hint">{props.dashboard.tunnel.auth?.mode === 'oauth'
+                      ? (props.dashboard.tunnel.auth.accountLabel ?? (props.locale === 'th' ? 'ลงชื่อเข้าใช้แล้ว' : 'Signed in'))
+                      : (props.locale === 'th' ? 'วิธีเดิมยังรองรับเต็มรูปแบบและไม่บังคับย้าย' : 'The original method remains fully supported; migration is never forced.')}</p>
+                  </div>
+                  <div className="setting-field">
+                    <span className="field-label">OAuth provisioning</span>
+                    <strong>{props.dashboard.tunnel.oauth?.available ? (props.locale === 'th' ? 'พร้อมใช้งาน' : 'Available') : (props.locale === 'th' ? 'ยังไม่พร้อม' : 'Unavailable')}</strong>
+                    {props.dashboard.tunnel.oauth?.reason === null || props.dashboard.tunnel.oauth?.reason === undefined ? null : <p className="hint">{props.dashboard.tunnel.oauth.reason}</p>}
+                  </div>
+                </div>
+                <div className="inline-actions">
+                  {props.dashboard.tunnel.auth?.mode === 'oauth' ? (
+                    <>
+                      <button type="button" disabled={oauthBusy || !props.dashboard.tunnel.auth.hasLegacyApiKey} onClick={() => { void rollbackToLegacyAuth(); }}>{props.locale === 'th' ? 'กลับไปใช้ Runtime API key' : 'Switch back to Runtime API key'}</button>
+                      <button type="button" disabled={oauthBusy} onClick={() => { void logoutOAuth(); }}>{props.locale === 'th' ? 'ออกจากระบบ OAuth' : 'Sign out OAuth'}</button>
+                    </>
+                  ) : (
+                    <button type="button" className="btn-save-gold" disabled={oauthBusy || props.dashboard.tunnel.oauth?.available !== true} onClick={() => { void beginOAuthLogin(); }}>
+                      {oauthBusy ? (props.locale === 'th' ? 'กำลังเริ่ม…' : 'Starting…') : (props.locale === 'th' ? 'ลงชื่อเข้าใช้ด้วย OAuth' : 'Sign in with OAuth')}
+                    </button>
+                  )}
+                  {oauthLogin?.state === 'waiting_for_browser' || oauthLogin?.state === 'exchanging' ? <button type="button" onClick={() => { void props.onCancelTunnelOAuthLogin().then(setOauthLogin); }}>{props.locale === 'th' ? 'ยกเลิกการลงชื่อเข้าใช้' : 'Cancel sign-in'}</button> : null}
+                </div>
+                {oauthLogin === null ? null : <p className="hint" role="status">OAuth: {oauthLogin.state}{oauthLogin.message === null ? '' : ` — ${oauthLogin.message}`}</p>}
+              </section>
+
+              {tunnelPresentation.isOAuth ? (
+                <section className="panel settings-card settings-card-polished guided-tunnel-launch-card" aria-label="OAuth connection status">
+                  <SettingsCardHeading icon="◎" title={props.locale === 'th' ? 'การเชื่อมต่อด้วย OAuth' : 'OAuth connection'} subtitle={props.locale === 'th' ? 'โหมดนี้ใช้ OAuth เป็นวิธียืนยันตัวตน ส่วนการขนส่งยังเป็น Secure MCP Tunnel' : 'OAuth is the active authentication method; transport still uses Secure MCP Tunnel.'} badge={guidedTunnelRunning ? 'RUNNING' : guidedTunnelConfigured ? 'READY' : 'OAUTH'} />
+                  <p className="hint">{props.dashboard.tunnel.auth?.accountLabel ?? (props.dashboard.tunnel.auth?.authReady ? (props.locale === 'th' ? 'OAuth พร้อมใช้งาน' : 'OAuth is ready') : (props.locale === 'th' ? 'OAuth ต้องการให้ผู้ใช้ดำเนินการ' : 'OAuth requires user action'))}</p>
+                  {props.dashboard.tunnel.auth?.message === null || props.dashboard.tunnel.auth?.message === undefined ? null : <p className="hint">{props.dashboard.tunnel.auth.message}</p>}
+                  <div className="inline-actions">
+                    {!props.dashboard.tunnel.auth?.authReady ? <button type="button" className="btn-save-gold" disabled={oauthBusy || props.dashboard.tunnel.oauth?.available !== true} onClick={() => { void beginOAuthLogin(); }}>{props.locale === 'th' ? 'ลงชื่อเข้าใช้ OAuth' : 'Sign in with OAuth'}</button> : null}
+                    <button type="button" disabled={tunnelBusy || !guidedTunnelConfigured || props.dashboard.tunnel.state === 'running'} onClick={() => { void props.onStartTunnel(); }}>{t(tunnelPresentation.startKey)}</button>
+                    <button type="button" disabled={tunnelBusy || props.dashboard.tunnel.state === 'stopped'} onClick={() => { void props.onStopTunnel(); }}>{t(tunnelPresentation.stopKey)}</button>
+                  </div>
+                </section>
+              ) : (
+                <>
+                  <section className="panel settings-card settings-card-polished guided-tunnel-launch-card" aria-label={t('guidedTunnel.openGuide')}>
+                    <SettingsCardHeading icon="↗" title={t('guidedTunnel.openGuide')} subtitle={t('guidedTunnel.privacy')} badge={guidedTunnelRunning ? 'RUNNING' : guidedTunnelConfigured ? 'READY' : 'SETUP'} />
+                    <p className="hint">{guidedTunnelRunning ? t('guidedTunnel.localComplete') : guidedTunnelConfigured ? t('guidedTunnel.configured') : t('guidedTunnel.dismissedHint')}</p>
+                    <button type="button" className="btn-save-gold" onClick={() => props.onGuidedTunnelSetupOpenChange(true)}>{t('guidedTunnel.openGuide')}</button>
+                  </section>
+
+                  <GuidedTunnelSetup
+                    locale={props.locale}
+                    tunnel={props.dashboard.tunnel}
+                    open={props.guidedTunnelSetupOpen}
+                    onOpenChange={props.onGuidedTunnelSetupOpenChange}
+                    onOpenExternal={props.onOpenExternalSetupPage}
+                    onSaveApiKey={props.onSaveTunnelApiKey}
+                    onConfigureProfile={props.onConfigureTunnelProfile}
+                    onStartTunnel={props.onStartTunnel}
+                    onRefresh={props.onRefresh}
+                    onLocalComplete={props.onGuidedTunnelLocalComplete}
+                  />
+                </>
+              )}
 
               <details className="guided-tunnel-advanced">
-                <summary>{t('guidedTunnel.advanced')}</summary>
+                <summary>{tunnelPresentation.isOAuth ? (props.locale === 'th' ? 'การตั้งค่าขั้นสูง / Runtime API key สำรอง' : 'Advanced / Runtime API key fallback') : t('guidedTunnel.advanced')}</summary>
                 <section className="panel settings-card settings-card-polished" aria-label={t('settings.tunnelTitle')}>
-              <SettingsCardHeading icon="↗" title={t('settings.tunnelTitle')} subtitle={props.locale === 'th' ? 'Credential, tunnel-client และ Setup Wizard' : 'Credentials, tunnel-client, and setup wizard'} badge={props.dashboard.tunnel.profileExists ? (props.locale === 'th' ? 'พร้อมใช้งาน' : 'READY') : (props.locale === 'th' ? 'ต้องตั้งค่า' : 'SETUP')} />
+              <SettingsCardHeading icon="↗" title={tunnelPresentation.isOAuth ? (props.locale === 'th' ? 'Secure Tunnel — Legacy fallback' : 'Secure Tunnel — Legacy fallback') : t('settings.tunnelTitle')} subtitle={tunnelPresentation.isOAuth ? (props.locale === 'th' ? 'ตัวเลือก Runtime API key สำหรับสลับกลับหรือแก้ปัญหา ไม่ใช่วิธียืนยันตัวตนที่กำลังใช้อยู่' : 'Runtime API key controls are fallback/troubleshooting only and are not the active authentication method.') : (props.locale === 'th' ? 'Credential, tunnel-client และ Setup Wizard' : 'Credentials, tunnel-client, and setup wizard')} badge={tunnelPresentation.isOAuth ? 'LEGACY' : props.dashboard.tunnel.profileExists ? (props.locale === 'th' ? 'พร้อมใช้งาน' : 'READY') : (props.locale === 'th' ? 'ต้องตั้งค่า' : 'SETUP')} />
               <div className="setting-grid two-col">
                 <div className="setting-field">
                   <label className="field-label" htmlFor="tunnel-key">{t('settings.tunnelKey')}</label>
@@ -502,6 +788,7 @@ export function SettingsPage(props: SettingsPageProps): ReactElement {
                 </div>
               )}
                 </section>
+              </details>
               </details>
             </>
           ) : null}

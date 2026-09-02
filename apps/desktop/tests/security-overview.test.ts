@@ -98,6 +98,28 @@ describe('Security Overview', () => {
     expect(markup).not.toContain('Tunnel connected (from script) — Start is disabled');
   });
 
+  it('renders OAuth-specific Home connection copy instead of Runtime API key wording', () => {
+    const markup = render({
+      ...baseDashboard,
+      tunnel: {
+        ...baseDashboard.tunnel,
+        authReady: true,
+        runtimeCredentialAvailable: true,
+        profileExists: true,
+        auth: {
+          mode: 'oauth', authReady: true, runtimeCredentialAvailable: true, hasLegacyApiKey: true,
+          accountLabel: 'oauth@example.test', organizationId: null, workspaceId: null, expiresAt: null,
+          requiresUserAction: false, message: null,
+        },
+      },
+    });
+    expect(markup).toContain('ChatGPT Connection — OAuth');
+    expect(markup).toContain('OAuth authentication • Secure MCP Tunnel transport');
+    expect(markup).toContain('OAUTH');
+    expect(markup).toContain('oauth@example.test');
+    expect(markup).not.toContain('Save a Runtime API key once in Settings');
+  });
+
   it('localizes the security summary to Thai', () => {
     const markup = render({ ...baseDashboard, locale: 'th' }, 'th');
     expect(markup).toContain('ภาพรวมความปลอดภัย');

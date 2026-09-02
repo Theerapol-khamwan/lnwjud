@@ -39,7 +39,7 @@ function tunnel(overrides: Partial<TunnelStatus> = {}): TunnelStatus {
 const mcp: McpConnectionStatus = { running: true, url: 'http://127.0.0.1:18765/mcp', workspaceId: null };
 
 describe('persistent tunnel doctor diagnostics', () => {
-  it('emits the complete v4.11 doctor check set without exposing secrets', () => {
+  it('emits the complete v4.50 doctor check set without exposing secrets', () => {
     const checks = buildPersistentTunnelDoctorChecks({
       tunnel: tunnel(),
       mcp,
@@ -57,6 +57,8 @@ describe('persistent tunnel doctor diagnostics', () => {
       'local_mcp_binding',
       'local_mcp_reachable',
       'tunnel_id_matches_saved_identity',
+      'tunnel_auth_method',
+      'oauth_provisioning_capability',
       'runtime_key_available',
     ]);
     expect(checks.filter((check) => check.status === 'fail')).toHaveLength(0);

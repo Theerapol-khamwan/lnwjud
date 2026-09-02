@@ -36,6 +36,8 @@ import {
   type RestoreRecoveryItemRequest,
   type PermissionProfileName,
   type SaveTunnelApiKeyRequest,
+  type SaveRemoteMcpAuthtokenRequest,
+  type RemoteMcpStatus,
   type ScheduleRestoreBackupRequest,
   type SelectWorkspaceRequest,
   type SetWorkspaceActiveRequest,
@@ -50,6 +52,7 @@ import {
   type StartMcpRequest,
   type StartProcessRequest,
   type StopProcessRequest,
+  type TunnelOAuthLoginStatus,
   type TunnelStatus,
   type UiLocale,
   type UserSettings,
@@ -111,6 +114,17 @@ export interface DesktopIpcServices {
   startTunnel(): Promise<TunnelStatus>;
   stopTunnel(): Promise<TunnelStatus>;
   getTunnelStatus(): Promise<TunnelStatus>;
+  beginTunnelOAuthLogin(): Promise<TunnelOAuthLoginStatus>;
+  getTunnelOAuthLoginStatus(): Promise<TunnelOAuthLoginStatus>;
+  cancelTunnelOAuthLogin(): Promise<TunnelOAuthLoginStatus>;
+  switchTunnelAuthToLegacy(): Promise<TunnelStatus>;
+  logoutTunnelOAuth(): Promise<TunnelStatus>;
+  getRemoteMcpStatus(): Promise<RemoteMcpStatus>;
+  installRemoteMcpProvider(): Promise<RemoteMcpStatus>;
+  saveRemoteMcpAuthtoken(request: SaveRemoteMcpAuthtokenRequest): Promise<RemoteMcpStatus>;
+  startRemoteMcp(): Promise<RemoteMcpStatus>;
+  stopRemoteMcp(): Promise<RemoteMcpStatus>;
+  regenerateRemoteMcpPairingCode(): Promise<RemoteMcpStatus>;
   setTunnelClientPath(request: SetTunnelClientPathRequest): Promise<{ readonly clientPath: string }>;
   setLocale(request: SetLocaleRequest): Promise<{ readonly locale: UiLocale }>;
   setUserSettings(request: SetUserSettingsRequest): Promise<{ readonly settings: UserSettings; readonly restartRequired: boolean }>;
@@ -150,6 +164,11 @@ const emptyTunnel: TunnelStatus = {
   message: null,
   logPath: null,
   persistent: null,
+};
+const emptyRemoteMcp: RemoteMcpStatus = {
+  state: 'stopped', provider: 'ngrok', installed: false, hasAuthtoken: false, ngrokPath: null,
+  localMcpUrl: null, localGatewayUrl: null, publicMcpUrl: null, pairingCode: null, pairingCodeExpiresAt: null,
+  oauthProtected: true, oauthConnected: false, pairingRequired: false, autoStartEnabled: false, message: null,
 };
 const defaultUserSettings: UserSettings = {
   customPermission: { read: 'ALLOW', write: 'ASK', execute: 'ASK', dangerous: 'DENY', allowedExecutables: [] },
@@ -225,6 +244,7 @@ const defaultDesktopServices: DesktopIpcServices = {
     workLog: [],
     inFlight: [],
     tunnel: emptyTunnel,
+    remoteMcp: emptyRemoteMcp,
     settings: defaultUserSettings,
     appVersion: APP_VERSION,
   }),
@@ -257,6 +277,17 @@ const defaultDesktopServices: DesktopIpcServices = {
   startTunnel: async (): Promise<TunnelStatus> => emptyTunnel,
   stopTunnel: async (): Promise<TunnelStatus> => emptyTunnel,
   getTunnelStatus: async (): Promise<TunnelStatus> => emptyTunnel,
+  beginTunnelOAuthLogin: async (): Promise<TunnelOAuthLoginStatus> => ({ state: 'idle', available: false, providerId: null, authorizationUrl: null, message: 'OAuth unavailable' }),
+  getTunnelOAuthLoginStatus: async (): Promise<TunnelOAuthLoginStatus> => ({ state: 'idle', available: false, providerId: null, authorizationUrl: null, message: 'OAuth unavailable' }),
+  cancelTunnelOAuthLogin: async (): Promise<TunnelOAuthLoginStatus> => ({ state: 'idle', available: false, providerId: null, authorizationUrl: null, message: 'OAuth unavailable' }),
+  switchTunnelAuthToLegacy: async (): Promise<TunnelStatus> => emptyTunnel,
+  logoutTunnelOAuth: async (): Promise<TunnelStatus> => emptyTunnel,
+  getRemoteMcpStatus: async (): Promise<RemoteMcpStatus> => emptyRemoteMcp,
+  installRemoteMcpProvider: async (): Promise<RemoteMcpStatus> => emptyRemoteMcp,
+  saveRemoteMcpAuthtoken: async (): Promise<RemoteMcpStatus> => emptyRemoteMcp,
+  startRemoteMcp: async (): Promise<RemoteMcpStatus> => emptyRemoteMcp,
+  stopRemoteMcp: async (): Promise<RemoteMcpStatus> => emptyRemoteMcp,
+  regenerateRemoteMcpPairingCode: async (): Promise<RemoteMcpStatus> => emptyRemoteMcp,
   setTunnelClientPath: async (request): Promise<{ readonly clientPath: string }> => ({ clientPath: request.clientPath }),
   setLocale: async (request): Promise<{ readonly locale: UiLocale }> => ({ locale: request.locale }),
   setUserSettings: async (request): Promise<{ readonly settings: UserSettings; readonly restartRequired: boolean }> => ({ settings: request.settings, restartRequired: false }),
@@ -426,6 +457,69 @@ export function registerIpcHandlers(
     assertTrustedSender(event, getMainWindow());
     assertNoPayload(payload);
     return services.getTunnelStatus();
+  });
+  ipcMain.handle(ipcChannels.beginTunnelOAuthLogin, async (event, payload: unknown) => {
+    assertTrustedSender(event, getMainWindow());
+    assertNoPayload(payload);
+    const status = await services.beginTunnelOAuthLogin();
+    if (status.authorizationUrl !== null) {
+      try {
+        await shell.openExternal(status.authorizationUrl);
+      } catch (error) {
+        await services.cancelTunnelOAuthLogin();
+        throw error;
+      }
+    }
+    return status;
+  });
+  ipcMain.handle(ipcChannels.getTunnelOAuthLoginStatus, async (event, payload: unknown) => {
+    assertTrustedSender(event, getMainWindow());
+    assertNoPayload(payload);
+    return services.getTunnelOAuthLoginStatus();
+  });
+  ipcMain.handle(ipcChannels.cancelTunnelOAuthLogin, async (event, payload: unknown) => {
+    assertTrustedSender(event, getMainWindow());
+    assertNoPayload(payload);
+    return services.cancelTunnelOAuthLogin();
+  });
+  ipcMain.handle(ipcChannels.switchTunnelAuthToLegacy, async (event, payload: unknown) => {
+    assertTrustedSender(event, getMainWindow());
+    assertNoPayload(payload);
+    return services.switchTunnelAuthToLegacy();
+  });
+  ipcMain.handle(ipcChannels.logoutTunnelOAuth, async (event, payload: unknown) => {
+    assertTrustedSender(event, getMainWindow());
+    assertNoPayload(payload);
+    return services.logoutTunnelOAuth();
+  });
+  ipcMain.handle(ipcChannels.getRemoteMcpStatus, async (event, payload: unknown) => {
+    assertTrustedSender(event, getMainWindow());
+    assertNoPayload(payload);
+    return services.getRemoteMcpStatus();
+  });
+  ipcMain.handle(ipcChannels.installRemoteMcpProvider, async (event, payload: unknown) => {
+    assertTrustedSender(event, getMainWindow());
+    assertNoPayload(payload);
+    return services.installRemoteMcpProvider();
+  });
+  ipcMain.handle(ipcChannels.saveRemoteMcpAuthtoken, async (event, payload: unknown) => {
+    assertTrustedSender(event, getMainWindow());
+    return services.saveRemoteMcpAuthtoken(parseSaveRemoteMcpAuthtokenRequest(payload));
+  });
+  ipcMain.handle(ipcChannels.startRemoteMcp, async (event, payload: unknown) => {
+    assertTrustedSender(event, getMainWindow());
+    assertNoPayload(payload);
+    return services.startRemoteMcp();
+  });
+  ipcMain.handle(ipcChannels.stopRemoteMcp, async (event, payload: unknown) => {
+    assertTrustedSender(event, getMainWindow());
+    assertNoPayload(payload);
+    return services.stopRemoteMcp();
+  });
+  ipcMain.handle(ipcChannels.regenerateRemoteMcpPairingCode, async (event, payload: unknown) => {
+    assertTrustedSender(event, getMainWindow());
+    assertNoPayload(payload);
+    return services.regenerateRemoteMcpPairingCode();
   });
   ipcMain.handle(ipcChannels.setTunnelClientPath, async (event, payload: unknown) => {
     assertTrustedSender(event, getMainWindow());
@@ -845,6 +939,11 @@ function parseStartMcpRequest(payload: unknown): StartMcpRequest {
 function parseSaveTunnelApiKeyRequest(payload: unknown): SaveTunnelApiKeyRequest {
   if (!isRecord(payload)) throw new Error('Invalid IPC payload');
   return { apiKey: nonEmptyString(payload.apiKey, 'apiKey') };
+}
+
+function parseSaveRemoteMcpAuthtokenRequest(payload: unknown): SaveRemoteMcpAuthtokenRequest {
+  if (!isRecord(payload)) throw new Error('Invalid IPC payload');
+  return { authtoken: nonEmptyString(payload.authtoken, 'authtoken') };
 }
 
 function parseSetTunnelClientPathRequest(payload: unknown): SetTunnelClientPathRequest {
@@ -1590,6 +1689,9 @@ function bootstrapDesktop(): void {
     createDesktopTray();
     void runtime.autoStartTunnel().catch((error: unknown) => {
       console.error(`Tunnel persistent runtime auto-start failed: ${error instanceof Error ? error.message : 'unknown error'}`);
+    });
+    void runtime.autoStartRemoteMcp().catch((error: unknown) => {
+      console.error(`Remote MCP persistent runtime auto-start failed: ${error instanceof Error ? error.message : 'unknown error'}`);
     });
     initAutoUpdater(runtime);
     app.on('activate', () => {

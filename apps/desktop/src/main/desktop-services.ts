@@ -1,6 +1,6 @@
 import { createServer } from 'node:net';
 import { existsSync } from 'node:fs';
-import { open, rename, rm } from 'node:fs/promises';
+import { open } from 'node:fs/promises';
 import path from 'node:path';
 import {
   AgentSwarmService,
@@ -118,6 +118,7 @@ import {
   type McpConnectionStatus,
   type PermissionProfileName as IpcPermissionProfileName,
   type ProcessSummary,
+  type RemoteMcpStatus,
   type RestoreCheckpointRequest,
   type RestoreRecoveryItemRequest,
   type SaveTunnelApiKeyRequest,
@@ -134,6 +135,8 @@ import {
   type StartMcpRequest,
   type StartProcessRequest,
   type StopProcessRequest,
+  type TunnelAuthMode,
+  type TunnelOAuthLoginStatus,
   type TunnelStatus,
   type UserSettings,
   type UiLocale,
@@ -152,7 +155,13 @@ import { buildIncidentReport, collectRelevantListeners, collectRelevantProcessTr
 import { DesktopMcpLifecycle } from './mcp-lifecycle.js';
 import { WorkLogViewState } from './work-log-view-state.js';
 import { installPdfProvider, type InstalledPdfProvider } from './pdf-provider-installer.js';
+import { RemoteMcpController } from './remote-mcp-controller.js';
 import { CLIENT_PATH_SETTING, TunnelController } from './tunnel-controller.js';
+import { legacyTunnelSecretPath, oauthTunnelSessionPath, LegacyApiKeyCredentialProvider } from './tunnel-auth.js';
+import { TunnelAuthCoordinator } from './tunnel-auth-coordinator.js';
+import { OAuthTunnelAuthProvider, type TunnelOAuthProvisioningBackend } from './tunnel-oauth-provider.js';
+import { TunnelOAuthLoginManager } from './tunnel-oauth-login-manager.js';
+import { TunnelOAuthSessionStore } from './tunnel-oauth-store.js';
 
 const actor: FileActor = { clientId: 'desktop-renderer', clientName: `${APP_NAME} desktop` };
 const mcpActor: FileActor = { clientId: 'desktop-mcp-http', clientName: `${APP_NAME} desktop MCP` };
@@ -162,6 +171,7 @@ const activeWorkspaceIdsSettingKey = 'active_workspace_ids';
 const workLogClearedSettingKey = 'work_log_cleared_at';
 const localeSettingKey = 'ui_locale';
 const tunnelIdentitySettingKey = 'tunnel_identity_id';
+const tunnelAuthModeSettingKey = 'tunnel_auth_mode';
 const tunnelRuntimeDesiredStateSettingKey = 'tunnel_runtime_desired_state';
 const tunnelRuntimeOwnerPathSettingKey = 'tunnel_runtime_owner_path';
 
@@ -180,6 +190,7 @@ export interface DesktopRuntime {
   ensureDefaultWorkspace(rootPath: string): Promise<string>;
   autoStartMcp(): Promise<McpConnectionStatus>;
   autoStartTunnel(): Promise<TunnelStatus | null>;
+  autoStartRemoteMcp(): Promise<RemoteMcpStatus>;
   close(): Promise<void>;
 }
 
@@ -187,6 +198,8 @@ export interface DesktopRuntimeOptions {
   readonly permissionProfile?: PermissionProfileName;
   readonly hostMutationApprovalProvider?: (request: HostMutationApprovalRequest) => boolean | Promise<boolean>;
   readonly pdfProviderInstaller?: (dataPath: string) => Promise<InstalledPdfProvider>;
+  /** Injectable only when an officially supported Tunnel OAuth provisioning contract exists. */
+  readonly tunnelOAuthBackend?: TunnelOAuthProvisioningBackend;
 }
 
 interface StartupTunnelController {
@@ -208,7 +221,8 @@ export async function autoStartPersistentTunnel(
   const stopped = await tunnelController.reconcileStoppedRuntime();
   if (stopped !== null) return stopped;
   const status = await tunnelController.status();
-  if (!autoReconnect || !status.profileExists || !status.hasApiKey || status.clientPath === null) return status;
+  const runtimeCredentialAvailable = status.runtimeCredentialAvailable ?? status.authReady ?? status.hasApiKey;
+  if (!autoReconnect || !status.profileExists || !runtimeCredentialAvailable || status.clientPath === null) return status;
   return tunnelController.startAutomatically();
 }
 
@@ -403,11 +417,32 @@ export function createDesktopRuntime(dataPath: string, options: DesktopRuntimeOp
       codexToolsEnabled: readSettings().codexToolsEnabled,
     }),
   });
+  const legacyTunnelAuthProvider = new LegacyApiKeyCredentialProvider({
+    secretPath: (): string => legacyTunnelSecretPath(),
+  });
+  const oauthTunnelBackend = options.tunnelOAuthBackend ?? unavailableTunnelOAuthBackend();
+  const oauthTunnelAuthProvider = new OAuthTunnelAuthProvider({
+    backend: oauthTunnelBackend,
+    sessionStore: new TunnelOAuthSessionStore({ filePath: oauthTunnelSessionPath() }),
+    expectedTunnelId: (): string | null => settingsRepository.get(tunnelIdentitySettingKey),
+  });
+  const tunnelAuthCoordinator = new TunnelAuthCoordinator(
+    legacyTunnelAuthProvider,
+    oauthTunnelAuthProvider,
+    {
+      get: (): TunnelAuthMode | null => {
+        const value = settingsRepository.get(tunnelAuthModeSettingKey);
+        return value === 'oauth' || value === 'legacy_api_key' ? value : null;
+      },
+      set: (mode: TunnelAuthMode): void => { settingsRepository.set(tunnelAuthModeSettingKey, mode); },
+    },
+  );
   const tunnelController = new TunnelController({
     getClientPath: (): string | null => settingsRepository.get(CLIENT_PATH_SETTING),
     getBundledClientPath: bundledTunnelClientPath,
     setClientPath: (value: string): void => { settingsRepository.set(CLIENT_PATH_SETTING, value); },
     getDataPath: (): string => dataPath,
+    authProvider: tunnelAuthCoordinator,
     getMcpServerUrl: async (): Promise<string | null> => {
       const status = await mcpLifecycle.start();
       return status.url;
@@ -427,6 +462,32 @@ export function createDesktopRuntime(dataPath: string, options: DesktopRuntimeOp
     getRuntimeOwnerPath: (): string | null => settingsRepository.get(tunnelRuntimeOwnerPathSettingKey),
     setRuntimeOwnerPath: (value: string): void => { settingsRepository.set(tunnelRuntimeOwnerPathSettingKey, value.trim()); },
   });
+  const remoteMcpController = new RemoteMcpController({
+    dataPath,
+    getLocalMcpUrl: async (): Promise<string | null> => (await mcpLifecycle.start()).url,
+  });
+  const oauthLoginManager = new TunnelOAuthLoginManager({
+    backend: oauthTunnelBackend,
+    provider: oauthTunnelAuthProvider,
+    coordinator: tunnelAuthCoordinator,
+    onAuthModeChanged: async (): Promise<void> => {
+      const status = await reconcileTunnelAfterAuthModeChange();
+      if (status.profileExists && status.state !== 'running') {
+        throw new Error(status.message ?? 'Tunnel did not return to running state after authentication change');
+      }
+    },
+  });
+  async function reconcileTunnelAfterAuthModeChange(): Promise<TunnelStatus> {
+    tunnelController.markAuthConfigurationChanged();
+    let status = await tunnelController.status();
+    const credentialAvailable = status.runtimeCredentialAvailable ?? status.authReady ?? status.hasApiKey;
+    if (!credentialAvailable) {
+      if (status.state === 'running' || status.state === 'starting') status = await tunnelController.stop();
+      return status;
+    }
+    if (status.profileExists && status.clientPath !== null) status = await tunnelController.start();
+    return status;
+  }
   const logHub = new LogHub({
     tunnelLogPath: tunnelController.logPath(),
     mcpActivityLogPath: activityLogPath,
@@ -461,12 +522,14 @@ export function createDesktopRuntime(dataPath: string, options: DesktopRuntimeOp
   function recordPersistentTunnelStatus(status: TunnelStatus): void {
     const persistent = status.persistent;
     if (persistent === null) return;
-    const stateKey = [persistent.mode, persistent.state, persistent.healthy, persistent.ready, persistent.pollHealthy, persistent.reconnectCount, persistent.lastErrorCode].join(':');
+    const authMode = status.auth?.mode ?? 'legacy_api_key';
+    const stateKey = [authMode, persistent.mode, persistent.state, persistent.healthy, persistent.ready, persistent.pollHealthy, persistent.reconnectCount, persistent.lastErrorCode].join(':');
     const level = persistent.state === 'error' || persistent.state === 'auth-required' ? 'error'
       : persistent.state === 'reconnecting' || persistent.healthy === false || persistent.ready === false || persistent.pollHealthy === false ? 'warn'
         : 'info';
     const detail = [
       '[persistent-runtime]',
+      'auth=' + authMode,
       'alias=' + persistent.runtimeAlias,
       'tunnel=' + (persistent.tunnelIdMasked ?? 'unconfigured'),
       'mode=' + persistent.mode,
@@ -480,10 +543,22 @@ export function createDesktopRuntime(dataPath: string, options: DesktopRuntimeOp
     logHub.feedIfNew('tunnel', 'persistent-runtime:' + stateKey, level, detail);
   }
 
+  function withOAuthCapability(status: TunnelStatus): TunnelStatus {
+    const oauthAvailable = oauthTunnelBackend.descriptor.enabled && oauthTunnelBackend.descriptor.supportsTunnelProvisioning;
+    return {
+      ...status,
+      oauth: {
+        available: oauthAvailable,
+        providerId: oauthTunnelBackend.descriptor.id || null,
+        reason: oauthAvailable ? null : 'OpenAI does not currently expose a supported Secure MCP Tunnel OAuth provisioning contract; Runtime API key setup remains available.',
+      },
+    };
+  }
+
   async function observedTunnelStatus(): Promise<TunnelStatus> {
-    const status = await tunnelController.status();
-    recordPersistentTunnelStatus(status);
-    return status;
+    const observed = withOAuthCapability(await tunnelController.status());
+    recordPersistentTunnelStatus(observed);
+    return observed;
   }
 
   async function resolveManageableWorkspace(workspaceId: string): Promise<Workspace> {
@@ -650,6 +725,7 @@ export function createDesktopRuntime(dataPath: string, options: DesktopRuntimeOp
     { id: 'network_access', required: false, summaryKey: 'requirement.network_access', probe: () => capabilityRequirement('web_fetch') },
     { id: 'scheduler_runtime', required: false, summaryKey: 'requirement.scheduler_runtime', probe: () => capabilityRequirement('scheduler') },
     { id: 'tunnel_runtime', required: false, summaryKey: 'requirement.tunnel_runtime', remediationId: 'configure_tunnel', probe: async (): Promise<{ status: 'pass' | 'fail'; detail: string }> => { const status = await tunnelController.diagnosticStatus(); return { status: status.state === 'running' ? 'pass' : 'fail', detail: status.message ?? `Tunnel is ${status.state}` }; } },
+    { id: 'remote_mcp_ngrok', required: false, summaryKey: 'requirement.remote_mcp_ngrok', probe: async (): Promise<{ status: 'pass' | 'warn'; detail: string }> => { const status = await remoteMcpController.status(); return status.state === 'running' && status.publicMcpUrl !== null ? { status: 'pass', detail: `OAuth-protected Remote MCP online: ${status.publicMcpUrl}` } : { status: 'warn', detail: status.message ?? (status.installed ? 'Remote MCP is optional and currently stopped' : 'Remote MCP is optional; ngrok is not installed') }; } },
     { id: 'external_mcp_connection', required: false, summaryKey: 'requirement.external_mcp_connection', remediationId: 'connect_external_mcp', probe: async (): Promise<{ status: 'pass' | 'warn' | 'unknown'; detail: string }> => { const listed = await extensionsService.listMcpServers(); return !listed.ok ? { status: 'unknown', detail: listed.error.message } : { status: listed.value.servers.some((server) => server.enabled && server.connected) ? 'pass' : 'warn', detail: `${listed.value.servers.length} external MCP server(s) discovered` }; } },
     { id: 'local_pdf_provider', required: false, summaryKey: 'requirement.local_pdf_provider', remediationId: 'configure_pdf_provider', probe: localPdfProviderRequirement },
     { id: 'configured_lsp', required: false, summaryKey: 'requirement.configured_lsp', remediationId: 'configure_lsp', probe: configuredLspRequirement },
@@ -668,12 +744,13 @@ export function createDesktopRuntime(dataPath: string, options: DesktopRuntimeOp
   const toolCatalogService = new ToolCatalogService(requirementRegistry, remediationRegistry, toolCatalogOptions);
   const tunnelDoctorCheckIds = new Set([
     'persistent_tunnel_identity', 'runtime_alias_state', 'runtime_process_running', 'tunnel_health', 'tunnel_ready',
-    'control_plane_poll_health', 'local_mcp_binding', 'local_mcp_reachable', 'tunnel_id_matches_saved_identity', 'runtime_key_available',
+    'control_plane_poll_health', 'local_mcp_binding', 'local_mcp_reachable', 'tunnel_id_matches_saved_identity',
+    'tunnel_auth_method', 'oauth_provisioning_capability', 'runtime_key_available',
   ]);
   const requirementIdSet = new Set(requirementRegistry.ids());
   const buildFullDoctorReport = async (locale: UiLocale): Promise<DoctorReport> => {
     const base = await toolCatalogService.runDoctor(undefined, locale);
-    const tunnel = await tunnelController.diagnosticStatus();
+    const tunnel = withOAuthCapability(await tunnelController.diagnosticStatus());
     recordPersistentTunnelStatus(tunnel);
     const mcp = mcpLifecycle.status();
     const tunnelHealth = await tunnelController.incidentHealth();
@@ -796,6 +873,7 @@ export function createDesktopRuntime(dataPath: string, options: DesktopRuntimeOp
       const workLog = await buildWorkLog(auditRepository, workLogViewState);
       const inFlight = activityTracker.listInFlight().map(toInFlightItem);
       const tunnel = await observedTunnelStatus();
+      const remoteMcp = await remoteMcpController.status();
       const backups = await backupService.list();
       let recovery: DashboardSnapshot['recovery'];
       if (selectedWorkspace === null) {
@@ -851,6 +929,7 @@ export function createDesktopRuntime(dataPath: string, options: DesktopRuntimeOp
         workLog,
         inFlight,
         tunnel,
+        remoteMcp,
         settings: readSettings(),
         appVersion: APP_VERSION,
       };
@@ -962,11 +1041,33 @@ export function createDesktopRuntime(dataPath: string, options: DesktopRuntimeOp
       return status;
     },
     getTunnelStatus: (): Promise<TunnelStatus> => observedTunnelStatus(),
+    beginTunnelOAuthLogin: (): Promise<TunnelOAuthLoginStatus> => oauthLoginManager.begin(),
+    getTunnelOAuthLoginStatus: async (): Promise<TunnelOAuthLoginStatus> => oauthLoginManager.status(),
+    cancelTunnelOAuthLogin: async (): Promise<TunnelOAuthLoginStatus> => {
+      oauthLoginManager.cancel();
+      return oauthLoginManager.status();
+    },
+    switchTunnelAuthToLegacy: async (): Promise<TunnelStatus> => {
+      await tunnelAuthCoordinator.switchToLegacy();
+      await reconcileTunnelAfterAuthModeChange();
+      return observedTunnelStatus();
+    },
+    logoutTunnelOAuth: async (): Promise<TunnelStatus> => {
+      await tunnelAuthCoordinator.logoutOAuth();
+      await reconcileTunnelAfterAuthModeChange();
+      return observedTunnelStatus();
+    },
+    getRemoteMcpStatus: () => remoteMcpController.status(),
+    installRemoteMcpProvider: async () => { const status = await remoteMcpController.installProvider(); logHub.feed('mcp', 'info', `[REMOTE MCP] ngrok provider: ${status.message ?? status.state}`); return status; },
+    saveRemoteMcpAuthtoken: async (request) => { const status = await remoteMcpController.saveAuthtoken(request.authtoken); logHub.feed('mcp', 'info', '[REMOTE MCP] ngrok authtoken stored with Windows DPAPI'); return status; },
+    startRemoteMcp: async () => { const status = await remoteMcpController.start(); logHub.feed('mcp', 'info', `[REMOTE MCP] online ${status.publicMcpUrl ?? ''}`.trim()); return status; },
+    stopRemoteMcp: async () => { const status = await remoteMcpController.stop(); logHub.feed('mcp', 'info', '[REMOTE MCP] stopped'); return status; },
+    regenerateRemoteMcpPairingCode: async () => { const status = await remoteMcpController.regeneratePairingCode(); logHub.feed('mcp', 'info', '[REMOTE MCP] OAuth pairing code regenerated'); return status; },
     setTunnelClientPath: async (request: SetTunnelClientPathRequest): Promise<{ readonly clientPath: string }> => {
       const clientPath = await tunnelController.replaceClientPath(request.clientPath);
       if (readSettings().tunnelAutoReconnect) {
         const status = await tunnelController.status();
-        if (status.profileExists && status.hasApiKey) await tunnelController.startAutomatically();
+        if (status.profileExists && (status.runtimeCredentialAvailable ?? status.authReady ?? status.hasApiKey)) await tunnelController.startAutomatically();
       }
       return { clientPath };
     },
@@ -1022,7 +1123,8 @@ export function createDesktopRuntime(dataPath: string, options: DesktopRuntimeOp
         state: summary.state,
         logSummary: summary.logSummary,
       })));
-      return logHub.snapshot();
+      const snapshot = logHub.snapshot();
+      return { ...snapshot, tunnelAuth: await tunnelController.authStatus() };
     },
     clearLogBuffer: async (request: ClearLogBufferRequest): Promise<{ readonly cleared: boolean }> => {
       const workspaceSummaries = (await workspaceRepository.listAll()).map(toWorkspaceSummary);
@@ -1129,7 +1231,9 @@ export function createDesktopRuntime(dataPath: string, options: DesktopRuntimeOp
       tunnelController,
       readSettings().tunnelAutoReconnect,
     ),
+    autoStartRemoteMcp: async (): Promise<RemoteMcpStatus> => remoteMcpController.autoStartIfDesired(),
     close: async (): Promise<void> => {
+      await remoteMcpController.close();
       await tunnelController.shutdownForDesktopExit();
       logHub.stop();
       await mcpLifecycle.close();
@@ -1537,18 +1641,10 @@ export async function searchActivityTargetDetails(
 ): Promise<readonly string[]> {
   const needle = query.trim();
   if (needle.length === 0) return [];
-  const matchesByReference = new Map<string, boolean>();
-  const matchingIds: string[] = [];
-  for (const candidate of candidates) {
-    if (candidate.detailRef === null) continue;
-    let matches = matchesByReference.get(candidate.detailRef);
-    if (matches === undefined) {
-      matches = await repository.activityTargetDetailMatches(candidate.detailRef, needle);
-      matchesByReference.set(candidate.detailRef, matches);
-    }
-    if (matches) matchingIds.push(candidate.id);
-  }
-  return matchingIds;
+  const detailRefs = [...new Set(candidates.flatMap((candidate) => candidate.detailRef === null ? [] : [candidate.detailRef]))];
+  if (detailRefs.length === 0) return [];
+  const matchingRefs = await repository.activityTargetDetailsMatching(detailRefs, needle);
+  return candidates.flatMap((candidate) => candidate.detailRef !== null && matchingRefs.has(candidate.detailRef) ? [candidate.id] : []);
 }
 
 export async function resolveWorkLogExportRows(
@@ -1583,19 +1679,12 @@ export async function* streamWorkLogExportRows(
 }
 
 export async function writeSerializedLogRows(filePath: string, rows: Iterable<string> | AsyncIterable<string>): Promise<void> {
-  const temporaryPath = `${filePath}.tmp-${process.pid}-${Date.now()}`;
+  const handle = await open(filePath, 'w');
   try {
-    const handle = await open(temporaryPath, 'wx');
-    try {
-      for await (const row of rows) await handle.write(`${row}\r\n`, undefined, 'utf8');
-      await handle.sync();
-    } finally {
-      await handle.close();
-    }
-    await rename(temporaryPath, filePath);
-  } catch (error: unknown) {
-    await rm(temporaryPath, { force: true }).catch(() => undefined);
-    throw error;
+    for await (const row of rows) await handle.write(`${row}\r\n`, undefined, 'utf8');
+    await handle.sync();
+  } finally {
+    await handle.close();
   }
 }
 
@@ -1647,6 +1736,25 @@ export function formatCompleteTargetDetail(base: string, detail: ActivityTargetD
   return `${base}\r\n${heading}:\r\n${detail.items.map((item) => `- ${item}`).join('\r\n')}`;
 }
 
+function unavailableTunnelOAuthBackend(): TunnelOAuthProvisioningBackend {
+  const unavailable = (): never => {
+    throw new Error('OAuth tunnel provisioning is unavailable: OpenAI does not currently expose a supported Tunnel control-plane OAuth credential exchange');
+  };
+  return {
+    descriptor: {
+      id: 'openai-tunnel-native-oauth',
+      authorizationEndpoint: 'https://platform.openai.com/',
+      tokenEndpoint: 'https://platform.openai.com/',
+      clientId: 'unavailable',
+      scopes: [],
+      enabled: false,
+      supportsTunnelProvisioning: false,
+    },
+    exchangeAuthorizationCode: async () => unavailable(),
+    refreshAndProvision: async () => unavailable(),
+  };
+}
+
 function formatActivityExportTimestamp(value: string): string {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return value;
@@ -1695,7 +1803,30 @@ export function buildPersistentTunnelDoctorChecks(input: {
     check('local_mcp_binding', localBindingMatches ? 'pass' : required ? 'fail' : 'warn', localBindingMatches ? 'Tunnel is bound to the current Desktop MCP endpoint' : 'LOCAL_BINDING_STALE: tunnel local MCP binding does not match the active Desktop MCP endpoint'),
     check('local_mcp_reachable', input.mcp.running && input.mcp.url !== null ? 'pass' : required ? 'fail' : 'warn', input.mcp.running && input.mcp.url !== null ? 'Desktop MCP listener is reachable locally' : 'LOCAL_MCP_DOWN: Desktop MCP listener is not running'),
     check('tunnel_id_matches_saved_identity', mismatch ? 'fail' : identityPresent ? 'pass' : 'warn', mismatch ? 'TUNNEL_ID_MISMATCH: runtime alias reports a different tunnel identity' : identityPresent ? 'Runtime has not reported a tunnel identity mismatch' : 'Saved tunnel identity is unavailable'),
-    check('runtime_key_available', input.tunnel.hasApiKey ? 'pass' : required ? 'fail' : 'warn', input.tunnel.hasApiKey ? 'Runtime API key is available in secure storage' : 'AUTH_REQUIRED: runtime API key is not available'),
+    check(
+      'tunnel_auth_method',
+      (input.tunnel.authReady ?? input.tunnel.hasApiKey) ? 'pass' : required ? 'fail' : 'warn',
+      input.tunnel.auth?.mode === 'oauth'
+        ? (input.tunnel.authReady ? 'OAuth tunnel authentication session is ready' : 'AUTH_REQUIRED: OAuth tunnel authentication requires user action')
+        : (input.tunnel.hasApiKey ? 'Legacy Runtime API key authentication is ready' : 'AUTH_REQUIRED: Runtime API key is not configured'),
+    ),
+    check(
+      'oauth_provisioning_capability',
+      input.tunnel.auth?.mode !== 'oauth' ? 'pass' : input.tunnel.oauth?.available === true ? 'pass' : 'fail',
+      input.tunnel.auth?.mode !== 'oauth'
+        ? 'OAuth provisioning is optional while Runtime API key authentication is active'
+        : input.tunnel.oauth?.available === true
+          ? 'OAuth Tunnel provisioning capability is available'
+          : 'AUTH_REQUIRED: active OAuth mode has no supported Tunnel provisioning backend',
+      input.tunnel.auth?.mode === 'oauth',
+    ),
+    check(
+      'runtime_key_available',
+      (input.tunnel.runtimeCredentialAvailable ?? input.tunnel.authReady ?? input.tunnel.hasApiKey) ? 'pass' : required ? 'fail' : 'warn',
+      (input.tunnel.runtimeCredentialAvailable ?? input.tunnel.authReady ?? input.tunnel.hasApiKey)
+        ? input.tunnel.auth?.mode === 'oauth' ? 'OAuth-backed tunnel runtime credential is available' : 'Runtime API key is available in secure storage'
+        : 'AUTH_REQUIRED: tunnel runtime credential is not available',
+    ),
   ];
 }
 

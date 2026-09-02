@@ -1,8 +1,8 @@
-# คู่มือใช้งาน lnwjud v4.45.0 (ภาษาไทย)
+# คู่มือใช้งาน lnwjud v4.52.0 (ภาษาไทย)
 
 lnwjud คือ Windows-first local AI-agent runtime / MCP gateway สำหรับให้ ChatGPT, Codex และ MCP client อื่นทำงานกับเครื่อง Windows ของคุณ เช่น อ่าน/ค้น/แก้ไฟล์, Git, รันโปรเซส, Windows UI automation, WSL, Office และเครื่องมือพัฒนาอื่น ๆ โดยงานจริงยังทำบนเครื่องของคุณ
 
-> สำหรับผู้ใช้ Windows x64 ที่ใช้ `lnwjud-Setup-4.45.0.exe` หรือ `lnwjud-Portable-4.45.0.exe` **ไม่ต้องติดตั้ง Node.js และไม่ต้องดาวน์โหลด `tunnel-client.exe` เอง** ตัว release รวม private Node.js runtime และ official OpenAI `tunnel-client v0.0.13` มาให้แล้ว
+> สำหรับผู้ใช้ Windows x64 ที่ใช้ `lnwjud-Setup-4.52.0.exe` หรือ `lnwjud-Portable-4.52.0.exe` **ไม่ต้องติดตั้ง Node.js และไม่ต้องดาวน์โหลด `tunnel-client.exe` เอง** ตัว release รวม private Node.js runtime และ official OpenAI `tunnel-client v0.0.13` มาให้แล้ว
 
 ---
 
@@ -15,9 +15,9 @@ lnwjud คือ Windows-first local AI-agent runtime / MCP gateway สำหร
 สำหรับ v4.11.0 ตัวโปรแกรมแยก compatibility profile ตามระบบ: Windows 10 x64 ใช้ software rendering เป็นค่าเริ่มต้นเพื่อลดปัญหาหน้าจอ Electron/Chromium ค้าง, วาดไม่ครบ หรือบาง control กดไม่ได้บน GPU/driver รุ่นเก่า ส่วน Windows 11 x64 ยังใช้ hardware acceleration ตามปกติ
 
 งานภายในโปรแกรมที่ต้องเรียก PowerShell ใช้ `powershell.exe` ที่มากับ Windows ไม่บังคับให้ติดตั้ง PowerShell 7 และ child process ภายในถูกเปิดแบบซ่อนหน้าต่าง console. ระบบยังจำกัด durable background task พร้อมกันไว้ 16 งาน และ managed process พร้อมกันไว้ 24 งาน เพื่อกันกรณีหลายแชทสั่งงานพร้อมกันจนเกิด `conhost.exe` จำนวนมาก/CPU เต็ม
-- `lnwjud-Setup-4.45.0.exe` หรือ `lnwjud-Portable-4.45.0.exe`
+- `lnwjud-Setup-4.52.0.exe` หรือ `lnwjud-Portable-4.52.0.exe`
 - OpenAI Platform tunnel ที่ผูกกับ ChatGPT workspace ที่จะใช้
-- Runtime API key ที่มีสิทธิ์ **Tunnels Read + Use**
+- Credential ตามโหมดที่เลือก: **OAuth** เมื่อ provider รองรับ Tunnel provisioning หรือ **Runtime API key** ที่มีสิทธิ์ **Tunnels Read + Use** สำหรับโหมดเดิม/สำรอง
 - อินเทอร์เน็ตขาออก HTTPS สำหรับ Secure MCP Tunnel
 
 ไม่ต้องมี:
@@ -35,7 +35,7 @@ Node.js, pnpm และ Git จำเป็นเฉพาะกรณีพั�
 
 ### แบบแนะนำ: Installer
 
-1. ดาวน์โหลด `lnwjud-Setup-4.45.0.exe` จาก GitHub Releases
+1. ดาวน์โหลด `lnwjud-Setup-4.52.0.exe` จาก GitHub Releases
 2. ติดตั้งตามปกติ
 3. เปิด **lnwjud Agent Control Center**
 4. เพิ่ม Project/Workspace ที่ต้องการใช้งาน
@@ -43,7 +43,7 @@ Node.js, pnpm และ Git จำเป็นเฉพาะกรณีพั�
 
 ### แบบไม่ต้องติดตั้ง: Portable EXE
 
-1. ดาวน์โหลด `lnwjud-Portable-4.45.0.exe`
+1. ดาวน์โหลด `lnwjud-Portable-4.52.0.exe`
 2. วางไว้ในโฟลเดอร์ที่ต้องการแล้วเปิดไฟล์ได้ทันที ไม่ต้องรัน installer
 3. เพิ่ม Project/Workspace และตั้ง Tunnel เหมือนเวอร์ชันติดตั้ง
 
@@ -65,7 +65,28 @@ Portable ของ lnwjud หมายถึง **ตัวโปรแกรม
 
 ดังนั้นผู้ใช้เลือกแบบไหนตอนดาวน์โหลดครั้งแรก ก็จะได้รับ update ของแบบนั้นต่อไป ข้อมูล/Settings ต่อผู้ใช้ Windows ยังคงใช้ชุดเดิมตามปกติ
 
-## 3. สร้าง OpenAI Tunnel และ Runtime API key
+## 3A. Remote MCP ผ่าน ngrok + OAuth (แนะนำสำหรับ ChatGPT เว็บ)
+
+ใน v4.52.0 วิธีที่ง่ายที่สุดสำหรับ ChatGPT เว็บคือ **Remote MCP — ngrok + OAuth** ซึ่งแยกจาก OpenAI Secure MCP Tunnel เดิมอย่างชัดเจน. งาน Remote MCP/OAuth ที่พัฒนาระหว่างเลขเวอร์ชันภายใน 4.50/4.51 (ซึ่งไม่เคยเผยแพร่เป็น Release) ถูกรวมส่งมอบใน v4.52.0 ชุดเดียว. Local MCP ของ lnwjud ยังคง bind เฉพาะ loopback เช่น `http://127.0.0.1:18765/mcp`; lnwjud จะสร้าง OAuth-protected loopback gateway อีกชั้น แล้วให้ ngrok เปิดเฉพาะ gateway นั้นออกเป็น HTTPS public URL ที่ลงท้าย `/mcp`.
+
+ขั้นตอนใช้งานปกติ:
+
+1. เปิด **Settings → Remote MCP & Tunnel**
+2. ดูสถานะ ngrok ก่อน: ถ้าขึ้น **READY / ✓ ngrok พร้อมใช้งาน** แปลว่า lnwjud ตรวจด้วย `ngrok version` แล้วและปุ่มติดตั้งจะถูกปิดไว้ ไม่ต้องติดตั้งซ้ำ; ถ้ายังเป็น **NOT READY** จึงค่อยกด **ติดตั้ง ngrok อัตโนมัติ** — lnwjud ใช้คำสั่ง WinGet ทางการ `winget install ngrok -s msstore` จึงไม่ต้องดาวน์โหลด `ngrok.exe` เองและไม่ bundle binary ของ ngrok มากับ installer
+3. เปิดหน้า ngrok Authtoken จากปุ่มใน lnwjud แล้ววาง token ครั้งเดียว; lnwjud เก็บ token ด้วย Windows DPAPI และส่งให้ process ผ่าน `NGROK_AUTHTOKEN` เท่านั้น ไม่ใส่ใน command line หรือ config plaintext
+4. กด **Start Remote MCP**
+5. เมื่อสถานะเป็น RUNNING ให้กด **Copy MCP URL** แล้วนำ URL `https://...ngrok.app/mcp` ไปใส่ใน ChatGPT App/Connector แบบ Server URL
+6. เลือก **OAuth** ใน ChatGPT; เมื่อ browser เปิดหน้าอนุมัติแบบธีม lnwjud ให้ใส่ **OAuth Pairing Code 6 หลัก** ที่แสดงใน lnwjud แล้วกด **Authorize ChatGPT**. เมื่อสำเร็จ browser จะ redirect กลับ ChatGPT อัตโนมัติ. Pairing code มีอายุสั้นและถูกใช้ได้ครั้งเดียวต่อการอนุมัติ; หากหมดอายุให้กดสร้างใหม่
+
+Remote MCP gateway รองรับ OAuth discovery, Dynamic Client Registration, Authorization Code + PKCE S256, access token และ refresh token. คำขอ `/mcp` ที่ไม่มี bearer token ที่ถูกต้องจะถูกปฏิเสธ และ Authorization header จากอินเทอร์เน็ตจะไม่ถูกส่งต่อเข้า local MCP โดยตรง.
+
+## 3. เลือกวิธียืนยันตัวตนของ OpenAI Secure MCP Tunnel
+
+หน้า **Settings → Secure Tunnel Authentication** แสดงวิธีที่กำลังใช้อยู่เป็น `OAUTH` หรือ `API KEY` และทุกหน้าหลัก/Logs/Doctor จะอิงค่านี้เหมือนกัน. เมื่ออยู่โหมด OAuth หน้าหลักจะแสดง OAuth account/status และไม่พาเข้า wizard สำหรับวาง Runtime API key; ฟอร์ม Runtime API key ยังอยู่เฉพาะส่วน Advanced ในฐานะ legacy fallback/troubleshooting. Transport ยังคงเป็น **OpenAI Secure MCP Tunnel** ไม่ว่า auth mode จะเป็นแบบใด.
+
+OAuth จะเปิดให้กด Sign in เฉพาะเมื่อ provider ที่ติดตั้งรองรับ Secure MCP Tunnel provisioning จริง; ถ้า capability ยัง unavailable โปรแกรมจะ fail closed และไม่เอา ChatGPT/Codex browser token มาใช้แทน runtime credential.
+
+### โหมดเดิม / Legacy: สร้าง OpenAI Tunnel และ Runtime API key
 
 1. เปิด OpenAI Platform → Tunnels
 2. สร้างหรือเลือก Tunnel ที่ต้องการใช้กับ lnwjud
@@ -78,9 +99,9 @@ Portable ของ lnwjud หมายถึง **ตัวโปรแกรม
 
 ## 4. ตั้งค่า Secure MCP Tunnel ใน lnwjud
 
-เปิด **Settings → OpenAI Secure MCP Tunnel**
+เปิด **Settings → Secure Tunnel Authentication**. ถ้าโหมดเป็น OAuth ให้ใช้การ์ด **การเชื่อมต่อด้วย OAuth** เป็นหน้าหลัก: ตรวจ account/session, Sign in เมื่อ capability พร้อม และ Start/Stop จากการ์ด OAuth หรือหน้า Home. ส่วน `Runtime API key` จะถูกระบุชัดว่าเป็น **Legacy fallback** เท่านั้น.
 
-ทำตามนี้:
+ถ้าใช้โหมด API KEY ให้ทำตามนี้:
 
 1. ใส่ Runtime API key แล้วกด **Save key**
 2. ช่อง **tunnel-client (รวมมากับโปรแกรมแล้ว)** ให้ปล่อยว่างไว้
@@ -295,8 +316,8 @@ corepack pnpm@10.15.0 package:windows
 ไฟล์ที่ได้จะอยู่ที่:
 
 ```text
-apps/desktop/dist/installers/lnwjud-Setup-4.45.0.exe
-apps/desktop/dist/installers/lnwjud-Portable-4.45.0.exe
+apps/desktop/dist/installers/lnwjud-Setup-4.52.0.exe
+apps/desktop/dist/installers/lnwjud-Portable-4.52.0.exe
 apps/desktop/dist/installers/latest.yml
 apps/desktop/dist/installers/portable.yml
 ```

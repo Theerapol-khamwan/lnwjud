@@ -44,18 +44,57 @@ over outbound HTTPS, forwards MCP work to lnwjud's Desktop loopback HTTP MCP,
 and returns the response without opening a public inbound port on the Windows
 machine.
 
-## Current version: v4.45.0
+## Current version: v4.52.0
 
-The v4.45.0 release target and runtime contract contain **231 total MCP tool definitions**,
+The v4.52.0 release target and runtime contract contain **231 total MCP tool definitions**,
 with **224 advertised by default** and **all 231 advertised when the six `codex_*`
 delegation tools plus the bounded read-only `agent_swarm_run` tool are enabled**. The seven Codex/Agent Swarm definitions are opt-in;
 the default surface still exposes every other current first-party definition. The earlier 184-tool snapshot remains
 only as the compatibility baseline used by the v4 architecture; new v4 gateway
 capabilities are additive.
 
-### What's new in v4.45.0
+### What's new in v4.52.0
 
-- Upgrades the bundled official OpenAI Secure MCP Tunnel client from `v0.0.12` to **`v0.0.13`** for Windows x64, with the release archive pinned to its verified SHA-256 before packaging.
+> Upgrading from v4.44.0 or v4.45.0? **v4.52.0 is the single release that contains all accumulated Remote MCP/OAuth work developed after v4.45.0.** The interim 4.50.0 and 4.51.0 numbers were internal development targets and were never published, so their OAuth architecture, Remote MCP/ngrok flow, connection-UX improvements, and persistence fixes are documented together below as one v4.52.0 release.
+
+#### Pair once, remember OAuth, auto-start Remote MCP
+
+- Changes Remote MCP OAuth to a **pair-once trust model**. The first ChatGPT authorization still uses the short-lived 6-digit pairing code so knowing the public ngrok URL is not enough to authorize a client, but after approval lnwjud remembers that registered ChatGPT client and does not ask for pairing again on ordinary Start or app restart.
+- Persists trusted Dynamic Client Registration metadata plus valid OAuth refresh grants in a **Windows DPAPI-encrypted Remote MCP state file**. Access tokens remain memory-only; saved refresh grants are rotated normally and expired grants are discarded on load.
+- Adds durable Remote MCP run intent. After a successful Start, reopening lnwjud automatically starts the protected Remote MCP runtime when the trusted OAuth connection and ngrok prerequisites still exist. An explicit **Stop** disables automatic start while preserving the trusted OAuth relationship, so starting later does not force re-pairing.
+- Replaces the routine “New pairing code” action with **Reconnect ChatGPT**. That action is intentionally destructive to the saved Remote MCP trust/refresh grants and is used only when the user wants to authorize ChatGPT again, change the connected account/client, or recover a broken OAuth relationship.
+- Updates Home and Settings to show `CHATGPT LINKED`, `LINKED · AUTO`, first-time pairing, and remembered-authorization state instead of presenting pairing as a recurring requirement. When first-time pairing is required, the 6-digit PIN is rendered as a dedicated larger monospace value with a contrasting high-visibility color so it is easy to distinguish from the surrounding instruction text. The Remote MCP cards also receive larger vertical gaps, separated status banners, and wrapping path/status layout for clearer scanning on normal Windows 10/11 window sizes.
+- Keeps the previously introduced connection hierarchy: **Remote MCP — ngrok + OAuth** is Recommended, **OpenAI Secure MCP Tunnel** remains Alternative/Advanced, and advanced users may still run both at the same time.
+
+#### Remote MCP OAuth + clearer connection hierarchy
+
+- Adds **Remote MCP via ngrok + OAuth** as the recommended easy ChatGPT connection path: lnwjud keeps its local Streamable HTTP MCP on loopback (normally `http://127.0.0.1:18765/mcp`), runs a separate OAuth-protected loopback gateway, and lets ngrok expose only that protected gateway as a public HTTPS `/mcp` URL.
+- Adds one-click **official ngrok installation through Microsoft Store/WinGet** instead of redistributing `ngrok.exe`; lnwjud verifies readiness by actually running `ngrok version`, shows a distinct READY state/path, disables redundant reinstall when healthy, and exposes repair only when the runtime is missing or unusable. Users paste their ngrok authtoken once, lnwjud stores it with Windows DPAPI, injects it only through the child-process environment, starts/stops ngrok automatically, detects the public URL, and provides Copy MCP URL controls.
+- Implements MCP OAuth discovery, Dynamic Client Registration, Authorization Code + PKCE S256, bearer-token protection, refresh tokens, and a short-lived **6-digit pairing code** shown by lnwjud during authorization so discovering the public ngrok URL alone is not enough to authorize access. The pairing consent surface uses a themed lnwjud page and a redirect-aware CSP so successful authorization can return to the validated ChatGPT OAuth callback instead of being blocked by `form-action`.
+- Renames the Settings navigation to **Remote MCP & Tunnel — OAuth, ngrok, API Key, Client**, shows Remote MCP state/public URL/pairing code on Home, adds an optional Doctor check, and records Remote MCP lifecycle events in Live Logs without logging OAuth/ngrok secrets.
+- Preserves **OpenAI Secure MCP Tunnel** as a separate connection mode. Its Runtime API key workflow remains supported; the earlier v4.50 Secure-Tunnel OAuth provisioning capability remains fail-closed and is explicitly separated in the UI from the working Remote MCP OAuth flow.
+- Clarifies the Desktop connection hierarchy for end users: **Remote MCP — ngrok + OAuth** is marked Recommended, while **OpenAI Secure MCP Tunnel** is an Alternative/Advanced collapsible section. When Remote MCP OAuth is online, Secure Tunnel controls auto-collapse to reduce clutter but remain available, and advanced users may run both connection methods at the same time. The UI also shows the number of online remote connection methods and keeps long verified ngrok executable paths in a separate wrapping READY block so status text does not collide with the path on narrower windows.
+- Makes the entire Desktop presentation follow the active Tunnel authentication mode instead of hardcoded Runtime API key copy: Home/Control Center, Settings, onboarding routing, Doctor navigation, embedded Live Logs, and the standalone log viewer now distinguish **OAuth authentication** from the underlying **Secure MCP Tunnel transport**.
+- Adds a centralized auth-presentation model and propagates sanitized Tunnel auth metadata into log snapshots so detached log windows render the same OAuth/API-key state as the main window without receiving tokens or credential material.
+- Keeps the legacy Tunnel ID + Runtime API key wizard as the primary flow only for legacy mode; OAuth mode stays on the OAuth connection surface, while legacy Runtime API key controls remain explicitly labeled as fallback/troubleshooting.
+- Adds OAuth-specific runtime log evidence (`auth=oauth` / `auth=legacy_api_key`) and extends incident-report redaction for authorization codes, PKCE/code verifiers, and OAuth callback query secrets.
+- Adds regression coverage for OAuth-vs-legacy presentation while preserving the existing fail-closed provisioning capability gate and legacy compatibility behavior.
+
+#### Secure Tunnel OAuth-ready authentication architecture
+
+- Adds a tunnel authentication abstraction so Persistent Tunnel identity, authentication method, and runtime credential are modeled independently while preserving the existing Tunnel ID + Runtime API key workflow for every current user.
+- Keeps legacy Runtime API key authentication as the default for upgrades and fresh installs; no existing user is forced to sign in or migrate, and `lnwjud.runtime.secret` remains the backward-compatible DPAPI-protected fallback.
+- Adds OAuth-ready PKCE/state/loopback session infrastructure, secure DPAPI refresh-session storage, memory-only runtime credential handling, sanitized IPC status, and transactional auth-mode switching/rollback without exposing tokens to the renderer, argv, logs, incident reports, or profile files.
+- Adds optional **Sign in with OAuth**, **Switch back to Runtime API key**, and **Sign out OAuth** flows in Secure Tunnel settings, but exposes OAuth provisioning as unavailable unless the configured provider explicitly supports Secure MCP Tunnel runtime-credential provisioning.
+- Fails closed on account/organization/Tunnel-ID mismatch and never substitutes ChatGPT/Codex browser sessions or unrelated access tokens for the official Secure MCP Tunnel Runtime API key contract.
+- Preserves the same Persistent Tunnel ID across auth-mode changes and commits a migration only after the new runtime credential is usable and the persistent runtime has reconciled successfully; failed migrations roll back to the retained legacy credential.
+- Updates startup, Doctor, Control Center, onboarding, preload/IPC contracts, continuity tests, and updater/reinstall semantics to use auth-neutral `authReady` / `runtimeCredentialAvailable` status while retaining `hasApiKey` compatibility for older integrations.
+
+> **OAuth availability in v4.52.0:** Secure Tunnel OAuth provisioning is enabled only when the configured provider can supply a supported Secure MCP Tunnel runtime credential. The existing Runtime API key path remains supported and is the compatibility fallback; lnwjud does not reuse unrelated ChatGPT/Codex browser tokens.
+
+#### v4.45.0 — Secure Tunnel, continuation, logs, and performance hardening
+
+- Keeps the v4.45 runtime hardening and upgrades intact, including the bundled official OpenAI Secure MCP Tunnel client `v0.0.13` for Windows x64 with pinned release evidence.
 - Preserves the complete official v0.0.13 adjacent runtime set inside Setup and Portable, including `tunnel-client.exe`, pinned `cloudflared.exe`, its manifest, license/notice inventory and SPDX metadata; the Cloudflared companion is packaged but is not enabled automatically by lnwjud.
 - Verifies the real v0.0.13 managed-runtime CLI/status contract while retaining v0.0.12 parser compatibility for users who deliberately select an older manual override.
 - Separates **Persistent Tunnel Identity** from runtime Run/Stop intent: an explicit **Stop Tunnel** is now durable across lnwjud restarts and automatic reconnect remains paused until the user explicitly starts the tunnel again.
@@ -151,10 +190,13 @@ full scans can still inspect paths allowed by the active workspace/policy.
 
 | Client / use case | Connection | What must run on Windows | Notes |
 | --- | --- | --- | --- |
+| ChatGPT web developer-mode app | Remote MCP via ngrok + OAuth | lnwjud Desktop + ngrok | Recommended easy path: public HTTPS `/mcp` terminates at a separate OAuth-protected loopback gateway; 6-digit pairing is required only for the first authorization or an explicit Reconnect ChatGPT |
 | ChatGPT web developer-mode app | OpenAI Secure MCP Tunnel | `tunnel-client` + lnwjud Desktop | Private outbound-only path to the Desktop loopback HTTP MCP; no public MCP port |
 | Codex CLI or another local MCP host | Local stdio MCP | `lnwjud-mcp-stdio.cmd` | Lowest-overhead local MCP path |
 | Local MCP client / dashboard diagnostics | Loopback Streamable HTTP | lnwjud Desktop | Defaults to `http://127.0.0.1:18765/mcp`; actual URL is shown in the UI |
 | Supported OpenAI API/Codex surface | Secure MCP Tunnel | `tunnel-client` + local MCP target | Tunnel association and Platform permissions apply |
+
+For most ChatGPT web users, choose **one primary remote connection method**: Remote MCP via ngrok + OAuth is the recommended path, while OpenAI Secure MCP Tunnel is the alternative/advanced path. They are independent transports/authentication surfaces, so enabling one does not remove the other; power users can deliberately keep both online. In Desktop Settings, each method is grouped in its own collapsible section with independent ONLINE/READY/SETUP state, and Secure Tunnel auto-collapses while Remote MCP OAuth is online to keep the normal setup path focused.
 
 The desktop HTTP server starts automatically; adding a project is required before workspace-scoped work, but Doctor and Projects remain available when no project is registered yet.
 If the preferred port `18765` is busy, the server can fall back to an ephemeral
@@ -168,13 +210,13 @@ stops the current local HTTP listener.
 
 1. Download the latest published installer from
    [GitHub Releases](https://github.com/engasnm111/lnwjud/releases/latest).
-   Current Windows 10/11 x64 artifacts are `lnwjud-Setup-4.45.0.exe` (recommended installer) and `lnwjud-Portable-4.45.0.exe` (no installation required).
+   Current Windows 10/11 x64 artifacts are `lnwjud-Setup-4.52.0.exe` (recommended installer) and `lnwjud-Portable-4.52.0.exe` (no installation required).
 2. Run the NSIS installer and launch **lnwjud Agent Control Center**.
 3. Add or select the project/workspace you want lnwjud to operate on.
 4. Review **Settings** before attaching an AI client, especially Permission
    Profile and Unrestricted Mode.
 
-If you prefer not to install the app, run `lnwjud-Portable-4.45.0.exe` directly.
+If you prefer not to install the app, run `lnwjud-Portable-4.52.0.exe` directly.
 Portable mode uses the same per-user lnwjud data/settings location as the installer;
 it is a portable executable, not a keep-all-data-next-to-the-EXE mode.
 Automatic updates preserve the distribution you chose. Installer users read
@@ -221,7 +263,9 @@ A few operating-system boundaries still apply:
 
 ### 2. Prepare OpenAI Secure MCP Tunnel for ChatGPT web
 
-OpenAI's Secure MCP Tunnel flow requires a Platform tunnel ID and a runtime
+lnwjud v4.52.0 separates the **Secure MCP Tunnel transport** from the **authentication method** used to obtain its runtime credential. Existing installations can continue using a Platform Tunnel ID + Runtime API key. OAuth-capable providers can use the OAuth controls shown by lnwjud when supported; if OAuth runtime provisioning is unavailable, lnwjud fails closed and keeps the Runtime API key workflow available instead of substituting an unrelated account token.
+
+The legacy/compatibility Secure MCP Tunnel flow requires a Platform tunnel ID and a runtime
 API key. The published Windows x64 installer and portable executable already contain the official
 OpenAI `tunnel-client v0.0.13`, so release users do **not** download or
 extract a separate tunnel-client package. The official Windows x64 bundle is kept intact beside the client, including pinned `cloudflared.exe` v2026.8.2, its manifest, license/notice files, license inventory, and SPDX SBOM. lnwjud does **not** enable Cloudflared mode merely because that companion is packaged; the normal Secure MCP Tunnel path remains unchanged unless that upstream mode is explicitly configured. Creating or editing a tunnel requires
@@ -327,8 +371,8 @@ Secure Tunnel จะส่งงานเข้าที่ Desktop loopback HTT
 
 ### 1. ติดตั้ง lnwjud หรือใช้ Portable
 
-1. แบบแนะนำ: ดาวน์โหลด `lnwjud-Setup-4.45.0.exe` แล้วติดตั้งตามปกติ
-2. ถ้าไม่ต้องการติดตั้ง: ดาวน์โหลด `lnwjud-Portable-4.45.0.exe` แล้วเปิดได้ทันที
+1. แบบแนะนำ: ดาวน์โหลด `lnwjud-Setup-4.52.0.exe` แล้วติดตั้งตามปกติ
+2. ถ้าไม่ต้องการติดตั้ง: ดาวน์โหลด `lnwjud-Portable-4.52.0.exe` แล้วเปิดได้ทันที
 3. เปิด **lnwjud Agent Control Center**
 4. เพิ่มหรือเลือก Project/Workspace ที่ต้องการให้ ChatGPT ทำงานด้วย
 
@@ -343,7 +387,7 @@ Portable ใช้ Settings/ข้อมูลต่อผู้ใช้ Window
 
 ### 3. tunnel-client มากับตัวติดตั้งแล้ว
 
-ถ้าใช้ `lnwjud-Setup-4.45.0.exe` หรือ `lnwjud-Portable-4.45.0.exe` บน Windows x64 **ไม่ต้องดาวน์โหลด
+ถ้าใช้ `lnwjud-Setup-4.52.0.exe` หรือ `lnwjud-Portable-4.52.0.exe` บน Windows x64 **ไม่ต้องดาวน์โหลด
 `tunnel-client.exe` เอง** ตัว release รวม official OpenAI
 `tunnel-client v0.0.13` มาให้และ lnwjud จะเลือกใช้ให้อัตโนมัติ
 
@@ -619,8 +663,8 @@ corepack pnpm@10.15.0 package:windows
 The Windows 10/11 x64 artifacts are written to:
 
 ```text
-apps/desktop/dist/installers/lnwjud-Setup-4.45.0.exe
-apps/desktop/dist/installers/lnwjud-Portable-4.45.0.exe
+apps/desktop/dist/installers/lnwjud-Setup-4.52.0.exe
+apps/desktop/dist/installers/lnwjud-Portable-4.52.0.exe
 ```
 
 The installer is per-user by default. The portable executable needs no installation but uses the same per-user lnwjud data/settings location. A common installed executable path is:
@@ -945,10 +989,7 @@ Enterprise/Edu administrators may need to enable this before it appears.
 5. Select the tunnel or enter its tunnel_id.
 6. Create the connection and review the discovered tools and schemas.
 
-lnwjud does not expose an OAuth login endpoint. Do not invent OAuth URLs or
-paste the runtime key into the ChatGPT connector form. Tunnel authentication is
-handled by tunnel-client; ChatGPT selects the OpenAI-hosted tunnel. Choose a
-no-extra-auth option only when the tunnel form offers it.
+lnwjud v4.52.0 contains a local desktop OAuth sign-in framework for Tunnel credential provisioning, but it is enabled only when a configured provider explicitly supports the official Secure MCP Tunnel runtime-credential contract. Do not invent OAuth URLs, reuse ChatGPT/Codex browser-session tokens, or paste the runtime key into the ChatGPT connector form. Tunnel transport authentication remains handled by tunnel-client; ChatGPT selects the OpenAI-hosted tunnel. Choose a no-extra-auth option only when the tunnel form offers it.
 
 ### Attach it to a new chat
 
@@ -1055,7 +1096,7 @@ This complete index is generated from `ToolRegistry.listAll()`, not copied from 
 | 79 | `workspace_index_stop` | READ | default | operational | service_dispatch | Stop a workspace watcher after draining all queued path updates. |
 | 80 | `session_handoff` | READ | default | operational | service_dispatch | Create a concise same-chat recovery message from the real phase tracker, current git status/diff, and durable background task IDs. Use only when the user requests a handoff or an unavoidable client/platform interruption requires recovery; never trigger it merely because elapsed time passed. If a tool schema looks stale, Refresh connector first; open a new chat only if refresh does not fix it. |
 | 81 | `verify_incremental` | EXECUTE | default | operational | service_dispatch | Run the detected project typecheck only when the current git status/diff fingerprint changed. Starting a new verification process requires explicit user confirmation in standard mode; trusted Full Bypass skips that lnwjud gate. Returns cache=hit when unchanged and cache=miss after a new verification. Prefer this during iterative edits; use project_test/project_lint/project_build only when that specific verification is needed. For full suites or packaging expected to exceed ~5 minutes, launch a durable shell background task and record its task_id in the tracker. |
-| 82 | `run_goal` | WRITE | default | operational | service_dispatch | Immediate-return durable goal create/resume and lease acquisition. Unfinished goals default to scheduledContinuation=auto: the client must automatically load/follow the bundled lnwjud-scheduled-continuation skill, keep exactly one native one-time cloud successor after a real checkpoint, continue useful work without waiting for the user to type continue/ทำต่อ, and stop scheduling only when the goal is terminal or scheduling is explicitly disabled. Native ChatGPT task creation remains host-owned; this tool never claims that a task was created. |
+| 82 | `run_goal` | WRITE | default | operational | service_dispatch | Immediate-return durable goal create/resume and lease acquisition. The client should invoke run_goal before the first mutation of any multi-step change that includes verification, build, package, push, release preparation, or is likely to outlive the current turn; if such work is already in progress without an active durable goal, enroll it before the next mutation. Unfinished goals default to scheduledContinuation=auto: the client must automatically load/follow the bundled lnwjud-scheduled-continuation skill, keep exactly one native one-time cloud successor after a real checkpoint, continue useful work without waiting for the user to type continue/ทำต่อ, and stop scheduling only when the goal is terminal or scheduling is explicitly disabled. Native ChatGPT task creation remains host-owned; this tool never claims that a task was created. |
 | 83 | `get_goal` | READ | default | operational | service_dispatch | Read the latest durable goal snapshot without changing state or returning a lease token. |
 | 84 | `checkpoint_goal` | WRITE | default | operational | service_dispatch | Atomically checkpoint durable goal progress using the current lease and expected revision. Use trackedTasks for goal-relative blocking_job/supporting_service roles and explicit provider routing; activeTaskIds remains a legacy compatibility form. Supporting services do not block continuation liveness and are cancelled only when cancelWithGoal=true. For an active goal using the default automatic continuation contract, a successful real checkpoint is the handoff point where the client must ensure exactly one native one-time cloud successor through lnwjud-scheduled-continuation before yielding; never wait for the user to type continue/ทำต่อ. |
 | 85 | `finish_goal` | WRITE | default | operational | service_dispatch | Finish the local durable goal using lease/revision compare-and-swap. It must be called before any completion report, even when scheduling was disabled or the user requested no more successors. If it returns status=active with completionState=pending_native_cleanup, follow the exact scheduledTaskCancellation instruction through the native ChatGPT Scheduled Task host, record the matching native deletion or run receipt, then call finish_goal again. Report completion only after completionState=completed and get_goal is terminal; never treat a model assertion or an unverified host task as completion proof. |

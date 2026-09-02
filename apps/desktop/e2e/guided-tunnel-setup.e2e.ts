@@ -20,7 +20,7 @@ test('fresh user sees Thai Tips, enters Secure Tunnel guide, and switches langua
     await expectNoHorizontalOverflow(page);
 
     await page.getByRole('button', { name: 'เริ่มตั้งค่า' }).click();
-    await expect(page.getByRole('heading', { name: 'Secure Tunnel' })).toBeVisible();
+    await expect(page.getByTestId('guided-tunnel-setup')).toBeVisible();
     await expect(page.getByText('1. สร้าง OpenAI Tunnel')).toBeVisible();
     await expect(page.getByRole('button', { name: 'เปิดหน้า Tunnel Settings' })).toBeVisible();
 
@@ -46,7 +46,7 @@ test('Set up later closes Tips and the Home recovery entry reopens Secure Tunnel
     const reopen = page.getByRole('button', { name: 'เปิดคู่มือตั้งค่า' }).first();
     await expect(reopen).toBeVisible();
     await reopen.click();
-    await expect(page.getByRole('heading', { name: 'Secure Tunnel' })).toBeVisible();
+    await expect(page.getByTestId('guided-tunnel-setup')).toBeVisible();
     await expect(page.getByText('1. สร้าง OpenAI Tunnel')).toBeVisible();
     await expectNoHorizontalOverflow(page);
   });

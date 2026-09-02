@@ -28,6 +28,7 @@ interface LogStreamPanelProps {
   readonly clearWorkspaceLabel: string;
   readonly exportLabel: string;
   readonly waitingLabel: string;
+  readonly description?: string;
   readonly copyLabel?: string;
   readonly copiedLabel?: string;
   readonly onClear: (scope: LogScopeSelection) => Promise<void>;
@@ -66,7 +67,7 @@ export function LogStreamPanel(props: LogStreamPanelProps): ReactElement {
     if (sessionId !== null && !sessionOptions.includes(sessionId)) setSessionId(null);
   }, [sessionId, sessionOptions]);
   const scope = useMemo<LogScopeSelection>(() => ({ workspaceId, sessionId }), [workspaceId, sessionId]);
-  const searchCandidates = useMemo(() => filterLogLinesByScope(props.lines, scope, '', props.workspaces), [props.lines, scope, props.workspaces]);
+  const searchCandidates = useMemo(() => visibleLogLines(props.lines, scope, '', props.workspaces), [props.lines, scope, props.workspaces]);
   useEffect(() => {
     const query = normalizeDetailSearchQuery(filter);
     const generation = ++detailSearchGeneration.current;
@@ -76,7 +77,15 @@ export function LogStreamPanel(props: LogStreamPanelProps): ReactElement {
     }
     dispatchDetailSearch({ type: 'start', generation, query });
     const timeout = window.setTimeout(() => {
-      const candidates = searchCandidates.map((line) => ({ id: liveLineIdentity(line), detailRef: detailRefForLine(line) }));
+      const candidates = searchCandidates.flatMap((line) => {
+        const detailRef = detailRefForLine(line);
+        if (detailRef === null || line.text.toLocaleLowerCase().includes(query)) return [];
+        return [{ id: liveLineIdentity(line), detailRef }];
+      });
+      if (candidates.length === 0) {
+        dispatchDetailSearch({ type: 'success', generation, query, matchingIds: [] });
+        return;
+      }
       void props.onSearchTargetDetails?.(query, candidates).then((ids) => {
         dispatchDetailSearch({ type: 'success', generation, query, matchingIds: ids });
       }).catch(() => {
@@ -123,6 +132,7 @@ export function LogStreamPanel(props: LogStreamPanelProps): ReactElement {
           <button type="button" onClick={() => { void props.onExport(scope, filter, visible.map((line) => ({ lineId: line.id, correlationRef: detailRefForLine(line) }))); }}>{props.exportLabel}</button>
         </div>
       </div>
+      {props.description === undefined ? null : <p className="hint log-source-description">{props.description}</p>}
       <div className="scope-filter-bar">
         <label>
           <span>{props.workspaceLabel ?? 'Workspace'}</span>
@@ -283,7 +293,7 @@ export function compareLogLinesNewestFirst(left: LogLine, right: LogLine): numbe
 }
 
 export function logDisplayParts(line: LogLine): { readonly kind: LogEventKind | null; readonly detail: string } {
-  if (line.source === 'mcp') {
+  if (line.source === 'mcp' || line.source === 'process') {
     const match = /^\[(TASK|RESULT|ERROR)\]\s*(.*)$/s.exec(line.text);
     if (match !== null) return { kind: match[1]!.toLowerCase() as LogEventKind, detail: match[2] ?? '' };
     if (line.correlation?.kind === 'mcp') {

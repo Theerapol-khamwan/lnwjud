@@ -2,6 +2,8 @@ import { useEffect, useState, type ReactElement } from 'react';
 import type { DashboardSnapshot, IncidentClassification, UiLocale, WorkspaceSummary } from '@lnwjud/ipc-contracts';
 import { formatDateTime } from '../../date-time.js';
 import { createTranslator } from '../../i18n/index.js';
+import { tunnelRuntimeCredentialAvailable } from '../../tunnel-auth-readiness.js';
+import { tunnelAuthPresentation } from '../../tunnel-auth-presentation.js';
 import { settleWorkspaceAdd, type AddWorkspaceAction } from '../workspaces/workspace-add.js';
 
 interface ControlCenterPageProps {
@@ -35,6 +37,19 @@ export function ControlCenterPage(props: ControlCenterPageProps): ReactElement {
   const [projectBusyId, setProjectBusyId] = useState<string | null>(null);
   const activeWorkspaceIds = new Set(dashboard.activeWorkspaces.map((workspace) => workspace.id));
   const activeProjects = props.workspaces.filter((workspace) => activeWorkspaceIds.has(workspace.id));
+  const tunnelCredentialAvailable = tunnelRuntimeCredentialAvailable(dashboard.tunnel);
+  const tunnelPresentation = tunnelAuthPresentation(dashboard.tunnel);
+  const remoteMcp = dashboard.remoteMcp ?? {
+    state: 'stopped' as const, provider: 'ngrok' as const, installed: false, hasAuthtoken: false, ngrokPath: null,
+    localMcpUrl: dashboard.mcp.url, localGatewayUrl: null, publicMcpUrl: null, pairingCode: null, pairingCodeExpiresAt: null,
+    oauthProtected: true, oauthConnected: false, pairingRequired: false, autoStartEnabled: false, message: null,
+  };
+  const remoteMcpOnline = remoteMcp.state === 'running';
+  const [secureTunnelExpanded, setSecureTunnelExpanded] = useState(!remoteMcpOnline);
+
+  useEffect(() => {
+    setSecureTunnelExpanded(!remoteMcpOnline);
+  }, [remoteMcpOnline]);
 
   useEffect(() => {
     setSelectedId(dashboard.selectedWorkspace?.id ?? '');
@@ -48,13 +63,13 @@ export function ControlCenterPage(props: ControlCenterPageProps): ReactElement {
 
   const tunnelLabel = dashboard.tunnel.state === 'running'
     ? dashboard.tunnel.source === 'external'
-      ? (!dashboard.tunnel.hasApiKey || !dashboard.tunnel.profileExists ? t('tunnel.incompleteExternal') : t('tunnel.runningExternal'))
-      : t('tunnel.running')
+      ? (!tunnelCredentialAvailable || !dashboard.tunnel.profileExists ? t(tunnelPresentation.incompleteExternalKey) : t(tunnelPresentation.runningExternalKey))
+      : t(tunnelPresentation.runningKey)
     : dashboard.tunnel.state === 'starting'
-      ? t('tunnel.starting')
+      ? t(tunnelPresentation.startingKey)
       : dashboard.tunnel.state === 'error'
-        ? t('tunnel.error')
-        : t('tunnel.stopped');
+        ? t(tunnelPresentation.errorKey)
+        : t(tunnelPresentation.stoppedKey);
 
   const desktopBypassOn = dashboard.permissionProfile === 'full' && dashboard.settings?.desktopFullBypassAll === true;
   const stdioBypassOn = dashboard.stdioPermissionProfile === 'full' && dashboard.settings?.stdioFullBypassAll === true;
@@ -134,6 +149,7 @@ export function ControlCenterPage(props: ControlCenterPageProps): ReactElement {
           <SecurityMetric label={t('security.unrestricted')} value={onOff(dashboard.unrestricted)} state={dashboard.unrestricted ? 'warn' : 'safe'} />
           <SecurityMetric label={t('security.workspaceScope')} value={workspaceScope} state={dashboard.stdioStrictRoots ? 'safe' : 'warn'} />
           <SecurityMetric label={t('security.tunnelAccess')} value={tunnelLabel} state={dashboard.tunnel.state === 'running' ? 'active' : 'neutral'} />
+          <SecurityMetric label="Remote MCP OAuth" value={remoteMcp.state === 'running' ? 'ONLINE' : remoteMcp.oauthConnected ? (remoteMcp.autoStartEnabled ? 'LINKED · AUTO' : 'LINKED') : remoteMcp.installed && remoteMcp.hasAuthtoken ? 'READY' : 'SETUP'} state={remoteMcp.state === 'running' || remoteMcp.oauthConnected ? 'active' : 'neutral'} />
           <SecurityMetric label={t('security.registeredWorkspaces')} value={String(props.workspaces.length)} />
         </div>
         {stdioBroad ? <div className="security-warning" role="status">⚠ {t('security.warningBroad')}</div> : null}
@@ -160,37 +176,75 @@ export function ControlCenterPage(props: ControlCenterPageProps): ReactElement {
           </div>
           <p className="hint">{t('mcp.stdioCommand')}</p>
           <code className="endpoint">{dashboard.connectionModes.stdioCommand}</code>
+          <div className="home-remote-mcp-block">
+            <div className="settings-mini-heading"><strong>Remote MCP · OAuth</strong><span>{remoteMcp.state === 'running' ? 'ONLINE' : remoteMcp.oauthConnected ? (remoteMcp.autoStartEnabled ? 'LINKED · AUTO' : 'LINKED') : remoteMcp.state.toUpperCase()}</span></div>
+            <code className="endpoint">{remoteMcp.publicMcpUrl ?? '—'}</code>
+            <div className="inline-actions">
+              <button type="button" disabled={remoteMcp.publicMcpUrl === null} onClick={() => { if (remoteMcp.publicMcpUrl !== null) void copyText(remoteMcp.publicMcpUrl); }}>{props.locale === 'th' ? 'Copy Public /mcp' : 'Copy public /mcp'}</button>
+              <button type="button" onClick={props.onOpenTunnelSetup}>{props.locale === 'th' ? 'ตั้งค่า OAuth / ngrok' : 'Configure OAuth / ngrok'}</button>
+            </div>
+            {remoteMcp.oauthConnected ? <div className="home-remote-mcp-status is-connected">{props.locale === 'th' ? (remoteMcp.autoStartEnabled ? '✓ ChatGPT เชื่อมแล้ว · เปิด lnwjud ครั้งถัดไปจะ Start Remote MCP อัตโนมัติ' : '✓ ChatGPT เชื่อมแล้ว · การเชื่อมต่อยังถูกจำไว้ แต่ Auto-start ปิดอยู่') : (remoteMcp.autoStartEnabled ? '✓ ChatGPT connected · Remote MCP will auto-start with lnwjud.' : '✓ ChatGPT connected · authorization is remembered, but auto-start is off.')}</div> : null}
+            {remoteMcp.pairingCode === null ? null : <div className="home-remote-mcp-status is-pairing"><strong className="remote-mcp-pairing-line"><span>{props.locale === 'th' ? 'Pairing ครั้งแรก' : 'First-time pairing'}:</span><span className="remote-mcp-pairing-pin" aria-label={`${props.locale === 'th' ? 'Pairing PIN' : 'Pairing PIN'} ${remoteMcp.pairingCode}`}>{remoteMcp.pairingCode}</span></strong></div>}
+          </div>
         </section>
 
-        <section className="panel">
-          <h2>{t('tunnel.title')}</h2>
+        <details
+          className={`connection-method-stack home-connection-method ${remoteMcpOnline ? 'is-secondary' : ''}`}
+          open={secureTunnelExpanded}
+          onToggle={(event) => setSecureTunnelExpanded(event.currentTarget.open)}
+        >
+          <summary className="connection-method-summary">
+            <div className="connection-method-summary-copy">
+              <span className="connection-method-kicker">{remoteMcpOnline ? (props.locale === 'th' ? 'ตัวเลือกเสริม / ขั้นสูง' : 'Optional / advanced') : (props.locale === 'th' ? 'วิธีเชื่อมต่อทางเลือก' : 'Alternative connection')}</span>
+              <strong>{t(tunnelPresentation.titleKey)}</strong>
+              <span>{remoteMcpOnline
+                ? (props.locale === 'th' ? 'Remote MCP OAuth ออนไลน์แล้ว จึงพับส่วน Tunnel ไว้เพื่อลดความสับสน — ยังเปิดใช้พร้อมกันได้' : 'Remote MCP OAuth is online, so Tunnel controls are collapsed to reduce clutter. Both may still run together.')
+                : (tunnelPresentation.transportHintKey === null ? (props.locale === 'th' ? 'เปิดเพื่อจัดการ Secure MCP Tunnel' : 'Expand to manage Secure MCP Tunnel.') : t(tunnelPresentation.transportHintKey))}</span>
+            </div>
+            <div className="connection-method-summary-status">
+              <span className={`connection-method-live-dot ${dashboard.tunnel.state === 'running' ? 'is-online' : ''}`} aria-hidden="true" />
+              <span>{tunnelLabel}</span>
+              <span className="active-project-count">{tunnelPresentation.badge}</span>
+              <span className="connection-method-chevron" aria-hidden="true">⌄</span>
+            </div>
+          </summary>
+          <section className="panel connection-method-panel">
+          <div className="section-heading">
+            <div>
+              <h2>{t(tunnelPresentation.titleKey)}</h2>
+              {tunnelPresentation.transportHintKey === null ? null : <p className="hint">{t(tunnelPresentation.transportHintKey)}</p>}
+            </div>
+            <span className="active-project-count">{tunnelPresentation.badge}</span>
+          </div>
           <p data-testid="tunnel-status">{tunnelLabel}</p>
+          {tunnelPresentation.isOAuth && dashboard.tunnel.auth?.accountLabel ? <p className="hint">{props.locale === 'th' ? 'บัญชี OAuth' : 'OAuth account'}: {dashboard.tunnel.auth.accountLabel}</p> : null}
           {dashboard.tunnel.message ? <p className="hint error-text">{dashboard.tunnel.message}</p> : null}
-          {!dashboard.tunnel.hasApiKey ? <p className="hint">{t('tunnel.needKey')}</p> : null}
+          {!tunnelCredentialAvailable ? <p className="hint">{t(tunnelPresentation.needCredentialKey)}</p> : null}
           {!dashboard.tunnel.profileExists ? <p className="hint">{t('tunnel.needProfile')}</p> : null}
-          {dashboard.tunnel.hasApiKey && dashboard.tunnel.profileExists ? null : (
+          {tunnelCredentialAvailable && dashboard.tunnel.profileExists ? null : (
             <div className="guided-tunnel-home-entry">
-              <p className="hint">{t('guidedTunnel.dismissedHint')}</p>
-              <button type="button" className="btn-save-gold" onClick={props.onOpenTunnelSetup}>{t('guidedTunnel.openGuide')}</button>
+              <p className="hint">{tunnelPresentation.isOAuth ? (props.locale === 'th' ? 'ตรวจ OAuth session และการเชื่อมต่อในหน้าตั้งค่า' : 'Review the OAuth session and connection in Settings.') : t('guidedTunnel.dismissedHint')}</p>
+              <button type="button" className="btn-save-gold" onClick={props.onOpenTunnelSetup}>{tunnelPresentation.isOAuth ? (props.locale === 'th' ? 'เปิดการตั้งค่าการเชื่อมต่อ' : 'Open connection settings') : t('guidedTunnel.openGuide')}</button>
             </div>
           )}
           <div className="inline-actions">
             <button
               type="button"
-              disabled={props.tunnelBusy || !dashboard.tunnel.hasApiKey || dashboard.tunnel.state === 'running'}
+              disabled={props.tunnelBusy || !tunnelCredentialAvailable || dashboard.tunnel.state === 'running'}
               onClick={() => { void props.onStartTunnel(); }}
             >
-              {t('tunnel.start')}
+              {t(tunnelPresentation.startKey)}
             </button>
             <button
               type="button"
               disabled={props.tunnelBusy || dashboard.tunnel.state === 'stopped'}
               onClick={() => { void props.onStopTunnel(); }}
             >
-              {t('tunnel.stop')}
+              {t(tunnelPresentation.stopKey)}
             </button>
           </div>
         </section>
+        </details>
       </div>
 
       <div className="home-grid">

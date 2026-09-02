@@ -83,7 +83,15 @@ export function WorkLogPanel(props: WorkLogPanelProps): ReactElement {
     }
     dispatchDetailSearch({ type: 'start', generation, query });
     const timeout = window.setTimeout(() => {
-      const searchCandidates = candidates.map((row) => ({ id: workLogRowIdentity(row), detailRef: row.item.targetDetail.detailRef }));
+      const searchCandidates = candidates.flatMap((row) => {
+        const detailRef = row.item.targetDetail.detailRef;
+        if (detailRef === null || workLogSearchText(row).includes(query)) return [];
+        return [{ id: workLogRowIdentity(row), detailRef }];
+      });
+      if (searchCandidates.length === 0) {
+        dispatchDetailSearch({ type: 'success', generation, query, matchingIds: [] });
+        return;
+      }
       void props.onSearchTargetDetails?.(query, searchCandidates).then((ids) => {
         dispatchDetailSearch({ type: 'success', generation, query, matchingIds: ids });
       }).catch(() => {

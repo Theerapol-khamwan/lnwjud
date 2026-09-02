@@ -71,6 +71,9 @@ describe('MCP localhost HTTP transport', () => {
 
       expect(instructions).toContain('until the requested outcome is complete');
       expect(instructions).toContain('because elapsed time has passed');
+      expect(instructions).toContain('Before the first mutation of any multi-step change');
+      expect(instructions).toContain('call run_goal with scheduledContinuation=auto');
+      expect(instructions).toContain('enroll it before the next mutation');
       expect(instructions).not.toMatch(/\b(?:22|25|60)\s*minutes?\b/i);
     } finally {
       await client.close();
