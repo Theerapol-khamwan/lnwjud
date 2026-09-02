@@ -129,7 +129,8 @@ export function StandaloneLogViewer(): ReactElement {
           clearSessionLabel={t('scope.clearSession')}
           clearWorkspaceLabel={t('scope.clearWorkspace')}
           exportLabel={t('live.export')}
-          waitingLabel={tab === 'tunnel' ? t(tunnelPresentation.logWaitingKey) : t('live.waiting')}
+          waitingLabel={tab === 'tunnel' ? t(tunnelPresentation.logWaitingKey) : tab === 'process' ? t('live.waitingProcess') : t('live.waiting')}
+          {...(tab === 'process' ? { description: t('live.processHint') } : {})}
           workspaceLabel={t('scope.workspace')}
           sessionLabel={t('scope.session')}
           scopeAllLabel={t('scope.all')}

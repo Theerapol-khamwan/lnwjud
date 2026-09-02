@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto';
 import { createServer, type Server } from 'node:http';
 import { afterEach, describe, expect, it } from 'vitest';
-import { RemoteMcpController } from '../src/main/remote-mcp-controller.js';
+import { buildNgrokHttpArgs, extractNgrokDiagnostic, formatNgrokExitMessage, RemoteMcpController } from '../src/main/remote-mcp-controller.js';
 
 interface RemoteMcpTestAccess {
   gatewayUrl: string | null;
@@ -27,6 +27,26 @@ async function listen(server: Server): Promise<string> {
   if (address === null || typeof address === 'string') throw new Error('test server did not bind');
   return `http://127.0.0.1:${address.port}`;
 }
+
+describe('Remote MCP ngrok runtime', () => {
+  it('uses ngrok v3-compatible http arguments without the removed web-addr flag', () => {
+    const args = buildNgrokHttpArgs('http://127.0.0.1:32123');
+    expect(args).toEqual(['http', 'http://127.0.0.1:32123', '--log=stdout', '--log-format=json']);
+    expect(args.some((value) => value.startsWith('--web-addr'))).toBe(false);
+  });
+
+  it('keeps the actionable ngrok diagnostic instead of replacing it with exit 1', () => {
+    const diagnostic = extractNgrokDiagnostic('ERROR:  unknown flag: --web-addr');
+    expect(diagnostic).toBe('ERROR:  unknown flag: --web-addr');
+    expect(formatNgrokExitMessage(1, diagnostic)).toBe('ngrok stopped unexpectedly (exit 1): ERROR:  unknown flag: --web-addr');
+  });
+
+  it('extracts JSON ngrok errors and redacts token-like values', () => {
+    const diagnostic = extractNgrokDiagnostic(JSON.stringify({ lvl: 'eror', msg: 'authentication failed token=super-secret-value' }));
+    expect(diagnostic).toContain('authentication failed');
+    expect(diagnostic).not.toContain('super-secret-value');
+  });
+});
 
 describe('Remote MCP OAuth gateway', () => {
   it('requires OAuth, supports DCR + PKCE, and proxies authorized /mcp requests', async () => {

@@ -565,9 +565,9 @@ export function SettingsPage(props: SettingsPageProps): ReactElement {
                 </div>
                 <div className="tunnel-setup-box">
                   <div className="settings-mini-heading"><strong>{props.locale === 'th' ? '1. เตรียม ngrok' : '1. Prepare ngrok'}</strong><span>{remoteMcp.installed ? 'INSTALLED' : 'NOT INSTALLED'}</span></div>
-                  <p className="hint">{props.locale === 'th' ? 'lnwjud ติดตั้ง ngrok จาก Microsoft Store ผ่าน WinGet ให้เอง ไม่ต้องดาวน์โหลดไฟล์เอง' : 'lnwjud installs ngrok from the Microsoft Store through WinGet; no manual download is required.'}</p>
+                  <p className="hint">{props.locale === 'th' ? 'lnwjud ตรวจว่า ngrok รันได้จริงและติดตั้ง/ซ่อมจาก Microsoft Store ผ่าน WinGet ให้เอง ไม่ต้องดาวน์โหลดไฟล์หรือเปิด CMD เอง' : 'lnwjud verifies that ngrok can actually run and can install/repair it from the Microsoft Store through WinGet; no manual download or terminal setup is required.'}</p>
                   <div className="inline-actions">
-                    <button type="button" className="btn-save-gold" disabled={remoteMcpBusy || remoteMcp.installed} onClick={() => { void runRemoteMcpAction('install'); }}>{props.locale === 'th' ? 'ติดตั้ง ngrok อัตโนมัติ' : 'Install ngrok automatically'}</button>
+                    <button type="button" className="btn-save-gold" disabled={remoteMcpBusy || remoteMcp.state === 'running'} onClick={() => { void runRemoteMcpAction('install'); }}>{props.locale === 'th' ? 'ติดตั้ง/ซ่อม ngrok อัตโนมัติ' : 'Install/repair ngrok automatically'}</button>
                     <button type="button" disabled={remoteMcpBusy} onClick={() => { void openNgrokAuthtokenPage(); }}>{props.locale === 'th' ? 'เปิดหน้า ngrok Authtoken' : 'Open ngrok authtoken'}</button>
                   </div>
                   <label className="field-label" htmlFor="remote-mcp-authtoken">{props.locale === 'th' ? 'ngrok Authtoken (ใส่ครั้งเดียว)' : 'ngrok authtoken (one time)'}</label>
@@ -577,15 +577,15 @@ export function SettingsPage(props: SettingsPageProps): ReactElement {
                 <div className="tunnel-setup-box">
                   <div className="settings-mini-heading"><strong>{props.locale === 'th' ? '2. เปิด Remote MCP' : '2. Start Remote MCP'}</strong><span>{remoteMcp.oauthProtected ? 'OAUTH PROTECTED' : 'AUTH REQUIRED'}</span></div>
                   <div className="inline-actions">
-                    <button type="button" className="btn-save-gold" disabled={remoteMcpBusy || !remoteMcp.installed || !remoteMcp.hasAuthtoken || remoteMcp.state === 'running'} onClick={() => { void runRemoteMcpAction('start'); }}>{remoteMcpBusy && remoteMcp.state !== 'running' ? (props.locale === 'th' ? 'กำลังทำงาน…' : 'Working…') : (props.locale === 'th' ? 'Start Remote MCP' : 'Start Remote MCP')}</button>
+                    <button type="button" className="btn-save-gold" disabled={remoteMcpBusy || !remoteMcp.hasAuthtoken || remoteMcp.state === 'running'} onClick={() => { void runRemoteMcpAction('start'); }}>{remoteMcpBusy && remoteMcp.state !== 'running' ? (props.locale === 'th' ? 'กำลังทำงาน…' : 'Working…') : (props.locale === 'th' ? 'Start Remote MCP' : 'Start Remote MCP')}</button>
                     <button type="button" disabled={remoteMcpBusy || remoteMcp.state !== 'running'} onClick={() => { void runRemoteMcpAction('stop'); }}>{props.locale === 'th' ? 'หยุด' : 'Stop'}</button>
                     <button type="button" disabled={remoteMcp.publicMcpUrl === null} onClick={() => { void copyRemoteMcpUrl(); }}>{props.locale === 'th' ? 'Copy MCP URL' : 'Copy MCP URL'}</button>
                     <button type="button" disabled={remoteMcpBusy || remoteMcp.state !== 'running'} onClick={() => { void runRemoteMcpAction('regenerate'); }}>{props.locale === 'th' ? 'สร้าง Pairing Code ใหม่' : 'New pairing code'}</button>
                   </div>
                   {remoteMcp.pairingCode === null ? null : <div className="toast-success-banner"><strong>{props.locale === 'th' ? 'OAuth Pairing Code' : 'OAuth pairing code'}: {remoteMcp.pairingCode}</strong>{remoteMcp.pairingCodeExpiresAt === null ? null : ` · ${props.locale === 'th' ? 'หมดอายุ' : 'expires'} ${formatDateTime(remoteMcp.pairingCodeExpiresAt)}`}</div>}
-                  <p className="hint">{props.locale === 'th' ? 'ใน ChatGPT: สร้าง App แบบ URL เซิร์ฟเวอร์ → วาง Public MCP URL → เลือก OAuth → หน้าอนุมัติจะถาม Pairing Code จาก lnwjud' : 'In ChatGPT: create a Server URL app → paste the Public MCP URL → choose OAuth → enter the pairing code shown by lnwjud when authorization opens.'}</p>
-                  {remoteMcp.message === null ? null : <p className="hint">{remoteMcp.message}</p>}
-                  {remoteMcpMessage === null ? null : <div className={remoteMcpMessage.toLowerCase().includes('failed') || remoteMcpMessage.toLowerCase().includes('error') ? 'alert-box-warning' : 'toast-success-banner'} role="status">{remoteMcpMessage}</div>}
+                  <p className="hint">{props.locale === 'th' ? 'กด Start ได้เลยหลังบันทึก Authtoken — lnwjud จะตรวจ/ซ่อม ngrok, เปิด HTTPS endpoint และสร้าง OAuth Pairing Code ให้อัตโนมัติ จากนั้นใน ChatGPT: สร้าง App แบบ URL เซิร์ฟเวอร์ → วาง Public MCP URL → เลือก OAuth' : 'After saving the authtoken, press Start directly — lnwjud verifies/repairs ngrok, opens the HTTPS endpoint, and generates the OAuth pairing code automatically. Then in ChatGPT: create a Server URL app → paste the Public MCP URL → choose OAuth.'}</p>
+                  {remoteMcp.message === null ? null : <div className={remoteMcp.state === 'error' ? 'alert-box-warning' : 'hint'} role="status">{remoteMcp.message}{remoteMcp.ngrokPath === null ? '' : ` · ngrok: ${remoteMcp.ngrokPath}`}</div>}
+                  {remoteMcpMessage === null ? null : <div className={remoteMcp.state === 'error' || /failed|error|exit|stopped unexpectedly/i.test(remoteMcpMessage) ? 'alert-box-warning' : 'toast-success-banner'} role="status">{remoteMcpMessage}</div>}
                 </div>
               </section>
 

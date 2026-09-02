@@ -105,6 +105,30 @@ describe('viewport-sized log and list layout', () => {
     expect(markup).not.toContain('[RESULT] shell SUCCESS callId=abc — powershell');
   });
 
+  it('explains what Processes contains and renders mirrored process lifecycle badges', () => {
+    const embedded = renderToStaticMarkup(createElement(LiveLogsPage, {
+      locale: 'en', lines: [], tunnelLogPath: null, tunnelLogExists: false,
+      onClear: noop, onClearAll: noop, onExport: noop, onPopOut: noop, onCaptureIncident: noop,
+      incidentBusy: false, incidentClassification: null, incidentCapturedAt: null, incidentNotice: null, workspaces: [],
+    }));
+    expect(embedded).toContain('Processes');
+
+    const processLine = {
+      id: 12, source: 'process' as const, timestamp: '2026-09-02T00:00:12.000Z', level: 'info' as const,
+      workspaceId: 'ws-a', sessionId: 'session-a', text: '[RESULT] shell SUCCESS callId=process-call — pnpm lint',
+      correlation: { kind: 'mcp' as const, phase: 'completed' as const, callId: 'process-call', toolName: 'shell', resultCode: 'SUCCESS' as const },
+    };
+    expect(logDisplayParts(processLine)).toEqual({ kind: 'result', detail: 'shell SUCCESS callId=process-call — pnpm lint' });
+    const processMarkup = renderToStaticMarkup(createElement(LogStreamPanel, {
+      source: 'process', title: 'Processes', lines: [processLine], tunnelLogPath: null, tunnelLogExists: false,
+      description: 'Shows real process work run by the Agent', waitingLabel: 'No process activity yet',
+      filterPlaceholder: 'filter', pauseLabel: 'pause', followLabel: 'follow', clearLabel: 'clear', clearSessionLabel: 'clear session', clearWorkspaceLabel: 'clear workspace', exportLabel: 'export',
+      onClear: noop, onExport: noop,
+    }));
+    expect(processMarkup).toContain('Shows real process work run by the Agent');
+    expect(processMarkup).toContain('event-tag result');
+  });
+
   it('offers clear-all controls in both embedded and pop-out Live Logs', () => {
     const embedded = renderToStaticMarkup(createElement(LiveLogsPage, {
       locale: 'en', lines: [], tunnelLogPath: null, tunnelLogExists: false,

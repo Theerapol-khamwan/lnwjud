@@ -94,7 +94,7 @@ export function goalTools(context: McpToolContext): McpToolDefinition[] {
   return [
     defineTool({
       name: 'run_goal',
-      description: 'Immediate-return durable goal create/resume and lease acquisition. Unfinished goals default to scheduledContinuation=auto: the client must automatically load/follow the bundled lnwjud-scheduled-continuation skill, keep exactly one native one-time cloud successor after a real checkpoint, continue useful work without waiting for the user to type continue/ทำต่อ, and stop scheduling only when the goal is terminal or scheduling is explicitly disabled. Native ChatGPT task creation remains host-owned; this tool never claims that a task was created.',
+      description: 'Immediate-return durable goal create/resume and lease acquisition. The client should invoke run_goal before the first mutation of any multi-step change that includes verification, build, package, push, release preparation, or is likely to outlive the current turn; if such work is already in progress without an active durable goal, enroll it before the next mutation. Unfinished goals default to scheduledContinuation=auto: the client must automatically load/follow the bundled lnwjud-scheduled-continuation skill, keep exactly one native one-time cloud successor after a real checkpoint, continue useful work without waiting for the user to type continue/ทำต่อ, and stop scheduling only when the goal is terminal or scheduling is explicitly disabled. Native ChatGPT task creation remains host-owned; this tool never claims that a task was created.',
       permission: 'WRITE',
       annotations: { readOnlyHint: false, destructiveHint: false },
       inputSchema: runGoalSchema,

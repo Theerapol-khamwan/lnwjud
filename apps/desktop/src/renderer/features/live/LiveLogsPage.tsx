@@ -80,7 +80,8 @@ export function LiveLogsPage(props: LiveLogsPageProps): ReactElement {
             clearSessionLabel={t('scope.clearSession')}
             clearWorkspaceLabel={t('scope.clearWorkspace')}
             exportLabel={t('live.export')}
-            waitingLabel={source === 'tunnel' ? t(tunnelPresentation.logWaitingKey) : t('live.waiting')}
+            waitingLabel={source === 'tunnel' ? t(tunnelPresentation.logWaitingKey) : source === 'process' ? t('live.waitingProcess') : t('live.waiting')}
+            {...(source === 'process' ? { description: t('live.processHint') } : {})}
             copyLabel={t('mcp.copy')}
             copiedLabel={t('mcp.copied')}
             onResolveTargetDetail={resolveTargetDetail}

@@ -2,7 +2,7 @@ import { mkdtemp, rm, writeFile, appendFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { LogHub } from '../src/main/log-hub.js';
+import { isProcessActivityTool, LogHub } from '../src/main/log-hub.js';
 
 const temporaryRoots: string[] = [];
 
@@ -308,6 +308,57 @@ describe('LogHub', () => {
 
     expect(hub.snapshot().lines).toContainEqual(expect.objectContaining({
       source: 'mcp', workspaceId: 'workspace-a', sessionId: 'session-a',
+    }));
+  });
+
+  it('mirrors real Agent process tools into the Processes live-log source', () => {
+    expect(isProcessActivityTool('shell')).toBe(true);
+    expect(isProcessActivityTool('process_start')).toBe(true);
+    expect(isProcessActivityTool('task_status')).toBe(true);
+    expect(isProcessActivityTool('project_build')).toBe(true);
+    expect(isProcessActivityTool('verify_incremental')).toBe(true);
+    expect(isProcessActivityTool('read_file')).toBe(false);
+
+    const hub = new LogHub({ tunnelLogPath: 'Z:\\missing\\lnwjud-tunnel.log' });
+    hub.syncWorkLog([
+      {
+        id: 'shell-start', timestamp: '2026-09-02T00:00:01.000Z', callId: 'shell-call', kind: 'task', toolName: 'shell', resultCode: 'STARTED', targetSummary: 'pnpm test', workspaceId: 'workspace-a', sessionId: 'session-a',
+      },
+      {
+        id: 'shell-result', timestamp: '2026-09-02T00:00:02.000Z', callId: 'shell-call', kind: 'result', toolName: 'shell', resultCode: 'SUCCESS', targetSummary: 'pnpm test', workspaceId: 'workspace-a', sessionId: 'session-a',
+      },
+      {
+        id: 'read-result', timestamp: '2026-09-02T00:00:03.000Z', callId: 'read-call', kind: 'result', toolName: 'read_file', resultCode: 'SUCCESS', targetSummary: 'README.md', workspaceId: 'workspace-a', sessionId: 'session-a',
+      },
+    ], []);
+
+    const processLines = hub.snapshot().lines.filter((line) => line.source === 'process');
+    expect(processLines).toHaveLength(2);
+    expect(processLines.map((line) => line.text)).toEqual([
+      expect.stringContaining('[TASK] shell STARTED'),
+      expect.stringContaining('[RESULT] shell SUCCESS'),
+    ]);
+    expect(processLines.every((line) => line.workspaceId === 'workspace-a' && line.sessionId === 'session-a')).toBe(true);
+    expect(processLines.every((line) => line.correlation?.kind === 'mcp' && line.correlation.toolName === 'shell')).toBe(true);
+  });
+
+  it('tails process-related MCP activity directly into Processes without waiting for dashboard sync', async () => {
+    vi.useFakeTimers();
+    const root = await mkdtemp(path.join(os.tmpdir(), 'lnwjud-loghub-process-live-'));
+    temporaryRoots.push(root);
+    const activityPath = path.join(root, 'mcp-activity.log');
+    await writeFile(activityPath, `${JSON.stringify({
+      callId: 'process-live', toolName: 'shell', phase: 'completed', resultCode: 'SUCCESS',
+      workspaceId: 'workspace-a', sessionId: 'session-a', timestamp: '2026-09-02T00:00:01.000Z', targetSummary: 'pnpm lint',
+    })}\n`, 'utf8');
+    const hub = new LogHub({ tunnelLogPath: path.join(root, 'missing-tunnel.log'), mcpActivityLogPath: activityPath });
+    hub.start();
+    await vi.advanceTimersByTimeAsync(700);
+    hub.stop();
+
+    expect(hub.snapshot().lines).toContainEqual(expect.objectContaining({
+      source: 'process', workspaceId: 'workspace-a', sessionId: 'session-a',
+      correlation: expect.objectContaining({ kind: 'mcp', toolName: 'shell', phase: 'completed' }),
     }));
   });
 

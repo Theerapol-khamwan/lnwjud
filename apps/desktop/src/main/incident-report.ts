@@ -58,6 +58,7 @@ export function pairMcpCalls(lines: readonly IncidentLine[]): readonly IncidentC
   const lastClosed = new Map<string, number>();
   const seenEvents = new Set<string>();
   for (const [index, line] of lines.entries()) {
+    if (line.source !== 'mcp') continue;
     const correlation = line.correlation;
     if (correlation?.kind !== 'mcp') continue;
     const identity = mcpEvidenceIdentity(line, correlation);

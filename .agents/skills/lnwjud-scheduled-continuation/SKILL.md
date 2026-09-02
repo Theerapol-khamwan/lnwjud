@@ -19,6 +19,8 @@ One user request starts one durable chain: acquire the goal, arm one cloud succe
 
 ## Start or resume
 
+For any non-trivial multi-step workspace task that includes mutation plus verification, build, packaging, push/release preparation, or is reasonably likely to outlive the current host turn, call `run_goal(..., scheduledContinuation: 'auto')` **before the first mutation even when the user did not explicitly ask for scheduling or name this skill**. If such work is already in progress and no active durable goal exists, enroll/recover it immediately before the next mutation instead of continuing unfenced. This is the automatic entry guard that prevents a long workflow from ending with no successor merely because `run_goal` was never invoked.
+
 `run_goal` defaults to `scheduledContinuation: auto`. When its result contains `continuationDirective.mode: auto`, the client MUST apply this skill automatically even when the user did not name `$lnwjud-scheduled-continuation`. The directive is the durable-goal opt-in signal: never require another user prompt to resume an unfinished goal. Use `scheduledContinuation: off` only when the user explicitly disables future scheduling; that disables the successor, not the current goal work.
 
 1. Call `run_goal` with a stable workspace and goal key using the normal **600-second (10-minute) lease**. Never override this workflow to an hour-long lease. Keep the returned lease token and generation private. The lease is a short crash-recovery window, not the expected work duration; real checkpoint/fenced-mutation activity renews it while work is actually alive.

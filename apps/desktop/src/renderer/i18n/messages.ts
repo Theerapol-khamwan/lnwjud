@@ -153,6 +153,8 @@ export type MessageKey =
   | 'live.incident.cancelled'
   | 'live.incident.capturing'
   | 'live.waiting'
+  | 'live.waitingProcess'
+  | 'live.processHint'
   | 'live.waitingTunnel'
   | 'live.popOut'
   | 'git.title'
@@ -437,6 +439,8 @@ export const th: Messages = {
   'live.incident.cancelled': 'ยกเลิกการบันทึกหลักฐานแล้ว',
   'live.incident.capturing': 'กำลังบันทึกหลักฐานปัญหา…',
   'live.waiting': 'ยังไม่มีข้อมูล',
+  'live.waitingProcess': 'ยังไม่มีกิจกรรม process — เมื่อ Agent เรียก shell, process_*, task_* หรือคำสั่ง build/test รายการจะขึ้นที่นี่',
+  'live.processHint': 'แสดงงานที่ Agent รันเป็น process จริง เช่น shell, process_*, task_*, WSL และคำสั่ง build/test พร้อมสถานะ ผลลัพธ์ และ output ที่เกี่ยวข้อง',
   'live.waitingTunnel': 'ยังไม่มีไฟล์ tunnel log — รัน tunnel ด้วยสคริปต์ start-lnwjud-tunnel.ps1 หรือกด Start Tunnel',
   'live.popOut': 'เปิดหน้าต่างแยก',
   'git.title': 'สถานะ Git',
@@ -673,6 +677,8 @@ export const en: Messages = {
   'live.incident.cancelled': 'Incident capture cancelled',
   'live.incident.capturing': 'Capturing incident evidence…',
   'live.waiting': 'No data yet',
+  'live.waitingProcess': 'No process activity yet — shell, process_*, task_*, and build/test commands run by the Agent will appear here.',
+  'live.processHint': 'Shows real process work run by the Agent, including shell, process_*, task_*, WSL, and build/test commands with status, results, and related output.',
   'live.waitingTunnel': 'No tunnel log file yet — run start-lnwjud-tunnel.ps1 or press Start Tunnel',
   'live.popOut': 'Pop out viewer',
   'git.title': 'Git status',

@@ -31,7 +31,7 @@ export interface RemoteMcpControllerOptions {
   readonly now?: () => number;
 }
 
-const NGROK_API = 'http://127.0.0.1:4041/api/tunnels';
+const NGROK_API = 'http://127.0.0.1:4040/api/tunnels';
 const PAIRING_TTL_MS = 15 * 60_000;
 const CODE_TTL_MS = 5 * 60_000;
 const ACCESS_TTL_MS = 8 * 60 * 60_000;
@@ -140,8 +140,13 @@ export class RemoteMcpController {
     try {
       const localMcpUrl = await this.getLocalMcpUrl();
       if (localMcpUrl === null) throw new Error('Local MCP is unavailable. Start the lnwjud MCP listener first.');
-      const executable = this.ngrokPath ?? await resolveNgrokExecutable();
-      if (executable === null) throw new Error('ngrok is not installed. Use Install ngrok first.');
+      let executable = this.ngrokPath ?? await resolveNgrokExecutable();
+      if (executable === null) {
+        await this.installProvider();
+        executable = this.ngrokPath ?? await resolveNgrokExecutable();
+        this.runState = 'starting';
+      }
+      if (executable === null) throw new Error('ngrok installation/repair completed but no runnable ngrok executable was found');
       this.ngrokPath = executable;
       const authtoken = await this.loadAuthtoken();
       if (authtoken === null) throw new Error('ngrok authtoken is not configured');
@@ -149,25 +154,45 @@ export class RemoteMcpController {
       if (this.gatewayUrl === null) throw new Error('Remote MCP gateway did not start');
       this.issuePairingCode();
       this.publicOrigin = null;
-      this.ngrok = spawn(executable, ['http', this.gatewayUrl, '--web-addr=127.0.0.1:4041', '--log=stdout', '--log-format=json'], {
+      let lastNgrokDiagnostic: string | null = null;
+      const child = spawn(executable, buildNgrokHttpArgs(this.gatewayUrl), {
         env: { ...process.env, NGROK_AUTHTOKEN: authtoken },
         windowsHide: true,
         stdio: ['ignore', 'pipe', 'pipe'],
       });
-      this.ngrok.stdout?.on('data', () => undefined);
-      this.ngrok.stderr?.on('data', (chunk: Buffer | string) => {
-        const text = String(chunk).trim();
-        if (text.length > 0) this.message = redactNgrokError(text);
+      this.ngrok = child;
+      const captureDiagnostic = (chunk: Buffer | string): void => {
+        const diagnostic = extractNgrokDiagnostic(String(chunk));
+        if (diagnostic !== null) {
+          lastNgrokDiagnostic = diagnostic;
+          this.message = diagnostic;
+        }
+      };
+      child.stdout?.on('data', captureDiagnostic);
+      child.stderr?.on('data', captureDiagnostic);
+      const exitPromise = new Promise<string>((resolve) => {
+        let settled = false;
+        const fail = (message: string): void => {
+          if (settled) return;
+          settled = true;
+          if (this.runState !== 'stopped') {
+            this.runState = 'error';
+            this.message = message;
+          }
+          this.publicOrigin = null;
+          if (this.ngrok === child) this.ngrok = null;
+          resolve(message);
+        };
+        child.once('error', (error) => { fail(`ngrok failed to start: ${redactNgrokError(errorMessage(error))}`); });
+        child.once('exit', (code) => { fail(formatNgrokExitMessage(code, lastNgrokDiagnostic)); });
       });
-      this.ngrok.once('exit', (code) => {
-        if (this.runState === 'stopped') return;
-        this.runState = 'error';
-        this.message = `ngrok stopped unexpectedly (exit ${code ?? 'unknown'})`;
-        this.publicOrigin = null;
-        this.ngrok = null;
-      });
-      const origin = await waitForNgrokPublicOrigin(15_000);
-      if (origin === null) throw new Error(this.message ?? 'ngrok started but no public HTTPS endpoint was reported');
+      const outcome = await Promise.race([
+        waitForNgrokPublicOrigin(15_000, this.gatewayUrl).then((origin) => ({ kind: 'origin' as const, origin })),
+        exitPromise.then((message) => ({ kind: 'exit' as const, message })),
+      ]);
+      if (outcome.kind === 'exit') throw new Error(outcome.message);
+      if (outcome.origin === null) throw new Error(this.message ?? 'ngrok started but no public HTTPS endpoint was reported');
+      const origin = outcome.origin;
       this.publicOrigin = origin;
       this.runState = 'running';
       this.message = 'Remote MCP is online and protected by OAuth + pairing code';
@@ -402,24 +427,37 @@ export class RemoteMcpController {
   }
 }
 
-export async function resolveNgrokExecutable(): Promise<string | null> {
-  if (process.platform !== 'win32') return null;
-  try {
-    const output = await runCommand('where.exe', ['ngrok.exe'], 5_000);
-    const candidate = output.split(/\r?\n/).map((line) => line.trim()).find(Boolean);
-    return candidate ?? null;
-  } catch { return null; }
+export function buildNgrokHttpArgs(gatewayUrl: string): string[] {
+  return ['http', gatewayUrl, '--log=stdout', '--log-format=json'];
 }
 
-async function waitForNgrokPublicOrigin(timeoutMs: number): Promise<string | null> {
+export async function resolveNgrokExecutable(): Promise<string | null> {
+  if (process.platform !== 'win32') return null;
+  let output: string;
+  try {
+    output = await runCommand('where.exe', ['ngrok.exe'], 5_000);
+  } catch { return null; }
+  const candidates = [...new Set(output.split(/\r?\n/).map((line) => line.trim()).filter((line) => line.length > 0))];
+  for (const candidate of candidates) {
+    try {
+      const version = await runCommand(candidate, ['version'], 5_000);
+      if (/\bngrok\s+version\b/i.test(version)) return candidate;
+    } catch { /* Ignore stale App Execution Aliases and try the next candidate. */ }
+  }
+  return null;
+}
+
+async function waitForNgrokPublicOrigin(timeoutMs: number, expectedTarget: string): Promise<string | null> {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
     try {
       const response = await fetch(NGROK_API, { signal: AbortSignal.timeout(1_500) });
       if (response.ok) {
-        const body = await response.json() as { tunnels?: Array<{ public_url?: unknown }> };
-        const value = body.tunnels?.map((entry) => entry.public_url).find((entry): entry is string => typeof entry === 'string' && entry.startsWith('https://'));
-        if (value !== undefined) return value.replace(/\/$/, '');
+        const body = await response.json() as { tunnels?: Array<{ public_url?: unknown; forwards_to?: unknown; config?: { addr?: unknown } }> };
+        const httpsTunnels = (body.tunnels ?? []).filter((entry): entry is { public_url: string; forwards_to?: unknown; config?: { addr?: unknown } } => typeof entry.public_url === 'string' && entry.public_url.startsWith('https://'));
+        const exact = httpsTunnels.find((entry) => entry.forwards_to === expectedTarget || entry.config?.addr === expectedTarget);
+        const selected = exact ?? (httpsTunnels.length === 1 ? httpsTunnels[0] : undefined);
+        if (selected !== undefined) return selected.public_url.replace(/\/$/, '');
       }
     } catch { /* retry while ngrok boots */ }
     await new Promise((resolve) => setTimeout(resolve, 250));
@@ -505,6 +543,29 @@ function isSafeRedirectUri(value: string): boolean {
 function escapeHtml(value: string): string { return value.replace(/[&<>"']/g, (char) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[char] ?? char); }
 function errorMessage(error: unknown): string { return error instanceof Error ? error.message : String(error); }
 function redactNgrokError(value: string): string { return value.replace(/(authtoken|token)[=:"'\s]+[^\s,"']+/gi, '$1=[redacted]').slice(0, 500); }
+
+export function extractNgrokDiagnostic(value: string): string | null {
+  const redacted = redactNgrokError(value.trim());
+  if (redacted.length === 0) return null;
+  const lines = redacted.split(/\r?\n/).map((line) => line.trim()).filter((line) => line.length > 0);
+  for (let index = lines.length - 1; index >= 0; index -= 1) {
+    const line = lines[index];
+    if (line === undefined) continue;
+    try {
+      const parsed = JSON.parse(line) as Record<string, unknown>;
+      const level = typeof parsed.lvl === 'string' ? parsed.lvl.toLowerCase() : typeof parsed.level === 'string' ? parsed.level.toLowerCase() : '';
+      const message = [parsed.msg, parsed.message, parsed.err].find((entry): entry is string => typeof entry === 'string' && entry.length > 0);
+      if (message !== undefined && (['error', 'eror', 'crit', 'fatal'].includes(level) || /ERR_NGROK|unknown flag|failed|fatal|error/i.test(message))) return redactNgrokError(message);
+    } catch { /* Non-JSON stderr is handled below. */ }
+    if (/(?:^ERROR:|ERR_NGROK|unknown flag|failed|fatal|authentication)/i.test(line)) return line;
+  }
+  return null;
+}
+
+export function formatNgrokExitMessage(code: number | null, diagnostic: string | null): string {
+  const prefix = `ngrok stopped unexpectedly (exit ${code ?? 'unknown'})`;
+  return diagnostic === null ? prefix : `${prefix}: ${diagnostic}`;
+}
 
 function runCommand(executable: string, args: readonly string[], timeoutMs: number): Promise<string> {
   return new Promise((resolve, reject) => {

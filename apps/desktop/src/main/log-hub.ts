@@ -195,7 +195,12 @@ export class LogHub {
       if (oldest === undefined) break;
       this.mcpOccurrences.delete(oldest);
     }
-    if (shouldAppend) this.feed('mcp', level, text, correlation, timestamp, scope, targetDetail);
+    if (shouldAppend) {
+      this.feed('mcp', level, text, correlation, timestamp, scope, targetDetail);
+      if (isProcessActivityTool(correlation.toolName)) {
+        this.feed('process', level, text, correlation, timestamp, scope, targetDetail);
+      }
+    }
   }
 
   private append(source: LogSource, entry: { readonly level: LogLevel; readonly text: string; readonly workspaceId?: string | null; readonly sessionId?: string | null; readonly correlation?: LogCorrelation; readonly timestamp?: string; readonly targetDetail?: ActivityTargetReference }): void {
@@ -326,6 +331,10 @@ export interface ProcessFeedEntry {
   readonly args: readonly string[];
   readonly state: string;
   readonly logSummary: string;
+}
+
+export function isProcessActivityTool(toolName: string): boolean {
+  return /^(?:process_|task_|project_dev$|project_test$|project_lint$|project_typecheck$|project_build$|shell$|wsl_exec$|verify_incremental$)/.test(toolName);
 }
 
 type WorkLogSyncEvent =

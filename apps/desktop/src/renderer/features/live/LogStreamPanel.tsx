@@ -28,6 +28,7 @@ interface LogStreamPanelProps {
   readonly clearWorkspaceLabel: string;
   readonly exportLabel: string;
   readonly waitingLabel: string;
+  readonly description?: string;
   readonly copyLabel?: string;
   readonly copiedLabel?: string;
   readonly onClear: (scope: LogScopeSelection) => Promise<void>;
@@ -131,6 +132,7 @@ export function LogStreamPanel(props: LogStreamPanelProps): ReactElement {
           <button type="button" onClick={() => { void props.onExport(scope, filter, visible.map((line) => ({ lineId: line.id, correlationRef: detailRefForLine(line) }))); }}>{props.exportLabel}</button>
         </div>
       </div>
+      {props.description === undefined ? null : <p className="hint log-source-description">{props.description}</p>}
       <div className="scope-filter-bar">
         <label>
           <span>{props.workspaceLabel ?? 'Workspace'}</span>
@@ -291,7 +293,7 @@ export function compareLogLinesNewestFirst(left: LogLine, right: LogLine): numbe
 }
 
 export function logDisplayParts(line: LogLine): { readonly kind: LogEventKind | null; readonly detail: string } {
-  if (line.source === 'mcp') {
+  if (line.source === 'mcp' || line.source === 'process') {
     const match = /^\[(TASK|RESULT|ERROR)\]\s*(.*)$/s.exec(line.text);
     if (match !== null) return { kind: match[1]!.toLowerCase() as LogEventKind, detail: match[2] ?? '' };
     if (line.correlation?.kind === 'mcp') {
