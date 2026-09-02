@@ -55,7 +55,7 @@ capabilities are additive.
 
 ### What's new in v4.52.0
 
-> Upgrading from v4.44.0? The release notes below are cumulative so users can see the major changes that landed after the last broadly documented v4.44.0 baseline. v4.45.0 focused on tunnel/runtime reliability and performance, v4.50.0 introduced the OAuth-ready authentication architecture, v4.51.0 made Remote MCP OAuth and the connection hierarchy visible, and v4.52.0 makes that Remote MCP connection persistent instead of requiring repeated pairing.
+> Upgrading from v4.44.0 or v4.45.0? **v4.52.0 is the single release that contains all accumulated Remote MCP/OAuth work developed after v4.45.0.** The interim 4.50.0 and 4.51.0 numbers were internal development targets and were never published, so their OAuth architecture, Remote MCP/ngrok flow, connection-UX improvements, and persistence fixes are documented together below as one v4.52.0 release.
 
 #### Pair once, remember OAuth, auto-start Remote MCP
 
@@ -63,10 +63,10 @@ capabilities are additive.
 - Persists trusted Dynamic Client Registration metadata plus valid OAuth refresh grants in a **Windows DPAPI-encrypted Remote MCP state file**. Access tokens remain memory-only; saved refresh grants are rotated normally and expired grants are discarded on load.
 - Adds durable Remote MCP run intent. After a successful Start, reopening lnwjud automatically starts the protected Remote MCP runtime when the trusted OAuth connection and ngrok prerequisites still exist. An explicit **Stop** disables automatic start while preserving the trusted OAuth relationship, so starting later does not force re-pairing.
 - Replaces the routine “New pairing code” action with **Reconnect ChatGPT**. That action is intentionally destructive to the saved Remote MCP trust/refresh grants and is used only when the user wants to authorize ChatGPT again, change the connected account/client, or recover a broken OAuth relationship.
-- Updates Home and Settings to show `CHATGPT LINKED`, `LINKED · AUTO`, first-time pairing, and remembered-authorization state instead of presenting pairing as a recurring requirement. The Remote MCP cards also receive larger vertical gaps, separated status banners, and wrapping path/status layout for clearer scanning on normal Windows 10/11 window sizes.
+- Updates Home and Settings to show `CHATGPT LINKED`, `LINKED · AUTO`, first-time pairing, and remembered-authorization state instead of presenting pairing as a recurring requirement. When first-time pairing is required, the 6-digit PIN is rendered as a dedicated larger monospace value with a contrasting high-visibility color so it is easy to distinguish from the surrounding instruction text. The Remote MCP cards also receive larger vertical gaps, separated status banners, and wrapping path/status layout for clearer scanning on normal Windows 10/11 window sizes.
 - Keeps the previously introduced connection hierarchy: **Remote MCP — ngrok + OAuth** is Recommended, **OpenAI Secure MCP Tunnel** remains Alternative/Advanced, and advanced users may still run both at the same time.
 
-#### v4.51.0 — Remote MCP OAuth + clearer Tunnel authentication
+#### Remote MCP OAuth + clearer connection hierarchy
 
 - Adds **Remote MCP via ngrok + OAuth** as the recommended easy ChatGPT connection path: lnwjud keeps its local Streamable HTTP MCP on loopback (normally `http://127.0.0.1:18765/mcp`), runs a separate OAuth-protected loopback gateway, and lets ngrok expose only that protected gateway as a public HTTPS `/mcp` URL.
 - Adds one-click **official ngrok installation through Microsoft Store/WinGet** instead of redistributing `ngrok.exe`; lnwjud verifies readiness by actually running `ngrok version`, shows a distinct READY state/path, disables redundant reinstall when healthy, and exposes repair only when the runtime is missing or unusable. Users paste their ngrok authtoken once, lnwjud stores it with Windows DPAPI, injects it only through the child-process environment, starts/stops ngrok automatically, detects the public URL, and provides Copy MCP URL controls.
@@ -80,7 +80,7 @@ capabilities are additive.
 - Adds OAuth-specific runtime log evidence (`auth=oauth` / `auth=legacy_api_key`) and extends incident-report redaction for authorization codes, PKCE/code verifiers, and OAuth callback query secrets.
 - Adds regression coverage for OAuth-vs-legacy presentation while preserving the existing fail-closed provisioning capability gate and legacy compatibility behavior.
 
-#### v4.50.0 — OAuth-ready tunnel authentication architecture
+#### Secure Tunnel OAuth-ready authentication architecture
 
 - Adds a tunnel authentication abstraction so Persistent Tunnel identity, authentication method, and runtime credential are modeled independently while preserving the existing Tunnel ID + Runtime API key workflow for every current user.
 - Keeps legacy Runtime API key authentication as the default for upgrades and fresh installs; no existing user is forced to sign in or migrate, and `lnwjud.runtime.secret` remains the backward-compatible DPAPI-protected fallback.
@@ -90,7 +90,7 @@ capabilities are additive.
 - Preserves the same Persistent Tunnel ID across auth-mode changes and commits a migration only after the new runtime credential is usable and the persistent runtime has reconciled successfully; failed migrations roll back to the retained legacy credential.
 - Updates startup, Doctor, Control Center, onboarding, preload/IPC contracts, continuity tests, and updater/reinstall semantics to use auth-neutral `authReady` / `runtimeCredentialAvailable` status while retaining `hasApiKey` compatibility for older integrations.
 
-> **OAuth availability:** v4.50.0 adds the secure OAuth architecture and UI controls, but OAuth runtime provisioning is enabled only when the configured provider can supply a supported Secure MCP Tunnel runtime credential. The existing Runtime API key path remains supported and is the compatibility fallback; lnwjud does not reuse unrelated ChatGPT/Codex browser tokens.
+> **OAuth availability in v4.52.0:** Secure Tunnel OAuth provisioning is enabled only when the configured provider can supply a supported Secure MCP Tunnel runtime credential. The existing Runtime API key path remains supported and is the compatibility fallback; lnwjud does not reuse unrelated ChatGPT/Codex browser tokens.
 
 #### v4.45.0 — Secure Tunnel, continuation, logs, and performance hardening
 
@@ -263,7 +263,7 @@ A few operating-system boundaries still apply:
 
 ### 2. Prepare OpenAI Secure MCP Tunnel for ChatGPT web
 
-lnwjud v4.50.0+ separates the **Secure MCP Tunnel transport** from the **authentication method** used to obtain its runtime credential. Existing installations can continue using a Platform Tunnel ID + Runtime API key. OAuth-capable providers can use the OAuth controls shown by lnwjud when supported; if OAuth runtime provisioning is unavailable, lnwjud fails closed and keeps the Runtime API key workflow available instead of substituting an unrelated account token.
+lnwjud v4.52.0 separates the **Secure MCP Tunnel transport** from the **authentication method** used to obtain its runtime credential. Existing installations can continue using a Platform Tunnel ID + Runtime API key. OAuth-capable providers can use the OAuth controls shown by lnwjud when supported; if OAuth runtime provisioning is unavailable, lnwjud fails closed and keeps the Runtime API key workflow available instead of substituting an unrelated account token.
 
 The legacy/compatibility Secure MCP Tunnel flow requires a Platform tunnel ID and a runtime
 API key. The published Windows x64 installer and portable executable already contain the official
@@ -989,7 +989,7 @@ Enterprise/Edu administrators may need to enable this before it appears.
 5. Select the tunnel or enter its tunnel_id.
 6. Create the connection and review the discovered tools and schemas.
 
-lnwjud v4.50.0 contains a local desktop OAuth sign-in framework for Tunnel credential provisioning, but it is enabled only when a configured provider explicitly supports the official Secure MCP Tunnel runtime-credential contract. Do not invent OAuth URLs, reuse ChatGPT/Codex browser-session tokens, or paste the runtime key into the ChatGPT connector form. Tunnel transport authentication remains handled by tunnel-client; ChatGPT selects the OpenAI-hosted tunnel. Choose a no-extra-auth option only when the tunnel form offers it.
+lnwjud v4.52.0 contains a local desktop OAuth sign-in framework for Tunnel credential provisioning, but it is enabled only when a configured provider explicitly supports the official Secure MCP Tunnel runtime-credential contract. Do not invent OAuth URLs, reuse ChatGPT/Codex browser-session tokens, or paste the runtime key into the ChatGPT connector form. Tunnel transport authentication remains handled by tunnel-client; ChatGPT selects the OpenAI-hosted tunnel. Choose a no-extra-auth option only when the tunnel form offers it.
 
 ### Attach it to a new chat
 

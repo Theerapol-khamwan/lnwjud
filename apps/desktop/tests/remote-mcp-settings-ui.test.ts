@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 
 const settingsSource = readFileSync(new URL('../src/renderer/features/settings/SettingsPage.tsx', import.meta.url), 'utf8');
 const homeSource = readFileSync(new URL('../src/renderer/features/home/ControlCenterPage.tsx', import.meta.url), 'utf8');
+const settingsCssSource = readFileSync(new URL('../src/renderer/settings-extra.css', import.meta.url), 'utf8');
 
 describe('Remote MCP ngrok settings UI', () => {
   it('treats a verified executable as ready and disables redundant reinstall', () => {
@@ -22,5 +23,17 @@ describe('Remote MCP ngrok settings UI', () => {
     expect(settingsSource).toContain('ผู้ใช้ที่ต้องการสามารถเปิดทั้งสองพร้อมกันได้');
     expect(homeSource).toContain('setSecureTunnelExpanded(!remoteMcpOnline)');
     expect(homeSource).toContain('Remote MCP OAuth ออนไลน์แล้ว จึงพับส่วน Tunnel ไว้เพื่อลดความสับสน');
+  });
+
+  it('renders the first-time pairing PIN as a dedicated high-visibility value', () => {
+    expect(settingsSource).toContain('remote-mcp-pairing-line');
+    expect(settingsSource).toContain('remote-mcp-pairing-pin');
+    expect(settingsSource).toContain('ใช้ PIN นี้เพื่ออนุญาต ChatGPT ครั้งเดียว');
+    expect(homeSource).toContain('remote-mcp-pairing-line');
+    expect(homeSource).toContain('remote-mcp-pairing-pin');
+    expect(settingsCssSource).toContain('.remote-mcp-pairing-line .remote-mcp-pairing-pin');
+    expect(settingsCssSource).toContain('font-size: 1.55em');
+    expect(settingsCssSource).toContain('color: #8ff0b0');
+    expect(settingsCssSource).toContain('letter-spacing: .14em');
   });
 });

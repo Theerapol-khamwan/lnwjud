@@ -67,7 +67,7 @@ Portable ของ lnwjud หมายถึง **ตัวโปรแกรม
 
 ## 3A. Remote MCP ผ่าน ngrok + OAuth (แนะนำสำหรับ ChatGPT เว็บ)
 
-ใน v4.51.0 วิธีที่ง่ายที่สุดสำหรับ ChatGPT เว็บคือ **Remote MCP — ngrok + OAuth** ซึ่งแยกจาก OpenAI Secure MCP Tunnel เดิมอย่างชัดเจน. Local MCP ของ lnwjud ยังคง bind เฉพาะ loopback เช่น `http://127.0.0.1:18765/mcp`; lnwjud จะสร้าง OAuth-protected loopback gateway อีกชั้น แล้วให้ ngrok เปิดเฉพาะ gateway นั้นออกเป็น HTTPS public URL ที่ลงท้าย `/mcp`.
+ใน v4.52.0 วิธีที่ง่ายที่สุดสำหรับ ChatGPT เว็บคือ **Remote MCP — ngrok + OAuth** ซึ่งแยกจาก OpenAI Secure MCP Tunnel เดิมอย่างชัดเจน. งาน Remote MCP/OAuth ที่พัฒนาระหว่างเลขเวอร์ชันภายใน 4.50/4.51 (ซึ่งไม่เคยเผยแพร่เป็น Release) ถูกรวมส่งมอบใน v4.52.0 ชุดเดียว. Local MCP ของ lnwjud ยังคง bind เฉพาะ loopback เช่น `http://127.0.0.1:18765/mcp`; lnwjud จะสร้าง OAuth-protected loopback gateway อีกชั้น แล้วให้ ngrok เปิดเฉพาะ gateway นั้นออกเป็น HTTPS public URL ที่ลงท้าย `/mcp`.
 
 ขั้นตอนใช้งานปกติ:
 
