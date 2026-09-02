@@ -876,7 +876,7 @@ button.titlebar-version:hover {
 
 .clear-all-logs-button {
   border-color: rgba(248, 113, 113, 0.32);
-  color: #ffd9dd;
+  color: #fff;
 }
 
 .log-tabs-toolbar .clear-all-logs-button {
@@ -912,15 +912,17 @@ button.titlebar-version:hover {
 
 .scope-filter-bar label {
   display: flex;
+  flex: 1 1 0;
   flex-direction: column;
   gap: 5px;
-  min-width: 180px;
+  min-width: 220px;
   color: var(--muted);
   font-size: 11.5px;
 }
 
 .scope-filter-bar select {
-  min-width: 180px;
+  width: 100%;
+  min-width: 0;
   padding: 8px 10px;
   border-radius: 8px;
   border: 1px solid var(--border-subtle);

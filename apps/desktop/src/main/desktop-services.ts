@@ -1,6 +1,6 @@
 import { createServer } from 'node:net';
 import { existsSync } from 'node:fs';
-import { open, rename, rm } from 'node:fs/promises';
+import { open } from 'node:fs/promises';
 import path from 'node:path';
 import {
   AgentSwarmService,
@@ -1676,19 +1676,12 @@ export async function* streamWorkLogExportRows(
 }
 
 export async function writeSerializedLogRows(filePath: string, rows: Iterable<string> | AsyncIterable<string>): Promise<void> {
-  const temporaryPath = `${filePath}.tmp-${process.pid}-${Date.now()}`;
+  const handle = await open(filePath, 'w');
   try {
-    const handle = await open(temporaryPath, 'wx');
-    try {
-      for await (const row of rows) await handle.write(`${row}\r\n`, undefined, 'utf8');
-      await handle.sync();
-    } finally {
-      await handle.close();
-    }
-    await rename(temporaryPath, filePath);
-  } catch (error: unknown) {
-    await rm(temporaryPath, { force: true }).catch(() => undefined);
-    throw error;
+    for await (const row of rows) await handle.write(`${row}\r\n`, undefined, 'utf8');
+    await handle.sync();
+  } finally {
+    await handle.close();
   }
 }
 

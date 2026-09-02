@@ -140,6 +140,17 @@ describe('viewport-sized log and list layout', () => {
     expect(standalone).toContain('ล้าง Log ทั้งหมด');
   });
 
+  it('uses full-width equal Workspace/Session filters across log panels and white clear-all text', () => {
+    const css = readFileSync(new URL('../src/renderer/styles.css', import.meta.url), 'utf8');
+    const livePanel = readFileSync(new URL('../src/renderer/features/live/LogStreamPanel.tsx', import.meta.url), 'utf8');
+    const workLogPanel = readFileSync(new URL('../src/renderer/features/worklog/WorkLogPanel.tsx', import.meta.url), 'utf8');
+    expect(css).toMatch(/\.scope-filter-bar label\s*\{[^}]*flex:\s*1 1 0[^}]*min-width:\s*220px/s);
+    expect(css).toMatch(/\.scope-filter-bar select\s*\{[^}]*width:\s*100%[^}]*min-width:\s*0/s);
+    expect(css).toMatch(/\.clear-all-logs-button\s*\{[^}]*color:\s*#fff/s);
+    expect(livePanel).toContain('className="scope-filter-bar"');
+    expect(workLogPanel).toContain('className="scope-filter-bar"');
+  });
+
   it('filters Live Logs by workspace/session and keeps scoped rows distinct', () => {
     const lines = [
       { id: 20, source: 'mcp' as const, timestamp: '2026-08-22T00:00:20.000Z', level: 'info' as const, text: 'same', workspaceId: 'ws-a', sessionId: 'session-a' },
