@@ -58,6 +58,11 @@ export function SettingsPage(props: SettingsPageProps): ReactElement {
     oauthProtected: true, message: null,
   };
   const ngrokReady = remoteMcp.installed && remoteMcp.ngrokPath !== null;
+  const remoteMcpOnline = remoteMcp.state === 'running';
+  const secureTunnelOnline = props.dashboard.tunnel.state === 'running';
+  const activeRemoteConnections = Number(remoteMcpOnline) + Number(secureTunnelOnline);
+  const [remoteMethodOpen, setRemoteMethodOpen] = useState(remoteMcpOnline || !guidedTunnelConfigured);
+  const [secureMethodOpen, setSecureMethodOpen] = useState(!remoteMcpOnline);
   const [activeSection, setActiveSection] = useState<SettingsSection>(props.initialSection ?? 'general');
   const [apiKey, setApiKey] = useState('');
   const [showApiKey, setShowApiKey] = useState(false);
@@ -89,6 +94,15 @@ export function SettingsPage(props: SettingsPageProps): ReactElement {
     if (props.requestedSection === undefined) return;
     setActiveSection(props.requestedSection.section);
   }, [props.requestedSection]);
+
+  useEffect(() => {
+    if (remoteMcpOnline) {
+      setRemoteMethodOpen(true);
+      setSecureMethodOpen(false);
+      return;
+    }
+    if (secureTunnelOnline) setSecureMethodOpen(true);
+  }, [remoteMcpOnline, secureTunnelOnline]);
 
   useEffect(() => {
     const request = props.requestedSection;
@@ -545,7 +559,34 @@ export function SettingsPage(props: SettingsPageProps): ReactElement {
 
           {activeSection === 'tunnel' ? (
             <>
-              <section className="panel settings-card settings-card-polished guided-tunnel-launch-card" aria-label="Remote MCP with ngrok and OAuth">
+              <div className="connection-choice-intro" role="note">
+                <div>
+                  <strong>{props.locale === 'th' ? 'เลือกวิธีเชื่อมต่อหลัก 1 วิธี' : 'Choose one primary connection method'}</strong>
+                  <p>{props.locale === 'th'
+                    ? 'สำหรับผู้ใช้ทั่วไป แนะนำ Remote MCP OAuth ด้านล่าง ส่วน Secure MCP Tunnel เป็นตัวเลือกทางเลือก/ขั้นสูง แต่ผู้ใช้ที่ต้องการสามารถเปิดทั้งสองพร้อมกันได้'
+                    : 'For most users, Remote MCP OAuth is recommended. Secure MCP Tunnel remains an alternative/advanced option, and both may run at the same time when needed.'}</p>
+                </div>
+                <span className={`connection-count-chip ${activeRemoteConnections > 1 ? 'is-dual' : activeRemoteConnections === 1 ? 'is-online' : ''}`}>{activeRemoteConnections} {props.locale === 'th' ? 'ช่องทางออนไลน์' : 'online'}</span>
+              </div>
+
+              <details
+                className="connection-method-stack is-recommended"
+                open={remoteMethodOpen}
+                onToggle={(event) => setRemoteMethodOpen(event.currentTarget.open)}
+              >
+                <summary className="connection-method-summary">
+                  <div className="connection-method-summary-copy">
+                    <span className="connection-method-kicker">{props.locale === 'th' ? 'แนะนำ · OAuth' : 'Recommended · OAuth'}</span>
+                    <strong>Remote MCP — ngrok + OAuth</strong>
+                    <span>{props.locale === 'th' ? 'เชื่อม ChatGPT ผ่าน HTTPS /mcp พร้อม OAuth + Pairing Code' : 'Connect ChatGPT through HTTPS /mcp with OAuth + a pairing code.'}</span>
+                  </div>
+                  <div className="connection-method-summary-status">
+                    <span className={`connection-method-live-dot ${remoteMcpOnline ? 'is-online' : ''}`} aria-hidden="true" />
+                    <span>{remoteMcpOnline ? 'ONLINE' : ngrokReady && remoteMcp.hasAuthtoken ? 'READY' : 'SETUP'}</span>
+                    <span className="connection-method-chevron" aria-hidden="true">⌄</span>
+                  </div>
+                </summary>
+                <section className="panel settings-card settings-card-polished guided-tunnel-launch-card connection-method-panel" aria-label="Remote MCP with ngrok and OAuth">
                 <SettingsCardHeading
                   icon="◎"
                   title={props.locale === 'th' ? 'Remote MCP — ngrok + OAuth' : 'Remote MCP — ngrok + OAuth'}
@@ -567,9 +608,9 @@ export function SettingsPage(props: SettingsPageProps): ReactElement {
                 <div className="tunnel-setup-box">
                   <div className="settings-mini-heading"><strong>{props.locale === 'th' ? '1. เตรียม ngrok' : '1. Prepare ngrok'}</strong><span>{ngrokReady ? 'READY' : remoteMcp.state === 'installing' ? 'INSTALLING' : 'NOT READY'}</span></div>
                   <p className="hint">{props.locale === 'th' ? 'lnwjud ตรวจ ngrok จากการรัน `ngrok version` จริง ถ้าขึ้น READY ด้านล่าง แปลว่าติดตั้งแล้วและไม่ต้องกดติดตั้งซ้ำ' : 'lnwjud verifies ngrok by actually running `ngrok version`. When the status below is READY, it is installed and does not need to be installed again.'}</p>
-                  <div className={ngrokReady ? 'toast-success-banner' : 'alert-box-warning'} role="status">
+                  <div className={`${ngrokReady ? 'toast-success-banner' : 'alert-box-warning'} ngrok-readiness-banner`} role="status">
                     <strong>{ngrokReady ? (props.locale === 'th' ? '✓ ngrok ติดตั้งแล้วและพร้อมใช้งาน' : '✓ ngrok is installed and ready') : (props.locale === 'th' ? 'ยังไม่พบ ngrok ที่รันได้' : 'No runnable ngrok installation detected')}</strong>
-                    {ngrokReady && remoteMcp.ngrokPath !== null ? <span>{` · ${remoteMcp.ngrokPath}`}</span> : null}
+                    {ngrokReady && remoteMcp.ngrokPath !== null ? <code className="ngrok-ready-path">{remoteMcp.ngrokPath}</code> : null}
                   </div>
                   <div className="inline-actions">
                     <button type="button" className="btn-save-gold" disabled={remoteMcpBusy || remoteMcp.state === 'running' || ngrokReady} onClick={() => { void runRemoteMcpAction('install'); }}>
@@ -602,7 +643,30 @@ export function SettingsPage(props: SettingsPageProps): ReactElement {
                 </div>
               </section>
 
-              <section className="panel settings-card settings-card-polished" aria-label="Tunnel authentication">
+              </details>
+
+              <details
+                className={`connection-method-stack ${remoteMcpOnline ? 'is-secondary' : ''}`}
+                open={secureMethodOpen}
+                onToggle={(event) => setSecureMethodOpen(event.currentTarget.open)}
+              >
+                <summary className="connection-method-summary">
+                  <div className="connection-method-summary-copy">
+                    <span className="connection-method-kicker">{remoteMcpOnline ? (props.locale === 'th' ? 'ทางเลือก / ขั้นสูง' : 'Alternative / advanced') : (props.locale === 'th' ? 'ทางเลือก' : 'Alternative')}</span>
+                    <strong>OpenAI Secure MCP Tunnel</strong>
+                    <span>{props.locale === 'th'
+                      ? 'Tunnel ID + Runtime API key เป็นโหมดตรงแบบเดิม; OAuth ภายใน Secure Tunnel (ถ้ามี) เป็นคนละระบบกับ Remote MCP OAuth ด้านบน'
+                      : 'Tunnel ID + Runtime API key is the original direct mode. Secure Tunnel OAuth, when available, is separate from Remote MCP OAuth above.'}</span>
+                  </div>
+                  <div className="connection-method-summary-status">
+                    <span className={`connection-method-live-dot ${secureTunnelOnline ? 'is-online' : ''}`} aria-hidden="true" />
+                    <span>{secureTunnelOnline ? 'ONLINE' : guidedTunnelConfigured ? 'READY' : 'SETUP'}</span>
+                    <span className="active-project-count">{props.dashboard.tunnel.auth?.mode === 'oauth' ? 'OAUTH' : 'API KEY'}</span>
+                    <span className="connection-method-chevron" aria-hidden="true">⌄</span>
+                  </div>
+                </summary>
+
+              <section className="panel settings-card settings-card-polished connection-method-panel" aria-label="Tunnel authentication">
                 <SettingsCardHeading
                   icon="◎"
                   title={props.locale === 'th' ? 'OpenAI Secure MCP Tunnel' : 'OpenAI Secure MCP Tunnel'}
@@ -717,6 +781,7 @@ export function SettingsPage(props: SettingsPageProps): ReactElement {
                 </div>
               )}
                 </section>
+              </details>
               </details>
             </>
           ) : null}

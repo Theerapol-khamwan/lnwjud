@@ -44,6 +44,12 @@ export function ControlCenterPage(props: ControlCenterPageProps): ReactElement {
     localMcpUrl: dashboard.mcp.url, localGatewayUrl: null, publicMcpUrl: null, pairingCode: null, pairingCodeExpiresAt: null,
     oauthProtected: true, message: null,
   };
+  const remoteMcpOnline = remoteMcp.state === 'running';
+  const [secureTunnelExpanded, setSecureTunnelExpanded] = useState(!remoteMcpOnline);
+
+  useEffect(() => {
+    setSecureTunnelExpanded(!remoteMcpOnline);
+  }, [remoteMcpOnline]);
 
   useEffect(() => {
     setSelectedId(dashboard.selectedWorkspace?.id ?? '');
@@ -179,7 +185,27 @@ export function ControlCenterPage(props: ControlCenterPageProps): ReactElement {
           {remoteMcp.pairingCode === null ? null : <p className="hint"><strong>OAuth Pairing Code: {remoteMcp.pairingCode}</strong></p>}
         </section>
 
-        <section className="panel">
+        <details
+          className={`connection-method-stack home-connection-method ${remoteMcpOnline ? 'is-secondary' : ''}`}
+          open={secureTunnelExpanded}
+          onToggle={(event) => setSecureTunnelExpanded(event.currentTarget.open)}
+        >
+          <summary className="connection-method-summary">
+            <div className="connection-method-summary-copy">
+              <span className="connection-method-kicker">{remoteMcpOnline ? (props.locale === 'th' ? 'ตัวเลือกเสริม / ขั้นสูง' : 'Optional / advanced') : (props.locale === 'th' ? 'วิธีเชื่อมต่อทางเลือก' : 'Alternative connection')}</span>
+              <strong>{t(tunnelPresentation.titleKey)}</strong>
+              <span>{remoteMcpOnline
+                ? (props.locale === 'th' ? 'Remote MCP OAuth ออนไลน์แล้ว จึงพับส่วน Tunnel ไว้เพื่อลดความสับสน — ยังเปิดใช้พร้อมกันได้' : 'Remote MCP OAuth is online, so Tunnel controls are collapsed to reduce clutter. Both may still run together.')
+                : (tunnelPresentation.transportHintKey === null ? (props.locale === 'th' ? 'เปิดเพื่อจัดการ Secure MCP Tunnel' : 'Expand to manage Secure MCP Tunnel.') : t(tunnelPresentation.transportHintKey))}</span>
+            </div>
+            <div className="connection-method-summary-status">
+              <span className={`connection-method-live-dot ${dashboard.tunnel.state === 'running' ? 'is-online' : ''}`} aria-hidden="true" />
+              <span>{tunnelLabel}</span>
+              <span className="active-project-count">{tunnelPresentation.badge}</span>
+              <span className="connection-method-chevron" aria-hidden="true">⌄</span>
+            </div>
+          </summary>
+          <section className="panel connection-method-panel">
           <div className="section-heading">
             <div>
               <h2>{t(tunnelPresentation.titleKey)}</h2>
@@ -215,6 +241,7 @@ export function ControlCenterPage(props: ControlCenterPageProps): ReactElement {
             </button>
           </div>
         </section>
+        </details>
       </div>
 
       <div className="home-grid">
