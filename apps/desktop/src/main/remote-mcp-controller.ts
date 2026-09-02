@@ -25,6 +25,18 @@ interface AccessGrant {
   readonly expiresAt: number;
 }
 
+export interface NgrokProcessSnapshot {
+  readonly processId: number;
+  readonly parentProcessId: number;
+  readonly parentAlive: boolean;
+  readonly commandLine: string;
+}
+
+interface NgrokTunnelSnapshot {
+  readonly publicUrl: string;
+  readonly target: string;
+}
+
 export interface RemoteMcpControllerOptions {
   readonly dataPath: string;
   readonly getLocalMcpUrl: () => Promise<string | null>;
@@ -150,11 +162,14 @@ export class RemoteMcpController {
       this.ngrokPath = executable;
       const authtoken = await this.loadAuthtoken();
       if (authtoken === null) throw new Error('ngrok authtoken is not configured');
+      const recoveredStaleNgrok = await recoverStaleLnwjudNgrokRuntime();
+      if (recoveredStaleNgrok) this.message = 'Recovered a stale lnwjud ngrok runtime from a previous Desktop session';
       await this.startGateway(localMcpUrl);
       if (this.gatewayUrl === null) throw new Error('Remote MCP gateway did not start');
       this.issuePairingCode();
       this.publicOrigin = null;
       let lastNgrokDiagnostic: string | null = null;
+      let ngrokDiagnosticBuffer = '';
       const child = spawn(executable, buildNgrokHttpArgs(this.gatewayUrl), {
         env: { ...process.env, NGROK_AUTHTOKEN: authtoken },
         windowsHide: true,
@@ -162,7 +177,8 @@ export class RemoteMcpController {
       });
       this.ngrok = child;
       const captureDiagnostic = (chunk: Buffer | string): void => {
-        const diagnostic = extractNgrokDiagnostic(String(chunk));
+        ngrokDiagnosticBuffer = `${ngrokDiagnosticBuffer}${String(chunk)}`.slice(-64 * 1024);
+        const diagnostic = extractNgrokDiagnostic(ngrokDiagnosticBuffer);
         if (diagnostic !== null) {
           lastNgrokDiagnostic = diagnostic;
           this.message = diagnostic;
@@ -457,6 +473,93 @@ export async function resolveNgrokExecutable(): Promise<string | null> {
   return null;
 }
 
+export function selectRecoverableStaleNgrokProcess(processes: readonly NgrokProcessSnapshot[], target: string): NgrokProcessSnapshot | null {
+  const normalizedTarget = target.trim().toLowerCase();
+  const matches = processes.filter((entry) => {
+    if (entry.parentAlive || entry.processId <= 0) return false;
+    const commandLine = entry.commandLine.trim().toLowerCase().replace(/\s+/g, ' ');
+    return commandLine.includes('ngrok.exe')
+      && commandLine.includes(` http ${normalizedTarget} `)
+      && commandLine.includes('--log=stdout')
+      && commandLine.includes('--log-format=json');
+  });
+  return matches.length === 1 ? matches[0] ?? null : null;
+}
+
+async function recoverStaleLnwjudNgrokRuntime(): Promise<boolean> {
+  if (process.platform !== 'win32') return false;
+  const tunnels = await readNgrokTunnelSnapshots();
+  if (tunnels.length === 0) return false;
+  const processes = await readNgrokProcessSnapshots();
+  for (const tunnel of tunnels) {
+    if (!isLoopbackHttpTarget(tunnel.target)) continue;
+    if (await isHttpTargetReachable(tunnel.target)) continue;
+    const stale = selectRecoverableStaleNgrokProcess(processes, tunnel.target);
+    if (stale === null) continue;
+    try { process.kill(stale.processId); } catch { continue; }
+    const deadline = Date.now() + 2_500;
+    while (Date.now() < deadline && isProcessAlive(stale.processId)) await new Promise((resolve) => setTimeout(resolve, 100));
+    if (!isProcessAlive(stale.processId)) return true;
+  }
+  return false;
+}
+
+async function readNgrokTunnelSnapshots(): Promise<NgrokTunnelSnapshot[]> {
+  try {
+    const response = await fetch(NGROK_API, { signal: AbortSignal.timeout(1_500) });
+    if (!response.ok) return [];
+    const body = await response.json() as { tunnels?: Array<{ public_url?: unknown; config?: { addr?: unknown } }> };
+    return (body.tunnels ?? []).flatMap((entry) => {
+      const publicUrl = typeof entry.public_url === 'string' ? entry.public_url : null;
+      const target = typeof entry.config?.addr === 'string' ? entry.config.addr : null;
+      return publicUrl !== null && publicUrl.startsWith('https://') && target !== null ? [{ publicUrl, target }] : [];
+    });
+  } catch { return []; }
+}
+
+async function readNgrokProcessSnapshots(): Promise<NgrokProcessSnapshot[]> {
+  const systemRoot = process.env.SystemRoot?.trim() || 'C:\\Windows';
+  const powershell = path.join(systemRoot, 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe');
+  const script = '$items = @(Get-CimInstance Win32_Process -Filter "Name=\'ngrok.exe\'" | ForEach-Object { [pscustomobject]@{ ProcessId=[int]$_.ProcessId; ParentProcessId=[int]$_.ParentProcessId; ParentAlive=[bool](Get-Process -Id ([int]$_.ParentProcessId) -ErrorAction SilentlyContinue); CommandLine=[string]$_.CommandLine } }); ConvertTo-Json -Compress -InputObject $items';
+  try {
+    const output = await runCommand(powershell, ['-NoProfile', '-NonInteractive', '-Command', script], 5_000);
+    if (output.trim().length === 0) return [];
+    const parsed = JSON.parse(output) as unknown;
+    const rows = Array.isArray(parsed) ? parsed : [parsed];
+    return rows.flatMap((entry): NgrokProcessSnapshot[] => {
+      if (typeof entry !== 'object' || entry === null) return [];
+      const record = entry as Record<string, unknown>;
+      const processId = Number(record.ProcessId);
+      const parentProcessId = Number(record.ParentProcessId);
+      if (!Number.isInteger(processId) || !Number.isInteger(parentProcessId)) return [];
+      return [{
+        processId,
+        parentProcessId,
+        parentAlive: record.ParentAlive === true,
+        commandLine: typeof record.CommandLine === 'string' ? record.CommandLine : '',
+      }];
+    });
+  } catch { return []; }
+}
+
+function isLoopbackHttpTarget(value: string): boolean {
+  try {
+    const url = new URL(value);
+    return url.protocol === 'http:' && (url.hostname === '127.0.0.1' || url.hostname === 'localhost') && url.port.length > 0;
+  } catch { return false; }
+}
+
+async function isHttpTargetReachable(value: string): Promise<boolean> {
+  try {
+    await fetch(value, { redirect: 'manual', signal: AbortSignal.timeout(900) });
+    return true;
+  } catch { return false; }
+}
+
+function isProcessAlive(pid: number): boolean {
+  try { process.kill(pid, 0); return true; } catch { return false; }
+}
+
 async function waitForNgrokPublicOrigin(timeoutMs: number, expectedTarget: string): Promise<string | null> {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
@@ -618,18 +721,33 @@ export function extractNgrokDiagnostic(value: string): string | null {
   const redacted = redactNgrokError(value.trim());
   if (redacted.length === 0) return null;
   const lines = redacted.split(/\r?\n/).map((line) => line.trim()).filter((line) => line.length > 0);
-  for (let index = lines.length - 1; index >= 0; index -= 1) {
-    const line = lines[index];
-    if (line === undefined) continue;
+  let bestScore = -1;
+  let bestMessage: string | null = null;
+  const consider = (raw: string, level = ''): void => {
+    const message = redactNgrokError(raw.trim());
+    if (message.length === 0 || /^ERROR:\s*$/i.test(message) || /^https?:\/\/ngrok\.com\/docs\/errors\//i.test(message)) return;
+    let score = 0;
+    if (/ERR_NGROK_\d+/i.test(message)) score += 100;
+    if (/failed to start tunnel/i.test(message)) score += 80;
+    if (/authentication|authtoken|unknown flag|failed|fatal/i.test(message)) score += 50;
+    if (/^ERROR:/i.test(message)) score += 20;
+    if (['error', 'eror', 'crit', 'fatal'].includes(level)) score += 10;
+    if (score <= 0) return;
+    if (score > bestScore || (score === bestScore && message.length > (bestMessage?.length ?? 0))) {
+      bestScore = score;
+      bestMessage = message;
+    }
+  };
+  for (const line of lines) {
     try {
       const parsed = JSON.parse(line) as Record<string, unknown>;
       const level = typeof parsed.lvl === 'string' ? parsed.lvl.toLowerCase() : typeof parsed.level === 'string' ? parsed.level.toLowerCase() : '';
-      const message = [parsed.msg, parsed.message, parsed.err].find((entry): entry is string => typeof entry === 'string' && entry.length > 0);
-      if (message !== undefined && (['error', 'eror', 'crit', 'fatal'].includes(level) || /ERR_NGROK|unknown flag|failed|fatal|error/i.test(message))) return redactNgrokError(message);
-    } catch { /* Non-JSON stderr is handled below. */ }
-    if (/(?:^ERROR:|ERR_NGROK|unknown flag|failed|fatal|authentication)/i.test(line)) return line;
+      for (const candidate of [parsed.err, parsed.message, parsed.msg]) {
+        if (typeof candidate === 'string') consider(candidate, level);
+      }
+    } catch { consider(line); }
   }
-  return null;
+  return bestMessage;
 }
 
 export function formatNgrokExitMessage(code: number | null, diagnostic: string | null): string {

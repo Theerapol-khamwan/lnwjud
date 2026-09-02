@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto';
 import { createServer, type Server } from 'node:http';
 import { afterEach, describe, expect, it } from 'vitest';
-import { buildNgrokHttpArgs, extractNgrokDiagnostic, formatNgrokExitMessage, RemoteMcpController } from '../src/main/remote-mcp-controller.js';
+import { buildNgrokHttpArgs, extractNgrokDiagnostic, formatNgrokExitMessage, RemoteMcpController, selectRecoverableStaleNgrokProcess } from '../src/main/remote-mcp-controller.js';
 
 interface RemoteMcpTestAccess {
   gatewayUrl: string | null;
@@ -45,6 +45,28 @@ describe('Remote MCP ngrok runtime', () => {
     const diagnostic = extractNgrokDiagnostic(JSON.stringify({ lvl: 'eror', msg: 'authentication failed token=super-secret-value' }));
     expect(diagnostic).toContain('authentication failed');
     expect(diagnostic).not.toContain('super-secret-value');
+  });
+
+  it('prefers the actual ERR_NGROK failure over split ERROR markers and docs URLs', () => {
+    const diagnostic = extractNgrokDiagnostic([
+      'ERROR:',
+      JSON.stringify({ lvl: 'eror', msg: 'session closing', err: "failed to start tunnel: The endpoint 'https://example.ngrok-free.dev' is already online. ERR_NGROK_334" }),
+      'ERROR:  https://ngrok.com/docs/errors/err_ngrok_334',
+    ].join('\n'));
+    expect(diagnostic).toContain('failed to start tunnel');
+    expect(diagnostic).toContain('ERR_NGROK_334');
+    expect(diagnostic).not.toBe('ERROR:');
+    expect(diagnostic).not.toContain('/docs/errors/');
+  });
+
+  it('recovers only one orphaned lnwjud-style ngrok process for the exact dead gateway target', () => {
+    const target = 'http://127.0.0.1:54894';
+    const orphan = { processId: 13164, parentProcessId: 14372, parentAlive: false, commandLine: `C:\\WindowsApps\\ngrok.exe http ${target} --log=stdout --log-format=json` };
+    expect(selectRecoverableStaleNgrokProcess([orphan], target)).toEqual(orphan);
+    expect(selectRecoverableStaleNgrokProcess([{ ...orphan, parentAlive: true }], target)).toBeNull();
+    expect(selectRecoverableStaleNgrokProcess([{ ...orphan, commandLine: `ngrok.exe http ${target}` }], target)).toBeNull();
+    expect(selectRecoverableStaleNgrokProcess([orphan], 'http://127.0.0.1:60000')).toBeNull();
+    expect(selectRecoverableStaleNgrokProcess([orphan, { ...orphan, processId: 13165 }], target)).toBeNull();
   });
 });
 
