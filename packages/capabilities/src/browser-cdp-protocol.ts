@@ -126,6 +126,14 @@ export class NodeBrowserCdpProtocol implements BrowserCdpProtocol {
 
   private findChromeExecutable(): string | undefined {
     if (this.chromeExecutable !== undefined && this.chromeExecutable.trim().length > 0) return this.chromeExecutable;
+    if (process.platform === 'darwin') {
+      const candidates = [
+        '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
+        '/Applications/Chromium.app/Contents/MacOS/Chromium',
+        '/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge',
+      ];
+      return candidates.find((candidate) => existsSync(candidate));
+    }
     if (process.platform !== 'win32') return undefined;
     const localAppData = process.env.LOCALAPPDATA;
     const programFiles = process.env.ProgramFiles;

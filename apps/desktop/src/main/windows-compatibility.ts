@@ -27,9 +27,11 @@ export function windowsCompatibilityProfile(
     return {
       generation: 'non-windows',
       build: null,
-      supportedReleaseTarget: false,
+      supportedReleaseTarget: platform === 'darwin' && (architecture === 'x64' || architecture === 'arm64'),
       disableHardwareAcceleration: false,
-      reason: 'The packaged desktop release target is Windows x64.',
+      reason: platform === 'darwin'
+        ? 'macOS compatibility profile: native capabilities use the macOS helper and require TCC permissions as needed.'
+        : 'The packaged desktop release target is Windows x64 or macOS.',
     };
   }
 

@@ -43,6 +43,8 @@ export interface OwnedProcessIdentity {
 }
 
 export interface TunnelControllerOptions {
+  /** Production hosts set this to keep the Windows-only Secure Tunnel truthful on macOS. */
+  readonly disableOnUnsupportedPlatform?: boolean;
   readonly getClientPath: () => string | null;
   readonly getBundledClientPath?: () => string | null;
   readonly setClientPath: (value: string) => void;
@@ -141,6 +143,7 @@ export class TunnelController {
   }
 
   public async saveApiKey(apiKey: string): Promise<void> {
+    this.assertSupportedPlatform();
     const trimmed = apiKey.trim();
     if (trimmed.length === 0) throw new Error('Runtime API key is required');
     await this.authProvider.saveLegacyApiKey(trimmed);
@@ -155,6 +158,7 @@ export class TunnelController {
   }
 
   public async configureProfile(tunnelId: string): Promise<string> {
+    this.assertSupportedPlatform();
     const normalizedTunnelId = tunnelId.trim();
     if (!/^tunnel_[A-Za-z0-9_-]{8,128}$/.test(normalizedTunnelId)) throw new Error('Tunnel ID is invalid');
     const clientPath = this.resolveClientPath();
@@ -186,6 +190,7 @@ export class TunnelController {
   }
 
   public setClientPath(clientPath: string): string {
+    this.assertSupportedPlatform();
     const trimmed = clientPath.trim();
     if (trimmed.length === 0) {
       this.options.setClientPath('');
@@ -207,6 +212,7 @@ export class TunnelController {
    * owner executable before the new selection is committed.
    */
   public async replaceClientPath(clientPath: string): Promise<string> {
+    this.assertSupportedPlatform();
     const trimmed = clientPath.trim();
     const next = trimmed.length === 0 ? '' : path.resolve(trimmed);
     if (next.length > 0 && !existsSync(next)) throw new Error('tunnel-client.exe was not found');
@@ -249,6 +255,7 @@ export class TunnelController {
   }
 
   public async status(): Promise<TunnelStatus> {
+    if (!this.isSupportedPlatform()) return this.unsupportedStatus();
     const clientPath = this.resolveClientPath();
     if (this.runtimeMode === 'native-managed') {
       const snapshot = this.runtimeSupervisor?.snapshot() ?? this.runtimeSnapshot;
@@ -370,6 +377,7 @@ export class TunnelController {
   }
 
   public async reconcileStoppedRuntime(): Promise<TunnelStatus | null> {
+    if (!this.isSupportedPlatform()) return this.unsupportedStatus();
     if (this.runtimeDesiredState() !== 'stopped') return null;
     const status = await this.status();
     const survivingRuntime = status.state === 'running'
@@ -381,6 +389,7 @@ export class TunnelController {
   }
 
   public async startAutomatically(): Promise<TunnelStatus> {
+    if (!this.isSupportedPlatform()) return this.unsupportedStatus();
     const stopped = await this.reconcileStoppedRuntime();
     if (stopped !== null) return stopped;
     if (this.intentionalStop) return this.status();
@@ -388,6 +397,7 @@ export class TunnelController {
   }
 
   public start(): Promise<TunnelStatus> {
+    if (!this.isSupportedPlatform()) return Promise.resolve(this.unsupportedStatus());
     this.options.setRuntimeDesiredState?.('running');
     return this.startWithIntent(true);
   }
@@ -488,11 +498,13 @@ export class TunnelController {
   }
 
   public stop(): Promise<TunnelStatus> {
+    if (!this.isSupportedPlatform()) return Promise.resolve(this.unsupportedStatus());
     this.options.setRuntimeDesiredState?.('stopped');
     return this.requestStop();
   }
 
   public stopOwned(): Promise<TunnelStatus> {
+    if (!this.isSupportedPlatform()) return Promise.resolve(this.unsupportedStatus());
     return this.requestStop();
   }
 
@@ -560,6 +572,21 @@ export class TunnelController {
     await this.releaseTunnelLock();
     this.options.setRuntimeOwnerPath?.('');
     this.runtimeMode = null;
+  }
+
+  private isSupportedPlatform(): boolean { return this.options.disableOnUnsupportedPlatform !== true || process.platform === 'win32'; }
+
+  private assertSupportedPlatform(): void {
+    if (!this.isSupportedPlatform()) throw new Error('OpenAI Secure Tunnel is unsupported on macOS because no supported macOS tunnel-client runtime is bundled. Use Remote MCP with ngrok instead.');
+  }
+
+  private unsupportedStatus(): TunnelStatus {
+    return {
+      state: 'error', source: 'desktop', hasApiKey: false, authReady: false, runtimeCredentialAvailable: false,
+      clientPath: null, profileExists: false,
+      message: 'OpenAI Secure Tunnel is unsupported on macOS because no supported macOS tunnel-client runtime is bundled. Use Remote MCP with ngrok instead.',
+      logPath: null, persistent: null,
+    };
   }
 
   private enqueueLifecycle<T>(operation: () => Promise<T>): Promise<T> {

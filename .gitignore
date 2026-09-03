@@ -11,6 +11,8 @@ apps/desktop/build/*.cjs
 apps/desktop/build/*.cmd
 apps/desktop/build/*.mjs
 apps/desktop/build/*.exe
+apps/desktop/build/lnwjud-mcp-stdio
+apps/desktop/build/lnwjud-node
 *.tsbuildinfo
 *.tsbuildinfo.*
 *.last-run.json
@@ -101,3 +103,4 @@ lnwjud-incident.json
 apps/desktop/build/tunnel-client/
 apps/desktop/build/runtime-tools/
 apps/desktop/build/vendor/
+apps/desktop/build/lnwjud-macos-helper

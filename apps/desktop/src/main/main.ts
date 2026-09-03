@@ -540,6 +540,7 @@ export function registerIpcHandlers(
   ipcMain.handle(ipcChannels.chooseTunnelClientPath, async (event, payload: unknown) => {
     assertTrustedSender(event, getMainWindow());
     assertNoPayload(payload);
+    if (process.platform !== 'win32') return { clientPath: null, unsupported: true, message: 'OpenAI Secure Tunnel is currently unsupported on macOS. Use Remote MCP with ngrok instead.' };
     const window = getMainWindow();
     if (window === null) return { clientPath: null };
     const result = await dialog.showOpenDialog(window, {

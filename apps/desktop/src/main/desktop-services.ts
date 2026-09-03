@@ -438,6 +438,7 @@ export function createDesktopRuntime(dataPath: string, options: DesktopRuntimeOp
     },
   );
   const tunnelController = new TunnelController({
+    disableOnUnsupportedPlatform: true,
     getClientPath: (): string | null => settingsRepository.get(CLIENT_PATH_SETTING),
     getBundledClientPath: bundledTunnelClientPath,
     setClientPath: (value: string): void => { settingsRepository.set(CLIENT_PATH_SETTING, value); },
@@ -683,6 +684,18 @@ export function createDesktopRuntime(dataPath: string, options: DesktopRuntimeOp
       const available = await resolveConfiguredExecutable(configured);
       return { status: available ? 'pass' : 'warn', detail: available ? 'Configured local PDF provider is available' : 'Configured local PDF provider could not be resolved' };
     }
+    if (process.platform === 'darwin') {
+      const resourcesPath = (process as NodeJS.Process & { readonly resourcesPath?: string }).resourcesPath;
+      const bundledHelper = [
+        process.env.LNWJUD_MACOS_HELPER,
+        path.join(path.dirname(process.execPath), 'lnwjud-macos-helper'),
+        resourcesPath === undefined ? undefined : path.join(resourcesPath, 'lnwjud-macos-helper'),
+        path.resolve(process.cwd(), 'apps', 'desktop', 'build', 'lnwjud-macos-helper'),
+        path.resolve(process.cwd(), 'build', 'lnwjud-macos-helper'),
+      ].find((candidate): candidate is string => typeof candidate === 'string' && existsSync(candidate));
+      if (bundledHelper !== undefined) return { status: 'pass', detail: 'Bundled macOS PDFKit provider is available' };
+      return { status: 'warn', detail: 'Bundled macOS PDFKit provider is unavailable; rebuild the macOS package' };
+    }
     for (const candidate of ['pdftotext.exe', 'pdftotext']) {
       if ((await executableResolver.resolve(candidate)).ok) return { status: 'pass', detail: `${candidate} is available on PATH` };
     }
@@ -705,10 +718,11 @@ export function createDesktopRuntime(dataPath: string, options: DesktopRuntimeOp
       : { status: 'warn', detail: 'Windows Sandbox feature is not installed or enabled' };
   };
   const requirementDefinitions: readonly RequirementDefinition[] = [
-    { id: 'os', required: true, summaryKey: 'requirement.os', probe: async () => ({ status: process.platform === 'win32' && process.arch === 'x64' ? 'pass' : 'fail', detail: `${process.platform} ${process.arch}` }) },
+    { id: 'os', required: true, summaryKey: 'requirement.os', probe: async () => ({ status: (process.platform === 'win32' && process.arch === 'x64') || (process.platform === 'darwin' && (process.arch === 'x64' || process.arch === 'arm64')) ? 'pass' : 'fail', detail: `${process.platform} ${process.arch}` }) },
     { id: 'database', required: true, summaryKey: 'requirement.database', probe: async () => ({ status: 'pass', detail: 'SQLite database ready' }) },
     { id: 'mcp-port', required: true, summaryKey: 'requirement.mcp_port', probe: () => requirementProbeFromDoctor(() => checkConfiguredMcpPort(mcpLifecycle.status(), mcpPort)) },
     { id: 'platform_windows', required: false, summaryKey: 'requirement.platform_windows', probe: async () => ({ status: process.platform === 'win32' ? 'pass' : 'fail', detail: `${process.platform} ${process.arch}` }) },
+    { id: 'platform_native', required: false, summaryKey: 'requirement.platform_windows', probe: async () => ({ status: process.platform === 'win32' || process.platform === 'darwin' ? 'pass' : 'fail', detail: `${process.platform} ${process.arch}` }) },
     { id: 'registered_workspace', required: false, summaryKey: 'requirement.registered_workspace', remediationId: 'add_project', probe: async () => ({ status: (await workspaceService.list()).some((workspace) => !isDriveRoot(workspace.realRootPath) && !isDriveRoot(workspace.rootPath)) ? 'pass' : 'fail' }) },
     { id: 'active_project', required: false, summaryKey: 'requirement.active_project', remediationId: 'add_project', probe: async () => ({ status: (await resolveActiveProjectWorkspaces()).length > 0 ? 'pass' : 'fail' }) },
     { id: 'executable_git', required: false, summaryKey: 'requirement.executable_git', remediationId: 'install_git', probe: () => requirementProbeFromDoctor(() => checkExecutable(executableResolver, 'git', 'warn')) },
@@ -1245,6 +1259,7 @@ export function createDesktopRuntime(dataPath: string, options: DesktopRuntimeOp
 }
 
 function bundledTunnelClientPath(): string | null {
+  if (process.platform !== 'win32') return null;
   const resourcesPath = (process as NodeJS.Process & { readonly resourcesPath?: string }).resourcesPath;
   if (typeof resourcesPath !== 'string' || resourcesPath.trim().length === 0) return null;
   return path.join(resourcesPath, 'tunnel-client', 'tunnel-client.exe');
@@ -1451,9 +1466,11 @@ function buildConnectionModes(input: {
   readonly allowedRoots: readonly string[];
   readonly fullBypassAll: boolean;
 }): ConnectionModes {
-  const launcher = path.win32.basename(process.execPath).toLowerCase() === 'lnwjud.exe'
-    ? path.join(path.dirname(process.execPath), 'lnwjud-mcp-stdio.cmd')
-    : 'lnwjud-mcp-stdio.cmd';
+  const launcherName = process.platform === 'win32' ? 'lnwjud-mcp-stdio.cmd' : 'lnwjud-mcp-stdio';
+  const packagedResources = (process as NodeJS.Process & { readonly resourcesPath?: string }).resourcesPath;
+  const launcher = packagedResources !== undefined
+    ? path.join(path.dirname(process.execPath), launcherName)
+    : launcherName;
   const args = [quoteCommandArgument(launcher)];
   if (input.workspaceRoot !== undefined) args.push('--workspace', quoteCommandArgument(input.workspaceRoot));
   args.push('--profile', input.profile);

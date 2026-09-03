@@ -1,18 +1,19 @@
 ﻿import { copyFileSync, mkdirSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
+import { chmodSync } from 'node:fs';
 import process from 'node:process';
 import { fileURLToPath } from 'node:url';
 
 const desktopRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const buildDir = path.join(desktopRoot, 'build');
-const cmdPath = path.join(buildDir, 'lnwjud-mcp-stdio.cmd');
-const bundledNodePath = path.join(buildDir, 'lnwjud-node.exe');
+const isWindows = process.platform === 'win32';
+const launcherPath = path.join(buildDir, isWindows ? 'lnwjud-mcp-stdio.cmd' : 'lnwjud-mcp-stdio');
+const bundledNodePath = path.join(buildDir, isWindows ? 'lnwjud-node.exe' : 'lnwjud-node');
 const nodeMajor = Number.parseInt(process.versions.node.split('.')[0] ?? '', 10);
 
-if (process.platform !== 'win32') throw new Error('The packaged stdio runtime is generated on Windows only');
 if (nodeMajor !== 24) throw new Error(`lnwjud packaged stdio requires the build runtime to be Node.js 24.x; got ${process.versions.node}`);
 
-const contents = `@echo off
+const contents = isWindows ? `@echo off
 setlocal
 set "BASE=%~dp0"
 set "SCRIPT=%BASE%lnwjud-mcp-stdio.cjs"
@@ -30,9 +31,25 @@ if not exist "%NODE_EXE%" (
 )
 rem Use the private Node 24 runtime shipped with lnwjud; no system Node.js is required.
 "%NODE_EXE%" "%SCRIPT%" %*
+` : `#!/bin/sh
+set -eu
+BASE="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
+SCRIPT="$BASE/lnwjud-mcp-stdio.cjs"
+NODE_BIN="$BASE/lnwjud-node"
+if [ ! -f "$SCRIPT" ]; then
+  echo "lnwjud-mcp-stdio: launcher script missing: $SCRIPT" >&2
+  exit 1
+fi
+if [ ! -x "$NODE_BIN" ]; then
+  echo "lnwjud-mcp-stdio: bundled Node runtime missing: $NODE_BIN" >&2
+  exit 1
+fi
+exec "$NODE_BIN" "$SCRIPT" "$@"
 `;
 
 mkdirSync(buildDir, { recursive: true });
 copyFileSync(process.execPath, bundledNodePath);
-writeFileSync(cmdPath, contents.replace(/\n/g, '\r\n'), 'utf8');
+if (!isWindows) chmodSync(bundledNodePath, 0o755);
+writeFileSync(launcherPath, isWindows ? contents.replace(/\n/g, '\r\n') : contents, 'utf8');
+if (!isWindows) chmodSync(launcherPath, 0o755);
 process.stdout.write(`Bundled private Node runtime ${process.versions.node} -> ${bundledNodePath}\n`);

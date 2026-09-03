@@ -42,11 +42,17 @@ export class HealthCapabilityBackend implements CapabilityBackend {
 
   private async check(tool: CapabilityToolName): Promise<Record<string, unknown>> {
     if (tool === 'shell' || tool === 'health' || tool === 'web_fetch' || tool === 'scheduler') return this.describe(tool, { available: true, ready: true, local: true });
-    if (tool === 'system_info' || tool === 'notification' || tool === 'file_dialog' || tool === 'clipboard'
-      || tool === 'audio' || tool === 'screen_record' || tool === 'office') {
-      return this.describe(tool, { available: this.platform === 'win32', ready: this.platform === 'win32', local: true });
+    const nativeDesktop = this.platform === 'win32' || this.platform === 'darwin';
+    if (tool === 'system_info' || tool === 'notification' || tool === 'file_dialog' || tool === 'clipboard') {
+      return this.describe(tool, { available: nativeDesktop, ready: nativeDesktop, local: true });
     }
-    if (tool === 'input_event' || tool === 'vision' || tool === 'window') return this.describe(tool, { available: this.platform === 'win32', ready: this.platform === 'win32', local: true });
+    if (tool === 'audio' || tool === 'screen_record') return this.describe(tool, { available: nativeDesktop, ready: nativeDesktop, local: true });
+    // The native bridge performs the final app-specific check. macOS Office
+    // automation is available through the installed app's Apple Events
+    // dictionary and will report a setup error if that app is absent or TCC
+    // Automation permission is denied.
+    if (tool === 'office') return this.describe(tool, { available: nativeDesktop, ready: nativeDesktop, local: true });
+    if (tool === 'input_event' || tool === 'vision' || tool === 'window') return this.describe(tool, { available: nativeDesktop, ready: nativeDesktop, local: true });
     if (tool === 'dom_cdp') return this.describe(tool, await this.checkDelegated(this.domCdp, { action: 'status' }));
     if (tool === 'wsl_exec') return this.describe(tool, await this.checkDelegated(this.wslExec, { operation: 'status' }));
     if (tool === 'wsl_fs') return this.describe(tool, await this.checkDelegated(this.wslFs, { operation: 'status' }));

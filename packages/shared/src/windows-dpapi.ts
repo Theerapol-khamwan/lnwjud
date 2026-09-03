@@ -1,10 +1,12 @@
 import { randomBytes } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
-import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 
 const KEY_PREFIX_V2 = 'dpapi:v2:';
 const KEY_PREFIX_V1 = 'dpapi:v1:';
+const MACOS_KEY_PREFIX = 'macos-keychain:v1:';
+const MACOS_KEYCHAIN_ACCOUNT = 'lnwjud';
 const DEFAULT_MAX_BUFFER = 1024 * 1024;
 
 export function protectWithWindowsDpapi(plainText: string): string {
@@ -64,7 +66,92 @@ export function loadCheckpointEncryptionKey(dataPath: string): Buffer {
     if (key.byteLength !== 32) throw new Error('LNWJUD_CHECKPOINT_KEY_BASE64 must decode to 32 bytes');
     return key;
   }
-  return loadOrCreateWindowsProtectedKey(path.join(dataPath, 'checkpoint-master.key'), 32);
+  const keyPath = path.join(dataPath, 'checkpoint-master.key');
+  if (process.platform === 'darwin') return loadOrCreateMacosKeychainKey(keyPath, 32);
+  return loadOrCreateWindowsProtectedKey(keyPath, 32);
+}
+
+/** Keep checkpoint material in the login Keychain; the profile only holds its service reference. */
+function loadOrCreateMacosKeychainKey(filePath: string, byteLength: number): Buffer {
+  if (!Number.isInteger(byteLength) || byteLength < 16 || byteLength > 64) throw new Error('Invalid protected key length');
+  const absolutePath = path.resolve(filePath);
+  mkdirSync(path.dirname(absolutePath), { recursive: true });
+  const service = macosKeychainService(absolutePath);
+  try {
+    const stored = readFileSync(absolutePath, 'utf8').trim();
+    if (stored !== `${MACOS_KEY_PREFIX}${service}`) throw new Error('Protected key file has an unsupported format');
+    return decodeMacosKeychainKey(readMacosKeychainSecret(service), byteLength);
+  } catch (error) {
+    if (!isMissingFile(error)) throw error;
+  }
+
+  const generated = randomBytes(byteLength);
+  writeMacosKeychainSecret(service, generated.toString('base64'));
+  try {
+    writeFileSync(absolutePath, `${MACOS_KEY_PREFIX}${service}`, { encoding: 'utf8', flag: 'wx', mode: 0o600 });
+    return generated;
+  } catch (error) {
+    if (!isAlreadyExists(error)) throw error;
+    const stored = readFileSync(absolutePath, 'utf8').trim();
+    if (stored !== `${MACOS_KEY_PREFIX}${service}`) throw new Error('Protected key file has an unsupported format');
+    return decodeMacosKeychainKey(readMacosKeychainSecret(service), byteLength);
+  }
+}
+
+function macosKeychainService(filePath: string): string {
+  return `com.lnwjud.checkpoint.${Buffer.from(filePath).toString('base64url')}`;
+}
+
+function readMacosKeychainSecret(service: string): string {
+  const result = runMacosKeychainHelper('keychain_get', { service, account: MACOS_KEYCHAIN_ACCOUNT });
+  const value = typeof result.secret === 'string' ? result.secret : '';
+  if (value.length === 0) throw new Error('macOS Keychain returned an empty result');
+  return value;
+}
+
+function writeMacosKeychainSecret(service: string, value: string): void {
+  runMacosKeychainHelper('keychain_set', { service, account: MACOS_KEYCHAIN_ACCOUNT, secret: value });
+}
+
+/** The secret travels via stdin, never a `security -w` process argument. */
+function runMacosKeychainHelper(operation: 'keychain_get' | 'keychain_set', input: Record<string, string>): Record<string, unknown> {
+  const helper = macosHelperPath();
+  const result = spawnSync(helper, [], {
+    input: JSON.stringify({ operation, input }),
+    encoding: 'utf8',
+    maxBuffer: DEFAULT_MAX_BUFFER,
+  });
+  if (result.error !== undefined) throw result.error;
+  let response: unknown;
+  try { response = JSON.parse((result.stdout ?? '').trim()); } catch { throw new Error((result.stderr ?? '').trim() || 'macOS Keychain helper returned an invalid response'); }
+  const record = asRecord(response);
+  if (record === undefined || record.ok !== true || asRecord(record.value) === undefined) {
+    const error = record?.error;
+    const message = typeof error === 'object' && error !== null && 'message' in error && typeof error.message === 'string' ? error.message : '';
+    throw new Error(message || (result.stderr ?? '').trim() || 'macOS Keychain helper failed');
+  }
+  return asRecord(record.value)!;
+}
+
+function macosHelperPath(): string {
+  const configured = process.env.LNWJUD_MACOS_HELPER?.trim();
+  const resourcesPath = (process as NodeJS.Process & { resourcesPath?: string }).resourcesPath;
+  const candidates = [
+    configured,
+    path.resolve(process.cwd(), 'apps', 'desktop', 'build', 'lnwjud-macos-helper'),
+    path.resolve(process.cwd(), 'build', 'lnwjud-macos-helper'),
+    resourcesPath === undefined ? undefined : path.join(resourcesPath, 'lnwjud-macos-helper'),
+    path.join(path.dirname(process.execPath), 'lnwjud-macos-helper'),
+  ].filter((candidate): candidate is string => candidate !== undefined && candidate.length > 0);
+  const helper = candidates.find((candidate) => existsSync(candidate));
+  if (helper === undefined) throw new Error('macOS Keychain helper is unavailable; build the macOS lnwjud package first');
+  return path.resolve(helper);
+}
+
+function decodeMacosKeychainKey(value: string, expectedLength: number): Buffer {
+  const key = Buffer.from(value.trim(), 'base64');
+  if (key.byteLength !== expectedLength) throw new Error('Protected key file has an invalid key length');
+  return key;
 }
 
 function encodeProtectedKeyV2(key: Buffer): string {
@@ -126,4 +213,8 @@ function isMissingFile(error: unknown): boolean {
 
 function isAlreadyExists(error: unknown): boolean {
   return typeof error === 'object' && error !== null && 'code' in error && error.code === 'EEXIST';
+}
+
+function asRecord(value: unknown): Record<string, unknown> | undefined {
+  return typeof value === 'object' && value !== null && !Array.isArray(value) ? value as Record<string, unknown> : undefined;
 }

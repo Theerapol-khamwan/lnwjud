@@ -216,10 +216,12 @@ describe('upgrade runtime', () => {
     expect(calls.at(-1)).toMatchObject({ args: ['worktree', 'remove', '.worktrees/agent-1'] });
     await expect(runtime.execute('git_worktree_remove', { workspaceId: 'ws-1', worktreePath: '.worktrees/agent-1', dryRun: false, userConfirmed: true })).resolves.toMatchObject({ ok: false, error: { code: 'PROCESS_NOT_FOUND' } });
 
+    const externalWorktreePath = process.platform === 'win32' ? 'E:\\outside\\agent-1' : '/outside/agent-1';
+    const expectedExternalWorktreePath = process.platform === 'win32' ? 'E:/outside/agent-1' : '/outside/agent-1';
     await expect(runtime.execute('git_worktree_spawn', {
-      workspaceId: 'ws-1', worktreePath: 'E:\\outside\\agent-1', ref: 'main', dryRun: false,
-    }, undefined, fullBypassAuthorization)).resolves.toMatchObject({ ok: true, value: { status: 'completed', worktreePath: 'E:/outside/agent-1' } });
-    expect(calls.at(-1)).toMatchObject({ args: ['worktree', 'add', '--detach', 'E:/outside/agent-1', 'main'] });
+      workspaceId: 'ws-1', worktreePath: externalWorktreePath, ref: 'main', dryRun: false,
+    }, undefined, fullBypassAuthorization)).resolves.toMatchObject({ ok: true, value: { status: 'completed', worktreePath: expectedExternalWorktreePath } });
+    expect(calls.at(-1)).toMatchObject({ args: ['worktree', 'add', '--detach', expectedExternalWorktreePath, 'main'] });
   });
 
   it('uses trusted Full Bypass for inner always-confirm upgrade mutations', async () => {

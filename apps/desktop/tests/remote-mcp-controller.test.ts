@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto';
 import { createServer, type Server } from 'node:http';
 import { afterEach, describe, expect, it } from 'vitest';
-import { buildNgrokHttpArgs, extractNgrokDiagnostic, formatNgrokExitMessage, RemoteMcpController, selectRecoverableStaleNgrokProcess } from '../src/main/remote-mcp-controller.js';
+import { buildNgrokHttpArgs, extractNgrokDiagnostic, formatNgrokExitMessage, macosNgrokExecutableCandidates, RemoteMcpController, selectRecoverableStaleNgrokProcess } from '../src/main/remote-mcp-controller.js';
 
 interface RemoteMcpTestAccess {
   gatewayUrl: string | null;
@@ -29,6 +29,11 @@ async function listen(server: Server): Promise<string> {
 }
 
 describe('Remote MCP ngrok runtime', () => {
+  it('includes standard Homebrew ngrok locations for Finder-launched macOS apps', () => {
+    if (process.platform !== 'darwin') return;
+    expect(macosNgrokExecutableCandidates()).toEqual(['/opt/homebrew/bin/ngrok', '/usr/local/bin/ngrok']);
+  });
+
   it('uses ngrok v3-compatible http arguments without the removed web-addr flag', () => {
     const args = buildNgrokHttpArgs('http://127.0.0.1:32123');
     expect(args).toEqual(['http', 'http://127.0.0.1:32123', '--log=stdout', '--log-format=json']);

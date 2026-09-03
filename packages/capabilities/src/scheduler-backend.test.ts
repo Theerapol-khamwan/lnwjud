@@ -1,5 +1,14 @@
-import { describe, expect, it, vi } from 'vitest';
+import { mkdtemp, readFile, rm } from 'node:fs/promises';
+import os from 'node:os';
+import path from 'node:path';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { SchedulerCapabilityBackend } from './scheduler-backend.js';
+
+const temporaryRoots: string[] = [];
+
+afterEach(async () => {
+  await Promise.all(temporaryRoots.splice(0).map((root) => rm(root, { recursive: true, force: true })));
+});
 
 describe('SchedulerCapabilityBackend', () => {
   it('lists tasks parsed from schtasks LIST output', async () => {
@@ -97,6 +106,36 @@ describe('SchedulerCapabilityBackend', () => {
     const result = await backend.execute({ action: 'list' });
 
     expect(result).toMatchObject({ ok: false, error: { code: 'INTERNAL_ERROR' } });
+  });
+
+  it('creates an escaped per-user launchd agent on macOS', async () => {
+    const launchAgentsDirectory = await mkdtemp(path.join(os.tmpdir(), 'lnwjud-launch-agents-'));
+    temporaryRoots.push(launchAgentsDirectory);
+    const runImpl = vi.fn(async (): Promise<{ stdout: string; stderr: string }> => ({ stdout: '', stderr: '' }));
+    const backend = new SchedulerCapabilityBackend({ platform: 'darwin', uid: 501, launchAgentsDirectory, runImpl });
+
+    const result = await backend.execute({
+      action: 'create', task_name: 'Sync Review', command: '/Applications/Tool & Co.app/tool',
+      arguments: ['--title', '<approved>'], schedule: 'WEEKLY', start_time: '09:30', userConfirmed: true,
+    });
+
+    const label = 'com.lnwjud.scheduler.Sync_Review';
+    const plistPath = path.join(launchAgentsDirectory, `${label}.plist`);
+    expect(result).toMatchObject({ ok: true, value: { created: true, label, scheduler: 'launchd' } });
+    await expect(readFile(plistPath, 'utf8')).resolves.toContain('/Applications/Tool &amp; Co.app/tool');
+    await expect(readFile(plistPath, 'utf8')).resolves.toContain('&lt;approved&gt;');
+    await expect(readFile(plistPath, 'utf8')).resolves.toContain('<key>Weekday</key><integer>1</integer>');
+    expect(runImpl).toHaveBeenCalledWith('/bin/launchctl', ['bootout', 'gui/501/com.lnwjud.scheduler.Sync_Review']);
+    expect(runImpl).toHaveBeenCalledWith('/bin/launchctl', ['bootstrap', 'gui/501', plistPath]);
+  });
+
+  it('does not silently reinterpret unsupported Windows schedules on macOS', async () => {
+    const runImpl = vi.fn(async (): Promise<{ stdout: string; stderr: string }> => ({ stdout: '', stderr: '' }));
+    const backend = new SchedulerCapabilityBackend({ platform: 'darwin', runImpl });
+
+    await expect(backend.execute({ action: 'create', task_name: 'Frequent', command: '/bin/true', schedule: 'MINUTE', userConfirmed: true }))
+      .resolves.toMatchObject({ ok: false, error: { code: 'INVALID_INPUT' } });
+    expect(runImpl).not.toHaveBeenCalled();
   });
 
   it('returns recoverable errors with stderr detail', async () => {

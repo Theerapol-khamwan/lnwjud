@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto';
+import { existsSync } from 'node:fs';
 import { mkdir, mkdtemp, readFile, rename, rm, stat, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import extractZip from 'extract-zip';
@@ -27,6 +28,7 @@ interface DownloadResponse {
 }
 
 export interface PdfProviderInstallerOptions {
+  readonly platform?: NodeJS.Platform;
   readonly package?: PdfProviderPackage;
   readonly fetchImpl?: (url: string) => Promise<DownloadResponse>;
   readonly extractImpl?: (archivePath: string, options: { readonly dir: string }) => Promise<void>;
@@ -43,6 +45,7 @@ const MAX_ARCHIVE_BYTES = 64 * 1024 * 1024;
 const activeInstalls = new Map<string, Promise<InstalledPdfProvider>>();
 
 export function installPdfProvider(dataPath: string, options: PdfProviderInstallerOptions = {}): Promise<InstalledPdfProvider> {
+  if ((options.platform ?? process.platform) === 'darwin') return Promise.resolve(installMacosPdfProvider());
   const packageInfo = options.package ?? DEFAULT_PDF_PROVIDER_PACKAGE;
   const installKey = [path.resolve(dataPath), packageInfo.version, packageInfo.sourceUrl, packageInfo.archiveSha256.toLowerCase()].join('\0');
   const activeInstall = activeInstalls.get(installKey);
@@ -52,6 +55,23 @@ export function installPdfProvider(dataPath: string, options: PdfProviderInstall
   });
   activeInstalls.set(installKey, operation);
   return operation;
+}
+
+/** macOS ships a PDFKit-backed `pdftotext`-compatible helper in the app bundle. */
+function installMacosPdfProvider(): InstalledPdfProvider {
+  const resourcesPath = (process as NodeJS.Process & { resourcesPath?: string }).resourcesPath;
+  const candidates = [
+    process.env.LNWJUD_MACOS_HELPER,
+    path.join(path.dirname(process.execPath), 'lnwjud-macos-helper'),
+    resourcesPath === undefined ? undefined : path.join(resourcesPath, 'lnwjud-macos-helper'),
+    path.resolve(process.cwd(), 'apps', 'desktop', 'build', 'lnwjud-macos-helper'),
+    path.resolve(process.cwd(), 'build', 'lnwjud-macos-helper'),
+  ].filter((candidate): candidate is string => typeof candidate === 'string' && candidate.length > 0);
+  const providerPath = candidates.find((candidate) => existsSync(candidate));
+  if (providerPath === undefined) throw new Error('The bundled macOS PDFKit helper is unavailable; rebuild the macOS package.');
+  return {
+    providerPath: path.resolve(providerPath), version: 'macos-pdfkit', sourceUrl: 'macOS PDFKit (bundled)', archiveSha256: 'not-applicable', reused: true,
+  };
 }
 
 async function installPdfProviderOnce(dataPath: string, options: PdfProviderInstallerOptions): Promise<InstalledPdfProvider> {

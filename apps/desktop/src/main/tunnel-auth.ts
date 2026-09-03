@@ -8,6 +8,7 @@ export const LEGACY_TUNNEL_SECRET_FILE = 'lnwjud.runtime.secret';
 export const OAUTH_TUNNEL_SESSION_FILE = 'lnwjud.oauth.session.secret';
 
 export function defaultTunnelProfileDirectory(environment: NodeJS.ProcessEnv = process.env): string {
+  if (process.platform === 'darwin') return path.join(os.homedir(), 'Library', 'Application Support', 'tunnel-client');
   return path.join(environment.APPDATA ?? path.join(os.homedir(), 'AppData', 'Roaming'), 'tunnel-client');
 }
 

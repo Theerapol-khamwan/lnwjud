@@ -20,6 +20,7 @@ describe('PDF provider installer', () => {
     let downloads = 0;
     let extracts = 0;
     const options = {
+      platform: 'win32' as const,
       package: packageInfo,
       fetchImpl: async (): Promise<ReturnType<typeof response>> => {
         downloads += 1;
@@ -53,6 +54,7 @@ describe('PDF provider installer', () => {
     let downloads = 0;
     let extracts = 0;
     const options = {
+      platform: 'win32' as const,
       package: packageInfo,
       fetchImpl: async (): Promise<ReturnType<typeof response>> => {
         downloads += 1;
@@ -80,6 +82,7 @@ describe('PDF provider installer', () => {
     const packageInfo = { ...testPackage(Buffer.from('expected')), archiveSha256: '0'.repeat(64) };
 
     await expect(installPdfProvider(dataPath, {
+      platform: 'win32',
       package: packageInfo,
       fetchImpl: async () => response(Buffer.from('tampered')),
       extractImpl: async () => { throw new Error('must not extract'); },

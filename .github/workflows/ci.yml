@@ -16,6 +16,70 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  verify-macos:
+    name: macOS Apple Silicon Build
+    runs-on: macos-14
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Require Apple Silicon runner
+        run: test "$(uname -m)" = arm64
+
+      - name: Setup Node.js 24
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+
+      - name: Enable Corepack & Setup pnpm
+        run: |
+          corepack enable
+          corepack prepare pnpm@10.15.0 --activate
+
+      - name: Install dependencies
+        run: corepack pnpm@10.15.0 install --frozen-lockfile
+
+      - name: Typecheck and build native macOS runtime
+        run: |
+          corepack pnpm@10.15.0 typecheck
+          corepack pnpm@10.15.0 --filter @lnwjud/desktop build
+          file apps/desktop/build/lnwjud-macos-helper | grep -q 'arm64'
+          apps/desktop/build/runtime-tools/ripgrep/rg --version
+
+      - name: Package unsigned macOS artifacts
+        run: corepack pnpm@10.15.0 --filter @lnwjud/desktop package:mac
+
+      - name: Verify packaged macOS contents
+        env:
+          LNWJUD_EXPECTED_COMMIT_SHA: ${{ github.sha }}
+          LNWJUD_REQUIRE_CLEAN_PROVENANCE: '1'
+        run: |
+          APP='apps/desktop/dist/installers/mac-arm64/lnwjud.app'
+          test -x "$APP/Contents/MacOS/lnwjud-macos-helper"
+          test -x "$APP/Contents/MacOS/lnwjud-mcp-stdio"
+          test -x "$APP/Contents/MacOS/lnwjud-node"
+          test -x "$APP/Contents/Resources/runtime-tools/ripgrep/rg"
+          /usr/libexec/PlistBuddy -c 'Print :LSMinimumSystemVersion' "$APP/Contents/Info.plist" | grep -qx '15.0'
+          "$APP/Contents/Resources/runtime-tools/ripgrep/rg" --version
+          node apps/desktop/scripts/verify-macos-release-evidence.mjs
+
+      - name: Upload verified macOS release artifacts
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        uses: actions/upload-artifact@v4
+        with:
+          name: macos-release-${{ github.sha }}
+          path: |
+            apps/desktop/dist/installers/*.dmg
+            apps/desktop/dist/installers/*.dmg.blockmap
+            apps/desktop/dist/installers/*.zip
+            apps/desktop/dist/installers/*.zip.blockmap
+            apps/desktop/dist/installers/MACOS-SHA256SUMS.txt
+            apps/desktop/dist/installers/MACOS-PROVENANCE.json
+          if-no-files-found: error
+          retention-days: 14
+          compression-level: 0
+
   verify:
     # Keep this check name stable because main branch protection requires it.
     name: Authoritative Release Verification (Windows)

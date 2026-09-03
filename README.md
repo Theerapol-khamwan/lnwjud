@@ -5,7 +5,8 @@
 <h1 align="center">lnwjud</h1>
 
 <p align="center">
-  <strong>Windows-first local AI-agent runtime and MCP gateway</strong><br />
+  <strong>Windows and macOS local AI-agent runtime and MCP gateway</strong><br />
+  <sub>macOS 15+ Apple-Silicon builds include local MCP, filesystem, Git, process, browser-CDP, native desktop helpers, and Remote MCP via ngrok.</sub><br />
   <em>231 total tool definitions for local files, Git, processes, Windows automation, WSL, browser control, durable goal continuation, indexing, observability, and extensibility; 224 are advertised by default and all 231 when Codex delegation plus Agent Swarm is enabled.</em>
 
   <em>อ่านที่เหลือใน Readme ได้เลยครับ ติดปัญหาทักมาได้ใน FB: Adisorn NM ได้ตลอดครับ / กำลังพัฒนาให้เรื่อยๆครับ ท่านที่ถามหาช่องสนับสนุนค่ากาแฟ แปะลิงค์ ไว้ให้แล้วครับ ขอบคุณครับ</em>
@@ -15,7 +16,7 @@
 <p align="center">
   <a href="https://github.com/engasnm111/lnwjud/releases/latest"><img alt="GitHub Release" src="https://img.shields.io/github/v/release/engasnm111/lnwjud" /></a>
   <a href="LICENSE"><img alt="License" src="https://img.shields.io/badge/license-MIT-blue.svg" /></a>
-  <img alt="Platform" src="https://img.shields.io/badge/platform-Windows%20x64-0078D4" />
+  <img alt="Platform" src="https://img.shields.io/badge/platform-Windows%20x64%20%7C%20macOS%20arm64-0078D4" />
   <img alt="Node" src="https://img.shields.io/badge/Node.js-24.x-339933" />
   <img alt="MCP" src="https://img.shields.io/badge/MCP-231%20tools-6f42c1" />
 </p>
@@ -24,20 +25,20 @@
 
 ## What is lnwjud?
 
-lnwjud is a Windows-first local development gateway that exposes trusted local
-capabilities through the [Model Context Protocol (MCP)](https://modelcontextprotocol.io).
+lnwjud is a Windows-first local development gateway with a native Apple-Silicon
+macOS host that exposes trusted local capabilities through the [Model Context Protocol (MCP)](https://modelcontextprotocol.io).
 It is designed for AI-assisted software development where the agent needs more
 than a text-only chat: it may need to inspect a repository, search code, edit
 files, review Git state, run project commands, manage owned processes, inspect
 Windows UI state, automate a managed browser, work with WSL, or call an
 additional local MCP server.
 
-The runtime stays on the Windows machine. Local filesystem paths, processes,
-SQLite state, credentials, and capability backends are owned by lnwjud on that
-machine. Remote AI clients only receive the MCP requests and results that travel
-through the connection mode you choose.
+The runtime stays on the local Windows or macOS machine. Local filesystem paths,
+processes, SQLite state, credentials, and capability backends are owned by lnwjud
+on that machine. Remote AI clients only receive the MCP requests and results that
+travel through the connection mode you choose.
 
-For ChatGPT web and other supported OpenAI surfaces, lnwjud supports the official
+On Windows, lnwjud supports the official
 [OpenAI Secure MCP Tunnel](https://developers.openai.com/api/docs/guides/secure-mcp-tunnels).
 The tunnel is outbound-only: `tunnel-client` runs beside lnwjud, reaches OpenAI
 over outbound HTTPS, forwards MCP work to lnwjud's Desktop loopback HTTP MCP,
@@ -138,6 +139,10 @@ Current v4 highlights include:
   Doctor checks, health surfaces, and background tray operation.
 - OpenAI Secure MCP Tunnel management with Windows DPAPI-encrypted runtime-key
   storage and reconnect handling.
+- On macOS 15+ Apple Silicon, native helpers provide windows, input, display
+  capture/OCR/annotation, clipboard, dialogs, notifications, audio, screen recording,
+  Keychain-backed secrets, PDF text, selected Office automation, and launchd scheduling.
+  The platform-specific limits are listed in the macOS install section below.
 
 Authoritative in-repository references:
 
@@ -188,7 +193,7 @@ full scans can still inspect paths allowed by the active workspace/policy.
 
 ## Connection modes
 
-| Client / use case | Connection | What must run on Windows | Notes |
+| Client / use case | Connection | What must run locally | Notes |
 | --- | --- | --- | --- |
 | ChatGPT web developer-mode app | Remote MCP via ngrok + OAuth | lnwjud Desktop + ngrok | Recommended easy path: public HTTPS `/mcp` terminates at a separate OAuth-protected loopback gateway; 6-digit pairing is required only for the first authorization or an explicit Reconnect ChatGPT |
 | ChatGPT web developer-mode app | OpenAI Secure MCP Tunnel | `tunnel-client` + lnwjud Desktop | Private outbound-only path to the Desktop loopback HTTP MCP; no public MCP port |
@@ -203,6 +208,18 @@ If the preferred port `18765` is busy, the server can fall back to an ephemeral
 loopback port; always use the endpoint shown in the dashboard. The **Start
 Connection** button is useful after a manual stop, while **Stop Connection**
 stops the current local HTTP listener.
+
+## Quick start: install the macOS release
+
+The macOS release is an **unsigned Apple-Silicon (`arm64`) build for macOS 15 or later**. Download `lnwjud-<version>-mac-arm64.dmg` or `.zip` and `MACOS-SHA256SUMS.txt` from the matching GitHub Release; verify the downloaded artifact before opening it. Then move **lnwjud.app** to Applications and open it with Finder's Control-click → Open flow. The first run may need Screen Recording, Accessibility, Automation (for Office), or Microphone permission depending on the tools you use; macOS shows those prompts when the feature is first invoked.
+
+lnwjud stores per-user state at `~/Library/Application Support/lnwjud`. The packaged local stdio executable is:
+
+```text
+/Applications/lnwjud.app/Contents/MacOS/lnwjud-mcp-stdio
+```
+
+Use **Remote MCP — ngrok + OAuth** for remote ChatGPT access. On macOS the Desktop installer action uses Homebrew only after the user explicitly asks to install ngrok; install Homebrew first if it is not already available. OpenAI Secure MCP Tunnel intentionally remains unavailable on macOS because its official client bundle is Windows-only. WSL, Windows Registry, Windows Sandbox, and Windows event-watch-specific tools remain visible with a truthful unsupported state rather than pretending to work.
 
 ## Quick start: install the Windows release
 

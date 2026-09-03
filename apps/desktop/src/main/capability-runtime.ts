@@ -6,7 +6,10 @@ import {
   capabilityToolNames,
   HealthCapabilityBackend,
   LocalCapabilityService,
+  MacosCapabilityBridge,
+  MacosNativeCapabilityBackend,
   NodeBrowserCdpProtocol,
+  type NativeCapabilityName,
   PowerShellWindowsCapabilityBridge,
   SchedulerCapabilityBackend,
   ShellCapabilityBackend,
@@ -66,23 +69,29 @@ export function createLocalCapabilityRuntime(
     ...(expectedScriptSizeBytes === undefined ? {} : { expectedScriptSizeBytes }),
   });
   const nativeOptions = { allowedRootsProvider: capabilityRootsProvider, unrestricted };
-  const accessibilityBackend = new WindowsNativeCapabilityBackend('accessibility', windowsBridge);
-  const inputEventBackend = new WindowsNativeCapabilityBackend('input_event', windowsBridge);
-  const nativeVisionBackend = new WindowsNativeCapabilityBackend('vision', windowsBridge);
+  const macosBridge = process.platform === 'darwin' ? new MacosCapabilityBridge({ helperPath: macosHelperPath() }) : undefined;
+  const nativeBackend = (capability: NativeCapabilityName, options = nativeOptions) => macosBridge === undefined
+    ? new WindowsNativeCapabilityBackend(capability, windowsBridge, process.platform, options)
+    : new MacosNativeCapabilityBackend(capability, macosBridge, process.platform, options);
+  const accessibilityBackend = nativeBackend('accessibility');
+  const inputEventBackend = nativeBackend('input_event');
+  const nativeVisionBackend = nativeBackend('vision');
   const ocrHelperPath = windowsOcrHelperPath();
   const ocrHelper = ocrHelperPath === undefined ? undefined : new WindowsOcrProcessBridge({ helperPath: ocrHelperPath });
-  const visionBackend = new VisionCapabilityBackend(nativeVisionBackend, new WindowsOcrCapabilityBackend({
-    platform: process.platform,
-    ...(ocrHelper === undefined ? {} : { helper: ocrHelper, packageIdentity: createOcrPackageIdentityProbe(ocrHelper) }),
-  }));
-  const windowBackend = new WindowsNativeCapabilityBackend('window', windowsBridge);
-  const systemInfoBackend = new WindowsNativeCapabilityBackend('system_info', windowsBridge);
-  const notificationBackend = new WindowsNativeCapabilityBackend('notification', windowsBridge);
-  const fileDialogBackend = new WindowsNativeCapabilityBackend('file_dialog', windowsBridge);
-  const clipboardBackend = new WindowsNativeCapabilityBackend('clipboard', windowsBridge);
-  const audioBackend = new WindowsNativeCapabilityBackend('audio', windowsBridge, process.platform, nativeOptions);
-  const screenRecordBackend = new WindowsNativeCapabilityBackend('screen_record', windowsBridge, process.platform, nativeOptions);
-  const officeBackend = new WindowsNativeCapabilityBackend('office', windowsBridge, process.platform, nativeOptions);
+  const visionBackend = new VisionCapabilityBackend(nativeVisionBackend, process.platform === 'darwin'
+    ? nativeVisionBackend
+    : new WindowsOcrCapabilityBackend({
+      platform: process.platform,
+      ...(ocrHelper === undefined ? {} : { helper: ocrHelper, packageIdentity: createOcrPackageIdentityProbe(ocrHelper) }),
+    }));
+  const windowBackend = nativeBackend('window');
+  const systemInfoBackend = nativeBackend('system_info');
+  const notificationBackend = nativeBackend('notification');
+  const fileDialogBackend = nativeBackend('file_dialog');
+  const clipboardBackend = nativeBackend('clipboard');
+  const audioBackend = nativeBackend('audio');
+  const screenRecordBackend = nativeBackend('screen_record');
+  const officeBackend = nativeBackend('office');
   const webFetchBackend = new WebFetchCapabilityBackend();
   const schedulerBackend = new SchedulerCapabilityBackend();
   const wslAvailabilityCache = new AsyncTtlCache<Result<unknown>>(15_000);
@@ -186,6 +195,19 @@ function windowsOcrHelperPath(): string | undefined {
   return candidates.find((candidate) => existsSync(candidate));
 }
 
+function macosHelperPath(): string {
+  const configured = process.env.LNWJUD_MACOS_HELPER;
+  if (configured !== undefined && configured.trim().length > 0) return path.resolve(configured);
+  const resourcesPath = (process as NodeJS.Process & { resourcesPath?: string }).resourcesPath;
+  const candidates = [
+    path.resolve(process.cwd(), 'apps', 'desktop', 'build', 'lnwjud-macos-helper'),
+    path.resolve(process.cwd(), 'build', 'lnwjud-macos-helper'),
+    resourcesPath === undefined ? undefined : path.join(resourcesPath, 'lnwjud-macos-helper'),
+    path.join(path.dirname(process.execPath), 'lnwjud-macos-helper'),
+  ].filter((candidate): candidate is string => candidate !== undefined);
+  return candidates.find((candidate) => existsSync(candidate)) ?? candidates[0]!;
+}
+
 const capabilityTitles: Readonly<Record<(typeof capabilityToolNames)[number], string>> = {
   shell: 'Run system and CLI tasks',
   dom_cdp: 'Control managed Chrome',
@@ -195,14 +217,14 @@ const capabilityTitles: Readonly<Record<(typeof capabilityToolNames)[number], st
   window: 'Manage native desktop windows',
   health: 'Check tool readiness',
   system_info: 'Read system information',
-  notification: 'Show Windows notifications',
+  notification: 'Show native notifications',
   file_dialog: 'Native file open/save dialogs',
   clipboard: 'Read and write the clipboard',
   web_fetch: 'Fetch http/https URLs',
   audio: 'Record and play audio',
-  screen_record: 'Record the screen to MP4',
-  office: 'Automate Excel and Word',
-  scheduler: 'Manage Windows scheduled tasks',
+  screen_record: 'Record the screen to a local video file',
+  office: 'Automate local Microsoft Office apps',
+  scheduler: 'Manage local scheduled tasks',
   wsl_exec: 'Run scoped Linux developer tasks',
   wsl_fs: 'Translate scoped Windows and WSL paths',
 };
@@ -210,20 +232,20 @@ const capabilityTitles: Readonly<Record<(typeof capabilityToolNames)[number], st
 const capabilityDescriptions: Readonly<Record<(typeof capabilityToolNames)[number], string>> = {
   shell: 'System, CLI, file, process, and developer tasks',
   dom_cdp: 'DOM work inside a local managed Chrome session',
-  accessibility: 'Windows UI Automation trees and semantic controls',
+  accessibility: 'Native semantic UI trees and controls',
   input_event: 'Native keyboard, pointer, drag, and scroll events',
   vision: 'Local screen, monitor, region, and window capture',
   window: 'List, focus, move, resize, minimize, restore, and close windows',
   health: 'Readiness and capability diagnostics',
   system_info: 'OS, CPU, memory, disks, battery, uptime, and top processes',
-  notification: 'Toast or balloon notifications for the local user',
-  file_dialog: 'Windows open/save dialog returning chosen paths',
+  notification: 'Native notifications for the local user',
+  file_dialog: 'Native open/save dialog returning chosen paths',
   clipboard: 'Clipboard text and PNG image access',
   web_fetch: 'Bounded HTTP requests with text or base64 responses',
   audio: 'Microphone recording and local audio playback',
-  screen_record: 'ffmpeg gdigrab screen capture with start/stop/status',
-  office: 'Excel range read/write and Word text operations via COM',
-  scheduler: 'schtasks.exe list/create/run/delete operations',
+  screen_record: 'Native screen capture with start/stop/status',
+  office: 'Office automation through Windows COM or macOS Apple Events',
+  scheduler: 'Windows schtasks or macOS LaunchAgent operations',
   wsl_exec: 'WSL2 argv-only execution inside registered workspaces',
   wsl_fs: 'Path translation and metadata without raw WSL filesystem access',
 };

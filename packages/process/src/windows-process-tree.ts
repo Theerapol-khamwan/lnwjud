@@ -24,6 +24,7 @@ export class WindowsProcessTree implements ProcessTreeTerminator {
 
   public async stop(child: ChildProcess, pid: number): Promise<void> {
     if (this.platform !== 'win32') {
+      await stopPosixDescendants(pid);
       if (child.exitCode === null) child.kill('SIGTERM');
       await this.waitForExit(child);
       return;
@@ -45,6 +46,41 @@ export class WindowsProcessTree implements ProcessTreeTerminator {
     this.acceptedTreeStops.add(child);
     await this.waitForExit(child);
   }
+}
+
+/**
+ * Node children are not consistently process-group leaders on macOS. Stopping
+ * only their root leaks subprocesses (for example browser launchers and
+ * package-manager workers), so enumerate descendants before terminating the
+ * root. The lookup is best-effort: process exits and permission failures are
+ * expected races and never turn a successful root stop into a false failure.
+ */
+async function stopPosixDescendants(rootPid: number): Promise<void> {
+  const descendants = await collectPosixDescendants(rootPid);
+  for (const pid of descendants.reverse()) {
+    try { process.kill(pid, 'SIGTERM'); } catch { /* exited or not owned */ }
+  }
+}
+
+async function collectPosixDescendants(parentPid: number): Promise<number[]> {
+  const children = await listPosixChildren(parentPid);
+  const descendants: number[] = [];
+  for (const childPid of children) {
+    descendants.push(...await collectPosixDescendants(childPid));
+    descendants.push(childPid);
+  }
+  return descendants;
+}
+
+function listPosixChildren(parentPid: number): Promise<number[]> {
+  return new Promise((resolve) => {
+    const finder = spawn('/usr/bin/pgrep', ['-P', String(parentPid)], { shell: false, windowsHide: true, stdio: ['ignore', 'pipe', 'ignore'] });
+    let output = '';
+    finder.stdout?.setEncoding('utf8');
+    finder.stdout?.on('data', (chunk: string) => { output += chunk; });
+    finder.once('error', () => resolve([]));
+    finder.once('close', () => resolve(output.split(/\s+/).map(Number).filter((value) => Number.isSafeInteger(value) && value > 0)));
+  });
 }
 
 function runTaskkill(pid: number): Promise<number | null> {

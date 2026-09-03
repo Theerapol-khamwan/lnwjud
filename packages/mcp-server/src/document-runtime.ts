@@ -25,6 +25,10 @@ const PROVIDER_ENV = 'LNWJUD_PDF_PROVIDER';
 const PROVIDER_CANDIDATES = ['pdftotext.exe', 'pdftotext'];
 const MAX_DOCUMENT_BYTES = 64 * 1024 * 1024;
 const MAX_TEXT_CHARS = 2_000_000;
+// `path` follows the host platform (and therefore preserves the existing
+// Windows behaviour).  Document paths must not be parsed with win32 rules on
+// macOS: an absolute POSIX path otherwise becomes a relative `\\Users...` path.
+const workspacePath = process.platform === 'win32' ? path.win32 : path;
 
 export interface DocumentRuntimeOptions {
   readonly environment?: NodeJS.ProcessEnv;
@@ -279,6 +283,11 @@ export class DocumentRuntimeService {
       this.providerCache = existsSync(this.pdfProviderOverride) ? this.pdfProviderOverride : null;
       return this.providerCache;
     }
+    const macosBundledProvider = process.platform === 'darwin' ? bundledMacosPdfProvider() : null;
+    if (macosBundledProvider !== null) {
+      this.providerCache = macosBundledProvider;
+      return this.providerCache;
+    }
     for (const candidate of PROVIDER_CANDIDATES) {
       const resolved = lookupOnPath(candidate, this.environment.PATH);
       if (resolved !== null) {
@@ -304,21 +313,21 @@ export class DocumentRuntimeService {
     if (!root.ok) return root;
     let canonicalRoot: string;
     try {
-      canonicalRoot = path.win32.normalize(await realpath(root.value));
+      canonicalRoot = workspacePath.normalize(await realpath(root.value));
     } catch {
       return err(appError('WORKSPACE_NOT_FOUND', 'Workspace root could not be resolved'));
     }
     // Windows can expose the same physical location under an 8.3 short path
     // while realpath() returns the long spelling. Do not make a lexical
     // containment decision until the candidate (or its parent) is canonical.
-    const absoluteRequest = path.win32.isAbsolute(requested);
-    const candidate = absoluteRequest ? path.win32.normalize(requested) : path.win32.join(canonicalRoot, requested);
+    const absoluteRequest = workspacePath.isAbsolute(requested);
+    const candidate = absoluteRequest ? workspacePath.normalize(requested) : workspacePath.join(canonicalRoot, requested);
     const allowOutsideAbsolute = absoluteRequest && isFullBypassAuthorization(authorization);
 
     if (mustExist) {
       if (!existsSync(candidate)) return err(appError('FILE_NOT_FOUND', `File was not found: ${candidate}`));
       try {
-        const canonical = path.win32.normalize(await realpath(candidate));
+        const canonical = workspacePath.normalize(await realpath(candidate));
         return allowOutsideAbsolute || isWithin(canonicalRoot, canonical)
           ? ok(canonical)
           : err(appError('PATH_OUTSIDE_WORKSPACE', `Document path resolves outside the registered workspace: ${requested}`));
@@ -327,11 +336,11 @@ export class DocumentRuntimeService {
       }
     }
 
-    const parent = path.win32.dirname(candidate);
+    const parent = workspacePath.dirname(candidate);
     try {
-      const canonicalParent = path.win32.normalize(await realpath(parent));
+      const canonicalParent = workspacePath.normalize(await realpath(parent));
       if (!allowOutsideAbsolute && !isWithin(canonicalRoot, canonicalParent)) return err(appError('PATH_OUTSIDE_WORKSPACE', `Document target resolves outside the registered workspace: ${requested}`));
-      return ok(path.win32.join(canonicalParent, path.win32.basename(candidate)));
+      return ok(workspacePath.join(canonicalParent, workspacePath.basename(candidate)));
     } catch {
       return err(appError('FILE_NOT_FOUND', `Document target parent was not found: ${parent}`));
     }
@@ -347,8 +356,21 @@ export class DocumentRuntimeService {
       : undefined;
     return rootPath === undefined
       ? err(appError('INTERNAL_ERROR', 'Workspace root could not be resolved', true))
-      : ok(path.win32.normalize(rootPath));
+      : ok(workspacePath.normalize(rootPath));
   }
+}
+
+function bundledMacosPdfProvider(): string | null {
+  const resourcesPath = (process as NodeJS.Process & { resourcesPath?: string }).resourcesPath;
+  const candidates = [
+    process.env.LNWJUD_MACOS_HELPER,
+    path.join(path.dirname(process.execPath), 'lnwjud-macos-helper'),
+    resourcesPath === undefined ? undefined : path.join(resourcesPath, 'lnwjud-macos-helper'),
+    path.resolve(process.cwd(), 'apps', 'desktop', 'build', 'lnwjud-macos-helper'),
+    path.resolve(process.cwd(), 'build', 'lnwjud-macos-helper'),
+  ].filter((candidate): candidate is string => typeof candidate === 'string' && candidate.length > 0);
+  const helper = candidates.find((candidate) => existsSync(candidate));
+  return helper === undefined ? null : path.resolve(helper);
 }
 
 function lookupOnPath(executable: string, pathValue: string | undefined): string | null {
@@ -402,10 +424,12 @@ function unavailable(tool: string, reason: string, requirements: readonly string
 }
 
 function isWithin(root: string, candidate: string): boolean {
-  const relative = path.win32.relative(root.toLowerCase(), candidate.toLowerCase());
+  const comparableRoot = process.platform === 'win32' ? root.toLowerCase() : root;
+  const comparableCandidate = process.platform === 'win32' ? candidate.toLowerCase() : candidate;
+  const relative = workspacePath.relative(comparableRoot, comparableCandidate);
   if (relative === '') return true;
-  if (path.win32.isAbsolute(relative)) return false;
-  const [firstSegment] = relative.split(path.win32.sep);
+  if (workspacePath.isAbsolute(relative)) return false;
+  const [firstSegment] = relative.split(workspacePath.sep);
   return firstSegment !== '..';
 }
 

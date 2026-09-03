@@ -141,7 +141,28 @@ export class RemoteMcpController {
       this.message = 'ngrok is already installed';
       return this.status();
     }
-    if (process.platform !== 'win32') throw new Error('Automatic ngrok installation is currently available on Windows only');
+    if (process.platform === 'darwin') {
+      this.runState = 'installing';
+      this.message = 'Installing ngrok with Homebrew…';
+      try {
+        const brew = await resolveMacosHomebrewExecutable();
+        if (brew === null) {
+          throw new Error('Homebrew is not installed. Install Homebrew from https://brew.sh, restart lnwjud, then choose Install/Repair ngrok again.');
+        }
+        await runCommand(brew, ['install', 'ngrok'], 180_000);
+        const installed = await resolveNgrokExecutable();
+        if (installed === null) throw new Error('ngrok installation completed but no runnable ngrok executable was found. Install it with Homebrew and retry.');
+        this.ngrokPath = installed;
+        this.runState = 'stopped';
+        this.message = 'ngrok installed with Homebrew';
+        return this.status();
+      } catch (error) {
+        this.runState = 'error';
+        this.message = errorMessage(error) || 'Install Homebrew, then run: brew install ngrok/ngrok/ngrok';
+        throw error;
+      }
+    }
+    if (process.platform !== 'win32') throw new Error('Automatic ngrok installation is available on Windows and macOS only');
     this.runState = 'installing';
     this.message = 'Installing ngrok from Microsoft Store via WinGet…';
     try {
@@ -165,7 +186,7 @@ export class RemoteMcpController {
     await mkdir(this.secretDir(), { recursive: true });
     const encrypted = await protectTunnelSecret(token);
     await writeFile(this.secretPath(), encrypted, { encoding: 'utf8', mode: 0o600 });
-    this.message = 'ngrok authtoken saved securely with Windows DPAPI';
+    this.message = process.platform === 'darwin' ? 'ngrok authtoken saved securely in macOS Keychain' : 'ngrok authtoken saved securely with Windows DPAPI';
     return this.status();
   }
 
@@ -615,17 +636,41 @@ export function buildNgrokHttpArgs(gatewayUrl: string): string[] {
 }
 
 export async function resolveNgrokExecutable(): Promise<string | null> {
-  if (process.platform !== 'win32') return null;
-  let output: string;
+  const candidates = process.platform === 'darwin' ? macosNgrokExecutableCandidates() : [];
   try {
-    output = await runCommand('where.exe', ['ngrok.exe'], 5_000);
-  } catch { return null; }
-  const candidates = [...new Set(output.split(/\r?\n/).map((line) => line.trim()).filter((line) => line.length > 0))];
-  for (const candidate of candidates) {
+    const output = process.platform === 'win32'
+      ? await runCommand('where.exe', ['ngrok.exe'], 5_000)
+      : await runCommand('which', ['ngrok'], 5_000);
+    candidates.push(...output.split(/\r?\n/).map((line) => line.trim()).filter((line) => line.length > 0));
+  } catch { /* Finder-launched macOS apps often have no Homebrew PATH; use standard prefixes below. */ }
+  for (const candidate of [...new Set(candidates)]) {
     try {
       const version = await runCommand(candidate, ['version'], 5_000);
       if (/\bngrok\s+version\b/i.test(version)) return candidate;
     } catch { /* Ignore stale App Execution Aliases and try the next candidate. */ }
+  }
+  return null;
+}
+
+/** Standard Homebrew locations are required because Finder does not inherit ~/.zprofile. */
+export function macosNgrokExecutableCandidates(): string[] {
+  return process.platform === 'darwin'
+    ? ['/opt/homebrew/bin/ngrok', '/usr/local/bin/ngrok']
+    : [];
+}
+
+async function resolveMacosHomebrewExecutable(): Promise<string | null> {
+  if (process.platform !== 'darwin') return null;
+  const candidates = ['/opt/homebrew/bin/brew', '/usr/local/bin/brew'];
+  try {
+    const output = await runCommand('/usr/bin/which', ['brew'], 5_000);
+    candidates.push(...output.split(/\r?\n/).map((line) => line.trim()).filter((line) => line.length > 0));
+  } catch { /* Fall back to Apple-Silicon and Intel Homebrew prefixes. */ }
+  for (const candidate of [...new Set(candidates)]) {
+    try {
+      const version = await runCommand(candidate, ['--version'], 5_000);
+      if (/Homebrew/i.test(version)) return candidate;
+    } catch { /* Keep trying standard locations. */ }
   }
   return null;
 }
@@ -635,7 +680,7 @@ export function selectRecoverableStaleNgrokProcess(processes: readonly NgrokProc
   const matches = processes.filter((entry) => {
     if (entry.parentAlive || entry.processId <= 0) return false;
     const commandLine = entry.commandLine.trim().toLowerCase().replace(/\s+/g, ' ');
-    return commandLine.includes('ngrok.exe')
+    return (commandLine.includes('ngrok.exe') || /(^|[\\/\s])ngrok(?:\s|$)/.test(commandLine))
       && commandLine.includes(` http ${normalizedTarget} `)
       && commandLine.includes('--log=stdout')
       && commandLine.includes('--log-format=json');
@@ -644,7 +689,7 @@ export function selectRecoverableStaleNgrokProcess(processes: readonly NgrokProc
 }
 
 async function recoverStaleLnwjudNgrokRuntime(): Promise<boolean> {
-  if (process.platform !== 'win32') return false;
+  if (process.platform !== 'win32' && process.platform !== 'darwin') return false;
   const tunnels = await readNgrokTunnelSnapshots();
   if (tunnels.length === 0) return false;
   const processes = await readNgrokProcessSnapshots();
@@ -675,6 +720,19 @@ async function readNgrokTunnelSnapshots(): Promise<NgrokTunnelSnapshot[]> {
 }
 
 async function readNgrokProcessSnapshots(): Promise<NgrokProcessSnapshot[]> {
+  if (process.platform === 'darwin') {
+    try {
+      const output = await runCommand('/bin/ps', ['-axo', 'pid=,ppid=,command='], 5_000);
+      return output.split(/\r?\n/).flatMap((line): NgrokProcessSnapshot[] => {
+        const fields = /^\s*(\d+)\s+(\d+)\s+(.*)$/.exec(line);
+        const processId = Number(fields?.[1]);
+        const parentProcessId = Number(fields?.[2]);
+        const commandLine = fields?.[3] ?? '';
+        if (!Number.isInteger(processId) || !Number.isInteger(parentProcessId) || !/(^|[\\/])ngrok(?:\s|$)/.test(commandLine)) return [];
+        return [{ processId, parentProcessId, parentAlive: isProcessAlive(parentProcessId), commandLine }];
+      });
+    } catch { return []; }
+  }
   const systemRoot = process.env.SystemRoot?.trim() || 'C:\\Windows';
   const powershell = path.join(systemRoot, 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe');
   const script = '$items = @(Get-CimInstance Win32_Process -Filter "Name=\'ngrok.exe\'" | ForEach-Object { [pscustomobject]@{ ProcessId=[int]$_.ProcessId; ParentProcessId=[int]$_.ParentProcessId; ParentAlive=[bool](Get-Process -Id ([int]$_.ParentProcessId) -ErrorAction SilentlyContinue); CommandLine=[string]$_.CommandLine } }); ConvertTo-Json -Compress -InputObject $items';

@@ -25,9 +25,18 @@ export type WindowsCapabilityName =
   | 'screen_record'
   | 'office';
 
+/**
+ * Shared native-capability contract.  Its historic Windows names remain
+ * exported for API compatibility; macOS uses the same MCP input/output
+ * schemas through a different bridge implementation.
+ */
+export type NativeCapabilityName = WindowsCapabilityName;
+
 export interface WindowsCapabilityBridge {
   execute(request: { readonly capability: WindowsCapabilityName; readonly input: unknown }, signal?: AbortSignal): Promise<Result<unknown>>;
 }
+
+export type NativeCapabilityBridge = WindowsCapabilityBridge;
 
 export interface WindowsNativeBackendOptions {
   /**
@@ -38,6 +47,8 @@ export interface WindowsNativeBackendOptions {
   /** @deprecated Retained for caller compatibility; path-bearing native tools remain scoped. */
   readonly unrestricted?: boolean;
 }
+
+export type NativeBackendOptions = WindowsNativeBackendOptions;
 
 type NativePathField = 'file_path' | 'output_path' | 'target_path' | 'merge_paths';
 
@@ -55,16 +66,19 @@ const PATH_FIELDS: Readonly<Record<WindowsCapabilityName, readonly NativePathFie
   office: ['file_path', 'target_path', 'merge_paths'],
 };
 
-export class WindowsNativeCapabilityBackend implements CapabilityBackend {
+export class PlatformNativeCapabilityBackend implements CapabilityBackend {
   public constructor(
-    private readonly capability: WindowsCapabilityName,
-    private readonly bridge: WindowsCapabilityBridge,
+    private readonly capability: NativeCapabilityName,
+    private readonly bridge: NativeCapabilityBridge,
+    private readonly supportedPlatform: 'win32' | 'darwin',
     private readonly platform: NodeJS.Platform = process.platform,
-    private readonly options: WindowsNativeBackendOptions = {},
+    private readonly options: NativeBackendOptions = {},
   ) {}
 
   public async execute(input: unknown, signal?: AbortSignal, authorization?: InvocationAuthorization): Promise<Result<unknown>> {
-    if (this.platform !== 'win32') return err(appError('INTERNAL_ERROR', 'Windows capability is unavailable on this platform', true));
+    if (this.platform !== this.supportedPlatform) {
+      return err(appError('INTERNAL_ERROR', `${this.supportedPlatform === 'darwin' ? 'macOS' : 'Windows'} capability is unavailable on this platform`, true));
+    }
     if (!isRecord(input)) return err(appError('INVALID_INPUT', 'Native capability input must be an object'));
     if (input.dry_run === true) return ok({ dry_run: true, capability: this.capability });
     if (isSignalAborted(signal)) return cancelledOperation();
@@ -139,6 +153,30 @@ export class WindowsNativeCapabilityBackend implements CapabilityBackend {
       }
     }
     return roots;
+  }
+}
+
+/** Windows adapter retained for existing imports and integrations. */
+export class WindowsNativeCapabilityBackend extends PlatformNativeCapabilityBackend {
+  public constructor(
+    capability: WindowsCapabilityName,
+    bridge: WindowsCapabilityBridge,
+    platform: NodeJS.Platform = process.platform,
+    options: WindowsNativeBackendOptions = {},
+  ) {
+    super(capability, bridge, 'win32', platform, options);
+  }
+}
+
+/** macOS adapter with exactly the same validation and MCP contract as Windows. */
+export class MacosNativeCapabilityBackend extends PlatformNativeCapabilityBackend {
+  public constructor(
+    capability: NativeCapabilityName,
+    bridge: NativeCapabilityBridge,
+    platform: NodeJS.Platform = process.platform,
+    options: NativeBackendOptions = {},
+  ) {
+    super(capability, bridge, 'darwin', platform, options);
   }
 }
 

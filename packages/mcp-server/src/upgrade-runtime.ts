@@ -403,7 +403,7 @@ export class UpgradeRuntimeService {
       case 'installed_runtime_context':
       case 'path_context':
       case 'startup_context':
-        return this.windowsInsight(name, input, signal, authorization);
+        return this.platformInsight(name, input, signal, authorization);
       case 'capture_screenshot':
       case 'compare_screenshot':
       case 'dom_snapshot':
@@ -1042,8 +1042,12 @@ export class UpgradeRuntimeService {
     const workspaceId = readString(input, 'workspaceId');
     if (workspaceId === undefined) return err(appError('INVALID_INPUT', 'workspaceId is required for a Git worktree'));
     const worktreePath = readString(input, 'worktreePath') ?? `.worktrees/agent-${randomUUID().slice(0, 8)}`;
-    const absolutePath = path.win32.isAbsolute(worktreePath);
-    const normalizedPath = path.win32.normalize(worktreePath).replaceAll('\\', '/');
+    // Worktree paths are host filesystem paths. Parsing a POSIX absolute path
+    // with win32 rules turns it into a relative path and incorrectly rejects
+    // an explicitly authorized macOS worktree.
+    const worktreePathApi = process.platform === 'win32' ? path.win32 : path;
+    const absolutePath = worktreePathApi.isAbsolute(worktreePath);
+    const normalizedPath = worktreePathApi.normalize(worktreePath).replaceAll('\\', '/');
     const scopedRelativePath = !absolutePath
       && !normalizedPath.split('/').some((part) => part === '..')
       && (normalizedPath.startsWith('.worktrees/') || normalizedPath.startsWith('.lnwjud/worktrees/'));
@@ -1525,8 +1529,10 @@ export class UpgradeRuntimeService {
     return screenshot.ok ? ok({ tool: name, status: 'ready', available: true, ready: true, executed: true, dom: dom.value, screenshot: screenshot.value }) : screenshot;
   }
 
-  private async windowsInsight(name: string, input: Record<string, unknown>, signal?: AbortSignal, authorization?: InvocationAuthorization): Promise<Result<unknown>> {
-    if (process.platform !== 'win32') return ok(truthfulUnavailable(name, 'unsupported', ['Windows host']));
+  private async platformInsight(name: string, input: Record<string, unknown>, signal?: AbortSignal, authorization?: InvocationAuthorization): Promise<Result<unknown>> {
+    if (process.platform !== 'win32' && process.platform !== 'darwin') return ok(truthfulUnavailable(name, 'unsupported', ['Windows or macOS host']));
+
+    if (process.platform === 'darwin') return this.macosInsight(name, input, signal, authorization);
 
     if (name === 'windows_environment') {
       let systemInfo: unknown = null;
@@ -1589,6 +1595,63 @@ export class UpgradeRuntimeService {
     const userStartup = await runBoundedProcess('reg.exe', ['query', 'HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run'], signal);
     const machineStartup = await runBoundedProcess('reg.exe', ['query', 'HKLM\\Software\\Microsoft\\Windows\\CurrentVersion\\Run'], signal);
     return ok({ tool: name, status: 'ready', available: true, ready: true, executed: true, user: userStartup.ok ? userStartup.value.stdout : null, machine: machineStartup.ok ? machineStartup.value.stdout : null, errors: [userStartup.ok ? null : userStartup.error.message, machineStartup.ok ? null : machineStartup.error.message].filter(Boolean) });
+  }
+
+  private async macosInsight(name: string, input: Record<string, unknown>, signal?: AbortSignal, authorization?: InvocationAuthorization): Promise<Result<unknown>> {
+    const ready = (value: Record<string, unknown>): Result<unknown> => ok({ tool: name, status: 'ready', available: true, ready: true, executed: true, platform: 'darwin', ...value });
+    if (name === 'registry_context') return ok(truthfulUnavailable(name, 'unsupported', ['Windows Registry; macOS has no compatible registry']));
+    if (name === 'windows_environment') {
+      const info = this.services.capabilities === undefined
+        ? null
+        : await this.services.capabilities.execute('system_info', { operation: 'all' }, signal, authorization);
+      return ready({ hostname: os.hostname(), release: os.release(), node: process.version, cwd: process.cwd(), systemInfo: info === null ? null : info.ok ? info.value : { error: info.error } });
+    }
+    if (name === 'process_context') {
+      if (this.services.capabilities !== undefined) {
+        const processes = await this.services.capabilities.execute('system_info', { operation: 'processes', top_count: boundedInteger(input.top_count, 50, 1, 500) }, signal, authorization);
+        return processes.ok ? ready({ processes: processes.value }) : processes;
+      }
+      const processes = await runBoundedProcess('/bin/ps', ['-axo', 'pid=,ppid=,rss=,time=,comm='], signal);
+      return processes.ok ? ready({ processes: processes.value.stdout }) : processes;
+    }
+    if (name === 'service_context') {
+      const service = readString(input, 'service') ?? readString(input, 'name');
+      if (service !== undefined && !/^[A-Za-z0-9_.-]{1,240}$/.test(service)) return err(appError('PERMISSION_DENIED', 'service_context only permits a simple launchd label'));
+      const domain = `gui/${typeof process.getuid === 'function' ? process.getuid() : 0}`;
+      const result = await runBoundedProcess('/bin/launchctl', service === undefined ? ['list'] : ['print', `${domain}/${service}`], signal);
+      return result.ok ? ready({ service: service ?? null, scheduler: 'launchd', output: result.value.stdout }) : result;
+    }
+    if (name === 'port_context') {
+      const result = await runBoundedProcess('/usr/sbin/lsof', ['-nP', '-iTCP', '-sTCP:LISTEN'], signal, 15_000, 512 * 1024);
+      return result.ok ? ready({ listening: result.value.stdout.split(/\r?\n/).filter(Boolean).slice(0, 1_000) }) : result;
+    }
+    if (name === 'event_log_context') {
+      const result = await runBoundedProcess('/usr/bin/log', ['show', '--style', 'syslog', '--last', '1h'], signal, 30_000, 512 * 1024);
+      return result.ok ? ready({ eventLog: { backend: 'macOS Unified Log', events: result.value.stdout.split(/\r?\n/).filter(Boolean).slice(-boundedInteger(input.max_events, 100, 1, 500)) } }) : result;
+    }
+    if (name === 'installed_runtime_context') {
+      const checks: readonly [string, string, readonly string[]][] = [
+        ['node', 'node', ['--version']], ['npm', 'npm', ['--version']], ['corepack', 'corepack', ['--version']],
+        ['git', 'git', ['--version']], ['python', 'python3', ['--version']], ['swift', 'swift', ['--version']],
+      ];
+      const runtimes: Record<string, unknown>[] = [];
+      for (const [runtime, executable, args] of checks) {
+        const result = await runBoundedProcess(executable, args, signal, 5_000, 64 * 1024);
+        runtimes.push(result.ok ? { runtime, available: true, version: result.value.stdout.trim() } : { runtime, available: false });
+      }
+      return ready({ runtimes });
+    }
+    if (name === 'path_context') {
+      const entries = (process.env.PATH ?? '').split(path.delimiter).filter(Boolean);
+      const executable = readString(input, 'executable');
+      if (executable === undefined) return ready({ entries });
+      if (!/^[A-Za-z0-9_.-]+$/.test(executable)) return err(appError('INVALID_INPUT', 'path_context executable must be a simple executable name'));
+      const found = await runBoundedProcess('/usr/bin/which', [executable], signal, 5_000, 64 * 1024);
+      return ready({ entries, executable, matches: found.ok ? found.value.stdout.split(/\r?\n/).filter(Boolean) : [] });
+    }
+    const domain = `gui/${typeof process.getuid === 'function' ? process.getuid() : 0}`;
+    const startup = await runBoundedProcess('/bin/launchctl', ['print', domain], signal, 15_000, 512 * 1024);
+    return ready({ scheduler: 'launchd', user: startup.ok ? startup.value.stdout : null, errors: startup.ok ? [] : [startup.error.message] });
   }
 
   private actorForOperation(): FileActor {

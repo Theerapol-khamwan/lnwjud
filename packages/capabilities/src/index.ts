@@ -55,9 +55,19 @@ export {
   type WindowsOcrHelper,
   type WindowsOcrProcessBridgeOptions,
 } from './windows-ocr-backend.js';
-export { WindowsNativeCapabilityBackend, type WindowsCapabilityBridge, type WindowsCapabilityName } from './windows-native-backend.js';
+export {
+  MacosNativeCapabilityBackend,
+  PlatformNativeCapabilityBackend,
+  WindowsNativeCapabilityBackend,
+  type NativeBackendOptions,
+  type NativeCapabilityBridge,
+  type NativeCapabilityName,
+  type WindowsCapabilityBridge,
+  type WindowsCapabilityName,
+} from './windows-native-backend.js';
 export { EventLogCapabilityBackend, type EventLogBackendOptions, type EventLogRunner } from './event-log-backend.js';
 export { PowerShellWindowsCapabilityBridge, type PowerShellWindowsBridgeOptions } from './windows-bridge.js';
+export { MacosCapabilityBridge, type MacosCapabilityBridgeOptions } from './macos-bridge.js';
 export {
   capabilityDescriptors,
   type CapabilityAvailability,

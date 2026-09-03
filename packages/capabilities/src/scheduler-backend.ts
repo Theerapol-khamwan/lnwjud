@@ -1,10 +1,14 @@
 import { execFile } from 'node:child_process';
+import { mkdir, readdir, rm, writeFile } from 'node:fs/promises';
+import os from 'node:os';
+import path from 'node:path';
 import { promisify } from 'node:util';
 import { appError, err, isApplicationAuthorized, ok, type InvocationAuthorization, type Result } from '@lnwjud/domain';
 import type { CapabilityBackend } from './local-capability-service.js';
 
 const execFileAsync = promisify(execFile);
 const TASK_NAME_PATTERN = /^[\w .-]{1,200}$/;
+const MACOS_SCHEDULES = new Set(['DAILY', 'WEEKLY', 'MONTHLY', 'ONLOGON', 'ONSTART']);
 
 export interface SchedulerRunResult {
   readonly stdout: string;
@@ -15,16 +19,23 @@ export interface SchedulerBackendOptions {
   readonly platform?: NodeJS.Platform;
   readonly executable?: string;
   readonly runImpl?: (executable: string, args: readonly string[], signal?: AbortSignal) => Promise<SchedulerRunResult>;
+  /** Injectable per-user LaunchAgent location for macOS tests and sandboxes. */
+  readonly launchAgentsDirectory?: string;
+  readonly uid?: number;
 }
 
 export class SchedulerCapabilityBackend implements CapabilityBackend {
   private readonly platform: NodeJS.Platform;
   private readonly executable: string;
   private readonly runImpl: (executable: string, args: readonly string[], signal?: AbortSignal) => Promise<SchedulerRunResult>;
+  private readonly launchAgentsDirectory: string;
+  private readonly uid: number;
 
   public constructor(options: SchedulerBackendOptions = {}) {
     this.platform = options.platform ?? process.platform;
-    this.executable = options.executable ?? 'schtasks.exe';
+    this.executable = options.executable ?? (this.platform === 'darwin' ? '/bin/launchctl' : 'schtasks.exe');
+    this.launchAgentsDirectory = options.launchAgentsDirectory ?? path.join(os.homedir(), 'Library', 'LaunchAgents');
+    this.uid = options.uid ?? (typeof process.getuid === 'function' ? process.getuid() : 0);
     this.runImpl = options.runImpl ?? (async (executable, args, signal): Promise<SchedulerRunResult> => {
       const result = await execFileAsync(executable, [...args], { windowsHide: true, encoding: 'utf8', maxBuffer: 4 * 1024 * 1024, ...(signal === undefined ? {} : { signal }) });
       return { stdout: typeof result.stdout === 'string' ? result.stdout : '', stderr: typeof result.stderr === 'string' ? result.stderr : '' };
@@ -32,11 +43,14 @@ export class SchedulerCapabilityBackend implements CapabilityBackend {
   }
 
   public async execute(input: unknown, signal?: AbortSignal, authorization?: InvocationAuthorization): Promise<Result<unknown>> {
-    if (this.platform !== 'win32') return err(appError('INTERNAL_ERROR', 'Scheduled tasks are unavailable on this platform', true));
+    if (this.platform !== 'win32' && this.platform !== 'darwin') return err(appError('INTERNAL_ERROR', 'Scheduled tasks are unavailable on this platform', true));
     const parsed = parseRequest(input);
     if (!parsed.ok) return parsed;
     if (isSignalAborted(signal)) return cancelledOperation();
     const request = parsed.value;
+    if (this.platform === 'darwin' && request.action === 'create' && !MACOS_SCHEDULES.has(request.schedule)) {
+      return err(appError('INVALID_INPUT', 'macOS launchd supports DAILY, WEEKLY, MONTHLY, ONLOGON, and ONSTART schedules'));
+    }
 
     try {
       if (request.dryRun) {
@@ -59,10 +73,12 @@ export class SchedulerCapabilityBackend implements CapabilityBackend {
         ));
       }
       switch (request.action) {
-        case 'list': return ok({ tasks: await this.list(signal) });
-        case 'create': return ok(await this.create(request.taskName, request.command, request.arguments ?? [], request.schedule ?? 'DAILY', request.startTime ?? '09:00', signal));
-        case 'delete': return ok(await this.delete(request.taskName, signal));
-        case 'run': return ok(await this.run(request.taskName, signal));
+        case 'list': return ok({ tasks: this.platform === 'darwin' ? await this.listMacos(signal) : await this.list(signal) });
+        case 'create': return ok(this.platform === 'darwin'
+          ? await this.createMacos(request.taskName, request.command, request.arguments ?? [], request.schedule ?? 'DAILY', request.startTime ?? '09:00', signal)
+          : await this.create(request.taskName, request.command, request.arguments ?? [], request.schedule ?? 'DAILY', request.startTime ?? '09:00', signal));
+        case 'delete': return ok(this.platform === 'darwin' ? await this.deleteMacos(request.taskName, signal) : await this.delete(request.taskName, signal));
+        case 'run': return ok(this.platform === 'darwin' ? await this.runMacos(request.taskName, signal) : await this.run(request.taskName, signal));
       }
     } catch (error: unknown) {
       const detail = extractDetail(error);
@@ -128,6 +144,55 @@ export class SchedulerCapabilityBackend implements CapabilityBackend {
     return signal === undefined
       ? this.runImpl(this.executable, args)
       : this.runImpl(this.executable, args, signal);
+  }
+
+  private launchdDomain(): string { return `gui/${this.uid}`; }
+
+  private launchdLabel(taskName: string): string { return `com.lnwjud.scheduler.${taskName.replace(/[^A-Za-z0-9_-]/g, '_')}`; }
+
+  private launchdPath(taskName: string): string { return path.join(this.launchAgentsDirectory, `${this.launchdLabel(taskName)}.plist`); }
+
+  private async listMacos(signal?: AbortSignal): Promise<readonly Record<string, unknown>[]> {
+    let files: readonly string[];
+    try { files = await readdir(this.launchAgentsDirectory); } catch (error: unknown) {
+      if (isNotFound(error)) return [];
+      throw error;
+    }
+    const tasks: Record<string, unknown>[] = [];
+    for (const file of files.filter((entry) => /^com\.lnwjud\.scheduler\..+\.plist$/.test(entry)).sort()) {
+      const filePath = path.join(this.launchAgentsDirectory, file);
+      const label = file.slice(0, -'.plist'.length);
+      let loaded = false;
+      try {
+        await this.runCommand(['print', `${this.launchdDomain()}/${label}`], signal);
+        loaded = true;
+      } catch { /* an installed plist may be unloaded */ }
+      tasks.push({ name: label.slice('com.lnwjud.scheduler.'.length).replaceAll('_', ' '), label, path: filePath, loaded, scheduler: 'launchd' });
+    }
+    return tasks;
+  }
+
+  private async createMacos(taskName: string, command: string, args: readonly string[], schedule: string, startTime: string, signal?: AbortSignal): Promise<Record<string, unknown>> {
+    const label = this.launchdLabel(taskName);
+    const filePath = this.launchdPath(taskName);
+    await mkdir(this.launchAgentsDirectory, { recursive: true });
+    await writeFile(filePath, launchAgentPlist(label, command, args, schedule, startTime), { encoding: 'utf8', mode: 0o600 });
+    await this.runCommand(['bootout', `${this.launchdDomain()}/${label}`], signal).catch(() => undefined);
+    await this.runCommand(['bootstrap', this.launchdDomain(), filePath], signal);
+    return { created: true, task_name: taskName, label, schedule, start_time: startTime, scheduler: 'launchd' };
+  }
+
+  private async deleteMacos(taskName: string, signal?: AbortSignal): Promise<Record<string, unknown>> {
+    const label = this.launchdLabel(taskName);
+    await this.runCommand(['bootout', `${this.launchdDomain()}/${label}`], signal).catch(() => undefined);
+    await rm(this.launchdPath(taskName), { force: true });
+    return { deleted: true, task_name: taskName, label, scheduler: 'launchd' };
+  }
+
+  private async runMacos(taskName: string, signal?: AbortSignal): Promise<Record<string, unknown>> {
+    const label = this.launchdLabel(taskName);
+    await this.runCommand(['kickstart', '-k', `${this.launchdDomain()}/${label}`], signal);
+    return { started: true, task_name: taskName, label, scheduler: 'launchd' };
   }
 }
 
@@ -201,6 +266,30 @@ function parseRequest(value: unknown): Result<SchedulerRequest> {
 function buildTaskRun(command: string, args: readonly string[]): string {
   const quoted = [command, ...args].map((entry) => /[\s"]/.test(entry) ? `"${entry.replaceAll('"', '\\"')}"` : entry).join(' ');
   return quoted.length > 250 ? quoted.slice(0, 250) : quoted;
+}
+
+function launchAgentPlist(label: string, command: string, args: readonly string[], schedule: string, startTime: string): string {
+  const [hour, minute] = startTime.split(':').map(Number);
+  const calendar: string[] = [`<key>Hour</key><integer>${hour}</integer>`, `<key>Minute</key><integer>${minute}</integer>`];
+  if (schedule === 'WEEKLY') calendar.push('<key>Weekday</key><integer>1</integer>');
+  if (schedule === 'MONTHLY') calendar.push('<key>Day</key><integer>1</integer>');
+  const runAtLoad = schedule === 'ONLOGON' || schedule === 'ONSTART';
+  return [
+    '<?xml version="1.0" encoding="UTF-8"?>',
+    '<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">',
+    '<plist version="1.0"><dict>', `<key>Label</key><string>${xml(label)}</string>`,
+    '<key>ProgramArguments</key><array>', ...[command, ...args].map((entry) => `<string>${xml(entry)}</string>`), '</array>',
+    ...(runAtLoad ? ['<key>RunAtLoad</key><true/>'] : ['<key>StartCalendarInterval</key><dict>', ...calendar, '</dict>']),
+    '<key>ProcessType</key><string>Background</string>', '</dict></plist>', '',
+  ].join('\n');
+}
+
+function xml(value: string): string {
+  return value.replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;').replaceAll('"', '&quot;').replaceAll("'", '&apos;');
+}
+
+function isNotFound(error: unknown): boolean {
+  return typeof error === 'object' && error !== null && 'code' in error && error.code === 'ENOENT';
 }
 
 function extractDetail(error: unknown): string {
