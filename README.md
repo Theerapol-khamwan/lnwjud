@@ -25,8 +25,8 @@
 
 ## What is lnwjud?
 
-lnwjud is a Windows-first local development gateway with a native Apple-Silicon
-macOS host that exposes trusted local capabilities through the [Model Context Protocol (MCP)](https://modelcontextprotocol.io).
+lnwjud is a cross-platform local development gateway for **Windows x64** and
+**Apple-Silicon macOS** that exposes trusted local capabilities through the [Model Context Protocol (MCP)](https://modelcontextprotocol.io).
 It is designed for AI-assisted software development where the agent needs more
 than a text-only chat: it may need to inspect a repository, search code, edit
 files, review Git state, run project commands, manage owned processes, inspect
@@ -37,6 +37,15 @@ The runtime stays on the local Windows or macOS machine. Local filesystem paths,
 processes, SQLite state, credentials, and capability backends are owned by lnwjud
 on that machine. Remote AI clients only receive the MCP requests and results that
 travel through the connection mode you choose.
+
+## Platform support
+
+| Platform | Status | Minimum / architecture | Notes |
+| --- | --- | --- | --- |
+| Windows | Supported | Windows 10/11 x64 | Full Windows-native capabilities, WSL integration, Windows automation, Remote MCP via ngrok, and OpenAI Secure MCP Tunnel. |
+| macOS | Supported | macOS 15+ on Apple Silicon (`arm64`) | Local MCP, filesystem, Git, processes, browser CDP, native desktop helpers, selected Office automation, and Remote MCP via ngrok + OAuth. |
+
+> macOS Intel (`x86_64`) is not currently a supported release target. Windows-only features such as WSL, Registry, Windows Sandbox, Windows event-watch tools, and the official OpenAI Secure MCP Tunnel client remain unavailable on macOS.
 
 On Windows, lnwjud supports the official
 [OpenAI Secure MCP Tunnel](https://developers.openai.com/api/docs/guides/secure-mcp-tunnels).
@@ -472,13 +481,15 @@ lnwjud Desktop HTTP MCP เชื่อมต่อครบแล้ว จา�
 
 Requirements for source development:
 
-- Windows x64.
+- Windows x64 **or macOS 15+ on Apple Silicon (`arm64`)**.
 - Node.js `>=24.0.0 <25`.
 - Git.
 - Corepack with the repository-pinned `pnpm@10.15.0`.
-- PowerShell 7 recommended; Windows PowerShell 5.1 is sufficient for most helper
-  scripts.
+- On Windows, PowerShell 7 is recommended; Windows PowerShell 5.1 is sufficient for most helper scripts.
+- On macOS, Xcode Command Line Tools are required for building the native Swift helper.
 - `rg` (ripgrep) recommended.
+
+Windows:
 
 ```powershell
 git clone https://github.com/engasnm111/lnwjud.git
@@ -492,6 +503,25 @@ corepack pnpm@10.15.0 build
 
 # Launch the development desktop runtime
 corepack pnpm@10.15.0 desktop
+```
+
+macOS 15+ Apple Silicon:
+
+```bash
+git clone https://github.com/engasnm111/lnwjud.git
+cd lnwjud
+corepack enable
+corepack pnpm@10.15.0 install --frozen-lockfile
+cp .env.example .env
+
+# Build all packages and the desktop app
+corepack pnpm@10.15.0 build
+
+# Launch the development desktop runtime
+corepack pnpm@10.15.0 desktop
+
+# Optional: build the macOS arm64 release package
+corepack pnpm@10.15.0 package:mac
 ```
 
 Optional Windows installer build:
@@ -597,9 +627,10 @@ With Full Bypass OFF, the **AI Destructive Actions** setting is deliberately nar
 
 ### Core requirements
 
-- Windows x64.
-- Node.js 24.x for source development/builds. Installed releases bundle their own private Node 24 runtime for direct local STDIO; Secure Tunnel uses the Desktop HTTP MCP and official tunnel-client.
+- **Windows 10/11 x64** or **macOS 15+ on Apple Silicon (`arm64`)**.
+- Node.js 24.x for source development/builds. Installed releases bundle their own private Node 24 runtime for direct local STDIO. OpenAI Secure MCP Tunnel uses the Desktop HTTP MCP and official tunnel-client on Windows; macOS uses Remote MCP via ngrok + OAuth for remote ChatGPT access.
 - Git/Corepack/pnpm for source development.
+- Xcode Command Line Tools when building the native macOS helper from source.
 
 ### Optional dependencies
 
